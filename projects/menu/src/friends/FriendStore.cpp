@@ -2,6 +2,7 @@
 #include "core/DebugLog.hpp"
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <strings.h>
 
@@ -40,32 +41,56 @@ static_assert(offsetof(FriendImpl, presence) == 0x40);
 
 constexpr int kMaxFriends = 300;
 
+// GetFriendList's in-raw order isn't confirmed (Ryujinx implies alignment
+// order with the offset last, yuzu reads the offset first), so try both.
+Result getFriendList(Service* s, AccountUid uid, FriendImpl* list, s32& count, bool offsetFirst) {
+    count = 0;
+    if (!offsetFirst) {
+        struct { AccountUid uid; u8 filter[0x10]; u64 pidPlaceholder; s32 offset; u32 pad; }
+            in{uid, {}, 0, 0, 0};
+        return serviceDispatchInOut(s, 10101, in, count,
+            .buffer_attrs = {SfBufferAttr_HipcMapAlias | SfBufferAttr_Out},
+            .buffers = {{list, sizeof(FriendImpl) * kMaxFriends}},
+            .in_send_pid = true);
+    }
+    struct { s32 offset; u32 pad; AccountUid uid; u8 filter[0x10]; u64 pidPlaceholder; }
+        in{0, 0, uid, {}, 0};
+    return serviceDispatchInOut(s, 10101, in, count,
+        .buffer_attrs = {SfBufferAttr_HipcMapAlias | SfBufferAttr_Out},
+        .buffers = {{list, sizeof(FriendImpl) * kMaxFriends}},
+        .in_send_pid = true);
+}
+
 } // namespace
 
-std::vector<FriendEntry> loadFriends(AccountUid uid, Result& rc) {
+std::vector<FriendEntry> loadFriends(AccountUid uid, Result& rc, std::string& diag) {
     std::vector<FriendEntry> out;
+    char buf[160];
     rc = friendsInitialize(FriendsServiceType_Administrator);
     if (R_FAILED(rc)) rc = friendsInitialize(FriendsServiceType_System);
     if (R_FAILED(rc)) {
-        DebugLog::log("[friends] init rc=0x%X", rc);
+        std::snprintf(buf, sizeof(buf), "friends service unavailable (0x%X)", rc);
+        diag = buf;
         return out;
     }
     Service* s = friendsGetServiceSession_IFriendsService();
 
+    // 20100 GetFriendCount(Uid, SizedFriendFilter, u64 pid_placeholder, pid) -> s32
+    struct { AccountUid uid; u8 filter[0x10]; u64 pidPlaceholder; } countIn{uid, {}, 0};
+    s32 total = -1;
+    const Result rcCount = serviceDispatchInOut(s, 20100, countIn, total, .in_send_pid = true);
+
     static FriendImpl list[kMaxFriends];
-    struct {
-        AccountUid uid;
-        u8 filter[0x10]; // all zero: every friend, any status
-        u64 pidPlaceholder;
-        s32 offset;
-        u32 pad;
-    } in{uid, {}, 0, 0, 0};
     s32 count = 0;
-    rc = serviceDispatchInOut(s, 10101, in, count,
-        .buffer_attrs = {SfBufferAttr_HipcMapAlias | SfBufferAttr_Out},
-        .buffers = {{list, sizeof(list)}},
-        .in_send_pid = true);
-    DebugLog::log("[friends] GetFriendList rc=0x%X count=%d", rc, count);
+    rc = getFriendList(s, uid, list, count, false);
+    const Result rcA = rc;
+    const s32 countA = count;
+    if (R_FAILED(rc) || (count == 0 && total > 0))
+        rc = getFriendList(s, uid, list, count, true);
+    std::snprintf(buf, sizeof(buf), "count %d (0x%X), list %d (0x%X) / %d (0x%X)",
+                  total, rcCount, countA, rcA, count, rc);
+    diag = buf;
+    DebugLog::log("[friends] %s", buf);
 
     if (R_SUCCEEDED(rc)) {
         count = std::clamp(count, 0, kMaxFriends);

@@ -37,6 +37,7 @@ enum class SystemMessage : uint32_t {
     LaunchUserPage        = 14,
     LaunchControllerRemapping = 15,
     LaunchUserCreator     = 16,
+    LaunchShop            = 17, // HomeNX: Nintendo eShop as the given user
 
     EnterSleep            = 20,
     Shutdown              = 21,

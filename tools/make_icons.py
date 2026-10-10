@@ -40,18 +40,18 @@ def news():
     return im
 
 
-def browser():
+def homebrew():
+    # violet rounded tile with a white 2x2 "apps" grid and a sparkle
     im = canvas(); d = ImageDraw.Draw(im)
-    c, r = 256, 200
-    d.ellipse([p(c - r), p(c - r), p(c + r), p(c + r)], fill=(10, 132, 255))
-    line = (220, 238, 255); w = p(16)
-    d.ellipse([p(c - r), p(c - r), p(c + r), p(c + r)], outline=line, width=w)
-    d.ellipse([p(c - 85), p(c - r), p(c + 85), p(c + r)], outline=line, width=w)
-    d.line([p(c), p(c - r), p(c), p(c + r)], fill=line, width=w)
-    d.line([p(c - r), p(c), p(c + r), p(c)], fill=line, width=w)
-    for dy in (-110, 110):
-        half = int((r * r - dy * dy) ** 0.5)
-        d.line([p(c - half), p(c + dy), p(c + half), p(c + dy)], fill=line, width=w)
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(112, 72, 230))
+    d.rounded_rectangle([p(56), p(56), p(456), p(256)], radius=p(96), fill=(132, 96, 245))
+    d.rectangle([p(56), p(200), p(456), p(256)], fill=(132, 96, 245))
+    for gx in (0, 1):
+        for gy in (0, 1):
+            x, y = 140 + gx * 128, 140 + gy * 128
+            d.rounded_rectangle([p(x), p(y), p(x + 104), p(y + 104)], radius=p(26), fill="white")
+    d.polygon([(p(392), p(92)), (p(404), p(122)), (p(434), p(134)), (p(404), p(146)),
+               (p(392), p(176)), (p(380), p(146)), (p(350), p(134)), (p(380), p(122))], fill=(255, 226, 120))
     return im
 
 
@@ -100,6 +100,6 @@ def app_icon():
 
 
 if __name__ == "__main__":
-    for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("browser", browser), ("friends", friends)]:
+    for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()

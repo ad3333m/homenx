@@ -190,6 +190,10 @@ private:
     AccountUid activeProfileUid() const;
     void openNews();
     void openFriends();
+    void openHomebrew();
+    void openMiis();
+    void openEshop(AccountUid uid);
+    void runSystemApplet(bool needsApplication, const std::function<Result()>& open);
     void showDetailScreen(std::vector<ListDetailScreen::Entry> entries, std::string emptyTitle,
                           std::string emptyMessage, nxui::Widget* returnFocus);
     void scheduleLeaveCapture(std::function<void()> afterCapture,
@@ -366,8 +370,6 @@ private:
     void toggleAppLayoutMode();
     void setAppLayoutMode(AppLayoutMode mode);
     void configureDynamicLineNavigation();
-    void cycleSortMode();
-    std::string sortModeLabel() const;
     AppLayoutMode appLayoutMode() const { return m_appLayoutMode; }
 
 #ifdef SWITCHU_MENU

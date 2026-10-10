@@ -1332,7 +1332,7 @@ void WiiUMenuApp::wireGlobalActions() {
             closeFolder(false, true);
     });
 
-    // HomeNX: Quick Settings is on R; L cycles the sort order.
+    // HomeNX: Quick Settings is on R.
     root.addAction(static_cast<uint64_t>(nxui::Button::R), [this]() {
         if (m_editMode || m_navigator.route() != switchu::navigation::Route::Home ||
             focusRoot() != &rootBox())
@@ -1346,13 +1346,7 @@ void WiiUMenuApp::wireGlobalActions() {
         m_accessibility.repeatLastAnnouncement();
     });
 
-    root.addAction(static_cast<uint64_t>(nxui::Button::L), [this]() {
-        if (m_navigator.route() != switchu::navigation::Route::Home ||
-            focusRoot() != &rootBox() || m_openFolderId != 0 || m_editMode ||
-            m_appLayoutMode == AppLayoutMode::DynamicLine)
-            return;
-        cycleSortMode();
-    });
+    // HomeNX: no sort-order button (it was on R, then L).
 
     // The grid holds the open folder's model, so paging works inside a folder too.
     root.addAction(static_cast<uint64_t>(nxui::Button::ZL), [this]() {

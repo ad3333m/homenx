@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <string>
 #include <atomic>
 #include <switch.h>
 
@@ -19,6 +20,11 @@ public:
     void launchControllerRemapping();
     void launchNetConnect();
     bool launchSphaira();
+    // Hands the process to an .nro through hbloader (.nro build only).
+    bool launchNro(const std::string& path);
+    Result createMii();
+    enum class FriendScreen { AddFriend, Requests };
+    Result openFriendScreen(FriendScreen screen, AccountUid uid);
     void findControllers();
     // Homebrew build: these block until the applet closes and return its result.
     Result launchEshop(AccountUid uid);

@@ -82,7 +82,7 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     column(m_leftButtons, leftX,
         makeBtn(&m_icons[7], "sidebar.news", "News", actions.onNews));
     column(m_leftButtons, leftX,
-        makeBtn(&m_icons[8], "sidebar.browser", "Browser", actions.onBrowser));
+        makeBtn(&m_icons[8], "sidebar.homebrew", "Homebrew", actions.onHomebrew));
     m_settingsButton = column(m_leftButtons, leftX,
         makeBtn(&m_icons[5], "sidebar.settings", "Settings", actions.onSettings));
 
@@ -264,7 +264,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
 
     static const char* iconFiles[] = {
         "sphaira.png", "mii_editor.png", "controller.png", "power.png", "themes.png", "settings.png",
-        "eshop.png", "news.png", "browser.png", "friends.png",
+        "eshop.png", "news.png", "homebrew.png", "friends.png",
     };
     if ((int)m_icons.size() != kSidebarIconCount)
         m_icons.resize(kSidebarIconCount);

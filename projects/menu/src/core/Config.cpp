@@ -133,7 +133,7 @@ bool AppConfig::load() {
     if (soundPreset.empty()) soundPreset = "wiiu";
     if (!defaultProfileEnabled) defaultProfileUid.clear();
     accessibilitySpeechRate = std::clamp(accessibilitySpeechRate, 120, 320);
-    sortMode = std::clamp(sortMode, 0, 2);
+    sortMode = 0; // HomeNX: sort orders removed, always the player's own order
     if (themePreset.empty()) themePreset = "Default Light";
     if (!hasShowCoverKey) {
         // Local 9-style table used while vetting Cover/Plate as separate styles.

@@ -2,10 +2,11 @@
 
 #include "TabbedOverlayScreen.hpp"
 #include <nxui/core/Texture.hpp>
+#include <functional>
 #include <memory>
 
 // SwitchU-style overlay with a list on the left and the selected entry drawn
-// on the right (picture, title, text). Used for News and Friends.
+// on the right (picture, title, text). Used for News, Friends, Homebrew and Miis.
 // Right / A moves into the entry so up/down scroll it; left / B goes back.
 class ListDetailScreen final : public TabbedOverlayScreen {
 public:
@@ -15,16 +16,18 @@ public:
         std::string title;
         std::string body;       // paragraphs separated by newlines
         std::string footer;
-        std::string linkUrl;    // A opens it when set
+        std::string actionHint;          // e.g. "Press A to launch"; shown when onActivate is set
+        std::function<void()> onActivate; // A inside the entry
         std::shared_ptr<nxui::Texture> image;
-        bool roundImage = false; // avatar style instead of a banner
+        bool roundImage = false;          // avatar style instead of a banner
+        // Draws a portrait in the image slot instead of a texture (Mii faces).
+        std::function<void(nxui::Renderer&, const nxui::Rect&, float opacity)> drawPortrait;
     };
 
     ListDetailScreen();
 
     // With no entries the right side shows emptyTitle / emptyMessage.
     void setEntries(std::vector<Entry> entries, std::string emptyTitle, std::string emptyMessage);
-    void onOpenLink(StringCb cb) { m_openLinkCb = std::move(cb); }
 
 protected:
     void buildTabs() override;
@@ -53,7 +56,6 @@ private:
 
     std::vector<Entry> m_entries;
     Entry m_empty;
-    StringCb m_openLinkCb;
 
     // Layout of the selected entry, rebuilt when the tab or width changes.
     std::vector<Line> m_lines;

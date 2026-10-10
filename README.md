@@ -1,30 +1,36 @@
 # HomeNX
 
-Experimental Wii U-style home menu for modded Switch consoles, shipped as a plain
-`HomeNX.nro` (no sysmodule, no qlaunch replacement). It is a fork of
-[SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX (GPL-3.0), with extra
-sidebar buttons that open the real system applets:
+Wii U-style home menu for modded Switch consoles, forked from
+[SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX (GPL-3.0). It ships two ways:
+
+- **HomeNX.nro**: run it from Sphaira/hbmenu like any homebrew.
+- **HomeNX-frontend.zip**: replaces the console's HOME menu (needs Atmosphere).
 
 | Left | Right |
 |---|---|
-| **Sphaira**, Mii Editor, **News**, **Browser**, Settings | **Nintendo eShop**, Controllers, **Friends**, Theme Shop, Sleep |
+| Sphaira, Miis, News, Homebrew, Settings | Nintendo eShop, Controllers, Friends, Theme Shop, Sleep |
 
-- **Sphaira** (top left) closes HomeNX and chain-loads `sphaira.nro` (looked for in
-  `sdmc:/switch/sphaira/`, `sdmc:/switch/`, then `sdmc:/hbmenu.nro`). It keeps
-  HomeNX's mode, so open HomeNX over a game to get Sphaira in application mode.
-- **News** reads the console's own downloaded HOME-menu news (news:a service)
-  and shows it in a SwitchU-style screen.
-- **Browser** opens the system web browser with Sphaira's working settings, a
-  black boot screen and a dark start page.
-- **eShop** uses the chosen profile (SwitchU's player select if none), tries the
-  real Shop applet first and falls back to the web store.
-- eShop and Browser need HomeNX launched **over a game** (hold R while starting
-  a game), not from the Album.
-- The grid shows the games installed on the console; A launches them.
-- The profile tile always has a profile chosen (no "ask who's playing"); A on a
-  profile in the carousel switches to it.
+- **Games** are the ones installed on the console. **Profiles** are always chosen.
+- **News** reads the console's own saved HOME-menu news.
+- **Friends** reads the console's friend list; Add Friend and Friend Requests open
+  Nintendo's screens (they need the console to go online).
+- **Homebrew** lists every .nro in `sdmc:/switch/` and launches it (in the .nro build).
+- **Miis** lists your Miis with a HomeNX portrait; create/edit opens Mii Maker.
+- **Controllers** opens HomeNX's Controllers menu (Change Grip/Order, Find
+  Controllers, Test Input Devices, Button Mapping).
+- R opens Quick Settings.
 
-Download `HomeNX.nro` from the `latest` release and put it in `sdmc:/switch/`.
+## Installing the frontend
+
+1. Extract `HomeNX-frontend.zip` to the root of the SD card (it adds
+   `atmosphere/` and `switch/` folders).
+2. Run `SwitchU-Manager.nro` from homebrew and enable it, then reboot.
+
+**If the console won't reach the HOME menu**, put the SD card in a PC and delete
+`atmosphere/contents/0100000000001000`. The normal HOME menu comes back.
+
+In the frontend, the Sphaira button opens hbmenu over the Album, and launching a
+chosen .nro from the Homebrew page isn't supported yet.
 
 ---
 

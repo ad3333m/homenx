@@ -104,7 +104,10 @@ void ListDetailScreen::layout(float width) {
         }
     };
 
-    if (e->image && e->image->valid()) {
+    if (e->drawPortrait) {
+        m_imageRect = {kPad, y, 170.f, 170.f};
+        y += m_imageRect.height + 22.f;
+    } else if (e->image && e->image->valid()) {
         if (e->roundImage) {
             m_imageRect = {kPad, y, 150.f, 150.f};
         } else {
@@ -128,9 +131,9 @@ void ListDetailScreen::layout(float width) {
         y += 12.f;
     }
     if (!e->footer.empty()) { y += 6.f; add(e->footer, m_smallFont, 0.8f, 1); }
-    if (!e->linkUrl.empty()) {
+    if (e->onActivate && !e->actionHint.empty()) {
         y += 10.f;
-        add(nxui::I18n::instance().tr("news.open_link_hint", "Press A to open the link"), m_smallFont, 0.86f, 2);
+        add(e->actionHint, m_smallFont, 0.86f, 2);
     }
     m_contentHeight = y + kPad;
 }
@@ -158,8 +161,11 @@ void ListDetailScreen::drawCustomContent(nxui::Renderer& ren, const nxui::Rect&,
     const Entry* e = currentEntry();
     if (e && m_imageRect.width > 0.f) {
         nxui::Rect r{cr.x + m_imageRect.x, top + m_imageRect.y, m_imageRect.width, m_imageRect.height};
-        ren.drawTextureRounded(e->image.get(), r, e->roundImage ? r.width * 0.5f : 18.f,
-                               nxui::Color::white().withAlpha(opacity));
+        if (e->drawPortrait)
+            e->drawPortrait(ren, r, opacity);
+        else
+            ren.drawTextureRounded(e->image.get(), r, e->roundImage ? r.width * 0.5f : 18.f,
+                                   nxui::Color::white().withAlpha(opacity));
     }
     for (const Line& l : m_lines) {
         const float y = top + l.y;
@@ -188,9 +194,10 @@ bool ListDetailScreen::handleCustomPressA() {
         return true;
     }
     const Entry* e = currentEntry();
-    if (e && !e->linkUrl.empty() && m_openLinkCb) {
+    if (e && e->onActivate) {
         if (m_activateSfxCb) m_activateSfxCb();
-        m_openLinkCb(e->linkUrl);
+        auto run = e->onActivate; // may replace the entries
+        run();
     }
     return true;
 }

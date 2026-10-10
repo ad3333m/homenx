@@ -1040,6 +1040,49 @@ void WiiUMenuApp::refreshProfileLockButton() {
     }
 }
 
+// Runs a blocking system applet from the .nro (music paused) and reports
+// failures with their error code. Web-based ones need application mode.
+void WiiUMenuApp::runSystemApplet(bool needsApplication, const std::function<Result()>& open) {
+    auto& i18n = nxui::I18n::instance();
+    auto tell = [this](const std::string& title, const std::string& body) {
+        if (!m_dialog) return;
+        m_dialog->show(title, body, {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
+    };
+#ifndef SWITCHU_MENU
+    if (needsApplication && appletGetAppletType() != AppletType_Application) {
+        m_audio.playSfx(Sfx::ModalShow);
+        tell(i18n.tr("applet.mode_title", "Open HomeNX over a game"),
+             i18n.tr("applet.mode_body",
+                     "This needs application mode. Hold R while starting any game, "
+                     "open HomeNX from there, then try again."));
+        return;
+    }
+#else
+    (void)needsApplication;
+#endif
+    m_audio.playSfx(Sfx::Activate);
+    const bool resume = m_audio.isPlaying();
+    if (resume) m_audio.pause();
+    const Result rc = open();
+    if (resume) m_audio.play();
+    if (R_FAILED(rc)) {
+        char code[32];
+        std::snprintf(code, sizeof(code), "%04u-%04u", 2000 + R_MODULE(rc), R_DESCRIPTION(rc));
+        tell(i18n.tr("applet.error_title", "Couldn't open it"),
+             i18n.tr("applet.error_body", "The system returned error") + " " + code + ".");
+    }
+}
+
+void WiiUMenuApp::openEshop(AccountUid uid) {
+#ifdef SWITCHU_MENU
+    // The daemon runs the Shop applet and relaunches the menu afterwards.
+    scheduleLeaveCapture([this, uid]() { m_launcher.launchEshop(uid); });
+#else
+    runSystemApplet(true, [this, uid] { return m_launcher.launchEshop(uid); });
+#endif
+}
+
 AccountUid WiiUMenuApp::activeProfileUid() const {
     AccountUid uid{};
     if (!m_config.defaultProfileEnabled || !hexToAccountUid(m_config.defaultProfileUid, uid))
@@ -3201,25 +3244,6 @@ void WiiUMenuApp::toggleAppLayoutMode() {
     setAppLayoutMode(m_appLayoutMode == AppLayoutMode::Grid ? AppLayoutMode::DynamicLine : AppLayoutMode::Grid);
 }
 
-std::string WiiUMenuApp::sortModeLabel() const {
-    auto& i18n = nxui::I18n::instance();
-    switch (m_config.sortMode) {
-        case 1: return i18n.tr("hint.sort_alpha", "A-Z");
-        case 2: return i18n.tr("hint.sort_recent", "Recent");
-        default: return i18n.tr("hint.sort_custom", "My order");
-    }
-}
-
-void WiiUMenuApp::cycleSortMode() {
-    if (m_editMode || m_openFolderId != 0 ||
-        m_appLayoutMode == AppLayoutMode::DynamicLine)
-        return;
-    m_config.sortMode = (m_config.sortMode + 1) % 3;
-    m_config.save();
-    m_audio.playSfx(Sfx::Navigate);
-    reflowHomeGrid();
-}
-
 void WiiUMenuApp::configureDynamicLineNavigation() {
     const bool dynamicLine = m_appLayoutMode == AppLayoutMode::DynamicLine;
     m_sidebar.setDynamicLineLayout(dynamicLine);
@@ -4227,27 +4251,12 @@ void WiiUMenuApp::buildGrid() {
 
     SidebarManager::Actions sidebarActions;
 #ifdef SWITCHU_MENU
+    // Frontend: Atmosphere's homebrew loader runs over the Album applet and
+    // starts sdmc:/hbmenu.nro (Sphaira when it is installed as the menu).
     sidebarActions.onAlbum = [this]() {
         scheduleLeaveCapture([this]() { m_launcher.launchAlbum(); });
     };
-    sidebarActions.onMiiEditor = [this]() {
-        scheduleLeaveCapture([this]() { m_launcher.launchMiiEditor(); });
-    };
-    sidebarActions.onControllers = [this]() {
-        scheduleLeaveCapture([this]() { m_launcher.launchControllerPairing(); });
-    };
-#endif
-    // Homebrew: the applet calls block until the applet closes, so pause music around them.
-    auto applet = [this](void (AppletLauncher::*open)()) {
-        return [this, open]() {
-            m_audio.playSfx(Sfx::Activate);
-            const bool resume = m_audio.isPlaying();
-            if (resume) m_audio.pause();
-            (m_launcher.*open)();
-            if (resume) m_audio.play();
-        };
-    };
-#ifndef SWITCHU_MENU
+#else
     sidebarActions.onAlbum = [this]() {
         auto& i18n = nxui::I18n::instance();
         auto open = [this]() {
@@ -4276,9 +4285,13 @@ void WiiUMenuApp::buildGrid() {
                        0, {});
         focusManager().setFocus(m_dialog.get());
     };
-    sidebarActions.onMiiEditor   = applet(&AppletLauncher::launchMiiEditor);
-    // HomeNX: the Controllers button opens HomeNX's own Controllers menu
-    // (Settings > Controllers: Change Grip/Order, Find Controllers, ...).
+#endif
+    // HomeNX menus: Miis, Homebrew, News and Friends are drawn by HomeNX, and
+    // Controllers opens Settings > Controllers (Change Grip/Order, Find, ...).
+    sidebarActions.onMiiEditor = [this]() { openMiis(); };
+    sidebarActions.onHomebrew = [this]() { openHomebrew(); };
+    sidebarActions.onFriends = [this]() { openFriends(); };
+    sidebarActions.onNews = [this]() { openNews(); };
     sidebarActions.onControllers = [this]() {
         m_audio.playSfx(Sfx::ModalShow);
         if (!m_settings) return;
@@ -4289,58 +4302,21 @@ void WiiUMenuApp::buildGrid() {
         m_settings->selectTab(7); // ControllersTab, see SettingsScreenState.cpp
         focusManager().setFocus(m_settings.get());
     };
-#endif
-#ifndef SWITCHU_MENU
-    // Web applets (eShop, Browser) only run when HomeNX is in application mode.
-    // Failures show their error code instead of silently doing nothing.
-    auto runApplet = [this](bool needsApplication, std::function<Result()> open) {
-        auto& i18n = nxui::I18n::instance();
-        auto tell = [this](const std::string& title, const std::string& body) {
-            if (!m_dialog) return;
-            m_dialog->show(title, body, {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
-            focusManager().setFocus(m_dialog.get());
-        };
-        if (needsApplication && appletGetAppletType() != AppletType_Application) {
-            m_audio.playSfx(Sfx::ModalShow);
-            tell(i18n.tr("applet.mode_title", "Open HomeNX over a game"),
-                 i18n.tr("applet.mode_body",
-                         "This needs application mode. Hold R while starting any game, "
-                         "open HomeNX from there, then try again."));
-            return;
-        }
-        m_audio.playSfx(Sfx::Activate);
-        const bool resume = m_audio.isPlaying();
-        if (resume) m_audio.pause();
-        const Result rc = open();
-        if (resume) m_audio.play();
-        if (R_FAILED(rc)) {
-            char code[32];
-            std::snprintf(code, sizeof(code), "%04u-%04u", 2000 + R_MODULE(rc), R_DESCRIPTION(rc));
-            tell(i18n.tr("applet.error_title", "Couldn't open it"),
-                 i18n.tr("applet.error_body", "The system returned error") + " " + code + ".");
-        }
-    };
-    sidebarActions.onEshop = [this, runApplet]() {
+    sidebarActions.onEshop = [this]() {
         const AccountUid uid = activeProfileUid();
         if (accountUidIsValid(&uid) || !m_userSelect) {
-            runApplet(true, [this, uid] { return m_launcher.launchEshop(uid); });
+            openEshop(uid);
             return;
         }
         // No profile chosen yet: SwitchU's own player select, then the eShop.
         m_userSelect->loadUsers(app().gpu(), app().renderer());
         m_audio.playSfx(Sfx::ModalShow);
-        m_userSelect->showUserSelect([this, runApplet](AccountUid picked) {
+        m_userSelect->showUserSelect([this](AccountUid picked) {
             setLockedProfile(picked);
-            runApplet(true, [this, picked] { return m_launcher.launchEshop(picked); });
+            openEshop(picked);
         });
         focusManager().setFocus(m_userSelect.get());
     };
-    sidebarActions.onBrowser = [this, runApplet]() {
-        runApplet(true, [this] { return m_launcher.launchBrowser(activeProfileUid()); });
-    };
-    sidebarActions.onFriends = [this]() { openFriends(); };
-    sidebarActions.onNews = [this]() { openNews(); };
-#endif
     sidebarActions.onSettings = [this]() {
         m_audio.playSfx(Sfx::ModalShow);
         if (m_settings) {
@@ -6054,9 +6030,6 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
 #else
                 add(buttonGlyph(nxui::Button::A), i18n.tr("hint.open", "Open"));
 #endif
-                if (m_openFolderId == 0 &&
-                    m_appLayoutMode != AppLayoutMode::DynamicLine)
-                    add(buttonGlyph(nxui::Button::L), sortModeLabel());
                 if (m_openFolderId == 0)
                     add(buttonGlyph(nxui::Button::Y), i18n.tr("hint.move", "Move"));
                 else

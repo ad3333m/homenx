@@ -1,4 +1,4 @@
-name: Build HomeNX.nro
+name: Build HomeNX
 
 on:
   push:
@@ -63,6 +63,61 @@ jobs:
         run: |
           (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master."
-          gh release upload latest out/HomeNX.nro -R "$GITHUB_REPOSITORY" --clobber
+          gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master." || true
+          gh release upload latest out/* -R "$GITHUB_REPOSITORY" --clobber
+
+  frontend:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64
+    steps:
+      - name: Get current week as cache key
+        id: cache_key
+        run: echo "key=$(date +'%W')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install curl gcc g++ zip zstd cmake
+
+      - name: Set xmake env
+        run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: branch@dev
+          actions-cache-folder: .xmake-cache-W${{ steps.cache_key.outputs.key }}
+
+      - name: Update xmake repository
+        run: xmake repo -u --root
+
+      - name: Configure frontend (replaces the HOME menu)
+        run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root
+
+      - name: Build
+        run: xmake build -vD --root
+
+      - name: Package install layout
+        run: |
+          xmake install -o dist/frontend --root
+          test -d dist/frontend/atmosphere
+          test -d dist/frontend/switch
+          mkdir -p out
+          cd dist/frontend && zip -r "$GITHUB_WORKSPACE/out/HomeNX-frontend.zip" atmosphere switch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HomeNX-frontend
+          path: out/HomeNX-frontend.zip
+
+      - name: Publish release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master." || true
+          gh release upload latest out/* -R "$GITHUB_REPOSITORY" --clobber

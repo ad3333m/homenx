@@ -18,6 +18,7 @@ enum class SystemActionType : std::uint32_t {
     OpenNetConnect,
     OpenUserPage,
     OpenUserCreator,
+    OpenShop,
 };
 
 struct SystemAction {

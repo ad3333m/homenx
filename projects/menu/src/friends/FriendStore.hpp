@@ -15,4 +15,5 @@ struct FriendEntry {
 };
 
 // Online first, then favourites, then by name. On failure returns empty and sets rc.
-std::vector<FriendEntry> loadFriends(AccountUid uid, Result& rc);
+// `diag` describes what the service answered, for showing when the list is empty.
+std::vector<FriendEntry> loadFriends(AccountUid uid, Result& rc, std::string& diag);

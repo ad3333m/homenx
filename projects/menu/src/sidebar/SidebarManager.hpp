@@ -22,7 +22,7 @@ public:
         std::function<void()> onMiiverse;
         std::function<void()> onEshop;
         std::function<void()> onNews;
-        std::function<void()> onBrowser;
+        std::function<void()> onHomebrew;
         std::function<void()> onFriends;
     };
 

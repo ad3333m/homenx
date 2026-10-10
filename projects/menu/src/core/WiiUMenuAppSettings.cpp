@@ -5,6 +5,8 @@
 #include "DebugLog.hpp"
 #include "news/NewsStore.hpp"
 #include "friends/FriendStore.hpp"
+#include "homebrew/HomebrewStore.hpp"
+#include "mii/MiiStore.hpp"
 #include <ctime>
 
 #include <nxui/core/I18n.hpp>
@@ -1265,17 +1267,6 @@ void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
         m_detail->onAccessibilityAnnouncement([this](const std::string& text) {
             m_accessibility.announce(text);
         });
-        m_detail->onOpenLink([this](const std::string& url) {
-#ifndef SWITCHU_MENU
-            if (appletGetAppletType() != AppletType_Application) return;
-            const bool resume = m_audio.isPlaying();
-            if (resume) m_audio.pause();
-            m_launcher.launchBrowser(activeProfileUid(), url.c_str());
-            if (resume) m_audio.play();
-#else
-            (void)url;
-#endif
-        });
         m_detail->onClosed([this]() {
             m_navigator.routeDidClose(switchu::navigation::Route::ListDetail);
             if (m_detailReturnFocus) focusManager().setFocus(m_detailReturnFocus);
@@ -1306,7 +1297,16 @@ void WiiUMenuApp::openNews() {
             e.title = r.subject;
             e.body = r.body;
             e.footer = r.footer;
-            e.linkUrl = r.linkUrl;
+#ifndef SWITCHU_MENU
+            if (!r.linkUrl.empty()) {
+                e.actionHint = i18n.tr("news.open_link_hint", "Press A to open the link");
+                e.onActivate = [this, url = r.linkUrl]() {
+                    runSystemApplet(true, [this, url] {
+                        return m_launcher.launchBrowser(activeProfileUid(), url.c_str());
+                    });
+                };
+            }
+#endif
             if (!r.image.empty()) {
                 auto tex = std::make_shared<nxui::Texture>();
                 if (tex->loadFromMemory(app().gpu(), app().renderer(), r.image.data(), r.image.size(), 720))
@@ -1328,17 +1328,58 @@ void WiiUMenuApp::openFriends() {
     auto& i18n = nxui::I18n::instance();
     AccountUid uid = activeProfileUid();
     std::vector<ListDetailScreen::Entry> entries;
-    std::string empty;
+
+    // Adding friends and friend requests are Nintendo's online screens; they
+    // need the console to reach Nintendo's servers.
+    auto systemScreen = [this](AppletLauncher::FriendScreen which) {
+        return [this, which]() {
+            runSystemApplet(false, [this, which] {
+                return m_launcher.openFriendScreen(which, activeProfileUid());
+            });
+        };
+    };
+    const std::string online = i18n.tr("friends.needs_online",
+                                       "This uses Nintendo's servers, so the console must be able to go online.");
+    ListDetailScreen::Entry add;
+    add.listName = "+ " + i18n.tr("friends.add", "Add Friend");
+    add.title = i18n.tr("friends.add", "Add Friend");
+    add.body = i18n.tr("friends.add_body",
+                       "Search by friend code, send requests, or look up users you've played with.")
+             + "\n" + online;
+    add.actionHint = i18n.tr("friends.open_hint", "Press A to open");
+    add.onActivate = systemScreen(AppletLauncher::FriendScreen::AddFriend);
+    entries.push_back(add);
+
+    ListDetailScreen::Entry played = add;
+    played.listName = i18n.tr("friends.played_with", "Users You've Played With");
+    played.title = played.listName;
+    played.body = i18n.tr("friends.played_with_body",
+                          "Opens Add Friend, where \"Search for Users You've Played With\" lists them.")
+                + "\n" + online;
+    entries.push_back(played);
+
+    ListDetailScreen::Entry requests = add;
+    requests.listName = i18n.tr("friends.requests", "Friend Requests");
+    requests.title = requests.listName;
+    requests.body = i18n.tr("friends.requests_body", "Friend requests you've received.") + "\n" + online;
+    requests.onActivate = systemScreen(AppletLauncher::FriendScreen::Requests);
+    entries.push_back(requests);
+
     if (!accountUidIsValid(&uid)) {
-        empty = i18n.tr("friends.no_profile", "Choose a profile with the profile button first.");
+        ListDetailScreen::Entry none;
+        none.listName = i18n.tr("sidebar.friends", "Friends");
+        none.title = none.listName;
+        none.body = i18n.tr("friends.no_profile", "Choose a profile with the profile button first.");
+        entries.push_back(none);
     } else {
         Result rc = 0;
-        std::vector<FriendEntry> friends = loadFriends(uid, rc);
+        std::string diag;
+        std::vector<FriendEntry> friends = loadFriends(uid, rc, diag);
         app().gpu().waitIdle();
         for (auto& f : friends) {
             ListDetailScreen::Entry e;
             const char* status = f.status == 2 ? "Playing online" : f.status == 1 ? "Online" : "Offline";
-            e.listName = (f.status != 0 ? "\u25CF " : "") + f.nickname;
+            e.listName = (f.status != 0 ? "● " : "") + f.nickname;
             e.title = f.nickname;
             e.kicker = i18n.tr(f.status == 2 ? "friends.playing" : f.status == 1 ? "friends.online" : "friends.offline", status);
             std::string body;
@@ -1358,13 +1399,128 @@ void WiiUMenuApp::openFriends() {
             e.roundImage = true;
             entries.push_back(std::move(e));
         }
-        empty = R_FAILED(rc)
-            ? i18n.tr("friends.unavailable", "The friend list couldn't be read") + fmt::format(" (0x{:X}).", rc)
-            : i18n.tr("friends.empty", "This profile has no friends saved on the console.");
+        if (friends.empty()) {
+            ListDetailScreen::Entry none;
+            none.listName = i18n.tr("friends.none_list", "No friends found");
+            none.title = none.listName;
+            none.body = i18n.tr("friends.none_body",
+                                "The console didn't return any friends for this profile. If it does have "
+                                "friends, send this line to whoever is building HomeNX:") + "\n" + diag;
+            entries.push_back(none);
+        }
     }
     const auto& right = m_sidebar.rightButtons();
-    showDetailScreen(std::move(entries), i18n.tr("sidebar.friends", "Friends"), std::move(empty),
+    showDetailScreen(std::move(entries), i18n.tr("sidebar.friends", "Friends"), std::string(),
                      right.size() > 2 ? right[2].get() : nullptr);
+}
+
+void WiiUMenuApp::openHomebrew() {
+    auto& i18n = nxui::I18n::instance();
+    std::string self;
+#ifndef SWITCHU_MENU
+    if (envGetArgc() > 0 && envGetArgv()[0]) self = envGetArgv()[0];
+#endif
+    // ponytail: scanned on every open on the UI thread; cache it if SD cards
+    // with hundreds of .nro files make opening slow.
+    std::vector<HomebrewApp> apps = scanHomebrew(self);
+    app().gpu().waitIdle();
+    std::vector<ListDetailScreen::Entry> entries;
+    for (auto& a : apps) {
+        ListDetailScreen::Entry e;
+        e.listName = a.name;
+        e.title = a.name;
+        e.kicker = a.author;
+        e.body = (a.version.empty() ? std::string()
+                                    : i18n.tr("homebrew.version", "Version") + " " + a.version + "\n")
+               + a.path;
+        if (!a.icon.empty()) {
+            auto tex = std::make_shared<nxui::Texture>();
+            if (tex->loadFromMemory(app().gpu(), app().renderer(), a.icon.data(), a.icon.size(), 256))
+                e.image = std::move(tex);
+        }
+#ifndef SWITCHU_MENU
+        e.actionHint = i18n.tr("homebrew.launch_hint", "Press A to launch");
+        e.onActivate = [this, path = a.path]() {
+            m_audio.playSfx(Sfx::LaunchGame);
+            m_launcher.launchNro(path);
+        };
+#else
+        e.footer = i18n.tr("homebrew.frontend_note",
+                           "Launching a chosen .nro from the frontend isn't supported yet. "
+                           "Use the Sphaira button, or HomeNX.nro.");
+#endif
+        entries.push_back(std::move(e));
+    }
+    const auto& left = m_sidebar.leftButtons();
+    showDetailScreen(std::move(entries), i18n.tr("sidebar.homebrew", "Homebrew"),
+                     i18n.tr("homebrew.empty", "No .nro files were found in sdmc:/switch/."),
+                     left.size() > 3 ? left[3].get() : nullptr);
+}
+
+void WiiUMenuApp::openMiis() {
+    auto& i18n = nxui::I18n::instance();
+    Result rc = 0;
+    std::vector<MiiCharInfo> miis = loadMiis(rc);
+    std::vector<ListDetailScreen::Entry> entries;
+
+    // The face editor itself is the system's Mii Maker; HomeNX lists the Miis
+    // and opens it to create or edit, then shows the updated list.
+    auto reopen = [this]() {
+#ifndef SWITCHU_MENU
+        openMiis(); // refreshes the open screen in place
+#endif
+    };
+    ListDetailScreen::Entry create;
+    create.listName = "+ " + i18n.tr("mii.create", "Create a Mii");
+    create.title = i18n.tr("mii.create", "Create a Mii");
+    create.body = i18n.tr("mii.create_body", "Start a new Mii from scratch or from a template.");
+    create.actionHint = i18n.tr("mii.create_hint", "Press A to create");
+    create.onActivate = [this, reopen]() {
+#ifdef SWITCHU_MENU
+        (void)reopen;
+        scheduleLeaveCapture([this]() { m_launcher.launchMiiEditor(); });
+#else
+        runSystemApplet(false, [this] { return m_launcher.createMii(); });
+        reopen();
+#endif
+    };
+    entries.push_back(create);
+
+    for (const MiiCharInfo& mii : miis) {
+        ListDetailScreen::Entry e;
+        e.listName = miiName(mii);
+        e.title = e.listName;
+        e.kicker = mii.mii_sex == MiiGender_Female ? i18n.tr("mii.female", "Female")
+                                                   : i18n.tr("mii.male", "Male");
+        auto size = [](u8 v) { return v < 43 ? "Small" : v < 86 ? "Medium" : "Large"; };
+        e.body = i18n.tr("mii.favourite_colour", "Favourite colour") + ": " + miiFavouriteColourName(mii) + "\n"
+               + i18n.tr("mii.height", "Height") + ": " + size(mii.mii_height) + "\n"
+               + i18n.tr("mii.build", "Build") + ": " + size(mii.mii_width);
+        e.drawPortrait = [mii](nxui::Renderer& ren, const nxui::Rect& r, float opacity) {
+            drawMiiPortrait(ren, r, mii, opacity);
+        };
+        e.actionHint = i18n.tr("mii.edit_hint", "Press A to edit in Mii Maker");
+        e.onActivate = [this, reopen]() {
+#ifdef SWITCHU_MENU
+            (void)reopen;
+            scheduleLeaveCapture([this]() { m_launcher.launchMiiEditor(); });
+#else
+            runSystemApplet(false, [this] { m_launcher.launchMiiEditor(); return Result(0); });
+            reopen();
+#endif
+        };
+        entries.push_back(std::move(e));
+    }
+    if (R_FAILED(rc)) {
+        ListDetailScreen::Entry err;
+        err.listName = i18n.tr("mii.title", "Miis");
+        err.title = err.listName;
+        err.body = i18n.tr("mii.unavailable", "The Miis couldn't be read") + fmt::format(" (0x{:X}).", rc);
+        entries.push_back(err);
+    }
+    const auto& left = m_sidebar.leftButtons();
+    showDetailScreen(std::move(entries), i18n.tr("mii.title", "Miis"), std::string(),
+                     left.size() > 1 ? left[1].get() : nullptr);
 }
 
 void WiiUMenuApp::createFolderOptions() {

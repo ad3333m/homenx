@@ -1302,6 +1302,17 @@ static Result launchControllerRemapping() {
     return rc;
 }
 
+// HomeNX: the eShop is the ShopN library applet, which takes the web applet's
+// TLV arguments with ShimKind Shop (switchbrew "Internet Browser").
+static Result launchShop(AccountUid uid) {
+    WebCommonConfig cfg{};
+    Result rc = webPageCreate(&cfg, "https://bugyo.hac.lp1.eshop.nintendo.net/ashigaru/");
+    if (R_FAILED(rc)) return rc;
+    if (accountUidIsValid(&uid)) webConfigSetUid(&cfg, uid);
+    reinterpret_cast<WebArgHeader*>(cfg.arg.data)->shimKind = WebShimKind_Shop;
+    return launchLibraryApplet(AppletId_LibraryAppletShop, "Shop", &cfg.arg, sizeof(cfg.arg), cfg.version);
+}
+
 static Result launchUserProfile(AccountUid uid) {
     FriendsLaArg current{};
     current.hdr.type = FriendsLaArgType_ShowMyProfile;
@@ -1457,6 +1468,18 @@ static void handleMenuCommand() {
         result = g_actionQueue.enqueue(action);
         recordOperationResult(requestId, msg, result);
         switchu::FileLog::log("[smi] queued User Page launch (actions=%zu)", g_actionQueue.size());
+        break;
+    }
+
+    case smi::SystemMessage::LaunchShop: {
+        auto args = reader.pop<smi::UserArgs>();
+        daemon::SystemAction action{};
+        action.type = daemon::SystemActionType::OpenShop;
+        action.requestId = requestId;
+        std::memcpy(&action.uid, args.user_uid, sizeof(action.uid));
+        result = g_actionQueue.enqueue(action);
+        recordOperationResult(requestId, msg, result);
+        switchu::FileLog::log("[smi] queued Shop launch (actions=%zu)", g_actionQueue.size());
         break;
     }
 
@@ -1657,6 +1680,15 @@ static bool handleAction(daemon::SystemAction& action) {
             if (R_FAILED(rc))
                 switchu::FileLog::log("[action] NetConnect FAIL: 0x%X", rc);
             relaunchMenuAfterApplet("NetConnect");
+            return true;
+        }
+
+        case daemon::SystemActionType::OpenShop: {
+            Result rc = launchShop(action.uid);
+            recordOperationResult(action.requestId, smi::SystemMessage::LaunchShop, rc);
+            if (R_FAILED(rc))
+                switchu::FileLog::log("[action] Shop FAIL: 0x%X", rc);
+            relaunchMenuAfterApplet("Shop");
             return true;
         }
 

@@ -170,8 +170,21 @@ void AppletLauncher::checkRunningApplication() {
 
 // ponytail: the daemon has no eShop/News/Web/Friends messages yet; homebrew build only.
 bool AppletLauncher::launchSphaira() { return false; }
+// ponytail: the frontend can't target one .nro yet (Atmosphere's hbl always
+// starts sdmc:/hbmenu.nro); needs a loader registered through ecs.
+bool AppletLauncher::launchNro(const std::string&) { return false; }
+Result AppletLauncher::createMii() { launchMiiEditor(); return 0; }
+Result AppletLauncher::openFriendScreen(FriendScreen, AccountUid) { return 0; }
 void AppletLauncher::findControllers() {}
-Result AppletLauncher::launchEshop(AccountUid)   { return 0; }
+Result AppletLauncher::launchEshop(AccountUid uid) {
+    Result rc = switchu::menu::smi_cmd::launchShop(uid);
+    DebugLog::log("[launcher] Shop rc=0x%X", rc);
+    if (R_SUCCEEDED(rc)) {
+        if (m_cb.playSfxModalHide) m_cb.playSfxModalHide();
+        if (m_cb.requestExit)      m_cb.requestExit();
+    }
+    return rc;
+}
 Result AppletLauncher::launchBrowser(AccountUid, const char*) { return 0; }
 Result AppletLauncher::launchFriends(AccountUid) { return 0; }
 
@@ -242,6 +255,15 @@ void AppletLauncher::launchAlbum()     { logRc("album", albumLaShowAllAlbumFiles
 
 // Hand the process to Sphaira through hbloader, so it keeps HomeNX's mode
 // (application mode when HomeNX was started over a game).
+bool AppletLauncher::launchNro(const std::string& path) {
+    std::string args = "\"" + path + "\"";
+    Result rc = envSetNextLoad(path.c_str(), args.c_str());
+    logRc(path.c_str(), rc);
+    if (R_FAILED(rc)) return false;
+    if (m_cb.requestExit) m_cb.requestExit();
+    return true;
+}
+
 bool AppletLauncher::launchSphaira() {
     static const char* const paths[] = {
         "sdmc:/switch/sphaira/sphaira.nro",
@@ -249,19 +271,28 @@ bool AppletLauncher::launchSphaira() {
         "sdmc:/hbmenu.nro", // sphaira installs itself here when set as the menu
     };
     struct stat st;
-    for (const char* path : paths) {
-        if (stat(path, &st) != 0) continue;
-        char args[0x300];
-        std::snprintf(args, sizeof(args), "\"%s\"", path);
-        Result rc = envSetNextLoad(path, args);
-        logRc(path, rc);
-        if (R_FAILED(rc)) return false;
-        if (m_cb.requestExit) m_cb.requestExit();
-        return true;
-    }
+    for (const char* path : paths)
+        if (stat(path, &st) == 0) return launchNro(path);
     DebugLog::log("[launcher] sphaira not found");
     return false;
 }
+
+Result AppletLauncher::createMii() {
+    s32 index = 0;
+    Result rc = miiLaAppendMii(MiiSpecialKeyCode_Normal, &index);
+    logRc("mii-create", rc);
+    return rc;
+}
+
+Result AppletLauncher::openFriendScreen(FriendScreen screen, AccountUid uid) {
+    uid = orCurrent(uid);
+    Result rc = screen == FriendScreen::AddFriend
+        ? friendsLaShowMethodsOfSendingFriendRequest(uid)
+        : friendsLaShowReceivedFriendRequestList(uid);
+    logRc("friends-screen", rc);
+    return rc;
+}
+
 void AppletLauncher::launchMiiEditor() { logRc("mii", miiLaShowMiiEdit(MiiSpecialKeyCode_Normal)); }
 void AppletLauncher::launchControllerPairing() {
     HidLaControllerSupportArg arg;

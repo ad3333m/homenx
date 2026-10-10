@@ -77,6 +77,19 @@ inline Result launchUserPage(AccountUid uid) {
     return pushOutStorage(buf, sizeof(buf));
 }
 
+inline Result launchShop(AccountUid uid) {
+    uint8_t buf[sizeof(smi::CommandHeader) + sizeof(smi::UserArgs)]{};
+    auto* hdr = reinterpret_cast<smi::CommandHeader*>(buf);
+    auto* args = reinterpret_cast<smi::UserArgs*>(buf + sizeof(smi::CommandHeader));
+
+    hdr->magic    = smi::kCommandMagic;
+    hdr->message  = static_cast<uint32_t>(smi::SystemMessage::LaunchShop);
+    hdr->request_id = nextRequestId();
+    std::memcpy(args->user_uid, &uid, sizeof(uid));
+
+    return pushOutStorage(buf, sizeof(buf));
+}
+
 static Result waitForCommandResponse(uint64_t requestId) {
     uint8_t response[smi::kStorageSize]{};
     size_t actual = 0;
