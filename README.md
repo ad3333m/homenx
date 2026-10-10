@@ -23,8 +23,8 @@ Wii U-style home menu for modded Switch consoles, forked from
 ## Installing the frontend
 
 1. Extract `HomeNX-frontend.zip` to the root of the SD card (it adds
-   `atmosphere/` and `switch/` folders).
-2. Run `SwitchU-Manager.nro` from homebrew and enable it, then reboot.
+   `atmosphere/` and `switch/` folders) and reboot. It's on straight away.
+2. `SwitchU-Manager.nro` (in the homebrew menu) turns it off and on again.
 
 **If the console won't reach the HOME menu**, put the SD card in a PC and delete
 `atmosphere/contents/0100000000001000`. The normal HOME menu comes back.
