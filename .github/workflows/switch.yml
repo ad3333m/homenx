@@ -111,6 +111,8 @@ jobs:
           xmake install -o dist/frontend --root
           test -d dist/frontend/atmosphere
           test -d dist/frontend/switch
+          # HomeNX Toggle reads this to know which frontend build is installed.
+          echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out
           cd dist/frontend && zip -r "$GITHUB_WORKSPACE/out/HomeNX-frontend.zip" atmosphere switch
 

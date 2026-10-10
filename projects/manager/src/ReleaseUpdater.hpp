@@ -31,7 +31,11 @@ enum class UpdateWorkerStage : int {
 
 class ReleaseUpdater final {
 public:
-    static constexpr const char* kCurrentVersion = HOMENX_BUILD; // "build <N>"
+    static constexpr const char* kCurrentVersion = HOMENX_BUILD; // this app's "build <N>"
+    // Build of the frontend on the SD card ("build <N>", from the
+    // homenx-build.txt the frontend zip carries); "build 0" when unknown, so
+    // any older frontend is offered the update.
+    static std::string installedVersion();
 
     static ReleaseInfo checkLatest();
     static UpdateInstallResult install(const ReleaseInfo& release,

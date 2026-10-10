@@ -100,7 +100,7 @@ bool ManagerActivity::onCreate() {
 
     m_subtitleLabel = std::make_shared<nxui::Label>(
         tr("manager.subtitle", "Manage the HOME menu used on the next boot.")
-        + std::string("  •  v") + ReleaseUpdater::kCurrentVersion);
+        + std::string("  •  ") + ReleaseUpdater::installedVersion());
     m_subtitleLabel->setFont(&m_smallFont);
     m_subtitleLabel->setScale(0.86f);
     m_subtitleLabel->setTextColor(m_theme.textSecondary);
@@ -317,7 +317,7 @@ void ManagerActivity::refreshPresentation() {
             break;
         case UpdateUiState::UpToDate:
             updateText = tr("manager.up_to_date", "Up to date")
-                + std::string(" (v") + ReleaseUpdater::kCurrentVersion + ")";
+                + std::string(" (") + ReleaseUpdater::installedVersion() + ")";
             break;
         case UpdateUiState::Installing: {
             const int percent = std::clamp(

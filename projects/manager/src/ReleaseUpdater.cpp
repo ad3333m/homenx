@@ -528,9 +528,9 @@ ReleaseInfo ReleaseUpdater::checkLatest() {
         throw std::runtime_error("The latest HomeNX release has no frontend ZIP yet");
     if (release.downloadSize > kMaxArchiveBytes)
         throw std::runtime_error("GitHub release archive exceeds the safety limit");
-    release.updateAvailable = isNewerVersion(release.version, kCurrentVersion);
+    release.updateAvailable = isNewerVersion(release.version, installedVersion());
     switchu::FileLog::log("[updater] current=%s latest=%s available=%d size=%lu",
-                          kCurrentVersion, release.version.c_str(),
+                          installedVersion().c_str(), release.version.c_str(),
                           release.updateAvailable ? 1 : 0,
                           static_cast<unsigned long>(release.downloadSize));
     return release;
@@ -580,6 +580,13 @@ UpdateInstallResult ReleaseUpdater::install(const ReleaseInfo& release,
     }
     stage.store(static_cast<int>(UpdateWorkerStage::Idle));
     return result;
+}
+
+std::string ReleaseUpdater::installedVersion() {
+    std::ifstream in("sdmc:/switch/SwitchU/homenx-build.txt");
+    std::string line;
+    if (in && std::getline(in, line) && line.rfind("build ", 0) == 0) return line;
+    return "build 0";
 }
 
 void ReleaseUpdater::shutdownNetwork() {
