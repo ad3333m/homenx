@@ -1,4 +1,5 @@
 #include "ManagerActivity.hpp"
+#include "ReleaseUpdater.hpp"
 
 #include <nxui/Application.hpp>
 #include <nxui/core/I18n.hpp>
@@ -28,7 +29,10 @@ extern "C" void userAppExit(void) {
 
 int main(int, char**) {
     switchu::FileLog::open("manager");
-    switchu::FileLog::log("[main] SwitchU Manager starting");
+    switchu::FileLog::log("[main] HomeNX Toggle starting");
+    // Finish an update that left files waiting (our own .nro stays pending
+    // while we run; the HomeNX menu swaps it in next time it starts).
+    switchu::manager::ReleaseUpdater::applyPending();
 
     SDL_Init(0);
     TTF_Init();

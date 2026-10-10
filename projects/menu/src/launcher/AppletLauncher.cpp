@@ -229,6 +229,19 @@ bool AppletLauncher::installLoader() {
     return ok;
 }
 
+void AppletLauncher::installToggle() {
+    const char* source = "sdmc:/switch/SwitchU/bin/homenx-toggle.nro";
+    const char* target = "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro";
+    std::error_code ec;
+    if (!std::filesystem::exists(source, ec)) return;
+    if (std::filesystem::exists(target, ec)
+        && std::filesystem::file_size(target, ec) == std::filesystem::file_size(source, ec))
+        return;
+    std::filesystem::create_directories("sdmc:/switch/HomeNX-Toggle", ec);
+    std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, ec);
+    DebugLog::log("[launcher] HomeNX Toggle updated ec=%d", ec.value());
+}
+
 bool AppletLauncher::launchSphaira() {
     std::remove(kLoaderNext); // no request: the Loader opens Sphaira
     if (!installLoader()) return false;
@@ -335,6 +348,7 @@ bool AppletLauncher::launchNro(const std::string& path) {
 }
 
 bool AppletLauncher::installLoader() { return true; }
+void AppletLauncher::installToggle() {}
 
 // HomeNX.nro carries Sphaira in its romfs; copy it to the SD once (an .nro
 // has to be a real file for hbloader), then use the user's own as a fallback.

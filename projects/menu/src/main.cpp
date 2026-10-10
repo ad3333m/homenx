@@ -232,8 +232,12 @@ int main(int argc, char* argv[]) {
     DebugLog::log("[main] applet config...");
 #else
     DebugLog::log("[menu] main() entry");
+    // Finish an update first (files that were open while it ran), before any
+    // font or asset is opened.
+    switchu::manager::ReleaseUpdater::applyPending();
     // Make sure sdmc:/hbmenu.nro is the HomeNX Loader (Sphaira / Homebrew page).
     AppletLauncher::installLoader();
+    AppletLauncher::installToggle();
 
     auto startMode = readStartMode();
     auto sysStatus = readSystemStatus();

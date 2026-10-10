@@ -129,6 +129,10 @@ jobs:
           mkdir -p dist/frontend/switch/SwitchU/bin
           cp build/cross/aarch64/release/HomeNX-Loader.nro dist/frontend/switch/SwitchU/bin/homenx-loader.nro
           cp romfs/bin/sphaira.nro dist/frontend/switch/SwitchU/bin/sphaira.nro
+          # The Toggle ships inside HomeNX's folder and the menu copies it into
+          # switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
+          mv dist/frontend/switch/HomeNX-Toggle/HomeNX-Toggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro
+          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader
           # HomeNX Toggle reads this to know which frontend build is installed.
           echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out

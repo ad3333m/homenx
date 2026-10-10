@@ -24,7 +24,8 @@ Wii U-style home menu for modded Switch consoles, forked from
 
 1. Extract `HomeNX-frontend.zip` to the root of the SD card (it adds
    `atmosphere/` and `switch/` folders) and reboot. It's on straight away.
-2. **HomeNX Toggle** (`switch/HomeNX-Toggle/HomeNX-Toggle.nro`) has buttons to
+2. **HomeNX Toggle** (`switch/HomeNX-Toggle/HomeNX-Toggle.nro`, copied there
+   by HomeNX on its first start) has buttons to
    turn the frontend off and on, and **Check for updates** downloads the newest
    frontend from this repo's `latest` release and installs it on the console.
    Settings > power tab > **Turn Off HomeNX** also turns it off.

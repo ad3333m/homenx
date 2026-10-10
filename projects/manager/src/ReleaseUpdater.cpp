@@ -387,6 +387,36 @@ void rollback(std::vector<Replacement>& replacements) {
     fsdevCommitDevice("sdmc");
 }
 
+// HomeNX: files that can't be swapped right now (the running Toggle's own
+// .nro, a font the menu is reading) are parked next to the original as
+// <file>.homenx-pending and listed here; ReleaseUpdater::applyPending() swaps
+// them in when HomeNX next starts, before it opens anything.
+constexpr const char* kPendingList = "sdmc:/config/SwitchU/update/pending.txt";
+constexpr const char* kPendingSuffix = ".homenx-pending";
+
+bool sameContents(const std::filesystem::path& a, const std::filesystem::path& b) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(b, ec) ||
+        std::filesystem::file_size(a, ec) != std::filesystem::file_size(b, ec) || ec)
+        return false;
+    std::ifstream fa(a, std::ios::binary), fb(b, std::ios::binary);
+    std::vector<char> ba(1 << 16), bb(1 << 16);
+    while (fa && fb) {
+        fa.read(ba.data(), ba.size());
+        fb.read(bb.data(), bb.size());
+        if (fa.gcount() != fb.gcount() ||
+            std::memcmp(ba.data(), bb.data(), static_cast<std::size_t>(fa.gcount())) != 0)
+            return false;
+    }
+    return fa.eof() && fb.eof();
+}
+
+void addPending(const std::filesystem::path& destination) {
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(kPendingList).parent_path(), ec);
+    std::ofstream(kPendingList, std::ios::app) << destination.string() << '\n';
+}
+
 void copyFileContents(const std::filesystem::path& source,
                       const std::filesystem::path& destination) {
     std::FILE* input = std::fopen(source.string().c_str(), "rb");
@@ -441,6 +471,10 @@ void installFiles(const std::vector<std::string>& files,
         if (preserveDisabledOverride && relative == daemonRelative)
             destinationRelative += ".disabled";
         item.destination = std::filesystem::path("sdmc:/") / destinationRelative;
+        // Unchanged files (fonts, sounds, most assets) are left alone: some are
+        // open while the menu runs, and rewriting them gains nothing.
+        if (sameContents(item.source, item.destination))
+            continue;
         item.temporary = item.destination.string() + ".switchu-update-new";
         item.backup = item.destination.string() + ".switchu-update-old";
         replacements.push_back(std::move(item));
@@ -473,8 +507,19 @@ void installFiles(const std::vector<std::string>& files,
         if (item.hadOriginal) {
             std::filesystem::rename(item.destination, item.backup, ec);
             if (ec) {
-                rollback(replacements);
-                throw std::runtime_error("Unable to back up " + item.destination.string());
+                // In use (e.g. the running Toggle's own .nro): park it as pending.
+                ec.clear();
+                const std::filesystem::path pending = item.destination.string() + kPendingSuffix;
+                std::filesystem::remove(pending, ec);
+                ec.clear();
+                std::filesystem::rename(item.temporary, pending, ec);
+                if (ec) {
+                    rollback(replacements);
+                    throw std::runtime_error("Unable to update " + item.destination.string());
+                }
+                addPending(item.destination);
+                switchu::FileLog::log("[updater] %s is in use; pending", item.destination.string().c_str());
+                continue;
             }
         }
         ec.clear();
@@ -493,11 +538,11 @@ void installFiles(const std::vector<std::string>& files,
         progress.store(progressBase + progressSpan * (0.46f + 0.49f * fraction));
     }
 
+    // The SD card isn't a journaled save; a failing "commit" doesn't undo the
+    // renames, so it's no reason to roll the whole update back.
     const Result commitRc = fsdevCommitDevice("sdmc");
-    if (R_FAILED(commitRc)) {
-        rollback(replacements);
-        throw std::runtime_error("SD commit failed after update: 0x" + std::to_string(commitRc));
-    }
+    if (R_FAILED(commitRc))
+        switchu::FileLog::log("[updater] SD commit rc=0x%X (ignored)", commitRc);
     for (auto& item : replacements) {
         ec.clear();
         std::filesystem::remove(item.backup, ec);
@@ -602,6 +647,38 @@ std::string ReleaseUpdater::installedVersion() {
     std::string line;
     if (in && std::getline(in, line) && line.rfind("build ", 0) == 0) return line;
     return "build 0";
+}
+
+void ReleaseUpdater::applyPending() {
+    std::ifstream in(kPendingList);
+    if (!in) return;
+    std::vector<std::string> keep;
+    std::error_code ec;
+    for (std::string line; std::getline(in, line);) {
+        if (line.empty()) continue;
+        const std::filesystem::path destination(line);
+        const std::filesystem::path pending = line + kPendingSuffix;
+        if (!std::filesystem::exists(pending, ec)) continue;
+        const std::filesystem::path old = line + ".homenx-old";
+        std::filesystem::remove(old, ec);
+        ec.clear();
+        if (std::filesystem::exists(destination, ec))
+            std::filesystem::rename(destination, old, ec);
+        if (!ec) {
+            std::filesystem::rename(pending, destination, ec);
+            if (ec) std::filesystem::rename(old, destination, ec); // put it back
+        }
+        if (ec) {
+            keep.push_back(line); // still in use (e.g. our own .nro); next start
+            ec.clear();
+        } else {
+            std::filesystem::remove(old, ec);
+            switchu::FileLog::log("[updater] applied pending %s", line.c_str());
+        }
+    }
+    in.close();
+    std::ofstream out(kPendingList, std::ios::trunc);
+    for (const auto& line : keep) out << line << '\n';
 }
 
 void ReleaseUpdater::shutdownNetwork() {

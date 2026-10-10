@@ -44,6 +44,9 @@ public:
                                        std::atomic<float>& installProgress,
                                        std::atomic<int>& stage);
     static void shutdownNetwork();
+    // Swaps in files an update couldn't replace while they were open. Call at
+    // start-up before fonts or other assets are opened.
+    static void applyPending();
 };
 
 } // namespace switchu::manager
