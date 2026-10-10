@@ -2,6 +2,7 @@
 #include "core/DebugLog.hpp"
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <strings.h>
 
 // libnx opens IFriendService but doesn't wrap the list calls. Layouts are from
@@ -72,7 +73,7 @@ std::vector<FriendEntry> loadFriends(AccountUid uid, Result& rc) {
         for (s32 i = 0; i < count; ++i) {
             const FriendImpl& f = list[i];
             FriendEntry e;
-            e.nickname.assign(f.nickname, strnlen(f.nickname, sizeof(f.nickname)));
+            e.nickname.assign(f.nickname, std::find(f.nickname, f.nickname + sizeof(f.nickname), 'e.nickname.assign(f.nickname, strnlen(f.nickname, sizeof(f.nickname)));'));
             e.status = f.presence.status;
             e.lastOnline = f.presence.lastOnline;
             e.favourite = f.favourite != 0;
