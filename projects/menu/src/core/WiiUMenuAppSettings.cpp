@@ -1418,7 +1418,9 @@ void WiiUMenuApp::openHomebrew() {
     auto& i18n = nxui::I18n::instance();
     std::string self;
 #ifndef SWITCHU_MENU
-    if (envGetArgc() > 0 && envGetArgv()[0]) self = envGetArgv()[0];
+    extern int __system_argc;      // libnx's parsed argv; [0] is our .nro path
+    extern char** __system_argv;
+    if (__system_argc > 0 && __system_argv[0]) self = __system_argv[0];
 #endif
     // ponytail: scanned on every open on the UI thread; cache it if SD cards
     // with hundreds of .nro files make opening slow.
