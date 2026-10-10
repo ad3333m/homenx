@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include <nxui/Application.hpp>
 #include <nxui/Activity.hpp>
 #include <nxui/core/Animation.hpp>
@@ -113,37 +115,46 @@ void Application::dispatchInput() {
         static_cast<uint64_t>(Button::LStickU) | static_cast<uint64_t>(Button::LStickD) |
         static_cast<uint64_t>(Button::RStickL) | static_cast<uint64_t>(Button::RStickR) |
         static_cast<uint64_t>(Button::RStickU) | static_cast<uint64_t>(Button::RStickD);
+    // HomeNX: sticks are read from their raw position instead of HID's stick
+    // buttons, with a wide deadzone and only the dominant axis, so a wobbly
+    // or diagonal push moves one step in one direction. Re-firing only when a
+    // new direction appears (not when one is released) stops flicks and
+    // diagonals from spraying moves everywhere.
+    auto stickBits = [](float x, float y, Button l, Button r, Button u, Button d) -> uint64_t {
+        constexpr float kDeadzone = 0.65f;
+        const float ax = std::abs(x), ay = std::abs(y);
+        if (std::max(ax, ay) < kDeadzone) return 0;
+        if (ax >= ay) return static_cast<uint64_t>(x < 0.f ? l : r);
+        return static_cast<uint64_t>(y > 0.f ? u : d);
+    };
     uint64_t heldMask = 0;
-    uint64_t pressedMask = 0;
-    for (Button button : {Button::DLeft, Button::DRight, Button::DUp, Button::DDown,
-                          Button::LStickL, Button::LStickR, Button::LStickU, Button::LStickD,
-                          Button::RStickL, Button::RStickR, Button::RStickU, Button::RStickD}) {
-        const uint64_t bit = static_cast<uint64_t>(button);
-        if (m_input.isHeld(button)) heldMask |= bit;
-        if (m_input.isDown(button)) pressedMask |= bit;
-    }
+    for (Button button : {Button::DLeft, Button::DRight, Button::DUp, Button::DDown})
+        if (m_input.isHeld(button)) heldMask |= static_cast<uint64_t>(button);
+    heldMask |= stickBits(m_input.leftStickX(), m_input.leftStickY(),
+                          Button::LStickL, Button::LStickR, Button::LStickU, Button::LStickD);
+    heldMask |= stickBits(m_input.rightStickX(), m_input.rightStickY(),
+                          Button::RStickL, Button::RStickR, Button::RStickU, Button::RStickD);
 
     bool dispatchNavigation = false;
     if (heldMask == 0) {
         m_navHeldMask = 0;
         m_navHeldFrames = 0;
         m_navRepeatCountdown = 0;
-    } else if (pressedMask != 0 || heldMask != m_navHeldMask) {
-        // The first step is immediate, followed by a deliberate pause. This
-        // keeps a normal press precise and makes the start of a hold calmer.
+    } else if ((heldMask & ~m_navHeldMask) != 0) {
+        // A new direction: one immediate step, then a calm pause.
         m_navHeldMask = heldMask;
         m_navHeldFrames = 0;
-        m_navRepeatCountdown = 28;
+        m_navRepeatCountdown = 32;
         dispatchNavigation = true;
     } else {
+        m_navHeldMask = heldMask; // a direction was let go: keep holding, no step
         ++m_navHeldFrames;
         if (m_navRepeatCountdown > 0)
             --m_navRepeatCountdown;
         if (m_navRepeatCountdown == 0) {
             dispatchNavigation = true;
-            // Accelerate one step per second from ~5 moves/s to ~10 moves/s.
-            // The cap leaves enough time for artwork streaming to catch up.
-            m_navRepeatCountdown = std::clamp(12 - m_navHeldFrames / 60, 6, 12);
+            // ~4 moves/s, speeding up to ~6/s after two seconds of holding.
+            m_navRepeatCountdown = std::clamp(15 - m_navHeldFrames / 60, 10, 15);
         }
     }
 
@@ -151,9 +162,9 @@ void Application::dispatchInput() {
 
         Widget* cur = fm.current();
         auto tryDir = [&](Button dpad, Button leftStick, Button rightStick, FocusDirection dir) {
-            bool dpadDown  = m_input.isHeld(dpad);
-            bool leftStickDown = m_input.isHeld(leftStick);
-            bool rightStickDown = m_input.isHeld(rightStick);
+            bool dpadDown  = (heldMask & static_cast<uint64_t>(dpad)) != 0;
+            bool leftStickDown = (heldMask & static_cast<uint64_t>(leftStick)) != 0;
+            bool rightStickDown = (heldMask & static_cast<uint64_t>(rightStick)) != 0;
             if (!dpadDown && !leftStickDown && !rightStickDown) return;
 
             // Focused widget's action takes priority (no bubbling for D-pad)

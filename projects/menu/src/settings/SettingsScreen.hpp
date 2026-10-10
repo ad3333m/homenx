@@ -42,6 +42,7 @@ public:
     void onControllerPairing(VoidCb cb) { m_controllerPairingCb = std::move(cb); }
     void onControllerRemapping(VoidCb cb) { m_controllerRemappingCb = std::move(cb); }
     void onControllerTest(VoidCb cb) { m_controllerTestCb = std::move(cb); }
+    void onFindControllers(VoidCb cb) { m_findControllersCb = std::move(cb); }
     using SoftwareDeleteCb = std::function<void(uint64_t, const std::string&)>;
     void onSoftwareDelete(SoftwareDeleteCb cb) { m_softwareDeleteCb = std::move(cb); }
     void onSleepRequest(VoidCb cb)      { m_sleepCb = std::move(cb); }
@@ -130,6 +131,7 @@ private:
     VoidCb m_controllerPairingCb;
     VoidCb m_controllerRemappingCb;
     VoidCb m_controllerTestCb;
+    VoidCb m_findControllersCb;
     SoftwareDeleteCb m_softwareDeleteCb;
     VoidCb m_sleepCb;
     VoidCb m_shutdownCb;

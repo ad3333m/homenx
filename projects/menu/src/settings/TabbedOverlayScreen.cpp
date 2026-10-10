@@ -277,6 +277,20 @@ void TabbedOverlayScreen::setTheme(const nxui::Theme* t) {
     }
 }
 
+void TabbedOverlayScreen::selectTab(int index) {
+    if (index < 0 || index >= (int)m_tabs.size())
+        return;
+    m_tabIndex = index;
+    m_contentIdx = 0;
+    m_scrollY = 0.f;
+    m_scrollTarget = 0.f;
+    ensureTabLoaded(index);
+    if (m_tabBar) rebuildTabBar();
+    if (m_tabContent) rebuildContentItems();
+    m_focusArea = focusableCount() > 0 ? FocusArea::Content : FocusArea::Tabs;
+    scrollToFocused();
+}
+
 void TabbedOverlayScreen::show() {
     if (m_active) return;
     DebugLog::log("[settings] show()");

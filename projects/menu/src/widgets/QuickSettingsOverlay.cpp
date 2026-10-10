@@ -1520,7 +1520,8 @@ void QuickSettingsOverlay::setupNavigationActions() {
         togglePlaylistArtVisible();
     });
 
-    addAction(static_cast<uint64_t>(nxui::Button::L), [this]() {
+    // HomeNX: R opens Quick Settings, so R also closes it; L is Play/Pause.
+    addAction(static_cast<uint64_t>(nxui::Button::R), [this]() {
         if (!m_active) return;
         if (m_coverFullscreen) {
             closeCoverFullscreen();
@@ -1562,7 +1563,7 @@ void QuickSettingsOverlay::setupNavigationActions() {
         else
             updateCursorTarget();
     });
-    addAction(static_cast<uint64_t>(nxui::Button::R), [this]() {
+    addAction(static_cast<uint64_t>(nxui::Button::L), [this]() {
         if (!m_active || m_playlistReorderMode) return;
         if (m_callbacks.onMusicPlayPause) m_callbacks.onMusicPlayPause();
         if (m_callbacks.onActivateSfx) m_callbacks.onActivateSfx();

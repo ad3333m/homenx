@@ -481,7 +481,7 @@ bool WiiUMenuApp::hasActiveLeaveCaptureOverlay() const {
         || (m_settings && m_settings->isActive())
         || (m_themeShop && m_themeShop->isActive())
         || (m_gameOptions && m_gameOptions->isActive())
-        || (m_news && m_news->isActive())
+        || (m_detail && m_detail->isActive())
         || (m_folderOptions && m_folderOptions->isActive())
         || (m_controllerTest && m_controllerTest->isActive())
         || (m_profileCarousel && m_profileCarousel->isActive())
@@ -4277,7 +4277,18 @@ void WiiUMenuApp::buildGrid() {
         focusManager().setFocus(m_dialog.get());
     };
     sidebarActions.onMiiEditor   = applet(&AppletLauncher::launchMiiEditor);
-    sidebarActions.onControllers = applet(&AppletLauncher::launchControllerPairing);
+    // HomeNX: the Controllers button opens HomeNX's own Controllers menu
+    // (Settings > Controllers: Change Grip/Order, Find Controllers, ...).
+    sidebarActions.onControllers = [this]() {
+        m_audio.playSfx(Sfx::ModalShow);
+        if (!m_settings) return;
+        m_navigator.navigate(switchu::navigation::Route::Settings);
+        if (m_themeShop && m_themeShop->isActive())
+            m_themeShop->hide();
+        m_settings->show();
+        m_settings->selectTab(7); // ControllersTab, see SettingsScreenState.cpp
+        focusManager().setFocus(m_settings.get());
+    };
 #endif
 #ifndef SWITCHU_MENU
     // Web applets (eShop, Browser) only run when HomeNX is in application mode.
@@ -4327,9 +4338,7 @@ void WiiUMenuApp::buildGrid() {
     sidebarActions.onBrowser = [this, runApplet]() {
         runApplet(true, [this] { return m_launcher.launchBrowser(activeProfileUid()); });
     };
-    sidebarActions.onFriends = [this, runApplet]() {
-        runApplet(false, [this] { return m_launcher.launchFriends(activeProfileUid()); });
-    };
+    sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
 #endif
     sidebarActions.onSettings = [this]() {
@@ -5179,7 +5188,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_settings && m_settings->isActive())
         && !(m_themeShop && m_themeShop->isActive())
         && !(m_gameOptions && m_gameOptions->isActive())
-        && !(m_news && m_news->isActive())
+        && !(m_detail && m_detail->isActive())
         && !(m_folderOptions && m_folderOptions->isActive())
         && !(m_userSelect && m_userSelect->isActive())) {
         showFocusedSteamGridDbArtwork();
@@ -5641,7 +5650,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         !(m_settings && m_settings->isActive()) &&
         !(m_themeShop && m_themeShop->isActive()) &&
         !(m_gameOptions && m_gameOptions->isActive())
-        && !(m_news && m_news->isActive()) &&
+        && !(m_detail && m_detail->isActive()) &&
         !(m_folderOptions && m_folderOptions->isActive()) &&
         !(m_controllerTest && m_controllerTest->isActive()) &&
         !(m_profileCarousel && m_profileCarousel->isActive()) &&
@@ -5688,7 +5697,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         !(m_settings && m_settings->isActive()) &&
         !(m_themeShop && m_themeShop->isActive()) &&
         !(m_gameOptions && m_gameOptions->isActive())
-        && !(m_news && m_news->isActive()) &&
+        && !(m_detail && m_detail->isActive()) &&
         !(m_folderOptions && m_folderOptions->isActive()) &&
         !(m_controllerTest && m_controllerTest->isActive()) &&
         !(m_profileCarousel && m_profileCarousel->isActive()) &&
@@ -5718,7 +5727,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_themeShop && m_themeShop->isActive())
         && !(m_settings && m_settings->isActive())
         && !(m_gameOptions && m_gameOptions->isActive())
-        && !(m_news && m_news->isActive())
+        && !(m_detail && m_detail->isActive())
         && !(m_folderOptions && m_folderOptions->isActive())
         && !(m_controllerTest && m_controllerTest->isActive())
         && !(m_profileCarousel && m_profileCarousel->isActive())
@@ -5749,8 +5758,8 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_steamGridDbPicker && m_steamGridDbPicker->isActive()))
         m_gameOptions->handleTouch(app().input());
 
-    if (!debugTouchBlocked && !textEntryActive && m_news && m_news->isActive())
-        m_news->handleTouch(app().input());
+    if (!debugTouchBlocked && !textEntryActive && m_detail && m_detail->isActive())
+        m_detail->handleTouch(app().input());
 
     if (!debugTouchBlocked && !textEntryActive &&
         m_steamGridDbPicker && m_steamGridDbPicker->isActive())
@@ -5803,8 +5812,8 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 focusManager().setFocus(m_profileCarousel.get());
             } else if (m_gameOptions && m_gameOptions->isActive()) {
                 focusManager().setFocus(m_gameOptions.get());
-            } else if (m_news && m_news->isActive()) {
-                focusManager().setFocus(m_news.get());
+            } else if (m_detail && m_detail->isActive()) {
+                focusManager().setFocus(m_detail.get());
             } else if (m_folderOptions && m_folderOptions->isActive()) {
                 focusManager().setFocus(m_folderOptions.get());
             } else if (m_settings && m_settings->isActive()) {
@@ -5878,7 +5887,7 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
             add(buttonGlyph(nxui::Button::A), i18n.tr("hint.select", "Select"));
             add(buttonGlyph(nxui::Button::ZL), i18n.tr("quicksettings.prev", "Prev"));
             add(buttonGlyph(nxui::Button::ZR), i18n.tr("quicksettings.next", "Next"));
-            add(buttonGlyph(nxui::Button::R), i18n.tr("quicksettings.play_pause", "Play/Pause"));
+            add(buttonGlyph(nxui::Button::L), i18n.tr("quicksettings.play_pause", "Play/Pause"));
             add(buttonGlyph(nxui::Button::LStick), i18n.tr("quicksettings.repeat", "Repeat"));
             add(buttonGlyph(nxui::Button::RStick), i18n.tr("quicksettings.shuffle", "Shuffle"));
             add(buttonGlyph(nxui::Button::Plus),
@@ -5906,12 +5915,12 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
             add(buttonGlyph(nxui::Button::A), i18n.tr("hint.select", "Select"));
             add(buttonGlyph(nxui::Button::ZL), i18n.tr("quicksettings.prev", "Prev"));
             add(buttonGlyph(nxui::Button::ZR), i18n.tr("quicksettings.next", "Next"));
-            add(buttonGlyph(nxui::Button::R), i18n.tr("quicksettings.play_pause", "Play/Pause"));
+            add(buttonGlyph(nxui::Button::L), i18n.tr("quicksettings.play_pause", "Play/Pause"));
             add(buttonGlyph(nxui::Button::Plus), i18n.tr("quicksettings.playlist", "Playlist"));
             add(buttonGlyph(nxui::Button::Minus), i18n.tr("hint.fullscreen", "Fullscreen"));
             add(buttonGlyph(nxui::Button::LStick), i18n.tr("quicksettings.repeat", "Repeat"));
             add(buttonGlyph(nxui::Button::RStick), i18n.tr("quicksettings.shuffle", "Shuffle"));
-            add(buttonGlyph(nxui::Button::B) + buttonGlyph(nxui::Button::L),
+            add(buttonGlyph(nxui::Button::B) + buttonGlyph(nxui::Button::R),
                 i18n.tr("hint.close", "Close"));
         }
         return hints;
@@ -5988,7 +5997,7 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
     if (m_gameOptions && m_gameOptions->isActive())
         return hints;
 
-    if (m_news && m_news->isActive())
+    if (m_detail && m_detail->isActive())
         return hints;
 
     if (m_folderOptions && m_folderOptions->isActive())
@@ -6015,7 +6024,7 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
     if (m_openFolderId != 0)
         add(buttonGlyph(nxui::Button::B), i18n.tr("hint.back", "Back"));
     else
-        add(buttonGlyph(nxui::Button::L),
+        add(buttonGlyph(nxui::Button::R),
             i18n.tr("quicksettings.hint_shortcut", "Quick Settings"));
 
     nxui::Widget* cur = focusManager().current();
@@ -6047,7 +6056,7 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
 #endif
                 if (m_openFolderId == 0 &&
                     m_appLayoutMode != AppLayoutMode::DynamicLine)
-                    add(buttonGlyph(nxui::Button::R), sortModeLabel());
+                    add(buttonGlyph(nxui::Button::L), sortModeLabel());
                 if (m_openFolderId == 0)
                     add(buttonGlyph(nxui::Button::Y), i18n.tr("hint.move", "Move"));
                 else

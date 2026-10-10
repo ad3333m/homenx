@@ -30,7 +30,7 @@
 #include "steamgriddb/ArtworkCache.hpp"
 #include "settings/SettingsScreen.hpp"
 #include "settings/GameOptionsScreen.hpp"
-#include "settings/NewsScreen.hpp"
+#include "settings/ListDetailScreen.hpp"
 #include "settings/SteamGridDbPickerScreen.hpp"
 #include "settings/FolderOptionsScreen.hpp"
 #include "settings/AutoThemeScreen.hpp"
@@ -189,6 +189,9 @@ private:
 #endif
     AccountUid activeProfileUid() const;
     void openNews();
+    void openFriends();
+    void showDetailScreen(std::vector<ListDetailScreen::Entry> entries, std::string emptyTitle,
+                          std::string emptyMessage, nxui::Widget* returnFocus);
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);
     bool hasActiveLeaveCaptureOverlay() const;
@@ -417,8 +420,12 @@ private:
     std::shared_ptr<SettingsScreen>    m_settings;
     std::shared_ptr<ThemeShopScreen>   m_themeShop;
     std::shared_ptr<GameOptionsScreen> m_gameOptions;
-    std::shared_ptr<NewsScreen> m_news;
+    // News and Friends share one list/detail overlay (only one is open at a time).
+    std::shared_ptr<ListDetailScreen> m_detail;
+    nxui::Widget* m_detailReturnFocus = nullptr;
     bool m_newsLoaded = false;
+    std::vector<ListDetailScreen::Entry> m_newsEntries;
+    std::string m_newsEmpty;
     std::shared_ptr<SteamGridDbPickerScreen> m_steamGridDbPicker;
     std::shared_ptr<FolderOptionsScreen> m_folderOptions;
     std::shared_ptr<AutoThemeScreen>   m_autoThemeScreen;

@@ -49,6 +49,8 @@ public:
     bool isFullyVisible() const { return m_active && !m_animating; }
 
     void rebuildCurrentTab();
+    // Jump to a tab with its content focused (call after show()).
+    void selectTab(int index);
     void refreshCurrentTabWidgets(); // place: keeps the other tabs loaded and the in-flight loaders untouched.
     void handleTouch(nxui::Input& input);
     void warmup();

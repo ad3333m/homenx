@@ -13,6 +13,7 @@ enum class Route : std::uint8_t {
     ControllerTest,
     ProfileSelect,
     AutoTheme,
+    ListDetail,
 };
 
 // Authoritative owner of primary-screen input. Visual exit animations may

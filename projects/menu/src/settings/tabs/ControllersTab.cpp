@@ -14,21 +14,6 @@ SettingsScreen::Tab settings::tabs::ControllersTab::build(SettingsScreen& screen
 
     {
         SettingItem it;
-        it.label = i18n.tr("settings.controllers.test", "Test Input Devices");
-        it.buttonLabel = i18n.tr("button.test", "Test");
-        it.description = i18n.tr(
-            "settings.controllers.test_desc",
-            "Test joysticks, buttons, and the touch screen.");
-        it.type = ItemType::Action;
-        it.onChange = [&screen](SettingItem&) {
-            if (screen.m_controllerTestCb)
-                screen.m_controllerTestCb();
-        };
-        t.items.push_back(std::move(it));
-    }
-
-    {
-        SettingItem it;
         it.label = i18n.tr("settings.controllers.pairing", "Change Grip/Order");
         it.buttonLabel = i18n.tr("button.open", "Open");
         it.description = i18n.tr(
@@ -38,6 +23,36 @@ SettingsScreen::Tab settings::tabs::ControllersTab::build(SettingsScreen& screen
         it.onChange = [&screen](SettingItem&) {
             if (screen.m_controllerPairingCb)
                 screen.m_controllerPairingCb();
+        };
+        t.items.push_back(std::move(it));
+    }
+
+    {
+        SettingItem it;
+        it.label = i18n.tr("settings.controllers.find", "Find Controllers");
+        it.buttonLabel = i18n.tr("button.find", "Find");
+        it.description = i18n.tr(
+            "settings.controllers.find_desc",
+            "Make every connected controller rumble so you can find it.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) {
+            if (screen.m_findControllersCb)
+                screen.m_findControllersCb();
+        };
+        t.items.push_back(std::move(it));
+    }
+
+    {
+        SettingItem it;
+        it.label = i18n.tr("settings.controllers.test", "Test Input Devices");
+        it.buttonLabel = i18n.tr("button.test", "Test");
+        it.description = i18n.tr(
+            "settings.controllers.test_desc",
+            "Test joysticks, buttons, and the touch screen.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) {
+            if (screen.m_controllerTestCb)
+                screen.m_controllerTestCb();
         };
         t.items.push_back(std::move(it));
     }

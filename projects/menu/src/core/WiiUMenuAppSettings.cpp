@@ -4,6 +4,8 @@
 #include "widgets/GlossyIcon.hpp"
 #include "DebugLog.hpp"
 #include "news/NewsStore.hpp"
+#include "friends/FriendStore.hpp"
+#include <ctime>
 
 #include <nxui/core/I18n.hpp>
 #include <switchu/control_cache.hpp>
@@ -424,6 +426,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->onSteamGridDbScrapeRequest([this]() {
         startSteamGridDbScrape();
     });
+#ifdef SWITCHU_MENU
     m_settings->onControllerPairing([this]() {
         if (m_settings) m_settings->hide();
         m_navigator.resetToHome();
@@ -434,6 +437,20 @@ void WiiUMenuApp::createSettings() {
         m_navigator.resetToHome();
         scheduleLeaveCapture([this]() { m_launcher.launchControllerRemapping(); });
     });
+#else
+    // HomeNX .nro: the system screens open on top and return to this menu.
+    auto blocking = [this](void (AppletLauncher::*open)()) {
+        return [this, open]() {
+            const bool resume = m_audio.isPlaying();
+            if (resume) m_audio.pause();
+            (m_launcher.*open)();
+            if (resume) m_audio.play();
+        };
+    };
+    m_settings->onControllerPairing(blocking(&AppletLauncher::launchControllerPairing));
+    m_settings->onControllerRemapping(blocking(&AppletLauncher::launchControllerRemapping));
+#endif
+    m_settings->onFindControllers([this]() { m_launcher.findControllers(); });
     m_settings->onControllerTest([this]() {
         if (!m_controllerTest) return;
         m_navigator.navigate(switchu::navigation::Route::ControllerTest);
@@ -1229,24 +1246,26 @@ void WiiUMenuApp::createGameOptions() {
     });
 }
 
-void WiiUMenuApp::openNews() {
-    if (!m_news) {
-        m_news = std::make_shared<NewsScreen>();
-        if (m_overlayLayer) m_overlayLayer->addChild(m_news);
-        m_news->setFont(&m_fontNormal);
-        m_news->setSmallFont(&m_fontSmall);
-        m_news->setTheme(&m_theme);
-        m_news->setInstantCursorMotion(m_config.cursorMotionMode == 1);
-        m_news->setAccessibilityVoiceEnabled(m_config.accessibilityEnabled);
-        m_news->setAccessibilitySpeechPreferences(m_config.accessibilitySpeakHints,
-                                                  m_config.accessibilitySpeakPosition);
-        m_news->onNavigateSfx([this]() { m_audio.playSfx(Sfx::Navigate); });
-        m_news->onActivateSfx([this]() { m_audio.playSfx(Sfx::Activate); });
-        m_news->onCloseSfx([this]() { m_audio.playSfx(Sfx::ModalHide); });
-        m_news->onAccessibilityAnnouncement([this](const std::string& text) {
+void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
+                                   std::string emptyTitle, std::string emptyMessage,
+                                   nxui::Widget* returnFocus) {
+    if (!m_detail) {
+        m_detail = std::make_shared<ListDetailScreen>();
+        if (m_overlayLayer) m_overlayLayer->addChild(m_detail);
+        m_detail->setFont(&m_fontNormal);
+        m_detail->setSmallFont(&m_fontSmall);
+        m_detail->setTheme(&m_theme);
+        m_detail->setInstantCursorMotion(m_config.cursorMotionMode == 1);
+        m_detail->setAccessibilityVoiceEnabled(m_config.accessibilityEnabled);
+        m_detail->setAccessibilitySpeechPreferences(m_config.accessibilitySpeakHints,
+                                                    m_config.accessibilitySpeakPosition);
+        m_detail->onNavigateSfx([this]() { m_audio.playSfx(Sfx::Navigate); });
+        m_detail->onActivateSfx([this]() { m_audio.playSfx(Sfx::Activate); });
+        m_detail->onCloseSfx([this]() { m_audio.playSfx(Sfx::ModalHide); });
+        m_detail->onAccessibilityAnnouncement([this](const std::string& text) {
             m_accessibility.announce(text);
         });
-        m_news->onOpenLink([this](const std::string& url) {
+        m_detail->onOpenLink([this](const std::string& url) {
 #ifndef SWITCHU_MENU
             if (appletGetAppletType() != AppletType_Application) return;
             const bool resume = m_audio.isPlaying();
@@ -1257,41 +1276,95 @@ void WiiUMenuApp::openNews() {
             (void)url;
 #endif
         });
-        m_news->onClosed([this]() {
-            const auto& left = m_sidebar.leftButtons();
-            if (left.size() > 2) focusManager().setFocus(left[2].get());
+        m_detail->onClosed([this]() {
+            m_navigator.routeDidClose(switchu::navigation::Route::ListDetail);
+            if (m_detailReturnFocus) focusManager().setFocus(m_detailReturnFocus);
         });
     }
+    m_detailReturnFocus = returnFocus;
+    m_detail->setEntries(std::move(entries), std::move(emptyTitle), std::move(emptyMessage));
+    m_audio.playSfx(Sfx::ModalShow);
+    if (m_titlePill) m_titlePill->hideAnimated();
+    m_navigator.navigate(switchu::navigation::Route::ListDetail);
+    m_detail->show();
+    focusManager().setFocus(m_detail.get());
+}
 
+void WiiUMenuApp::openNews() {
+    auto& i18n = nxui::I18n::instance();
     // ponytail: news is read once per session on the UI thread (a second or
     // two for ~40 articles); move to the thread pool if it ever feels slow.
     if (!m_newsLoaded) {
         Result rc = 0;
         std::vector<NewsArticle> raw = loadNewsArticles(rc);
-        std::vector<NewsScreen::Article> articles;
-        articles.reserve(raw.size());
+        m_newsEntries.clear();
         app().gpu().waitIdle();
         for (auto& r : raw) {
-            NewsScreen::Article a{r.topic, r.subject, r.body, r.footer, r.linkUrl, nullptr};
+            ListDetailScreen::Entry e;
+            e.listName = r.subject.empty() ? r.topic : r.subject;
+            e.kicker = r.topic;
+            e.title = r.subject;
+            e.body = r.body;
+            e.footer = r.footer;
+            e.linkUrl = r.linkUrl;
             if (!r.image.empty()) {
                 auto tex = std::make_shared<nxui::Texture>();
-                if (tex->loadFromMemory(app().gpu(), app().renderer(), r.image.data(), r.image.size(), 640))
-                    a.image = std::move(tex);
+                if (tex->loadFromMemory(app().gpu(), app().renderer(), r.image.data(), r.image.size(), 720))
+                    e.image = std::move(tex);
             }
-            articles.push_back(std::move(a));
+            m_newsEntries.push_back(std::move(e));
         }
-        auto& i18n = nxui::I18n::instance();
-        std::string empty = R_FAILED(rc)
+        m_newsEmpty = R_FAILED(rc)
             ? i18n.tr("news.unavailable", "The console's news couldn't be read") + fmt::format(" (0x{:X}).", rc)
-            : i18n.tr("news.empty", "No news has been downloaded yet. Connect to the internet and check again later.");
-        m_news->setArticles(std::move(articles), std::move(empty));
+            : i18n.tr("news.empty", "There's no news saved on this console yet.");
         m_newsLoaded = R_SUCCEEDED(rc);
     }
+    const auto& left = m_sidebar.leftButtons();
+    showDetailScreen(m_newsEntries, i18n.tr("sidebar.news", "News"), m_newsEmpty,
+                     left.size() > 2 ? left[2].get() : nullptr);
+}
 
-    m_audio.playSfx(Sfx::ModalShow);
-    if (m_titlePill) m_titlePill->hideAnimated();
-    m_news->show();
-    focusManager().setFocus(m_news.get());
+void WiiUMenuApp::openFriends() {
+    auto& i18n = nxui::I18n::instance();
+    AccountUid uid = activeProfileUid();
+    std::vector<ListDetailScreen::Entry> entries;
+    std::string empty;
+    if (!accountUidIsValid(&uid)) {
+        empty = i18n.tr("friends.no_profile", "Choose a profile with the profile button first.");
+    } else {
+        Result rc = 0;
+        std::vector<FriendEntry> friends = loadFriends(uid, rc);
+        app().gpu().waitIdle();
+        for (auto& f : friends) {
+            ListDetailScreen::Entry e;
+            const char* status = f.status == 2 ? "Playing online" : f.status == 1 ? "Online" : "Offline";
+            e.listName = (f.status != 0 ? "\u25CF " : "") + f.nickname;
+            e.title = f.nickname;
+            e.kicker = i18n.tr(f.status == 2 ? "friends.playing" : f.status == 1 ? "friends.online" : "friends.offline", status);
+            std::string body;
+            if (f.status == 0 && f.lastOnline > 0) {
+                const time_t t = static_cast<time_t>(f.lastOnline);
+                char when[64];
+                std::strftime(when, sizeof(when), "%d %b %Y, %H:%M", std::localtime(&t));
+                body += i18n.tr("friends.last_online", "Last online") + ": " + when + "\n";
+            }
+            if (f.favourite) body += i18n.tr("friends.best_friend", "Best friend") + "\n";
+            e.body = body;
+            if (!f.avatar.empty()) {
+                auto tex = std::make_shared<nxui::Texture>();
+                if (tex->loadFromMemory(app().gpu(), app().renderer(), f.avatar.data(), f.avatar.size(), 256))
+                    e.image = std::move(tex);
+            }
+            e.roundImage = true;
+            entries.push_back(std::move(e));
+        }
+        empty = R_FAILED(rc)
+            ? i18n.tr("friends.unavailable", "The friend list couldn't be read") + fmt::format(" (0x{:X}).", rc)
+            : i18n.tr("friends.empty", "This profile has no friends saved on the console.");
+    }
+    const auto& right = m_sidebar.rightButtons();
+    showDetailScreen(std::move(entries), i18n.tr("sidebar.friends", "Friends"), std::move(empty),
+                     right.size() > 2 ? right[2].get() : nullptr);
 }
 
 void WiiUMenuApp::createFolderOptions() {

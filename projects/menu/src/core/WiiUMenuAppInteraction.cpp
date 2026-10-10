@@ -1220,8 +1220,8 @@ void WiiUMenuApp::closeActiveOverlays(bool closeFolders) {
         m_themeShop->hide();
     if (m_gameOptions && m_gameOptions->isActive())
         m_gameOptions->hide();
-    if (m_news && m_news->isActive())
-        m_news->hide();
+    if (m_detail && m_detail->isActive())
+        m_detail->hide();
     if (m_folderOptions && m_folderOptions->isActive())
         m_folderOptions->hide();
     if (m_controllerTest && m_controllerTest->isActive())
@@ -1265,6 +1265,8 @@ nxui::Widget* WiiUMenuApp::focusRoot() {
             return m_profileCarousel ? m_profileCarousel.get() : &rootBox();
         case switchu::navigation::Route::AutoTheme:
             return m_autoThemeScreen ? m_autoThemeScreen.get() : &rootBox();
+        case switchu::navigation::Route::ListDetail:
+            return m_detail ? m_detail.get() : &rootBox();
         case switchu::navigation::Route::Home:
             break;
     }
@@ -1320,7 +1322,7 @@ void WiiUMenuApp::wireGlobalActions() {
             (m_settings && m_settings->isActive()) ||
             (m_themeShop && m_themeShop->isActive()) ||
             (m_gameOptions && m_gameOptions->isActive())
-        || (m_news && m_news->isActive()) ||
+        || (m_detail && m_detail->isActive()) ||
             (m_folderOptions && m_folderOptions->isActive()) ||
             (m_controllerTest && m_controllerTest->isActive()) ||
             (m_profileCarousel && m_profileCarousel->isActive()) ||
@@ -1330,7 +1332,8 @@ void WiiUMenuApp::wireGlobalActions() {
             closeFolder(false, true);
     });
 
-    root.addAction(static_cast<uint64_t>(nxui::Button::L), [this]() {
+    // HomeNX: Quick Settings is on R; L cycles the sort order.
+    root.addAction(static_cast<uint64_t>(nxui::Button::R), [this]() {
         if (m_editMode || m_navigator.route() != switchu::navigation::Route::Home ||
             focusRoot() != &rootBox())
             return;
@@ -1343,7 +1346,7 @@ void WiiUMenuApp::wireGlobalActions() {
         m_accessibility.repeatLastAnnouncement();
     });
 
-    root.addAction(static_cast<uint64_t>(nxui::Button::R), [this]() {
+    root.addAction(static_cast<uint64_t>(nxui::Button::L), [this]() {
         if (m_navigator.route() != switchu::navigation::Route::Home ||
             focusRoot() != &rootBox() || m_openFolderId != 0 || m_editMode ||
             m_appLayoutMode == AppLayoutMode::DynamicLine)
@@ -1368,7 +1371,7 @@ void WiiUMenuApp::wireGlobalActions() {
             (m_themeShop && m_themeShop->isActive()) ||
             (m_settings && m_settings->isActive()) ||
             (m_gameOptions && m_gameOptions->isActive())
-        || (m_news && m_news->isActive()) ||
+        || (m_detail && m_detail->isActive()) ||
             (m_folderOptions && m_folderOptions->isActive()) ||
             (m_controllerTest && m_controllerTest->isActive()) ||
             (m_profileCarousel && m_profileCarousel->isActive()) ||
