@@ -293,6 +293,7 @@ void AppletLauncher::launchFriends() {
     logRc("friends", friendsLaShowFriendList(uid));
 }
 
+void AppletLauncher::launchControllerRemapping() {}
 void AppletLauncher::launchNetConnect()        {}
 void AppletLauncher::launchUserPage(AccountUid) {}
 void AppletLauncher::launchUserCreator()       {}

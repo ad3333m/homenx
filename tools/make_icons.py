@@ -68,21 +68,13 @@ def friends():
 
 
 def sphaira():
-    # glossy sphere: dark-to-violet radial body with a soft highlight
-    im = canvas(); r = 200; c = 256
-    body = Image.new("RGBA", (N, N), (0, 0, 0, 0)); d = ImageDraw.Draw(body)
-    for i in range(r, 0, -2):
-        t = i / r
-        d.ellipse([p(c - 30 * (1 - t) - i), p(c - 40 * (1 - t) - i), p(c - 30 * (1 - t) + i), p(c - 40 * (1 - t) + i)],
-                  fill=(int(40 + 140 * (1 - t)), int(30 + 90 * (1 - t)), int(120 + 120 * (1 - t)), 255))
-    mask = Image.new("L", (N, N), 0)
-    ImageDraw.Draw(mask).ellipse([p(c - r), p(c - r), p(c + r), p(c + r)], fill=255)
-    im.paste(body, (0, 0), mask)
-    hl = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    ImageDraw.Draw(hl).ellipse([p(150), p(105), p(290), p(195)], fill=(255, 255, 255, 150))
-    im.alpha_composite(hl.filter(ImageFilter.GaussianBlur(p(14))))
-    ring = ImageDraw.Draw(im)
-    ring.ellipse([p(c - r), p(c - r), p(c + r), p(c + r)], outline=(200, 180, 255), width=p(10))
+    # Sphaira's own icon (tools/sphaira-icon.jpg, from ITotalJustice/sphaira) cropped to a circle
+    im = canvas()
+    logo = Image.open("tools/sphaira-icon.jpg").convert("RGBA").resize((p(420), p(420)), Image.LANCZOS)
+    mask = Image.new("L", logo.size, 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, logo.size[0] - 1, logo.size[1] - 1], fill=255)
+    im.paste(logo, (p(46), p(46)), mask)
+    ImageDraw.Draw(im).ellipse([p(46), p(46), p(466), p(466)], outline=(120, 220, 200), width=p(10))
     return im
 
 
