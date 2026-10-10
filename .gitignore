@@ -20,3 +20,4 @@ compile_commands.json
 
 # downloaded by CI (Sphaira release)
 romfs/bin/sphaira.nro
+projects/menu/src/generated/

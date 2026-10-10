@@ -9,6 +9,11 @@
 #include <strings.h>
 #include "homebrew/HomebrewStore.hpp"
 #include <filesystem>
+#include <cstring>
+#include <cerrno>
+#include <vector>
+#include <iterator>
+#include <fstream>
 #include <cstdio>
 
 void AppletLauncher::init(Callbacks cbs) {
@@ -201,32 +206,79 @@ void writeLine(const char* path, const std::string& line) {
 // Atmosphere's homebrew loader (over the Album applet) always starts
 // sdmc:/hbmenu.nro, also after every app exits. HomeNX puts its own tiny
 // Loader there, which hands over to the requested .nro or to Sphaira.
+// The Loader is compiled into the menu (CI generates loader_nro.inc from the
+// built HomeNX-Loader.nro), so it can't go missing; the copies in
+// switch/SwitchU/bin/ are only a fallback for builds without it.
+#if __has_include("generated/loader_nro.inc")
+#include "generated/loader_nro.inc" // const unsigned char kLoaderNroData[]
+#define HOMENX_EMBEDDED_LOADER 1
+#endif
+
+namespace {
+std::string g_loaderError;
+
+std::vector<std::uint8_t> loaderBytes() {
+#ifdef HOMENX_EMBEDDED_LOADER
+    return std::vector<std::uint8_t>(std::begin(kLoaderNroData), std::end(kLoaderNroData));
+#else
+    for (const char* candidate : kLoaderSources) {
+        std::ifstream in(candidate, std::ios::binary);
+        std::vector<std::uint8_t> data{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+        if (!data.empty()) return data;
+    }
+    return {};
+#endif
+}
+
+std::vector<std::uint8_t> fileBytes(const char* path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::vector<std::uint8_t>{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+} // namespace
+
+const std::string& AppletLauncher::loaderError() { return g_loaderError; }
+
 bool AppletLauncher::installLoader() {
-    std::error_code ec;
-    const char* source = nullptr;
-    for (const char* candidate : kLoaderSources)
-        if (std::filesystem::exists(candidate, ec)) { source = candidate; break; }
-    if (!source) {
-        DebugLog::log("[launcher] HomeNX Loader missing");
+    g_loaderError.clear();
+    const std::vector<std::uint8_t> loader = loaderBytes();
+    if (loader.empty()) {
+        g_loaderError = "The Loader isn't in this HomeNX build or in switch/SwitchU/bin/.";
         return false;
     }
-    const bool isLoader = nroNamed(kHbmenu, "HomeNX-Loader");
-    if (isLoader && std::filesystem::file_size(kHbmenu, ec) == std::filesystem::file_size(source, ec))
-        return true;
+    std::error_code ec;
     if (std::filesystem::exists(kHbmenu, ec)) {
-        if (!isLoader) {
+        if (fileBytes(kHbmenu) == loader) return true; // already installed
+        if (!nroNamed(kHbmenu, "HomeNX-Loader")) {
             // Keep the user's own hbmenu (newest one wins) for the Loader's fallback.
             std::filesystem::remove(kHbmenuOriginal, ec);
+            ec.clear();
             std::filesystem::rename(kHbmenu, kHbmenuOriginal, ec);
-        } else {
-            std::filesystem::remove(kHbmenu, ec);
+            if (ec) DebugLog::log("[launcher] keeping hbmenu.nro failed ec=%d", ec.value());
         }
     }
+    // Write through a temporary file so a cut-off write never leaves a broken hbmenu.
+    const std::string tmp = std::string(kHbmenu) + ".homenx-tmp";
+    FILE* f = std::fopen(tmp.c_str(), "wb");
+    if (!f) {
+        g_loaderError = "Couldn't create sdmc:/hbmenu.nro (" + std::string(std::strerror(errno)) + ").";
+        return false;
+    }
+    const bool written = std::fwrite(loader.data(), 1, loader.size(), f) == loader.size();
+    std::fclose(f);
     ec.clear();
-    std::filesystem::copy_file(source, kHbmenu, std::filesystem::copy_options::overwrite_existing, ec);
-    const bool ok = !ec && nroNamed(kHbmenu, "HomeNX-Loader");
-    DebugLog::log("[launcher] HomeNX Loader as hbmenu from %s ok=%d ec=%d", source, ok ? 1 : 0, ec.value());
-    return ok;
+    if (written) {
+        std::filesystem::remove(kHbmenu, ec);
+        ec.clear();
+        std::filesystem::rename(tmp, kHbmenu, ec);
+    }
+    if (!written || ec || fileBytes(kHbmenu) != loader) {
+        g_loaderError = "Couldn't write sdmc:/hbmenu.nro (" +
+            (ec ? ec.message() : std::string(written ? "verify failed" : std::strerror(errno))) + ").";
+        std::filesystem::remove(tmp, ec);
+        return false;
+    }
+    DebugLog::log("[launcher] HomeNX Loader installed as hbmenu.nro (%zu bytes)", loader.size());
+    return true;
 }
 
 void AppletLauncher::installToggle() {
@@ -348,6 +400,7 @@ bool AppletLauncher::launchNro(const std::string& path) {
 }
 
 bool AppletLauncher::installLoader() { return true; }
+const std::string& AppletLauncher::loaderError() { static const std::string none; return none; }
 void AppletLauncher::installToggle() {}
 
 // HomeNX.nro carries Sphaira in its romfs; copy it to the SD once (an .nro

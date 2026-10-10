@@ -463,10 +463,10 @@ bool WiiUMenuApp::loaderReadyOrExplain() {
     if (m_dialog) {
         auto& i18n = nxui::I18n::instance();
         m_audio.playSfx(Sfx::ModalShow);
-        m_dialog->show(i18n.tr("loader.missing_title", "HomeNX Loader is missing"),
-                       i18n.tr("loader.missing_body",
-                               "Update HomeNX (Settings > HomeNX, or HomeNX Toggle). The Loader is what "
-                               "opens Sphaira and homebrew."),
+        m_dialog->show(i18n.tr("loader.missing_title", "Couldn't set up the HomeNX Loader"),
+                       AppletLauncher::loaderError() + "\n" +
+                           i18n.tr("loader.missing_body",
+                                   "The HomeNX Loader is what opens Sphaira and homebrew."),
                        {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
         focusManager().setFocus(m_dialog.get());
     }

@@ -23,6 +23,7 @@ public:
     // Frontend: makes sdmc:/hbmenu.nro the HomeNX Loader (keeping the old one
     // as hbmenu.nro.homenx-original). Call when the menu starts.
     static bool installLoader(); // false if the Loader file is missing or the copy failed
+    static const std::string& loaderError(); // why installLoader() failed
     // Frontend: copies the HomeNX Toggle shipped in switch/SwitchU/bin/ to
     // switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
     static void installToggle();

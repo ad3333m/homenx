@@ -31,7 +31,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install curl gcc g++ zip unzip zstd cmake
+          apt-get -y install curl gcc g++ zip unzip zstd cmake python3
 
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
@@ -94,7 +94,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install curl gcc g++ zip unzip zstd cmake
+          apt-get -y install curl gcc g++ zip unzip zstd cmake python3
 
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
@@ -118,7 +118,12 @@ jobs:
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root
 
       - name: Build
-        run: xmake build -vD --root
+        run: |
+          # The Loader is compiled into the menu, so build it first and embed it.
+          xmake build -vD --root HomeNX-Loader
+          mkdir -p projects/menu/src/generated
+          python3 tools/embed_loader.py build/cross/aarch64/release/HomeNX-Loader.nro projects/menu/src/generated/loader_nro.inc
+          xmake build -vD --root
 
       - name: Package install layout
         run: |
