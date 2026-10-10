@@ -137,6 +137,16 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     }
     {
         SettingItem it;
+        it.label = i18n.tr("settings.homenx.timing", "Return timing");
+        it.buttonLabel = i18n.tr("button.open", "Open");
+        it.description = i18n.tr("settings.homenx.timing_desc",
+            "Shows how long leaving a game took, step by step. Screenshot it to report a slow return.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_returnTimingsCb) screen.m_returnTimingsCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
         it.label = i18n.tr("settings.homenx.update", "Check for updates");
         it.buttonLabel = i18n.tr("settings.homenx.update_button", "Check");
         it.description = i18n.tr("settings.homenx.update_desc",

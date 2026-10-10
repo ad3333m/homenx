@@ -751,10 +751,13 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
             && !(m_grid && m_iconStreamer.needsVisibleLoads(m_grid->currentPage(),
                                                             m_grid->iconsPerPage()))
             && (!m_config.musicEnabled || (m_audioStarted && !m_audioPlaybackRestorePending));
+        // A button press means "let me in": never hold the picture over a menu
+        // that is already usable.
+        const bool userWants = m_leaveSplashWaited > 0.1f && app().input().hasUserActivity();
         if ((m_leaveSplashHoldRemaining <= 0.f && sceneReady)
-            || m_leaveSplashWaited >= kLeaveSplashMaxWait) {
-            DebugLog::log("[leave] scene %s after %.2fs", sceneReady ? "ready" : "timeout",
-                          m_leaveSplashWaited);
+            || userWants || m_leaveSplashWaited >= kLeaveSplashMaxWait) {
+            DebugLog::log("[leave] scene %s after %.2fs", sceneReady ? "ready"
+                          : userWants ? "skipped by input" : "timeout", m_leaveSplashWaited);
             m_leaveSplashHoldRemaining = 0.f;
             m_leaveSplashPhase = LeaveSplashPhase::Fade;
             DebugLog::log("[leave] splash crossfade begin");

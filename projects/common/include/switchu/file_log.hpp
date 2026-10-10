@@ -103,6 +103,8 @@ private:
                            : std::ios::out | std::ios::app;
     }
 
+public:
+    // Wait until queued lines are on the SD card (HomeNX: Settings > Return timing).
     static void flush() {
         auto& self = inst();
         {
@@ -116,6 +118,7 @@ private:
             self.m_file.flush();
     }
 
+private:
     static void writer_loop(FileLog& self) {
         std::vector<std::string> batch;
         for (;;) {

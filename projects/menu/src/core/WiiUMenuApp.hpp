@@ -202,6 +202,7 @@ private:
     void openCustomButtonAppPicker();
     void openCustomButtonIconPicker();
     void openHomePagesPicker();
+    void openReturnTimings();
     void openNews();
     // HomeNX: names set with Rename (game options), by title id.
     std::map<std::uint64_t, std::string> m_customNames;
@@ -715,7 +716,7 @@ private:
     bool m_leaveMotionFrozen = false;
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
-    static constexpr float kLeaveSplashMaxWait = 2.5f; // never block HOME longer than this
+    static constexpr float kLeaveSplashMaxWait = 1.5f; // never block HOME longer than this
     static constexpr float kLeaveSplashFadeDur = 0.15f; // HomeNX: a long crossfade ghosts two frames (looks blurry)
 
     bool  m_audioInitPending = false;
