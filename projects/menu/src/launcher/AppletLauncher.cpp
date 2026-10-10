@@ -333,7 +333,8 @@ bool AppletLauncher::prepareHbl() {
         std::memcpy(&e, nsp.data() + sizeof(Header) + i * sizeof(Entry), sizeof(e));
         if (e.name >= h.strings || dataStart + e.offset + e.size > nsp.size()) return false;
         const char* name = nsp.data() + entriesEnd + e.name;
-        const std::string n(name, std::find(name, nsp.data() + entriesEnd + h.strings, 0));
+        const char* stringsEnd = nsp.data() + entriesEnd + h.strings;
+        const std::string n(name, std::find(name, stringsEnd, '\0'));
         if (n != "main" && n != "main.npdm") continue;
         std::ofstream(std::string(kHblDir) + "/" + n, std::ios::binary | std::ios::trunc)
             .write(nsp.data() + dataStart + e.offset, static_cast<std::streamsize>(e.size));
