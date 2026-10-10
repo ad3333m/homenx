@@ -144,7 +144,7 @@ void Application::dispatchInput() {
         // A new direction: one immediate step, then a calm pause.
         m_navHeldMask = heldMask;
         m_navHeldFrames = 0;
-        m_navRepeatCountdown = 32;
+        m_navRepeatCountdown = 28;
         dispatchNavigation = true;
     } else {
         m_navHeldMask = heldMask; // a direction was let go: keep holding, no step
@@ -153,8 +153,8 @@ void Application::dispatchInput() {
             --m_navRepeatCountdown;
         if (m_navRepeatCountdown == 0) {
             dispatchNavigation = true;
-            // ~4 moves/s, speeding up to ~6/s after two seconds of holding.
-            m_navRepeatCountdown = std::clamp(15 - m_navHeldFrames / 60, 10, 15);
+            // SwitchU's pace: ~5 moves/s, speeding up to ~10/s while held.
+            m_navRepeatCountdown = std::clamp(12 - m_navHeldFrames / 60, 6, 12);
         }
     }
 

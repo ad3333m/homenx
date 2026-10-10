@@ -93,11 +93,13 @@ void GlassPanel::onRender(Renderer& ren) {
 
     const bool useShaderGlass = m_liquidGlassEnabled
         && m_liquidGlassShaderEnabled
+        && !s_performanceMode
         && ren.gpu().offscreenReady();
-    const bool needsBackdrop = (m_blurEnabled || useShaderGlass) && op > 0.01f;
+    const bool blur = m_blurEnabled && !s_performanceMode;
+    const bool needsBackdrop = (blur || useShaderGlass) && op > 0.01f;
     if (needsBackdrop) {
-        ren.captureToOffscreen(useShaderGlass && !m_blurEnabled);
-        if (m_blurEnabled)
+        ren.captureToOffscreen(useShaderGlass && !blur);
+        if (blur)
             ren.applyBlur(m_blurRadius, m_blurPasses);
     }
 
@@ -108,7 +110,7 @@ void GlassPanel::onRender(Renderer& ren) {
         body.a = std::max(body.a, 0.16f);
         ren.drawFrostedInset(r, body, m_border, m_highlight, m_radius, op);
     } else {
-        if (m_blurEnabled && op > 0.01f) {
+        if (blur && op > 0.01f) {
             ren.drawOffscreenRounded(0, r, m_radius, Color::white().withAlpha(op));
         }
 

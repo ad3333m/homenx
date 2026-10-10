@@ -24,6 +24,20 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     }
     {
         SettingItem it;
+        it.label = i18n.tr("settings.homenx.glass", "Glass effects");
+        it.description = i18n.tr("settings.homenx.glass_desc",
+            "Off keeps HomeNX at a steady 60 FPS. On draws the full liquid-glass and blur look, "
+            "which can drop frames.");
+        it.type = ItemType::Toggle;
+        it.boolVal = screen.m_glassEffects;
+        it.onChange = [&screen](SettingItem& self) {
+            screen.m_glassEffects = self.boolVal;
+            if (screen.m_glassEffectsCb) screen.m_glassEffectsCb(self.boolVal);
+        };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
         it.label = i18n.tr("settings.homenx.update", "Check for updates");
         it.buttonLabel = i18n.tr("settings.homenx.update_button", "Check");
         it.description = i18n.tr("settings.homenx.update_desc",

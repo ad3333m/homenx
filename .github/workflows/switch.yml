@@ -155,6 +155,16 @@ jobs:
           (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master." || true
-          gh release upload latest out/* -R "$GITHUB_REPOSITORY" --clobber
+          # Never leave the release without a complete zip (a download during an
+          # in-place --clobber gets cut off): upload under a temporary name, then
+          # swap it in with a rename.
+          R="$GITHUB_REPOSITORY"
+          cp out/HomeNX-frontend.zip out/HomeNX-frontend-next.zip
+          gh release upload latest out/HomeNX-frontend-next.zip -R "$R" --clobber
+          asset_id() { gh api "repos/$R/releases/tags/latest" -q ".assets[] | select(.name==\"$1\") | .id"; }
+          OLD=$(asset_id HomeNX-frontend.zip)
+          NEXT=$(asset_id HomeNX-frontend-next.zip)
+          if [ -n "$OLD" ]; then gh api -X DELETE "repos/$R/releases/assets/$OLD"; fi
+          gh api -X PATCH "repos/$R/releases/assets/$NEXT" -f name=HomeNX-frontend.zip >/dev/null
           # Title last: HomeNX Toggle treats "HomeNX build N" as "zip N is ready".
           gh release edit latest -R "$GITHUB_REPOSITORY" --title "HomeNX build $HOMENX_BUILD"

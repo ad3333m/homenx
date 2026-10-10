@@ -45,6 +45,8 @@ public:
     void onFindControllers(VoidCb cb) { m_findControllersCb = std::move(cb); }
     void onHomeNXUpdateCheck(VoidCb cb) { m_homenxUpdateCb = std::move(cb); }
     void onHomeNXTurnOff(VoidCb cb) { m_homenxOffCb = std::move(cb); }
+    void onGlassEffectsChange(BoolCb cb) { m_glassEffectsCb = std::move(cb); }
+    void setGlassEffectsState(bool on) { m_glassEffects = on; }
     using SoftwareDeleteCb = std::function<void(uint64_t, const std::string&)>;
     void onSoftwareDelete(SoftwareDeleteCb cb) { m_softwareDeleteCb = std::move(cb); }
     void onSleepRequest(VoidCb cb)      { m_sleepCb = std::move(cb); }
@@ -137,6 +139,8 @@ private:
     VoidCb m_findControllersCb;
     VoidCb m_homenxUpdateCb;
     VoidCb m_homenxOffCb;
+    BoolCb m_glassEffectsCb;
+    bool m_glassEffects = false;
     SoftwareDeleteCb m_softwareDeleteCb;
     VoidCb m_sleepCb;
     VoidCb m_shutdownCb;

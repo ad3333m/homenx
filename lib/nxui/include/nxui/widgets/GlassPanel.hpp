@@ -8,6 +8,12 @@ class GlassPanel : public Box {
 public:
     GlassPanel();
 
+    // HomeNX "60 FPS mode": every glass panel draws the cheap frosted style
+    // instead of capturing and shading (or blurring) the screen behind it.
+    static void setPerformanceMode(bool on) { s_performanceMode = on; }
+    static bool performanceMode()           { return s_performanceMode; }
+    inline static bool s_performanceMode = true;
+
     void setCornerRadius(float r)     { m_radius = r; }
     void setBaseColor(const Color& c) { m_base = c; }
     void setBorderColor(const Color& c) { m_border = c; }

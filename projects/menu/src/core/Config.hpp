@@ -21,6 +21,7 @@ struct AppConfig {
     std::string actionHintStyle = "capsules";
     // 0 = animated translation, 1 = immediate jump.
     int cursorMotionMode = 0;
+    bool glassEffects = false; // HomeNX: off = 60 FPS mode (frosted panels, no blur)
     // 0 = pages slide sideways, 1 = pages swap instantly.
     int pageTransitionMode = 0;
     std::string uiLanguageOverride = "auto";

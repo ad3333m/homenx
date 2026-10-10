@@ -214,34 +214,52 @@ std::string downloadLocked(const ReleaseInfo& release, std::atomic<float>& progr
     std::error_code ec;
     std::filesystem::remove(kArchivePartPath, ec);
 
+    // HomeNX: a cut-off download ("Transferred a partial file", a stall, a
+    // dropped connection) is retried from scratch up to 3 times.
     DownloadContext context;
-    context.file = std::fopen(kArchivePartPath, "wb");
-    if (!context.file)
-        throw std::runtime_error("Unable to create the update archive on the SD card");
-    sha256ContextCreate(&context.sha);
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        std::fclose(context.file);
-        throw std::runtime_error("curl_easy_init failed");
-    }
-    context.progress = &progress;
-    configureCurl(curl, release.downloadUrl);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeDownload);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, updateDownloadProgress);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress);
-    const CURLcode rc = curl_easy_perform(curl);
+    CURLcode rc = CURLE_OK;
     long status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-    curl_easy_cleanup(curl);
-    std::fclose(context.file);
-    context.file = nullptr;
+    for (int attempt = 1; attempt <= 3; ++attempt) {
+        context = DownloadContext{};
+        context.file = std::fopen(kArchivePartPath, "wb");
+        if (!context.file)
+            throw std::runtime_error("Unable to create the update archive on the SD card");
+        sha256ContextCreate(&context.sha);
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            std::fclose(context.file);
+            throw std::runtime_error("curl_easy_init failed");
+        }
+        context.progress = &progress;
+        configureCurl(curl, release.downloadUrl);
+        // Big file on Switch Wi-Fi: no overall time limit, give up only on a stall.
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 512L);
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeDownload);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, updateDownloadProgress);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress);
+        rc = curl_easy_perform(curl);
+        status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        curl_easy_cleanup(curl);
+        std::fclose(context.file);
+        context.file = nullptr;
+        const bool complete = rc == CURLE_OK && status >= 200 && status < 300
+            && (release.downloadSize == 0 || context.received == release.downloadSize);
+        if (complete) break;
+        switchu::FileLog::log("[updater] download attempt %d failed rc=%d status=%ld got=%lu",
+                              attempt, static_cast<int>(rc), status,
+                              static_cast<unsigned long>(context.received));
+        if (status >= 400 && status != 429 && status < 500) break; // e.g. 404: retrying won't help
+    }
     if (rc != CURLE_OK || status < 200 || status >= 300) {
         std::filesystem::remove(kArchivePartPath, ec);
         if (rc != CURLE_OK)
             throw std::runtime_error(std::string("Update download failed: ")
-                                     + curl_easy_strerror(rc));
+                                     + curl_easy_strerror(rc) + " (after retries)");
         throw std::runtime_error("Update download returned HTTP " + std::to_string(status));
     }
     if (context.received == 0 || context.received > kMaxArchiveBytes) {

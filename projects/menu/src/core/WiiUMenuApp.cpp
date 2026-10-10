@@ -26,6 +26,7 @@
 #include <fstream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+#include <nxui/widgets/GlassPanel.hpp>
 #include <system_error>
 #include <tuple>
 #include <ctime>
@@ -807,6 +808,7 @@ bool WiiUMenuApp::onCreate() {
             DebugLog::log("[widgets] recent activity duration could not be saved");
     }
     loadCustomNames();
+    nxui::GlassPanel::setPerformanceMode(!m_config.glassEffects);
     m_appLoader.setPendingTransform([this](std::vector<PendingApp>& apps) {
         for (auto& app : apps) {
             auto it = m_customNames.find(app.titleId);

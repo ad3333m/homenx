@@ -12,6 +12,7 @@
 #include <ctime>
 
 #include <nxui/core/I18n.hpp>
+#include <nxui/widgets/GlassPanel.hpp>
 #include <switchu/control_cache.hpp>
 
 #include <algorithm>
@@ -455,6 +456,12 @@ void WiiUMenuApp::createSettings() {
     m_settings->onControllerRemapping(blocking(&AppletLauncher::launchControllerRemapping));
 #endif
     m_settings->onFindControllers([this]() { m_launcher.findControllers(); });
+    m_settings->setGlassEffectsState(m_config.glassEffects);
+    m_settings->onGlassEffectsChange([this](bool on) {
+        m_config.glassEffects = on;
+        m_config.save();
+        nxui::GlassPanel::setPerformanceMode(!on);
+    });
 #ifdef SWITCHU_MENU
     m_settings->onHomeNXUpdateCheck([this]() { checkHomeNXUpdate(); });
     m_settings->onHomeNXTurnOff([this]() { confirmTurnOffHomeNX(); });

@@ -77,6 +77,7 @@ bool AppConfig::load() {
     }
     readJsonOpt(j, "actionHintStyle", actionHintStyle);
     readJsonOpt(j, "cursorMotionMode", cursorMotionMode);
+    readJsonOpt(j, "homenxGlassEffects", glassEffects);
     readJsonOpt(j, "pageTransitionMode", pageTransitionMode);
     readJsonOpt(j, "uiLanguageOverride", uiLanguageOverride);
     readJsonOpt(j, "soundPreset", soundPreset);
@@ -197,6 +198,7 @@ bool AppConfig::save() const {
     j["appLayoutMode"] = (appLayoutMode == AppLayoutMode::DynamicLine) ? "dynamic_line" : "grid";
     j["actionHintStyle"] = actionHintStyle == "panel" ? "panel" : "capsules";
     j["cursorMotionMode"] = std::clamp(cursorMotionMode, 0, 1);
+    j["homenxGlassEffects"] = glassEffects;
     j["pageTransitionMode"] = std::clamp(pageTransitionMode, 0, 1);
     j["uiLanguageOverride"] = uiLanguageOverride;
     j["soundPreset"] = soundPreset;
