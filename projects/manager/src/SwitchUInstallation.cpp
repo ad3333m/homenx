@@ -83,23 +83,12 @@ ToggleResult SwitchUInstallation::setEnabled(bool enabled) const {
                        ec.value(), *this);
     }
 
+    // HomeNX: the SD card isn't a journaled save, so a failing "commit" here
+    // doesn't mean the rename is lost. SwitchU rolled back on it, which left
+    // the frontend impossible to turn off; just log it.
     const Result commitResult = fsdevCommitDevice("sdmc");
-    if (R_FAILED(commitResult)) {
-        switchu::FileLog::log("[toggle] SD commit FAIL rc=0x%X; rolling back",
-                              commitResult);
-        ec.clear();
-        std::filesystem::rename(destination, source, ec);
-        const Result rollbackCommit = fsdevCommitDevice("sdmc");
-        if (ec || R_FAILED(rollbackCommit)) {
-            const int detail = ec ? ec.value() : static_cast<int>(rollbackCommit);
-            switchu::FileLog::log(
-                "[toggle] rollback FAIL ec=%d commit=0x%X",
-                ec.value(), rollbackCommit);
-            return failure(ToggleError::RollbackFailed, detail, *this);
-        }
-        return failure(ToggleError::CommitFailed,
-                       static_cast<int>(commitResult), *this);
-    }
+    if (R_FAILED(commitResult))
+        switchu::FileLog::log("[toggle] SD commit rc=0x%X (ignored)", commitResult);
 
     switchu::FileLog::log("[toggle] success target=%s",
                           enabled ? "enabled" : "disabled");

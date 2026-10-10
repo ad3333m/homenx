@@ -45,17 +45,20 @@ jobs:
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y -vD --root
 
       - name: Build
-        run: xmake build -vD --root SwitchU
+        run: |
+          xmake build -vD --root SwitchU
+          xmake build -vD --root HomeNX-Toggle
 
       - name: Collect
         run: |
           mkdir -p out
           cp build/cross/aarch64/release/HomeNX.nro out/
+          cp build/cross/aarch64/release/HomeNX-Toggle.nro out/
 
       - uses: actions/upload-artifact@v4
         with:
           name: HomeNX
-          path: out/HomeNX.nro
+          path: out/*.nro
 
       - name: Publish release "latest"
         env:

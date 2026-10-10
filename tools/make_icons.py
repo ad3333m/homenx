@@ -99,7 +99,22 @@ def app_icon():
     im.resize((256, 256), Image.LANCZOS).save("icon.jpg", quality=95)
 
 
+def toggle_icon():
+    # HomeNX's icon with a power symbol, for the HomeNX Toggle .nro
+    W = 256 * S
+    im = Image.open("icon.jpg").convert("RGB").resize((W, W), Image.LANCZOS)
+    d = ImageDraw.Draw(im)
+    cx, cy, r = W * 0.8, W * 0.2, W * 0.16
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(230, 40, 60))
+    w = int(W * 0.035)
+    rr = r * 0.55
+    d.arc([cx - rr, cy - rr, cx + rr, cy + rr], start=-60, end=240, fill="white", width=w)
+    d.line([cx, cy - rr * 1.15, cx, cy - rr * 0.1], fill="white", width=w)
+    im.resize((256, 256), Image.LANCZOS).save("projects/toggle/icon.jpg", quality=95)
+
+
 if __name__ == "__main__":
     for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()
+    toggle_icon()

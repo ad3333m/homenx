@@ -317,6 +317,24 @@ target("SwitchU-Manager")
     set_values("switch.format",  "nro")
 target_end()
 
+-- HomeNX Toggle: turns the frontend off/on and restarts (no UI framework).
+target("HomeNX-Toggle")
+    set_kind("binary")
+    if not is_plat("cross") then return end
+
+    set_toolchains("devkita64")
+    set_languages("c++20")
+    add_rules("switch")
+    add_files("projects/toggle/src/*.cpp")
+    add_syslinks("nx")
+
+    set_values("switch.name",    "HomeNX-Toggle")
+    set_values("switch.author",  "Adam")
+    set_values("switch.version", version)
+    set_values("switch.icon",    "projects/toggle/icon.jpg")
+    set_values("switch.format",  "nro")
+target_end()
+
 target("switchu-daemon")
     set_kind("binary")
     if not is_plat("cross") then return end
