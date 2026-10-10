@@ -1,6 +1,7 @@
 #include "TabBuilders.hpp"
 #include <nxui/core/I18n.hpp>
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -101,6 +102,27 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         SettingItem it;
         it.label = "HomeNX";
         it.type = ItemType::Section;
+        t.items.push_back(std::move(it));
+    }
+    {
+        // Same flag the daemon drops when application mode fails on this console.
+        static constexpr const char* kAppletFlag = "sdmc:/switch/SwitchU/homebrew_applet_mode";
+        std::error_code ec;
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.hb_app", "Sphaira as an application");
+        it.description = i18n.tr("settings.homenx.hb_app_desc",
+            "On: Sphaira and the custom button get full memory by borrowing one of your games, so the "
+            "Switch shows that game's Nintendo Switch logo while it starts. Off: they open instantly "
+            "over the Album, with less memory.");
+        it.type = ItemType::Toggle;
+        it.boolVal = !std::filesystem::exists(kAppletFlag, ec);
+        it.onChange = [](SettingItem& self) {
+            std::error_code err;
+            if (self.boolVal)
+                std::filesystem::remove(kAppletFlag, err);
+            else
+                std::ofstream(kAppletFlag) << "settings";
+        };
         t.items.push_back(std::move(it));
     }
     {

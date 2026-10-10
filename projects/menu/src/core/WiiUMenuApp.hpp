@@ -468,6 +468,7 @@ private:
     float m_fadeTarget = 0.f;
     bool m_fadeHeld = false;   // one fully black frame presented before running
     float m_fadeRecover = 0.f; // frontend: fade back in if the launch never left
+    bool m_fadeOwnsMusic = false;
     std::vector<ListDetailScreen::Entry> m_newsEntries;
     std::string m_newsEmpty;
     std::shared_ptr<SteamGridDbPickerScreen> m_steamGridDbPicker;
@@ -708,11 +709,13 @@ private:
     enum class LeaveSplashPhase { None, Hold, Fade };
     LeaveSplashPhase m_leaveSplashPhase = LeaveSplashPhase::None;
     float m_leaveSplashHoldRemaining = 0.f;
+    float m_leaveSplashWaited = 0.f;
     float m_leaveSplashFade = 0.f;
     bool m_leaveSplashDrawn = false;
     bool m_leaveMotionFrozen = false;
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
+    static constexpr float kLeaveSplashMaxWait = 2.5f; // never block HOME longer than this
     static constexpr float kLeaveSplashFadeDur = 0.15f; // HomeNX: a long crossfade ghosts two frames (looks blurry)
 
     bool  m_audioInitPending = false;

@@ -195,6 +195,13 @@ inline bool rotate_current_log(const char* log_dir, const char* base_name, const
 
     bool can_truncate = true;
     std::error_code ec;
+    // HomeNX: the menu restarts on every HOME press. Renaming + pruning logs each
+    // time was SD work on the return path; only roll a log over once it's big.
+    constexpr std::uintmax_t kRotateBytes = 1024 * 1024;
+    const std::uintmax_t size = std::filesystem::file_size(current_path, ec);
+    if (!ec && size < kRotateBytes)
+        return false; // append
+    ec.clear();
     if (std::filesystem::exists(current_path, ec)) {
         char archived_path[256];
         build_archived_log_path(archived_path, sizeof(archived_path), log_dir, base_name, extension);

@@ -1434,7 +1434,7 @@ static void handleMenuCommand() {
             recordOperationResult(requestId, msg, result,
                                   daemon::app::suspendedTitleId());
         }
-        switchu::FileLog::logCommit("[smi] queued resume (actions=%zu)", g_actionQueue.size());
+        switchu::FileLog::log("[smi] queued resume (actions=%zu)", g_actionQueue.size());
         break;
 
     case smi::SystemMessage::TerminateApplication:
@@ -1680,9 +1680,9 @@ static bool handleAction(daemon::SystemAction& action) {
         }
 
         case daemon::SystemActionType::ResumeApplication: {
-            switchu::FileLog::logCommit("[action] resume: calling app::resume()");
+            switchu::FileLog::log("[action] resume: calling app::resume()");
             Result rc = daemon::app::resume();
-            switchu::FileLog::logCommit("[action] resume: app::resume() -> 0x%X", rc);
+            switchu::FileLog::log("[action] resume: app::resume() -> 0x%X", rc);
             recordOperationResult(action.requestId, smi::SystemMessage::ResumeApplication,
                                   rc, daemon::app::suspendedTitleId());
             if (R_FAILED(rc)) {
@@ -1932,7 +1932,7 @@ static void mainLoop() {
         // Homebrew that dies within seconds never really started (bad host
         // title or loader refused the hbl code): open it over the Album instead.
         const bool homebrewDiedEarly = g_homebrewHostTitleId != 0 &&
-            armTicksToNs(armGetSystemTick() - g_homebrewLaunchedAt) < 6'000'000'000ULL;
+            armTicksToNs(armGetSystemTick() - g_homebrewLaunchedAt) < 2'500'000'000ULL;
         releaseHomebrewHost();
         if (g_pendingHomeMenuLaunch) {
             switchu::FileLog::log("[main] clearing pending HOME foreground handoff: app exited");

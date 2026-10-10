@@ -743,7 +743,18 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
 
     if (m_leaveSplashPhase == LeaveSplashPhase::Hold) {
         m_leaveSplashHoldRemaining -= dt;
-        if (m_leaveSplashHoldRemaining <= 0.f) {
+        m_leaveSplashWaited += dt;
+        // HomeNX: the saved HOME frame stays up until the live menu underneath
+        // is complete (page icons, sidebar art, music started). Fading earlier
+        // showed placeholders and silence that "fixed themselves" a moment later.
+        const bool sceneReady = m_deferredInitialAssetFrames == 0
+            && !(m_grid && m_iconStreamer.needsVisibleLoads(m_grid->currentPage(),
+                                                            m_grid->iconsPerPage()))
+            && (!m_config.musicEnabled || (m_audioStarted && !m_audioPlaybackRestorePending));
+        if ((m_leaveSplashHoldRemaining <= 0.f && sceneReady)
+            || m_leaveSplashWaited >= kLeaveSplashMaxWait) {
+            DebugLog::log("[leave] scene %s after %.2fs", sceneReady ? "ready" : "timeout",
+                          m_leaveSplashWaited);
             m_leaveSplashHoldRemaining = 0.f;
             m_leaveSplashPhase = LeaveSplashPhase::Fade;
             DebugLog::log("[leave] splash crossfade begin");
@@ -5181,16 +5192,32 @@ void WiiUMenuApp::finalizeRefresh() {
 #endif
 
 void WiiUMenuApp::onUpdate(float dt) {
-    // HomeNX fade: ~0.18 s each way.
-    const float fadeStep = dt / 0.18f;
+    // HomeNX fade: ~0.3 s each way, and the music fades with the picture
+    // (the launch animation runs its own music fade for games).
+    const float fadeStep = dt / 0.3f;
     m_fade = m_fade < m_fadeTarget ? std::min(m_fadeTarget, m_fade + fadeStep)
                                    : std::max(m_fadeTarget, m_fade - fadeStep);
+    if (m_audioStarted && !(m_launchAnim && m_launchAnim->isPlaying())) {
+        if (m_fade > 0.f) {
+            m_audio.setMusicFade(1.f - nxui::Easing::outQuad(m_fade));
+            m_fadeOwnsMusic = true;
+        } else if (m_fadeOwnsMusic) {
+            m_audio.setMusicFade(1.f);
+            m_fadeOwnsMusic = false;
+        }
+    }
     if (m_fadeThen && m_fade >= 1.f) {
         if (!m_fadeHeld) {
             m_fadeHeld = true; // let one black frame reach the screen first
         } else {
             auto fn = std::move(m_fadeThen);
             m_fadeThen = {};
+#ifdef SWITCHU_MENU
+            if (m_audioStarted) { // the menu exits now: pick the song up here on return
+                persistMusicPlaybackState();
+                m_config.save();
+            }
+#endif
             fn();
 #ifndef SWITCHU_MENU
             m_fadeTarget = 0.f; // the .nro's applet call returned: fade back in
@@ -5631,7 +5658,9 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         m_loadedSoundPreset = resolveSoundPresetId(m_config.soundPreset);
         m_audioStarted = true;
         m_audioPlaybackRestorePending = true;
-        m_audioPlaybackRestoreDelayFrames = 0; // restore as soon as splash + deferred uploads clear
+        // A few frames after the deferred GPU uploads, never in the same burst
+        // (that froze AppletReturn upstream).
+        m_audioPlaybackRestoreDelayFrames = 3;
         DebugLog::log("[init] Audio ready (deferred); playback restore armed delay=%d",
                       m_audioPlaybackRestoreDelayFrames);
     }

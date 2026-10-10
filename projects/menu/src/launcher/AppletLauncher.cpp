@@ -156,11 +156,11 @@ void AppletLauncher::resumeApplication() {
         DebugLog::log("[launcher] no app suspended!");
         return;
     }
-    switchu::FileLog::logCommit("[launcher] resume: sending command");
+    switchu::FileLog::log("[launcher] resume: sending command");
     const Result rc = switchu::menu::smi_cmd::resumeApplication();
-    switchu::FileLog::logCommit("[launcher] resume: command returned 0x%X", rc);
+    switchu::FileLog::log("[launcher] resume: command returned 0x%X", rc);
     if (m_cb.requestExit) m_cb.requestExit();
-    switchu::FileLog::logCommit("[launcher] resume: exit requested");
+    switchu::FileLog::log("[launcher] resume: exit requested");
 }
 
 void AppletLauncher::terminateApplication() {
