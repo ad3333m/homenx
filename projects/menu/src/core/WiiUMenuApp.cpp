@@ -4212,11 +4212,53 @@ void WiiUMenuApp::buildGrid() {
     sidebarActions.onControllers = [this]() {
         scheduleLeaveCapture([this]() { m_launcher.launchControllerPairing(); });
     };
-#else
-    sidebarActions.onAlbum       = [this]() { m_audio.playSfx(Sfx::Activate); };
-    sidebarActions.onMiiEditor   = [this]() { m_audio.playSfx(Sfx::Activate); };
-    sidebarActions.onControllers = [this]() { m_audio.playSfx(Sfx::Activate); };
 #endif
+    // Homebrew: the applet calls block until the applet closes, so pause music around them.
+    auto applet = [this](void (AppletLauncher::*open)()) {
+        return [this, open]() {
+            m_audio.playSfx(Sfx::Activate);
+            const bool resume = m_audio.isPlaying();
+            if (resume) m_audio.pause();
+            (m_launcher.*open)();
+            if (resume) m_audio.play();
+        };
+    };
+#ifndef SWITCHU_MENU
+    sidebarActions.onAlbum = [this]() {
+        auto& i18n = nxui::I18n::instance();
+        auto open = [this]() {
+            auto& i18n = nxui::I18n::instance();
+            m_audio.playSfx(Sfx::ModalHide);
+            if (!m_launcher.launchSphaira() && m_dialog) {
+                m_dialog->show(i18n.tr("sphaira.title", "Sphaira"),
+                               i18n.tr("sphaira.missing",
+                                       "sphaira.nro was not found in sdmc:/switch/sphaira/, sdmc:/switch/ or sdmc:/hbmenu.nro."),
+                               {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+                focusManager().setFocus(m_dialog.get());
+            }
+        };
+        if (appletGetAppletType() == AppletType_Application || !m_dialog) {
+            open();
+            return;
+        }
+        // Sphaira inherits HomeNX's mode, so applet (Album) mode carries over.
+        m_audio.playSfx(Sfx::ModalShow);
+        m_dialog->show(i18n.tr("sphaira.title", "Sphaira"),
+                       i18n.tr("sphaira.applet_mode",
+                               "HomeNX is in applet mode, so Sphaira would be too. For application mode, "
+                               "hold R while starting a game, then open HomeNX and press this again."),
+                       {{i18n.tr("sphaira.open_anyway", "Open anyway"), open, true},
+                        {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
+                       0, {});
+        focusManager().setFocus(m_dialog.get());
+    };
+    sidebarActions.onMiiEditor   = applet(&AppletLauncher::launchMiiEditor);
+    sidebarActions.onControllers = applet(&AppletLauncher::launchControllerPairing);
+#endif
+    sidebarActions.onEshop   = applet(&AppletLauncher::launchEshop);
+    sidebarActions.onNews    = applet(&AppletLauncher::launchNews);
+    sidebarActions.onBrowser = applet(&AppletLauncher::launchBrowser);
+    sidebarActions.onFriends = applet(&AppletLauncher::launchFriends);
     sidebarActions.onSettings = [this]() {
         m_audio.playSfx(Sfx::ModalShow);
         if (m_settings) {

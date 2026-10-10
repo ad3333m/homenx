@@ -243,8 +243,9 @@ target("SwitchU")
 
     if has_config("homebrew") then
         add_defines("SWITCHU_HOMEBREW")
-        set_values("switch.name",    "SwitchU")
-        set_values("switch.author",  "PoloNX")
+        set_values("switch.name",    "HomeNX")
+        set_values("switch.author",  "Adam (based on SwitchU by PoloNX)")
+        set_values("switch.icon",    "icon.jpg")
         set_values("switch.version", version)
         set_values("switch.romfs",   "romfs")
         set_values("switch.tid",     "0100000000001000")

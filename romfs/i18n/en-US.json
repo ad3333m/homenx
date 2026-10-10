@@ -150,6 +150,10 @@
     "controllers": "Controllers",
     "theme_shop": "Theme Shop",
     "sleep": "Sleep",
+    "eshop": "Nintendo eShop",
+    "news": "News",
+    "browser": "Browser",
+    "friends": "Friends",
     "music": "Music"
   },
   "hint": {

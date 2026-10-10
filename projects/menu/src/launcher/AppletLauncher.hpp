@@ -18,6 +18,11 @@ public:
     void launchControllerPairing();
     void launchControllerRemapping();
     void launchNetConnect();
+    bool launchSphaira();
+    void launchEshop();
+    void launchNews();
+    void launchBrowser();
+    void launchFriends();
     void launchUserPage(AccountUid uid);
     void launchUserCreator();
     void enterSleep();

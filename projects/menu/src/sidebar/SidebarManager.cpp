@@ -7,7 +7,8 @@
 
 namespace {
 
-constexpr int kSidebarIconCount = 6;
+constexpr int kSidebarIconCount = 10;
+constexpr int kSidebarRows = 5;
 constexpr float kSidebarButtonSize = 70.f;
 constexpr float kSidebarColumnGap = 16.f;
 constexpr float kSidebarMarginX = 14.f;
@@ -15,7 +16,7 @@ constexpr float kDynamicStripButtonSize = 56.f;
 constexpr float kDynamicStripGap = 10.f;
 constexpr float kDynamicStripY = 17.f;
 constexpr float kDynamicLeftGroupX = 190.f;
-constexpr float kDynamicRightGroupX = 902.f;
+constexpr float kDynamicRightGroupEnd = 1100.f;
 
 bool pathExists(const std::string& path) {
     std::error_code ec;
@@ -40,7 +41,7 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     const float gap = kSidebarColumnGap;
     const float leftX = kSidebarMarginX;
     const float rightX = 1280.f - kSidebarMarginX - btnSize;
-    const float totalH = 3 * btnSize + 2.f * gap;
+    const float totalH = kSidebarRows * btnSize + (kSidebarRows - 1) * gap;
     float startY = 360.f - totalH * 0.5f;
 
     m_leftButtons.clear();
@@ -66,36 +67,35 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         return btn;
     };
 
-    {
-        auto album = makeBtn(&m_icons[0], "sidebar.album", "Album", actions.onAlbum);
-        m_albumButton = album.get();
-        album->setRect({leftX, startY + 0.f * (btnSize + gap), btnSize, btnSize});
-        m_leftButtons.push_back(std::move(album));
+    auto column = [&](std::vector<std::shared_ptr<AppletButton>>& col, float x,
+                      std::shared_ptr<AppletButton> btn) {
+        btn->setRect({x, startY + static_cast<float>(col.size()) * (btnSize + gap), btnSize, btnSize});
+        AppletButton* raw = btn.get();
+        col.push_back(std::move(btn));
+        return raw;
+    };
 
-        auto miiEditor = makeBtn(&m_icons[1], "sidebar.mii_editor", "Mii Editor", actions.onMiiEditor);
-        miiEditor->setRect({leftX, startY + 1.f * (btnSize + gap), btnSize, btnSize});
-        m_leftButtons.push_back(std::move(miiEditor));
+    m_albumButton = column(m_leftButtons, leftX,
+        makeBtn(&m_icons[0], "sidebar.sphaira", "Sphaira", actions.onAlbum));
+    column(m_leftButtons, leftX,
+        makeBtn(&m_icons[1], "sidebar.mii_editor", "Mii Editor", actions.onMiiEditor));
+    column(m_leftButtons, leftX,
+        makeBtn(&m_icons[7], "sidebar.news", "News", actions.onNews));
+    column(m_leftButtons, leftX,
+        makeBtn(&m_icons[8], "sidebar.browser", "Browser", actions.onBrowser));
+    m_settingsButton = column(m_leftButtons, leftX,
+        makeBtn(&m_icons[5], "sidebar.settings", "Settings", actions.onSettings));
 
-        auto settings = makeBtn(&m_icons[5], "sidebar.settings", "Settings", actions.onSettings);
-        m_settingsButton = settings.get();
-        settings->setRect({leftX, startY + 2.f * (btnSize + gap), btnSize, btnSize});
-        m_leftButtons.push_back(std::move(settings));
-    }
-
-    {
-        auto ctrl = makeBtn(&m_icons[2], "sidebar.controllers", "Controllers", actions.onControllers);
-        ctrl->setRect({rightX, startY + 0.f * (btnSize + gap), btnSize, btnSize});
-        m_rightButtons.push_back(std::move(ctrl));
-
-        auto sleep = makeBtn(&m_icons[3], "sidebar.sleep", "Sleep", actions.onSleep);
-        sleep->setRect({rightX, startY + 1.f * (btnSize + gap), btnSize, btnSize});
-        m_rightButtons.push_back(std::move(sleep));
-
-        auto themeShop = makeBtn(&m_icons[4], "sidebar.theme_shop", "Theme Shop", actions.onMiiverse);
-        m_themeShopButton = themeShop.get();
-        themeShop->setRect({rightX, startY + 2.f * (btnSize + gap), btnSize, btnSize});
-        m_rightButtons.push_back(std::move(themeShop));
-    }
+    column(m_rightButtons, rightX,
+        makeBtn(&m_icons[6], "sidebar.eshop", "Nintendo eShop", actions.onEshop));
+    column(m_rightButtons, rightX,
+        makeBtn(&m_icons[2], "sidebar.controllers", "Controllers", actions.onControllers));
+    column(m_rightButtons, rightX,
+        makeBtn(&m_icons[9], "sidebar.friends", "Friends", actions.onFriends));
+    m_themeShopButton = column(m_rightButtons, rightX,
+        makeBtn(&m_icons[4], "sidebar.theme_shop", "Theme Shop", actions.onMiiverse));
+    column(m_rightButtons, rightX,
+        makeBtn(&m_icons[3], "sidebar.sleep", "Sleep", actions.onSleep));
 
     if (!m_leftButtons.empty()) {
         m_leftButtons.front()->setCustomNavigation(nxui::FocusDirection::UP, m_leftButtons.front().get());
@@ -130,7 +130,10 @@ void SidebarManager::setDynamicLineLayout(bool enabled) {
             auto* button = ordered[i];
             const bool rightGroup = i >= m_leftButtons.size();
             const std::size_t groupIndex = rightGroup ? i - m_leftButtons.size() : i;
-            const float groupX = rightGroup ? kDynamicRightGroupX : kDynamicLeftGroupX;
+            const float groupX = rightGroup
+                ? kDynamicRightGroupEnd - static_cast<float>(m_rightButtons.size()) *
+                      (kDynamicStripButtonSize + kDynamicStripGap)
+                : kDynamicLeftGroupX;
             button->setRect({groupX + static_cast<float>(groupIndex) *
                                       (kDynamicStripButtonSize + kDynamicStripGap),
                              kDynamicStripY,
@@ -144,7 +147,7 @@ void SidebarManager::setDynamicLineLayout(bool enabled) {
         return;
     }
 
-    const float totalH = 3.f * kSidebarButtonSize + 2.f * kSidebarColumnGap;
+    const float totalH = kSidebarRows * kSidebarButtonSize + (kSidebarRows - 1) * kSidebarColumnGap;
     const float startY = 360.f - totalH * 0.5f;
     const float rightX = 1280.f - kSidebarMarginX - kSidebarButtonSize;
     for (std::size_t i = 0; i < m_leftButtons.size(); ++i) {
@@ -260,7 +263,8 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     };
 
     static const char* iconFiles[] = {
-        "album.png", "mii_editor.png", "controller.png", "power.png", "themes.png", "settings.png",
+        "sphaira.png", "mii_editor.png", "controller.png", "power.png", "themes.png", "settings.png",
+        "eshop.png", "news.png", "browser.png", "friends.png",
     };
     if ((int)m_icons.size() != kSidebarIconCount)
         m_icons.resize(kSidebarIconCount);
@@ -268,7 +272,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         loadIconTexture(i, iconFiles[i]);
 
     static const struct { int iconIdx; const char* webpFile; bool useFirstFrame; } animDefs[] = {
-        { 0, "album.webp",      false },
+        { 0, "sphaira.webp",    false },
         { 1, "mii_editor.webp", false },
         { 2, "controller.webp", true  },
         { 3, "power.webp",      false },
@@ -283,13 +287,11 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     }
 
     for (const auto& def : animDefs) {
-        AppletButton* btn = nullptr;
-        if (def.iconIdx == 0) btn = m_leftButtons[0].get();
-        else if (def.iconIdx == 1) btn = m_leftButtons[1].get();
-        else if (def.iconIdx == 2) btn = m_rightButtons[0].get();
-        else if (def.iconIdx == 3) btn = m_rightButtons[1].get();
-        else if (def.iconIdx == 4) btn = m_rightButtons[2].get();
-        else if (def.iconIdx == 5) btn = m_leftButtons[2].get();
+        AppletButton* const byIcon[] = {
+            m_leftButtons[0].get(), m_leftButtons[1].get(), m_rightButtons[1].get(),
+            m_rightButtons[4].get(), m_rightButtons[3].get(), m_leftButtons[4].get(),
+        };
+        AppletButton* btn = byIcon[def.iconIdx];
         if (!btn)
             continue;
 

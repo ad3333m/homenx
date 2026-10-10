@@ -1,116 +1,68 @@
-name: Switch build
+name: Build HomeNX.nro
 
 on:
   push:
-    branches:
-      - master
-  pull_request:
-    types:
-      - opened
-      - reopened
-      - synchronize
+    branches: [master]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  build-switch:
-    if: github.event_name != 'push' || !contains(github.event.head_commit.message, 'ci skip')
+  nro:
     runs-on: ubuntu-latest
     container: devkitpro/devkita64
-
-    strategy:
-      fail-fast: false
-      matrix:
-        mode:
-          - debug
-#          - release
-        variant:
-          - homebrew
-          - sysmodule
-
     steps:
-      - name: Get current date as cache key
+      - name: Get current week as cache key
         id: cache_key
         run: echo "key=$(date +'%W')" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install system dependencies
-        shell: bash
         run: |
-          if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get -y install curl gcc g++ zip zstd
-          else
-            apt-get update
-            apt-get -y install curl gcc g++ zip zstd
-          fi
+          apt-get update
+          apt-get -y install curl gcc g++ zip zstd cmake
 
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
 
-      - name: Setup xmake
-        uses: xmake-io/github-action-setup-xmake@v1
+      - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: branch@dev
           actions-cache-folder: .xmake-cache-W${{ steps.cache_key.outputs.key }}
 
       - name: Update xmake repository
-        shell: bash
+        run: xmake repo -u --root
+
+      - name: Configure (homebrew .nro)
+        run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y -vD --root
+
+      - name: Build
+        run: xmake build -vD --root SwitchU
+
+      - name: Collect
         run: |
-          xmake repo --update --root
-          xmake repo -u --root
+          mkdir -p out
+          cp build/cross/aarch64/release/HomeNX.nro out/
 
-      - name: Configure xmake
-        shell: bash
-        run: |
-          if [ "${{ matrix.variant }}" = "homebrew" ]; then
-            xmake f --yes -p cross -m "${{ matrix.mode }}" -a aarch64 --toolchain=devkita64 --homebrew=y -vD --root
-          else
-            xmake f --yes -p cross -m "${{ matrix.mode }}" -a aarch64 --toolchain=devkita64 -vD --root
-          fi
-
-      - name: Build SwitchU
-        run: xmake -vD --root
-
-      - name: Package install layout
-        run: xmake install -o "dist/${{ matrix.variant }}/${{ matrix.mode }}" --root
-
-      - name: Create sysmodule zip
-        if: matrix.variant == 'sysmodule'
-        shell: bash
-        run: |
-          repo_root="$PWD"
-          package_root="dist/sysmodule/${{ matrix.mode }}"
-          archive_path="$repo_root/artifacts/SwitchU-sysmodule-${{ matrix.mode }}.zip"
-
-          test -d "$package_root/atmosphere"
-          test -d "$package_root/switch"
-
-          mkdir -p "$repo_root/artifacts"
-          cd "$package_root"
-          zip -r "$archive_path" atmosphere switch
-
-      - name: Upload homebrew artifact
-        if: matrix.variant == 'homebrew'
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: SwitchU-homebrew-${{ matrix.mode }}
-          if-no-files-found: error
-          path: |
-            build/cross/aarch64/${{ matrix.mode }}/SwitchU.nro
-            build/cross/aarch64/${{ matrix.mode }}/SwitchU-Manager.nro
-            dist/homebrew/${{ matrix.mode }}/
+          name: HomeNX
+          path: out/HomeNX.nro
 
-      - name: Upload sysmodule artifact
-        if: matrix.variant == 'sysmodule'
-        uses: actions/upload-artifact@v4
-        with:
-          name: SwitchU-sysmodule-${{ matrix.mode }}
-          if-no-files-found: error
-          path: artifacts/SwitchU-sysmodule-${{ matrix.mode }}.zip
+      - name: Publish release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master."
+          gh release upload latest out/HomeNX.nro -R "$GITHUB_REPOSITORY" --clobber
