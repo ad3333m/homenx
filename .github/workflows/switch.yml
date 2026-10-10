@@ -5,6 +5,9 @@ on:
     branches: [master]
   workflow_dispatch:
 
+env:
+  HOMENX_BUILD: ${{ github.run_number }}
+
 permissions:
   contents: write
 
@@ -47,7 +50,7 @@ jobs:
       - name: Build
         run: |
           xmake build -vD --root SwitchU
-          xmake build -vD --root HomeNX-Toggle
+          xmake build -vD --root SwitchU-Manager
 
       - name: Collect
         run: |
@@ -124,3 +127,5 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master." || true
           gh release upload latest out/* -R "$GITHUB_REPOSITORY" --clobber
+          # Title last: HomeNX Toggle treats "HomeNX build N" as "zip N is ready".
+          gh release edit latest -R "$GITHUB_REPOSITORY" --title "HomeNX build $HOMENX_BUILD"

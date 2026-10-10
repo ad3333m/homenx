@@ -26,9 +26,11 @@ std::string fileStem(const std::string& path) {
     return name.substr(0, name.size() - 4);
 }
 
+} // namespace
+
 // NRO layout (libnx nro.h): NroStart, NroHeader (size = end of code), then an
 // NroAssetHeader whose section offsets are relative to itself.
-bool readNro(const std::string& path, HomebrewApp& app) {
+bool readHomebrew(const std::string& path, HomebrewApp& app) {
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
     app.path = path;
@@ -75,6 +77,8 @@ bool readNro(const std::string& path, HomebrewApp& app) {
     return true;
 }
 
+namespace {
+
 void scanDir(const std::string& dir, int depth, const std::string& skip, std::vector<HomebrewApp>& out) {
     DIR* d = opendir(dir.c_str());
     if (!d) return;
@@ -85,7 +89,7 @@ void scanDir(const std::string& dir, int depth, const std::string& skip, std::ve
             if (depth > 0) scanDir(path, depth - 1, skip, out);
         } else if (endsWithNro(e->d_name) && strcasecmp(path.c_str(), skip.c_str()) != 0) {
             HomebrewApp app;
-            if (readNro(path, app)) out.push_back(std::move(app));
+            if (readHomebrew(path, app)) out.push_back(std::move(app));
         }
     }
     closedir(d);
@@ -101,4 +105,17 @@ std::vector<HomebrewApp> scanHomebrew(const std::string& skipPath) {
     });
     DebugLog::log("[homebrew] found %d nro", (int)apps.size());
     return apps;
+}
+
+std::string findSphaira(bool allowHbmenu) {
+    auto isSphaira = [](const std::string& path) {
+        HomebrewApp app;
+        return readHomebrew(path, app) && strcasecmp(app.name.c_str(), "sphaira") == 0;
+    };
+    for (const char* path : {"sdmc:/switch/sphaira/sphaira.nro", "sdmc:/switch/sphaira.nro"})
+        if (isSphaira(path)) return path;
+    for (const HomebrewApp& app : scanHomebrew(""))
+        if (strcasecmp(app.name.c_str(), "sphaira") == 0) return app.path;
+    if (allowHbmenu && isSphaira("sdmc:/hbmenu.nro")) return "sdmc:/hbmenu.nro";
+    return {};
 }

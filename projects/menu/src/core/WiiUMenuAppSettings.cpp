@@ -1463,6 +1463,7 @@ void WiiUMenuApp::openMiis() {
     auto& i18n = nxui::I18n::instance();
     Result rc = 0;
     std::vector<MiiCharInfo> miis = loadMiis(rc);
+    app().gpu().waitIdle(); // textures are replaced below
     std::vector<ListDetailScreen::Entry> entries;
 
     // The face editor itself is the system's Mii Maker; HomeNX lists the Miis
@@ -1498,9 +1499,20 @@ void WiiUMenuApp::openMiis() {
         e.body = i18n.tr("mii.favourite_colour", "Favourite colour") + ": " + miiFavouriteColourName(mii) + "\n"
                + i18n.tr("mii.height", "Height") + ": " + size(mii.mii_height) + "\n"
                + i18n.tr("mii.build", "Build") + ": " + size(mii.mii_width);
-        e.drawPortrait = [mii](nxui::Renderer& ren, const nxui::Rect& r, float opacity) {
-            drawMiiPortrait(ren, r, mii, opacity);
-        };
+        // The Mii's real face (Mii Studio render, cached); a drawing offline.
+        // ponytail: first open fetches uncached faces on the UI thread.
+        const std::vector<std::uint8_t> face = miiFaceImage(mii);
+        if (!face.empty()) {
+            auto tex = std::make_shared<nxui::Texture>();
+            if (tex->loadFromMemory(app().gpu(), app().renderer(), face.data(), face.size(), 256)) {
+                e.image = std::move(tex);
+                e.roundImage = true;
+            }
+        }
+        if (!e.image)
+            e.drawPortrait = [mii](nxui::Renderer& ren, const nxui::Rect& r, float opacity) {
+                drawMiiPortrait(ren, r, mii, opacity);
+            };
         e.actionHint = i18n.tr("mii.edit_hint", "Press A to edit in Mii Maker");
         e.onActivate = [this, reopen]() {
 #ifdef SWITCHU_MENU

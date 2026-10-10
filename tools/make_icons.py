@@ -110,7 +110,7 @@ def toggle_icon():
     rr = r * 0.55
     d.arc([cx - rr, cy - rr, cx + rr, cy + rr], start=-60, end=240, fill="white", width=w)
     d.line([cx, cy - rr * 1.15, cx, cy - rr * 0.1], fill="white", width=w)
-    im.resize((256, 256), Image.LANCZOS).save("projects/toggle/icon.jpg", quality=95)
+    im.resize((256, 256), Image.LANCZOS).save("projects/manager/icon.jpg", quality=95)
 
 
 if __name__ == "__main__":

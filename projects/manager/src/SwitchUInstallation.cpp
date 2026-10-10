@@ -24,7 +24,9 @@ ToggleResult failure(ToggleError error, int detail,
 
 InstallationSnapshot SwitchUInstallation::inspect() const {
     const bool active = regularFileExists(kActiveOverride);
-    const bool disabled = regularFileExists(kDisabledOverride);
+    const bool movedAside = !active && regularFileExists(
+        (std::string(kOverrideDirOff) + "/exefs.nsp").c_str());
+    const bool disabled = regularFileExists(kDisabledOverride) || movedAside;
 
     InstallationSnapshot snapshot;
     snapshot.menuPayloadPresent = regularFileExists(kMenuMain)
@@ -60,7 +62,19 @@ ToggleResult SwitchUInstallation::setEnabled(bool enabled) const {
     std::string source = enabled ? kDisabledOverride : kActiveOverride;
     std::string destination = enabled ? kActiveOverride : kDisabledOverride;
     std::error_code ec;
+    if (enabled && !regularFileExists(kDisabledOverride)) {
+        // Disabled by moving the folder aside: move it back.
+        source = kOverrideDirOff;
+        destination = kOverrideDir;
+    }
     std::filesystem::rename(source, destination, ec);
+    if (ec && !enabled) {
+        switchu::FileLog::log("[toggle] file rename failed ec=%d, moving the folder", ec.value());
+        ec.clear();
+        source = kOverrideDir;
+        destination = kOverrideDirOff;
+        std::filesystem::rename(source, destination, ec);
+    }
     if (ec) {
         switchu::FileLog::log("[toggle] rename FAIL target=%s ec=%d",
                               enabled ? "enabled" : "disabled", ec.value());

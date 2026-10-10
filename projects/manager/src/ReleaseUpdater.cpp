@@ -22,8 +22,10 @@
 namespace switchu::manager {
 namespace {
 
+// HomeNX: CI republishes one rolling release tagged "latest" and titles it
+// "HomeNX build <N>" once the frontend zip is uploaded; N is the CI run number.
 constexpr const char* kLatestReleaseUrl =
-    "https://api.github.com/repos/PoloNX/SwitchU/releases/latest";
+    "https://api.github.com/repos/ad3333m/homenx/releases/tags/latest";
 constexpr const char* kWorkRoot = "sdmc:/config/SwitchU/update";
 constexpr const char* kArchivePath = "sdmc:/config/SwitchU/update/SwitchU-update.zip";
 constexpr const char* kArchivePartPath = "sdmc:/config/SwitchU/update/SwitchU-update.zip.part";
@@ -121,7 +123,7 @@ void configureCurl(CURL* curl, const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 12L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "SwitchU-Manager/" SWITCHU_VERSION);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "HomeNX-Toggle/" HOMENX_BUILD);
 }
 
 size_t appendResponse(char* data, size_t size, size_t count, void* user) {
@@ -263,7 +265,8 @@ std::string safeRelativePath(std::string raw) {
     }
     const bool daemon = raw.rfind("atmosphere/contents/0100000000001000/", 0) == 0;
     const bool menu = raw.rfind("switch/SwitchU/", 0) == 0;
-    const bool manager = raw.rfind("switch/SwitchU-Manager/", 0) == 0;
+    const bool manager = raw.rfind("switch/SwitchU-Manager/", 0) == 0
+        || raw.rfind("switch/HomeNX-Toggle/", 0) == 0;
     return daemon || menu || manager ? raw : std::string();
 }
 
@@ -498,8 +501,10 @@ ReleaseInfo ReleaseUpdater::checkLatest() {
         throw std::runtime_error("GitHub did not return a stable release");
 
     ReleaseInfo release;
-    release.version = json.value("tag_name", "");
-    release.name = json.value("name", release.version);
+    release.name = json.value("name", std::string());
+    // "HomeNX build 57" -> "build 57"; versionParts() reads the digits.
+    const std::size_t at = release.name.find("build ");
+    release.version = at == std::string::npos ? std::string() : release.name.substr(at);
     int bestScore = -1;
     if (json.contains("assets") && json["assets"].is_array()) {
         for (const auto& asset : json["assets"]) {
@@ -507,8 +512,8 @@ ReleaseInfo ReleaseUpdater::checkLatest() {
             const std::string normalized = lower(name);
             if (!endsWith(normalized, ".zip")) continue;
             int score = 0;
-            if (normalized == "switchu.zip") score += 100;
-            if (normalized.find("switchu") != std::string::npos) score += 20;
+            if (normalized == "homenx-frontend.zip") score += 100;
+            if (normalized.find("homenx") != std::string::npos) score += 20;
             if (normalized.find("source") != std::string::npos) score -= 50;
             if (score <= bestScore) continue;
             bestScore = score;
@@ -520,7 +525,7 @@ ReleaseInfo ReleaseUpdater::checkLatest() {
         }
     }
     if (release.version.empty() || release.downloadUrl.empty())
-        throw std::runtime_error("Latest GitHub release has no SwitchU ZIP asset");
+        throw std::runtime_error("The latest HomeNX release has no frontend ZIP yet");
     if (release.downloadSize > kMaxArchiveBytes)
         throw std::runtime_error("GitHub release archive exceeds the safety limit");
     release.updateAvailable = isNewerVersion(release.version, kCurrentVersion);

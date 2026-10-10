@@ -4252,9 +4252,9 @@ void WiiUMenuApp::buildGrid() {
     SidebarManager::Actions sidebarActions;
 #ifdef SWITCHU_MENU
     // Frontend: Atmosphere's homebrew loader runs over the Album applet and
-    // starts sdmc:/hbmenu.nro (Sphaira when it is installed as the menu).
+    // starts sdmc:/hbmenu.nro; launchSphaira() copies Sphaira there first.
     sidebarActions.onAlbum = [this]() {
-        scheduleLeaveCapture([this]() { m_launcher.launchAlbum(); });
+        scheduleLeaveCapture([this]() { m_launcher.launchSphaira(); });
     };
 #else
     sidebarActions.onAlbum = [this]() {

@@ -20,6 +20,9 @@ public:
     void launchControllerRemapping();
     void launchNetConnect();
     bool launchSphaira();
+    // Frontend: puts the user's own sdmc:/hbmenu.nro back after launchSphaira()
+    // swapped Sphaira in for a visit. Call when the menu starts.
+    static void restoreHbmenu();
     // Hands the process to an .nro through hbloader (.nro build only).
     bool launchNro(const std::string& path);
     Result createMii();

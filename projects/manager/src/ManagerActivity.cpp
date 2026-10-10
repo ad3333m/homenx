@@ -90,7 +90,7 @@ bool ManagerActivity::onCreate() {
     m_panel->setPanelOpacity(0.98f);
     rootBox().addChild(m_panel);
 
-    m_titleLabel = std::make_shared<nxui::Label>(tr("manager.title", "SwitchU Manager"));
+    m_titleLabel = std::make_shared<nxui::Label>(tr("manager.title", "HomeNX Toggle"));
     m_titleLabel->setFont(&m_titleFont);
     m_titleLabel->setTextColor(m_theme.textPrimary);
     m_titleLabel->setHAlign(nxui::Label::HAlign::Center);
@@ -237,17 +237,17 @@ void ManagerActivity::refreshPresentation() {
     const bool configuredEnabled = m_snapshot.state == InstallationState::Enabled;
 
     if (m_runtimeState == InstallationState::Enabled) {
-        m_statusLabel->setText(tr("manager.status_enabled", "SwitchU enabled"));
+        m_statusLabel->setText(tr("manager.status_enabled", "HomeNX enabled"));
         m_statusLabel->setTextColor(nxui::Color(0.42f, 1.f, 0.72f, 1.f));
         m_statusBadge->setBaseColor(nxui::Color(0.08f, 0.34f, 0.25f, 0.88f));
         m_statusBadge->setBorderColor(nxui::Color(0.35f, 1.f, 0.68f, 0.46f));
     } else if (m_runtimeState == InstallationState::Disabled) {
-        m_statusLabel->setText(tr("manager.status_disabled", "SwitchU disabled"));
+        m_statusLabel->setText(tr("manager.status_disabled", "HomeNX disabled"));
         m_statusLabel->setTextColor(m_theme.textPrimary);
         m_statusBadge->setBaseColor(nxui::Color(0.19f, 0.21f, 0.27f, 0.92f));
         m_statusBadge->setBorderColor(m_theme.panelBorder.withAlpha(0.48f));
     } else {
-        m_statusLabel->setText(tr("manager.status_unknown", "SwitchU state unavailable"));
+        m_statusLabel->setText(tr("manager.status_unknown", "HomeNX state unavailable"));
         m_statusLabel->setTextColor(nxui::Color(1.f, 0.68f, 0.34f, 1.f));
         m_statusBadge->setBaseColor(nxui::Color(0.34f, 0.19f, 0.08f, 0.88f));
         m_statusBadge->setBorderColor(nxui::Color(1.f, 0.62f, 0.22f, 0.48f));
@@ -262,7 +262,7 @@ void ManagerActivity::refreshPresentation() {
         m_noticeLabel->setText("");
     } else if (m_updateState == UpdateUiState::Installing) {
         m_detailLabel->setText(tr("manager.update_installing",
-            "Downloading and installing the SwitchU update..."));
+            "Downloading and installing the HomeNX update..."));
         m_noticeLabel->setText(tr("manager.do_not_close", "Do not close the application."));
     } else if (m_loading) {
         m_detailLabel->setText(tr("manager.applying", "Applying the change safely..."));
@@ -272,8 +272,8 @@ void ManagerActivity::refreshPresentation() {
         m_noticeLabel->setText(tr("manager.no_change", "No unrelated data was modified."));
     } else if (m_restartRequired) {
         m_detailLabel->setText(configuredEnabled
-            ? tr("manager.next_boot_enabled", "SwitchU will be enabled after the next restart.")
-            : tr("manager.next_boot_disabled", "SwitchU will be disabled after the next restart."));
+            ? tr("manager.next_boot_enabled", "HomeNX will be enabled after the next restart.")
+            : tr("manager.next_boot_disabled", "HomeNX will be disabled after the next restart."));
         m_noticeLabel->setText(tr("manager.restart_required", "Restart required"));
     } else if (m_snapshot.state == InstallationState::Conflict) {
         m_detailLabel->setText(tr("manager.conflict",
@@ -281,11 +281,11 @@ void ManagerActivity::refreshPresentation() {
         m_noticeLabel->setText(tr("manager.operation_blocked", "Operation blocked for safety"));
     } else if (m_snapshot.state == InstallationState::Missing) {
         m_detailLabel->setText(tr("manager.missing",
-            "SwitchU's Atmosphere override was not found on the SD card."));
+            "HomeNX's Atmosphere override was not found on the SD card."));
         m_noticeLabel->setText(tr("manager.operation_blocked", "Operation blocked for safety"));
     } else {
         m_detailLabel->setText(runtimeEnabled
-            ? tr("manager.enabled_detail", "The SwitchU HOME menu is configured for this boot.")
+            ? tr("manager.enabled_detail", "The HomeNX HOME menu is configured for this boot.")
             : tr("manager.disabled_detail", "The original Nintendo HOME menu is configured for this boot."));
         m_noticeLabel->setText("");
     }
@@ -293,7 +293,7 @@ void ManagerActivity::refreshPresentation() {
     if (!m_restartRequired && !m_loading && !updaterBusy) {
         if (m_updateState == UpdateUiState::Available) {
             m_noticeLabel->setText(
-                tr("manager.update_available", "A new SwitchU version is available: ")
+                tr("manager.update_available", "A new HomeNX version is available: ")
                 + m_latestRelease.version);
         } else if (m_updateState == UpdateUiState::Error && !m_updateError.empty()) {
             m_noticeLabel->setText(tr("manager.update_check_failed",
@@ -302,8 +302,8 @@ void ManagerActivity::refreshPresentation() {
     }
 
     const std::string toggleText = configuredEnabled
-        ? tr("manager.disable", "Disable SwitchU")
-        : tr("manager.enable", "Enable SwitchU");
+        ? tr("manager.disable", "Disable HomeNX")
+        : tr("manager.enable", "Enable HomeNX");
     m_toggleButton.label->setText(toggleText);
     m_toggleButton.button->setAccessibilityLabel(toggleText);
 
@@ -380,12 +380,12 @@ void ManagerActivity::requestUpdate() {
         return;
     }
     const std::string message =
-        tr("manager.update_confirm_message", "Download and install SwitchU ")
+        tr("manager.update_confirm_message", "Download and install HomeNX ")
         + m_latestRelease.version
         + tr("manager.update_confirm_suffix",
              " from GitHub? Your configuration and themes will be preserved.");
     m_dialog->show(
-        tr("manager.update_confirm_title", "Install SwitchU update?"),
+        tr("manager.update_confirm_title", "Install HomeNX update?"),
         message,
         {
             {tr("manager.cancel", "Cancel"), {}, true},
@@ -409,7 +409,7 @@ void ManagerActivity::startUpdateInstall() {
     m_updateState = UpdateUiState::Installing;
     beginUpdateInputBlock();
     m_updateProgressDialog->show(
-        tr("manager.update_progress_title", "Installing SwitchU update"));
+        tr("manager.update_progress_title", "Installing HomeNX update"));
     m_updateProgressDialog->setProgress(
         0.f, 0.f, tr("manager.update_preparing", "Preparing update..."));
     m_updateInstallFuture = std::async(std::launch::async,
@@ -531,15 +531,15 @@ void ManagerActivity::requestToggle() {
         return;
     const bool enable = m_snapshot.state == InstallationState::Disabled;
     const std::string title = enable
-        ? tr("manager.confirm_enable_title", "Enable SwitchU?")
-        : tr("manager.confirm_disable_title", "Disable SwitchU?");
+        ? tr("manager.confirm_enable_title", "Enable HomeNX?")
+        : tr("manager.confirm_disable_title", "Disable HomeNX?");
     const std::string message = tr("manager.confirm_toggle_message",
         "The change will take effect after a restart.");
     m_dialog->show(title, message,
         {
             {tr("manager.cancel", "Cancel"), {}, true},
-            {enable ? tr("manager.enable", "Enable SwitchU")
-                    : tr("manager.disable", "Disable SwitchU"),
+            {enable ? tr("manager.enable", "Enable HomeNX")
+                    : tr("manager.disable", "Disable HomeNX"),
              [this, enable]() {
                  m_pendingTargetEnabled = enable;
                  m_loading = true;
@@ -572,7 +572,7 @@ std::string ManagerActivity::errorText(ToggleError error, int detail) const {
             message = tr("manager.error_invalid", "The installation state changed. No action was taken.");
             break;
         case ToggleError::MissingMenuPayload:
-            message = tr("manager.error_payload", "The SwitchU menu payload is incomplete. Activation was cancelled.");
+            message = tr("manager.error_payload", "The HomeNX menu payload is incomplete. Activation was cancelled.");
             break;
         case ToggleError::RenameFailed:
             message = tr("manager.error_rename", "The Atmosphere override could not be renamed.");
@@ -584,7 +584,7 @@ std::string ManagerActivity::errorText(ToggleError error, int detail) const {
             message = tr("manager.error_commit", "The SD card could not be synchronized. The change was rolled back.");
             break;
         case ToggleError::RollbackFailed:
-            message = tr("manager.error_rollback", "Rollback failed. Check the SwitchU override files before restarting.");
+            message = tr("manager.error_rollback", "Rollback failed. Check the HomeNX override files before restarting.");
             break;
         case ToggleError::RebootFailed:
             message = tr("manager.error_reboot", "The console could not be restarted. The configuration change is still saved.");
@@ -634,7 +634,7 @@ void ManagerActivity::requestReboot() {
 void ManagerActivity::rebootNow() {
     switchu::FileLog::log("[power] reboot requested");
     switchu::FileLog::close();
-    if (!switchu::commitSdCard("SwitchU Manager reboot")) {
+    if (!switchu::commitSdCard("HomeNX Toggle reboot")) {
         switchu::FileLog::open("manager");
         m_rebooting = false;
         showError(ToggleError::CommitFailed, 0);

@@ -6,6 +6,8 @@
 #endif
 #include <switch.h>
 #include <sys/stat.h>
+#include "homebrew/HomebrewStore.hpp"
+#include <filesystem>
 #include <cstdio>
 
 void AppletLauncher::init(Callbacks cbs) {
@@ -169,7 +171,42 @@ void AppletLauncher::checkRunningApplication() {
 }
 
 // ponytail: the daemon has no eShop/News/Web/Friends messages yet; homebrew build only.
-bool AppletLauncher::launchSphaira() { return false; }
+namespace {
+constexpr const char* kHbmenu = "sdmc:/hbmenu.nro";
+constexpr const char* kHbmenuBackup = "sdmc:/hbmenu.nro.homenx-original";
+
+bool isSphairaNro(const char* path) {
+    HomebrewApp app;
+    return readHomebrew(path, app) && app.name == "sphaira";
+}
+} // namespace
+
+// Atmosphere's homebrew loader (over the Album applet) always starts
+// sdmc:/hbmenu.nro, so for this visit Sphaira is copied there; the original
+// is kept as hbmenu.nro.homenx-original and restoreHbmenu() puts it back.
+bool AppletLauncher::launchSphaira() {
+    std::error_code ec;
+    const std::string sphaira = findSphaira(false);
+    if (!sphaira.empty() && !isSphairaNro(kHbmenu)) {
+        if (std::filesystem::exists(kHbmenu, ec) && !std::filesystem::exists(kHbmenuBackup, ec))
+            std::filesystem::rename(kHbmenu, kHbmenuBackup, ec);
+        if (!ec)
+            std::filesystem::copy_file(sphaira, kHbmenu,
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+        DebugLog::log("[launcher] sphaira as hbmenu from %s ec=%d", sphaira.c_str(), ec.value());
+        if (ec) restoreHbmenu();
+    }
+    launchAlbum();
+    return true;
+}
+
+void AppletLauncher::restoreHbmenu() {
+    std::error_code ec;
+    if (!std::filesystem::exists(kHbmenuBackup, ec)) return;
+    std::filesystem::remove(kHbmenu, ec);
+    std::filesystem::rename(kHbmenuBackup, kHbmenu, ec);
+    DebugLog::log("[launcher] restored hbmenu.nro ec=%d", ec.value());
+}
 // ponytail: the frontend can't target one .nro yet (Atmosphere's hbl always
 // starts sdmc:/hbmenu.nro); needs a loader registered through ecs.
 bool AppletLauncher::launchNro(const std::string&) { return false; }
@@ -264,17 +301,15 @@ bool AppletLauncher::launchNro(const std::string& path) {
     return true;
 }
 
+void AppletLauncher::restoreHbmenu() {}
+
 bool AppletLauncher::launchSphaira() {
-    static const char* const paths[] = {
-        "sdmc:/switch/sphaira/sphaira.nro",
-        "sdmc:/switch/sphaira.nro",
-        "sdmc:/hbmenu.nro", // sphaira installs itself here when set as the menu
-    };
-    struct stat st;
-    for (const char* path : paths)
-        if (stat(path, &st) == 0) return launchNro(path);
-    DebugLog::log("[launcher] sphaira not found");
-    return false;
+    const std::string path = findSphaira(true);
+    if (path.empty()) {
+        DebugLog::log("[launcher] sphaira not found");
+        return false;
+    }
+    return launchNro(path);
 }
 
 Result AppletLauncher::createMii() {

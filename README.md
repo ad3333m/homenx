@@ -24,13 +24,17 @@ Wii U-style home menu for modded Switch consoles, forked from
 
 1. Extract `HomeNX-frontend.zip` to the root of the SD card (it adds
    `atmosphere/` and `switch/` folders) and reboot. It's on straight away.
-2. `SwitchU-Manager.nro` (in the homebrew menu) turns it off and on again.
+2. **HomeNX Toggle** (`switch/HomeNX-Toggle/HomeNX-Toggle.nro`) has buttons to
+   turn the frontend off and on, and **Check for updates** downloads the newest
+   frontend from this repo's `latest` release and installs it on the console.
+   Settings > power tab > **Turn Off HomeNX** also turns it off.
 
 **If the console won't reach the HOME menu**, put the SD card in a PC and delete
 `atmosphere/contents/0100000000001000`. The normal HOME menu comes back.
 
-In the frontend, the Sphaira button opens hbmenu over the Album, and launching a
-chosen .nro from the Homebrew page isn't supported yet.
+In the frontend, the Sphaira button copies Sphaira in as `sdmc:/hbmenu.nro` for
+the visit (the original is restored when HomeNX comes back). Launching a chosen
+.nro from the Homebrew page isn't supported in the frontend yet.
 
 ---
 

@@ -232,6 +232,8 @@ int main(int argc, char* argv[]) {
     DebugLog::log("[main] applet config...");
 #else
     DebugLog::log("[menu] main() entry");
+    // A visit to Sphaira swapped it in as sdmc:/hbmenu.nro; put the original back.
+    AppletLauncher::restoreHbmenu();
 
     auto startMode = readStartMode();
     auto sysStatus = readSystemStatus();

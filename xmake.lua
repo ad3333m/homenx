@@ -8,6 +8,9 @@ add_rules("mode.debug", "mode.release")
 
 local version = "1.2.0"
 local version_define = string.format('SWITCHU_VERSION="%s"', version)
+-- HomeNX: CI passes its run number; the Toggle's updater compares it with the
+-- "HomeNX build <N>" release title.
+local homenx_build_define = string.format('HOMENX_BUILD="build %s"', os.getenv("HOMENX_BUILD") or "0")
 
 set_version(version)
 
@@ -293,7 +296,7 @@ target("SwitchU-Manager")
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
     add_syslinks("nx")
-    add_defines(version_define)
+    add_defines(version_define, homenx_build_define)
 
     if is_mode("release") then
         add_cxflags("-O3", "-ffast-math", {force = true})
@@ -309,29 +312,11 @@ target("SwitchU-Manager")
         os.cp(path.join(os.projectdir(), "projects/manager/romfs/i18n/*.json"), i18n_dir)
     end)
 
-    set_values("switch.name",    "SwitchU-Manager")
-    set_values("switch.author",  "PoloNX")
+    set_values("switch.name",    "HomeNX-Toggle")
+    set_values("switch.author",  "Adam (based on SwitchU Manager by PoloNX)")
     set_values("switch.version", version)
     set_values("switch.romfs",   "build/manager-romfs")
     set_values("switch.icon",    "projects/manager/icon.jpg")
-    set_values("switch.format",  "nro")
-target_end()
-
--- HomeNX Toggle: turns the frontend off/on and restarts (no UI framework).
-target("HomeNX-Toggle")
-    set_kind("binary")
-    if not is_plat("cross") then return end
-
-    set_toolchains("devkita64")
-    set_languages("c++20")
-    add_rules("switch")
-    add_files("projects/toggle/src/*.cpp")
-    add_syslinks("nx")
-
-    set_values("switch.name",    "HomeNX-Toggle")
-    set_values("switch.author",  "Adam")
-    set_values("switch.version", version)
-    set_values("switch.icon",    "projects/toggle/icon.jpg")
     set_values("switch.format",  "nro")
 target_end()
 

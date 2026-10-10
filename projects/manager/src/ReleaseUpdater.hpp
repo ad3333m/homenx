@@ -31,7 +31,7 @@ enum class UpdateWorkerStage : int {
 
 class ReleaseUpdater final {
 public:
-    static constexpr const char* kCurrentVersion = SWITCHU_VERSION;
+    static constexpr const char* kCurrentVersion = HOMENX_BUILD; // "build <N>"
 
     static ReleaseInfo checkLatest();
     static UpdateInstallResult install(const ReleaseInfo& release,

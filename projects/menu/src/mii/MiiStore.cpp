@@ -1,6 +1,12 @@
 #include "MiiStore.hpp"
 #include "core/DebugLog.hpp"
+#include "themeshop/ThemeHttp.hpp"
 #include <nxui/core/Renderer.hpp>
+#include <chrono>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <algorithm>
 #include <cmath>
 
@@ -77,6 +83,77 @@ std::string miiName(const MiiCharInfo& mii) {
         else { out += (char)(0xE0 | (c >> 12)); out += (char)(0x80 | ((c >> 6) & 0x3F)); out += (char)(0x80 | (c & 0x3F)); }
     }
     return out.empty() ? "Mii" : out;
+}
+
+// Mii Studio data: the Switch CharInfo fields in the order Mii Studio uses
+// (mii2studio), then obfuscated: prefix 00, eo = (7 + (v ^ n)) & 0xFF, n = eo.
+std::string miiStudioHex(const MiiCharInfo& m) {
+    const u8 fields[46] = {
+        m.mii_facial_hair_color, m.mii_beard_style, m.mii_width,
+        m.mii_eye_thickness, m.mii_eye_color, m.mii_eye_angle, m.mii_eye_size, m.mii_eye_style,
+        m.mii_eye_pos_x, m.mii_eye_pos_y,
+        m.mii_eyebrow_thickness, m.mii_eyebrow_color, m.mii_eyebrow_angle, m.mii_eyebrow_size,
+        m.mii_eyebrow_style, m.mii_eyebrow_pos_x, m.mii_eyebrow_pos_y,
+        m.mii_face_color, m.mii_makeup_style, m.mii_face_shape, m.mii_wrinkles_style,
+        m.mii_color, m.mii_sex,
+        m.mii_glasses_color, m.mii_glasses_size, m.mii_glasses_style, m.mii_glasses_pos,
+        m.mii_hair_color, m.mii_has_hair_flipped, m.mii_hair_style, m.mii_height,
+        m.mii_mole_size, m.mii_has_mole, m.mii_mole_pos_x, m.mii_mole_pos_y,
+        m.mii_mouth_thickness, m.mii_mouth_color, m.mii_mouth_size, m.mii_mouth_style, m.mii_mouth_pos,
+        m.mii_mustache_size, m.mii_mustache_style, m.mii_mustache_pos,
+        m.mii_nose_size, m.mii_nose_style, m.mii_nose_pos,
+    };
+    std::string hex = "00";
+    unsigned n = 256;
+    char buf[3];
+    for (u8 v : fields) {
+        const unsigned eo = (7 + (v ^ n)) & 0xFF;
+        n = eo;
+        std::snprintf(buf, sizeof(buf), "%02x", eo);
+        hex += buf;
+    }
+    return hex;
+}
+
+std::vector<std::uint8_t> miiFaceImage(const MiiCharInfo& mii) {
+    static bool offline = false; // after one failed fetch, stop trying this session
+    const std::string hex = miiStudioHex(mii);
+    const std::string dir = "sdmc:/config/SwitchU/mii_faces";
+    const std::string cached = dir + "/" + hex + ".png";
+
+    std::vector<std::uint8_t> png;
+    if (std::ifstream in{cached, std::ios::binary}) {
+        png.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        if (!png.empty()) return png;
+    }
+    if (offline || !themeshop::http::initialize()) return {};
+
+    static const char* const hosts[] = {
+        "https://studio.mii.nintendo.com/miis/image.png",
+        "https://mii-unsecure.ariankordi.net/miis/image.png",
+    };
+    for (const char* host : hosts) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+        try {
+            png = themeshop::http::getBytes(
+                std::string(host) + "?data=" + hex + "&type=face&expression=normal&width=256&bgColor=FFFFFF00",
+                {}, {}, [deadline] { return std::chrono::steady_clock::now() > deadline; });
+        } catch (const std::exception& e) {
+            DebugLog::log("[mii] face fetch failed (%s): %s", host, e.what());
+            png.clear();
+        }
+        // PNG signature: some servers answer errors with HTML.
+        if (png.size() > 8 && png[0] == 0x89 && png[1] == 'P') break;
+        png.clear();
+    }
+    if (png.empty()) {
+        offline = true;
+        return {};
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::ofstream(cached, std::ios::binary).write(reinterpret_cast<const char*>(png.data()), png.size());
+    return png;
 }
 
 std::string miiFavouriteColourName(const MiiCharInfo& mii) {
