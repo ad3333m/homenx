@@ -1220,6 +1220,8 @@ void WiiUMenuApp::closeActiveOverlays(bool closeFolders) {
         m_themeShop->hide();
     if (m_gameOptions && m_gameOptions->isActive())
         m_gameOptions->hide();
+    if (m_news && m_news->isActive())
+        m_news->hide();
     if (m_folderOptions && m_folderOptions->isActive())
         m_folderOptions->hide();
     if (m_controllerTest && m_controllerTest->isActive())
@@ -1317,7 +1319,8 @@ void WiiUMenuApp::wireGlobalActions() {
             (m_dialog && m_dialog->isActive()) ||
             (m_settings && m_settings->isActive()) ||
             (m_themeShop && m_themeShop->isActive()) ||
-            (m_gameOptions && m_gameOptions->isActive()) ||
+            (m_gameOptions && m_gameOptions->isActive())
+        || (m_news && m_news->isActive()) ||
             (m_folderOptions && m_folderOptions->isActive()) ||
             (m_controllerTest && m_controllerTest->isActive()) ||
             (m_profileCarousel && m_profileCarousel->isActive()) ||
@@ -1364,7 +1367,8 @@ void WiiUMenuApp::wireGlobalActions() {
             (m_dialog && m_dialog->isActive()) ||
             (m_themeShop && m_themeShop->isActive()) ||
             (m_settings && m_settings->isActive()) ||
-            (m_gameOptions && m_gameOptions->isActive()) ||
+            (m_gameOptions && m_gameOptions->isActive())
+        || (m_news && m_news->isActive()) ||
             (m_folderOptions && m_folderOptions->isActive()) ||
             (m_controllerTest && m_controllerTest->isActive()) ||
             (m_profileCarousel && m_profileCarousel->isActive()) ||

@@ -12,12 +12,17 @@ sidebar buttons that open the real system applets:
 - **Sphaira** (top left) closes HomeNX and chain-loads `sphaira.nro` (looked for in
   `sdmc:/switch/sphaira/`, `sdmc:/switch/`, then `sdmc:/hbmenu.nro`). It keeps
   HomeNX's mode, so open HomeNX over a game to get Sphaira in application mode.
-- **Browser** opens the system web browser tuned for the OLED: true-black boot
-  screen, a dark start page, touch and the left-stick pointer on.
-- **eShop** tries the real Shop applet first and falls back to the web store.
-- Web-based buttons (eShop, News, Browser) need HomeNX launched **over a game**
-  (hold R while starting a game), not from the Album.
-- The game grid shows SwitchU's demo titles in this build.
+- **News** reads the console's own downloaded HOME-menu news (news:a service)
+  and shows it in a SwitchU-style screen.
+- **Browser** opens the system web browser with Sphaira's working settings, a
+  black boot screen and a dark start page.
+- **eShop** uses the chosen profile (SwitchU's player select if none), tries the
+  real Shop applet first and falls back to the web store.
+- eShop and Browser need HomeNX launched **over a game** (hold R while starting
+  a game), not from the Album.
+- The grid shows the games installed on the console; A launches them.
+- The profile tile always has a profile chosen (no "ask who's playing"); A on a
+  profile in the carousel switches to it.
 
 Download `HomeNX.nro` from the `latest` release and put it in `sdmc:/switch/`.
 

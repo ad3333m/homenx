@@ -91,10 +91,12 @@ extern "C" void userAppInit(void) {
     accountInitialize(AccountServiceType_Application);
     psmInitialize();
     lblInitialize();
+    nsInitialize();
     romfsInit();
 }
 
 extern "C" void userAppExit(void) {
+    nsExit();
     lblExit();
     psmExit();
     accountExit();

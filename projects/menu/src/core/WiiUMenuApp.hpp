@@ -30,6 +30,7 @@
 #include "steamgriddb/ArtworkCache.hpp"
 #include "settings/SettingsScreen.hpp"
 #include "settings/GameOptionsScreen.hpp"
+#include "settings/NewsScreen.hpp"
 #include "settings/SteamGridDbPickerScreen.hpp"
 #include "settings/FolderOptionsScreen.hpp"
 #include "settings/AutoThemeScreen.hpp"
@@ -179,13 +180,15 @@ private:
     bool canPlaceGridItem(int targetSlot, switchu::widgets::WidgetSize size,
                           std::uint64_t ignoringTitleId = 0,
                           std::uint64_t alsoIgnoringTitleId = 0) const;
-#ifdef SWITCHU_MENU
+#if defined(SWITCHU_MENU) || defined(SWITCHU_HOMEBREW)
     void activateApplication(GlossyIcon* source, AppEntry* entry,
                              std::uint64_t titleId,
                              const std::string& launchTitle);
     void resumeSuspendedApplication(std::uint64_t titleId,
                                     const std::string& launchTitle);
 #endif
+    AccountUid activeProfileUid() const;
+    void openNews();
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);
     bool hasActiveLeaveCaptureOverlay() const;
@@ -414,6 +417,8 @@ private:
     std::shared_ptr<SettingsScreen>    m_settings;
     std::shared_ptr<ThemeShopScreen>   m_themeShop;
     std::shared_ptr<GameOptionsScreen> m_gameOptions;
+    std::shared_ptr<NewsScreen> m_news;
+    bool m_newsLoaded = false;
     std::shared_ptr<SteamGridDbPickerScreen> m_steamGridDbPicker;
     std::shared_ptr<FolderOptionsScreen> m_folderOptions;
     std::shared_ptr<AutoThemeScreen>   m_autoThemeScreen;

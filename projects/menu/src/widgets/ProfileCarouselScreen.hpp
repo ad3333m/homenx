@@ -8,6 +8,7 @@
 #include <nxui/Theme.hpp>
 #include <switch.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -65,13 +66,12 @@ public:
     void render(nxui::Renderer& ren) override;
 
 private:
-    // Tiles are "nobody" (index 0), every profile, then the "add user" entry.
+    // HomeNX: no "ask each time" tile. Tiles are every profile, then "add user".
     int tileCount() const {
-        return 1 + (int)m_profiles.size() + (m_addUserAvailable ? 1 : 0);
+        return std::max(1, (int)m_profiles.size() + (m_addUserAvailable ? 1 : 0));
     }
     CardKind tileKind(int index) const {
-        if (index <= 0) return CardKind::Nobody;
-        if (index <= (int)m_profiles.size()) return CardKind::Profile;
+        if (index < (int)m_profiles.size()) return CardKind::Profile;
         return CardKind::AddUser;
     }
     bool onAddUserTile() const { return tileKind(m_selected) == CardKind::AddUser; }

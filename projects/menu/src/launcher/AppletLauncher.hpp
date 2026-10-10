@@ -19,10 +19,10 @@ public:
     void launchControllerRemapping();
     void launchNetConnect();
     bool launchSphaira();
-    void launchEshop();
-    void launchNews();
-    void launchBrowser();
-    void launchFriends();
+    // Homebrew build: these block until the applet closes and return its result.
+    Result launchEshop(AccountUid uid);
+    Result launchBrowser(AccountUid uid, const char* url = nullptr);
+    Result launchFriends(AccountUid uid);
     void launchUserPage(AccountUid uid);
     void launchUserCreator();
     void enterSleep();

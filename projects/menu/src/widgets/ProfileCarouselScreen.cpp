@@ -57,16 +57,16 @@ void ProfileCarouselScreen::setProfiles(std::vector<HomeProfile> profiles, bool 
     if (selectedUid) {
         for (int i = 0; i < (int)m_profiles.size(); ++i)
             if (sameUid(m_profiles[(size_t)i].uid, *selectedUid))
-                index = i + 1;
+                index = i;
     }
     m_selected = index;
     m_rowScroll.setImmediate(rowScrollTarget(index));
 }
 
 const HomeProfile* ProfileCarouselScreen::tileProfile(int index) const {
-    if (tileKind(index) != CardKind::Profile || index > (int)m_profiles.size())
+    if (index < 0 || index >= (int)m_profiles.size())
         return nullptr;
-    return &m_profiles[(size_t)(index - 1)];
+    return &m_profiles[(size_t)index];
 }
 
 bool ProfileCarouselScreen::isLockedTile(int index) const {
@@ -77,9 +77,8 @@ int ProfileCarouselScreen::lockedTileIndex() const {
     if (m_lockedUid) {
         for (int i = 0; i < (int)m_profiles.size(); ++i)
             if (sameUid(m_profiles[(size_t)i].uid, *m_lockedUid))
-                return i + 1;
+                return i;
     }
-    // A locked profile that no longer exists behaves like "nobody".
     return 0;
 }
 

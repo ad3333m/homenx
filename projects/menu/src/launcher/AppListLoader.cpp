@@ -8,10 +8,9 @@
 #include <algorithm>
 #include <fstream>
 #include <iterator>
-#ifdef SWITCHU_MENU
 #include <switchu/control_cache.hpp>
 #include <switchu/ns_ext.hpp>
-#endif
+#include <memory>
 
 namespace {
 
@@ -30,7 +29,7 @@ bool isTitleIdFallback(const std::string& title, uint64_t titleId) {
     return title == expected;
 }
 
-#ifdef SWITCHU_MENU
+#if defined(SWITCHU_MENU) || defined(SWITCHU_HOMEBREW)
 static constexpr s32 kMaxTrackedApplicationRecords = 1024;
 static constexpr s32 kApplicationRecordChunkCount = 30;
 
@@ -211,50 +210,6 @@ void AppListLoader::fetchApps(std::vector<PendingApp>& output, bool prefetchIcon
     char tidBuf[17];
     output.clear();
 
-#ifdef SWITCHU_HOMEBREW
-    static const char* dummyNames[] = {
-        "The Legend of Zelda: TotK",
-        "Super Mario Odyssey",
-        "Animal Crossing: NH",
-        "Splatoon 3",
-        "Mario Kart 8 Deluxe",
-        "Super Smash Bros. Ultimate",
-        "Pokemon Scarlet",
-        "Fire Emblem Engage",
-        "Xenoblade Chronicles 3",
-        "Metroid Dread",
-        "Kirby and the Forgotten Land",
-        "Bayonetta 3",
-        "Pikmin 4",
-        "Luigi's Mansion 3",
-        "Hollow Knight",
-        "Celeste",
-        "Stardew Valley",
-        "Hades",
-        "Undertale",
-        "Minecraft",
-    };
-    constexpr int kDummyCount = sizeof(dummyNames) / sizeof(dummyNames[0]);
-    for (int i = 0; i < kDummyCount; ++i) {
-        uint64_t fakeTid = 0x0100000000010000ULL + (uint64_t)i;
-        std::snprintf(tidBuf, sizeof(tidBuf), "%016lX", (unsigned long)fakeTid);
-        PendingApp a;
-        a.id      = tidBuf;
-        a.title   = dummyNames[i];
-        a.titleId = fakeTid;
-        a.userRequired = true;
-        a.startupUserAccount = 1;
-        a.startupUserAccountOption = 0;
-        uint32_t flags = (1u << 0) | (1u << 1) | (1u << 8);
-        if (i == 5)  flags |= (1u << 6) | (1u << 7);
-        if (i == 10) flags = (1u << 6);
-        if (i == 15) flags = (1u << 13);
-        a.viewFlags = flags;
-        output.push_back(std::move(a));
-    }
-    DebugLog::log("[loader] generated %d dummy apps", kDummyCount);
-
-#else
     if (fetchDaemonCatalog(output, prefetchIcons)) {
         DebugLog::log("[loader] fetched %d apps via daemon catalog",
                       (int)output.size());
@@ -282,7 +237,21 @@ void AppListLoader::fetchApps(std::vector<PendingApp>& output, bool prefetchIcon
         uint32_t vf = views[i].flags;
 
         switchu::control_cache::Meta meta{};
-        if (switchu::control_cache::readMeta(tid, meta)) {
+        bool haveMeta = switchu::control_cache::readMeta(tid, meta);
+#ifdef SWITCHU_HOMEBREW
+        // No daemon fills the cache in the .nro: read NACP + icon from ns once.
+        if (!haveMeta) {
+            auto control = std::make_unique<NsApplicationControlData>();
+            u64 size = 0;
+            if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, tid,
+                                                        control.get(), sizeof(*control), &size))) {
+                switchu::control_cache::ensureDirectory();
+                switchu::control_cache::writeFromControlData(tid, *control, size);
+                haveMeta = switchu::control_cache::readMeta(tid, meta);
+            }
+        }
+#endif
+        if (haveMeta) {
             PendingApp a;
             a.id      = tidBuf;
             a.title   = meta.name;
@@ -311,7 +280,6 @@ void AppListLoader::fetchApps(std::vector<PendingApp>& output, bool prefetchIcon
         a.userRequired = requiresInteractiveUserSelection(a.startupUserAccount, a.startupUserAccountOption);
         output.push_back(std::move(a));
     }
-#endif
     DebugLog::log("[loader] fetched %d apps", (int)output.size());
 }
 
@@ -321,7 +289,7 @@ std::vector<uint8_t> AppListLoader::loadIconData(uint64_t titleId) {
     if (titleId == 0)
         return iconData;
 
-#ifdef SWITCHU_MENU
+#if defined(SWITCHU_MENU) || defined(SWITCHU_HOMEBREW)
     {
         std::ifstream custom(SteamGridDbManager::iconPath(titleId), std::ios::binary);
         if (custom.is_open()) {

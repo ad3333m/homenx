@@ -3,6 +3,7 @@
 #include "themeshop/ThemeHttp.hpp"
 #include "widgets/GlossyIcon.hpp"
 #include "DebugLog.hpp"
+#include "news/NewsStore.hpp"
 
 #include <nxui/core/I18n.hpp>
 #include <switchu/control_cache.hpp>
@@ -1228,6 +1229,71 @@ void WiiUMenuApp::createGameOptions() {
     });
 }
 
+void WiiUMenuApp::openNews() {
+    if (!m_news) {
+        m_news = std::make_shared<NewsScreen>();
+        if (m_overlayLayer) m_overlayLayer->addChild(m_news);
+        m_news->setFont(&m_fontNormal);
+        m_news->setSmallFont(&m_fontSmall);
+        m_news->setTheme(&m_theme);
+        m_news->setInstantCursorMotion(m_config.cursorMotionMode == 1);
+        m_news->setAccessibilityVoiceEnabled(m_config.accessibilityEnabled);
+        m_news->setAccessibilitySpeechPreferences(m_config.accessibilitySpeakHints,
+                                                  m_config.accessibilitySpeakPosition);
+        m_news->onNavigateSfx([this]() { m_audio.playSfx(Sfx::Navigate); });
+        m_news->onActivateSfx([this]() { m_audio.playSfx(Sfx::Activate); });
+        m_news->onCloseSfx([this]() { m_audio.playSfx(Sfx::ModalHide); });
+        m_news->onAccessibilityAnnouncement([this](const std::string& text) {
+            m_accessibility.announce(text);
+        });
+        m_news->onOpenLink([this](const std::string& url) {
+#ifndef SWITCHU_MENU
+            if (appletGetAppletType() != AppletType_Application) return;
+            const bool resume = m_audio.isPlaying();
+            if (resume) m_audio.pause();
+            m_launcher.launchBrowser(activeProfileUid(), url.c_str());
+            if (resume) m_audio.play();
+#else
+            (void)url;
+#endif
+        });
+        m_news->onClosed([this]() {
+            const auto& left = m_sidebar.leftButtons();
+            if (left.size() > 2) focusManager().setFocus(left[2].get());
+        });
+    }
+
+    // ponytail: news is read once per session on the UI thread (a second or
+    // two for ~40 articles); move to the thread pool if it ever feels slow.
+    if (!m_newsLoaded) {
+        Result rc = 0;
+        std::vector<NewsArticle> raw = loadNewsArticles(rc);
+        std::vector<NewsScreen::Article> articles;
+        articles.reserve(raw.size());
+        app().gpu().waitIdle();
+        for (auto& r : raw) {
+            NewsScreen::Article a{r.topic, r.subject, r.body, r.footer, r.linkUrl, nullptr};
+            if (!r.image.empty()) {
+                auto tex = std::make_shared<nxui::Texture>();
+                if (tex->loadFromMemory(app().gpu(), app().renderer(), r.image.data(), r.image.size(), 640))
+                    a.image = std::move(tex);
+            }
+            articles.push_back(std::move(a));
+        }
+        auto& i18n = nxui::I18n::instance();
+        std::string empty = R_FAILED(rc)
+            ? i18n.tr("news.unavailable", "The console's news couldn't be read") + fmt::format(" (0x{:X}).", rc)
+            : i18n.tr("news.empty", "No news has been downloaded yet. Connect to the internet and check again later.");
+        m_news->setArticles(std::move(articles), std::move(empty));
+        m_newsLoaded = R_SUCCEEDED(rc);
+    }
+
+    m_audio.playSfx(Sfx::ModalShow);
+    if (m_titlePill) m_titlePill->hideAnimated();
+    m_news->show();
+    focusManager().setFocus(m_news.get());
+}
+
 void WiiUMenuApp::createFolderOptions() {
     if (m_folderOptions) return;
     m_folderOptions = std::make_shared<FolderOptionsScreen>();
@@ -1418,7 +1484,9 @@ void WiiUMenuApp::createProfileCarousel() {
         // The leave capture waits for the carousel to finish fading out.
         scheduleLeaveCapture([this, uid]() { m_launcher.launchUserPage(uid); });
 #else
-        (void)uid;
+        // HomeNX: A switches to this profile (games and eShop launch as it).
+        m_audio.playSfx(Sfx::ConfirmPositive);
+        setLockedProfile(uid);
 #endif
     });
     m_profileCarousel->onAddUser([this]() {
@@ -1426,6 +1494,9 @@ void WiiUMenuApp::createProfileCarousel() {
         m_profileCarousel->hide();
 #ifdef SWITCHU_MENU
         scheduleLeaveCapture([this]() { m_launcher.launchUserCreator(); });
+#else
+        if (R_SUCCEEDED(pselShowUserCreator()))
+            loadProfiles(true);
 #endif
     });
     m_profileCarousel->onClosed([this]() {
@@ -1442,6 +1513,7 @@ void WiiUMenuApp::openProfileCarousel() {
     if (!m_profileCarousel || m_profileCarousel->isActive())
         return;
     refreshProfileLockButton();
+    if (m_titlePill) m_titlePill->hideAnimated();
     m_navigator.navigate(switchu::navigation::Route::ProfileSelect);
     m_profileCarousel->show();
     focusManager().setFocus(m_profileCarousel.get());

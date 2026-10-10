@@ -481,6 +481,7 @@ bool WiiUMenuApp::hasActiveLeaveCaptureOverlay() const {
         || (m_settings && m_settings->isActive())
         || (m_themeShop && m_themeShop->isActive())
         || (m_gameOptions && m_gameOptions->isActive())
+        || (m_news && m_news->isActive())
         || (m_folderOptions && m_folderOptions->isActive())
         || (m_controllerTest && m_controllerTest->isActive())
         || (m_profileCarousel && m_profileCarousel->isActive())
@@ -991,6 +992,22 @@ void WiiUMenuApp::finishProfileLoading() {
 }
 
 void WiiUMenuApp::refreshProfileLockButton() {
+    // HomeNX: never "ask who's playing". Once profiles are known, lock to the
+    // saved profile if it still exists, otherwise the first one.
+    if (m_profilesComplete && !m_profiles.empty()) {
+        AccountUid saved{};
+        const bool haveSaved = m_config.defaultProfileEnabled &&
+            hexToAccountUid(m_config.defaultProfileUid, saved);
+        const bool exists = haveSaved && std::any_of(m_profiles.begin(), m_profiles.end(),
+            [&](const HomeProfile& p) {
+                return p.uid.uid[0] == saved.uid[0] && p.uid.uid[1] == saved.uid[1];
+            });
+        if (!exists) {
+            setLockedProfile(m_profiles.front().uid);
+            return;
+        }
+    }
+
     std::optional<AccountUid> locked;
     AccountUid lockedUid{};
     if (m_config.defaultProfileEnabled &&
@@ -1021,6 +1038,13 @@ void WiiUMenuApp::refreshProfileLockButton() {
                                        m_profilesComplete && m_profiles.size() < 8);
         m_profileCarousel->setLockedUid(locked);
     }
+}
+
+AccountUid WiiUMenuApp::activeProfileUid() const {
+    AccountUid uid{};
+    if (!m_config.defaultProfileEnabled || !hexToAccountUid(m_config.defaultProfileUid, uid))
+        return AccountUid{};
+    return uid;
 }
 
 void WiiUMenuApp::setLockedProfile(std::optional<AccountUid> uid) {
@@ -3578,7 +3602,7 @@ void WiiUMenuApp::finishCloseFolder(std::uint32_t oldId, bool preserveEditMode) 
     }
 }
 
-#ifdef SWITCHU_MENU
+#if defined(SWITCHU_MENU) || defined(SWITCHU_HOMEBREW)
 void WiiUMenuApp::resumeSuspendedApplication(std::uint64_t titleId,
                                              const std::string& launchTitle) {
     if (titleId == 0 || !m_launchAnim)
@@ -3838,7 +3862,7 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
             icon->setAccessibilityHint(i18n.tr(
                 "accessibility.hints.recently_played_widget",
                 "A to launch the recently played game. Plus for widget options. Y to move."));
-#ifdef SWITCHU_MENU
+#if defined(SWITCHU_MENU) || defined(SWITCHU_HOMEBREW)
             GlossyIcon* raw = icon.get();
             const std::uint64_t recentTitleId = recent.titleId;
             const std::string recentTitle = recent.title;
@@ -3910,7 +3934,7 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
                                       artwork->second.logo.get());
     }
 
-#ifdef SWITCHU_MENU
+#if defined(SWITCHU_MENU) || defined(SWITCHU_HOMEBREW)
     if (m_launcher.suspendedTitleId() != 0 &&
         entry.titleId == m_launcher.suspendedTitleId())
         icon->setSuspended(true);
@@ -4255,10 +4279,59 @@ void WiiUMenuApp::buildGrid() {
     sidebarActions.onMiiEditor   = applet(&AppletLauncher::launchMiiEditor);
     sidebarActions.onControllers = applet(&AppletLauncher::launchControllerPairing);
 #endif
-    sidebarActions.onEshop   = applet(&AppletLauncher::launchEshop);
-    sidebarActions.onNews    = applet(&AppletLauncher::launchNews);
-    sidebarActions.onBrowser = applet(&AppletLauncher::launchBrowser);
-    sidebarActions.onFriends = applet(&AppletLauncher::launchFriends);
+#ifndef SWITCHU_MENU
+    // Web applets (eShop, Browser) only run when HomeNX is in application mode.
+    // Failures show their error code instead of silently doing nothing.
+    auto runApplet = [this](bool needsApplication, std::function<Result()> open) {
+        auto& i18n = nxui::I18n::instance();
+        auto tell = [this](const std::string& title, const std::string& body) {
+            if (!m_dialog) return;
+            m_dialog->show(title, body, {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+            focusManager().setFocus(m_dialog.get());
+        };
+        if (needsApplication && appletGetAppletType() != AppletType_Application) {
+            m_audio.playSfx(Sfx::ModalShow);
+            tell(i18n.tr("applet.mode_title", "Open HomeNX over a game"),
+                 i18n.tr("applet.mode_body",
+                         "This needs application mode. Hold R while starting any game, "
+                         "open HomeNX from there, then try again."));
+            return;
+        }
+        m_audio.playSfx(Sfx::Activate);
+        const bool resume = m_audio.isPlaying();
+        if (resume) m_audio.pause();
+        const Result rc = open();
+        if (resume) m_audio.play();
+        if (R_FAILED(rc)) {
+            char code[32];
+            std::snprintf(code, sizeof(code), "%04u-%04u", 2000 + R_MODULE(rc), R_DESCRIPTION(rc));
+            tell(i18n.tr("applet.error_title", "Couldn't open it"),
+                 i18n.tr("applet.error_body", "The system returned error") + " " + code + ".");
+        }
+    };
+    sidebarActions.onEshop = [this, runApplet]() {
+        const AccountUid uid = activeProfileUid();
+        if (accountUidIsValid(&uid) || !m_userSelect) {
+            runApplet(true, [this, uid] { return m_launcher.launchEshop(uid); });
+            return;
+        }
+        // No profile chosen yet: SwitchU's own player select, then the eShop.
+        m_userSelect->loadUsers(app().gpu(), app().renderer());
+        m_audio.playSfx(Sfx::ModalShow);
+        m_userSelect->showUserSelect([this, runApplet](AccountUid picked) {
+            setLockedProfile(picked);
+            runApplet(true, [this, picked] { return m_launcher.launchEshop(picked); });
+        });
+        focusManager().setFocus(m_userSelect.get());
+    };
+    sidebarActions.onBrowser = [this, runApplet]() {
+        runApplet(true, [this] { return m_launcher.launchBrowser(activeProfileUid()); });
+    };
+    sidebarActions.onFriends = [this, runApplet]() {
+        runApplet(false, [this] { return m_launcher.launchFriends(activeProfileUid()); });
+    };
+    sidebarActions.onNews = [this]() { openNews(); };
+#endif
     sidebarActions.onSettings = [this]() {
         m_audio.playSfx(Sfx::ModalShow);
         if (m_settings) {
@@ -5106,6 +5179,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_settings && m_settings->isActive())
         && !(m_themeShop && m_themeShop->isActive())
         && !(m_gameOptions && m_gameOptions->isActive())
+        && !(m_news && m_news->isActive())
         && !(m_folderOptions && m_folderOptions->isActive())
         && !(m_userSelect && m_userSelect->isActive())) {
         showFocusedSteamGridDbArtwork();
@@ -5566,7 +5640,8 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         !(m_textEntry && m_textEntry->isActive()) &&
         !(m_settings && m_settings->isActive()) &&
         !(m_themeShop && m_themeShop->isActive()) &&
-        !(m_gameOptions && m_gameOptions->isActive()) &&
+        !(m_gameOptions && m_gameOptions->isActive())
+        && !(m_news && m_news->isActive()) &&
         !(m_folderOptions && m_folderOptions->isActive()) &&
         !(m_controllerTest && m_controllerTest->isActive()) &&
         !(m_profileCarousel && m_profileCarousel->isActive()) &&
@@ -5612,7 +5687,8 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         !(m_quickSettings && m_quickSettings->isActive()) &&
         !(m_settings && m_settings->isActive()) &&
         !(m_themeShop && m_themeShop->isActive()) &&
-        !(m_gameOptions && m_gameOptions->isActive()) &&
+        !(m_gameOptions && m_gameOptions->isActive())
+        && !(m_news && m_news->isActive()) &&
         !(m_folderOptions && m_folderOptions->isActive()) &&
         !(m_controllerTest && m_controllerTest->isActive()) &&
         !(m_profileCarousel && m_profileCarousel->isActive()) &&
@@ -5642,6 +5718,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_themeShop && m_themeShop->isActive())
         && !(m_settings && m_settings->isActive())
         && !(m_gameOptions && m_gameOptions->isActive())
+        && !(m_news && m_news->isActive())
         && !(m_folderOptions && m_folderOptions->isActive())
         && !(m_controllerTest && m_controllerTest->isActive())
         && !(m_profileCarousel && m_profileCarousel->isActive())
@@ -5671,6 +5748,9 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     if (!debugTouchBlocked && !textEntryActive && m_gameOptions && m_gameOptions->isActive()
         && !(m_steamGridDbPicker && m_steamGridDbPicker->isActive()))
         m_gameOptions->handleTouch(app().input());
+
+    if (!debugTouchBlocked && !textEntryActive && m_news && m_news->isActive())
+        m_news->handleTouch(app().input());
 
     if (!debugTouchBlocked && !textEntryActive &&
         m_steamGridDbPicker && m_steamGridDbPicker->isActive())
@@ -5723,6 +5803,8 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 focusManager().setFocus(m_profileCarousel.get());
             } else if (m_gameOptions && m_gameOptions->isActive()) {
                 focusManager().setFocus(m_gameOptions.get());
+            } else if (m_news && m_news->isActive()) {
+                focusManager().setFocus(m_news.get());
             } else if (m_folderOptions && m_folderOptions->isActive()) {
                 focusManager().setFocus(m_folderOptions.get());
             } else if (m_settings && m_settings->isActive()) {
@@ -5904,6 +5986,9 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
     }
 
     if (m_gameOptions && m_gameOptions->isActive())
+        return hints;
+
+    if (m_news && m_news->isActive())
         return hints;
 
     if (m_folderOptions && m_folderOptions->isActive())

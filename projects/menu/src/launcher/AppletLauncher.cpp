@@ -170,10 +170,9 @@ void AppletLauncher::checkRunningApplication() {
 
 // ponytail: the daemon has no eShop/News/Web/Friends messages yet; homebrew build only.
 bool AppletLauncher::launchSphaira() { return false; }
-void AppletLauncher::launchEshop()    {}
-void AppletLauncher::launchNews()     {}
-void AppletLauncher::launchBrowser()  {}
-void AppletLauncher::launchFriends()  {}
+Result AppletLauncher::launchEshop(AccountUid)   { return 0; }
+Result AppletLauncher::launchBrowser(AccountUid, const char*) { return 0; }
+Result AppletLauncher::launchFriends(AccountUid) { return 0; }
 
 #else
 
@@ -194,19 +193,46 @@ void logRc(const char* what, Result rc) {
     DebugLog::log("[launcher] %s rc=0x%X", what, rc);
 }
 
-Result showWeb(const char* url, bool news) {
-    WebCommonConfig cfg;
-    Result rc = news ? webNewsCreate(&cfg, url) : webPageCreate(&cfg, url);
-    if (R_SUCCEEDED(rc)) rc = webConfigSetJsExtension(&cfg, true);
-    if (R_SUCCEEDED(rc)) rc = webConfigShow(&cfg, nullptr);
-    return rc;
-}
-
 AccountUid currentUser() {
     AccountUid uid{};
     if (R_FAILED(accountGetPreselectedUser(&uid)) || !accountUidIsValid(&uid))
-        accountGetLastOpenedUser(&uid);
+        if (R_FAILED(accountTrySelectUserWithoutInteraction(&uid, false)) || !accountUidIsValid(&uid))
+            accountGetLastOpenedUser(&uid);
     return uid;
+}
+
+AccountUid orCurrent(AccountUid uid) {
+    return accountUidIsValid(&uid) ? uid : currentUser();
+}
+
+// The web-applet setup Sphaira uses (sphaira/source/web.cpp), which is known to
+// work on current firmware: open whitelist, transfer memory, the user's uid.
+Result showWeb(const char* url, AccountUid uid) {
+    WebCommonConfig cfg{};
+    WebCommonReply reply{};
+    Result rc = webPageCreate(&cfg, url);
+    if (R_FAILED(rc)) return rc;
+    webConfigSetWhitelist(&cfg, ".*");
+    webConfigSetEcClientCert(&cfg, true);
+    webConfigSetScreenShot(&cfg, true);
+    webConfigSetBootDisplayKind(&cfg, WebBootDisplayKind_Black);
+    webConfigSetBackgroundKind(&cfg, WebBackgroundKind_Default);
+    webConfigSetPointer(&cfg, true);
+    webConfigSetLeftStickMode(&cfg, WebLeftStickMode_Pointer);
+    webConfigSetBootAsMediaPlayer(&cfg, false);
+    webConfigSetJsExtension(&cfg, true);
+    webConfigSetMediaPlayerAutoClose(&cfg, false);
+    webConfigSetPageCache(&cfg, true);
+    webConfigSetFooterFixedKind(&cfg, WebFooterFixedKind_Default);
+    webConfigSetPageFade(&cfg, true);
+    webConfigSetPageScrollIndicator(&cfg, true);
+    webConfigSetBootMode(&cfg, WebSessionBootMode_AllForeground);
+    webConfigSetTransferMemory(&cfg, true);
+    webConfigSetTouchEnabledOnContents(&cfg, true);
+    webConfigSetWebAudio(&cfg, false);
+    uid = orCurrent(uid);
+    if (accountUidIsValid(&uid)) webConfigSetUid(&cfg, uid);
+    return webConfigShow(&cfg, &reply);
 }
 
 } // namespace
@@ -242,55 +268,42 @@ void AppletLauncher::launchControllerPairing() {
     logRc("controllers", hidLaShowControllerSupportForSystem(nullptr, &arg, false));
 }
 
-void AppletLauncher::launchEshop() {
+Result AppletLauncher::launchEshop(AccountUid uid) {
     // ponytail: ShopN takes the web TLV args with ShimKind_Shop (switchbrew
     // "Internet Browser"); untested on hardware, so fall back to the web store.
-    WebCommonConfig cfg;
+    uid = orCurrent(uid);
+    WebCommonConfig cfg{};
     Result rc = webPageCreate(&cfg, "https://bugyo.hac.lp1.eshop.nintendo.net/ashigaru/");
     if (R_SUCCEEDED(rc)) {
+        if (accountUidIsValid(&uid)) webConfigSetUid(&cfg, uid);
         reinterpret_cast<WebArgHeader*>(cfg.arg.data)->shimKind = WebShimKind_Shop;
         cfg.appletid = AppletId_LibraryAppletShop;
         rc = webConfigShow(&cfg, nullptr);
     }
     logRc("eshop", rc);
-    if (R_FAILED(rc))
-        logRc("eshop-web", showWeb("https://www.nintendo.com/store/", false));
+    if (R_SUCCEEDED(rc)) return rc;
+    rc = showWeb("https://www.nintendo.com/store/", uid);
+    logRc("eshop-web", rc);
+    return rc;
 }
 
-void AppletLauncher::launchNews()     { logRc("news", showWeb("https://www.nintendo.com/whatsnew/", true)); }
-// Full browser tuned for the OLED panel: true-black boot and page background,
-// a dark start page, touch on page contents, the left-stick pointer, and a
-// footer that hides while scrolling so pages get the whole 720p screen.
-// Optional setters may be missing on old firmware, so their results are ignored.
-void AppletLauncher::launchBrowser() {
-    WebCommonConfig cfg;
-    Result rc = webPageCreate(&cfg, "https://duckduckgo.com/?kae=d&kak=-1&kax=-1&kaq=-1");
-    if (R_FAILED(rc)) return logRc("browser", rc);
-    webConfigSetBootDisplayKind(&cfg, WebBootDisplayKind_Black);
-    webConfigSetBootLoadingIcon(&cfg, true);
-    webConfigSetPointer(&cfg, true);
-    webConfigSetLeftStickMode(&cfg, WebLeftStickMode_Pointer);
-    webConfigSetTouchEnabledOnContents(&cfg, true);
-    webConfigSetFooter(&cfg, true);
-    webConfigSetFooterFixedKind(&cfg, WebFooterFixedKind_Default);
-    webConfigSetPageScrollIndicator(&cfg, true);
-    webConfigSetPageCache(&cfg, true);
-    webConfigSetWebAudio(&cfg, true);
-    webConfigSetMediaAutoPlay(&cfg, true);
-    webConfigSetMediaPlayerSpeedControl(&cfg, true);
-    webConfigSetScreenShot(&cfg, true);
-    webConfigSetJsExtension(&cfg, true);
-    webConfigSetUserAgentAdditionalString(&cfg, "HomeNX");
-    logRc("browser", webConfigShow(&cfg, nullptr));
+// Dark DuckDuckGo start page: black background suits the OLED panel.
+Result AppletLauncher::launchBrowser(AccountUid uid, const char* url) {
+    Result rc = showWeb(url ? url : "https://duckduckgo.com/?kae=d&kak=-1&kax=-1&kaq=-1", uid);
+    logRc("browser", rc);
+    return rc;
 }
 
-void AppletLauncher::launchFriends() {
-    AccountUid uid = currentUser();
+Result AppletLauncher::launchFriends(AccountUid uid) {
+    uid = orCurrent(uid);
     if (!accountUidIsValid(&uid)) {
         PselUserSelectionSettings sel{};
-        if (R_FAILED(pselShowUserSelector(&uid, &sel))) return;
+        Result rc = pselShowUserSelector(&uid, &sel);
+        if (R_FAILED(rc)) return rc;
     }
-    logRc("friends", friendsLaShowFriendList(uid));
+    Result rc = friendsLaShowFriendList(uid);
+    logRc("friends", rc);
+    return rc;
 }
 
 void AppletLauncher::launchControllerRemapping() {}
@@ -300,7 +313,13 @@ void AppletLauncher::launchUserCreator()       {}
 void AppletLauncher::enterSleep()              {}
 void AppletLauncher::shutdown()                {}
 void AppletLauncher::reboot()                  {}
-void AppletLauncher::launchApplication(uint64_t, AccountUid) {}
+void AppletLauncher::launchApplication(uint64_t titleId, AccountUid) {
+    // The system launches it after HomeNX exits. It can't carry a user, so
+    // titles that need one get the system's own picker if it wants one.
+    Result rc = appletRequestLaunchApplication(titleId, nullptr);
+    DebugLog::log("[launcher] request launch %016lX rc=0x%X", titleId, rc);
+    if (R_SUCCEEDED(rc) && m_cb.requestExit) m_cb.requestExit();
+}
 void AppletLauncher::resumeApplication()       {}
 void AppletLauncher::terminateApplication()    {}
 void AppletLauncher::checkRunningApplication() {}
