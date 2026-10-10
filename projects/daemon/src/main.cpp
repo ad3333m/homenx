@@ -1151,6 +1151,16 @@ static bool consumeForegroundAppletHomeRequest() {
     return true;
 }
 
+// HomeNX: the title currently borrowed to run homebrew as an application.
+static uint64_t g_homebrewHostTitleId = 0;
+
+static void releaseHomebrewHost() {
+    if (g_homebrewHostTitleId == 0) return;
+    const Result rc = daemon::unregisterExternalContent(g_homebrewHostTitleId);
+    switchu::FileLog::log("[homebrew] released host 0x%016lX rc=0x%X", g_homebrewHostTitleId, rc);
+    g_homebrewHostTitleId = 0;
+}
+
 static Result launchLibraryApplet(AppletId id, const char* name,
                                   const void* inData = nullptr, size_t inDataSize = 0,
                                   u32 libAppletVersion = 0) {
@@ -1416,6 +1426,7 @@ static void handleMenuCommand() {
         {
         const uint64_t terminatingTitleId = daemon::app::suspendedTitleId();
         result = daemon::app::terminate();
+        if (R_SUCCEEDED(result)) releaseHomebrewHost();
         recordOperationResult(requestId, msg, result, terminatingTitleId);
         if (R_SUCCEEDED(result)) {
             pushNotification(smi::MenuMessage::ApplicationExited);
@@ -1469,6 +1480,18 @@ static void handleMenuCommand() {
         result = g_actionQueue.enqueue(action);
         recordOperationResult(requestId, msg, result);
         switchu::FileLog::log("[smi] queued User Page launch (actions=%zu)", g_actionQueue.size());
+        break;
+    }
+
+    case smi::SystemMessage::LaunchHomebrewApp: {
+        auto args = reader.pop<smi::HomebrewAppArgs>();
+        daemon::SystemAction action{};
+        action.type = daemon::SystemActionType::LaunchHomebrewApp;
+        action.requestId = requestId;
+        action.titleId = args.host_title_id;
+        std::memcpy(&action.uid, args.user_uid, sizeof(action.uid));
+        result = g_actionQueue.enqueue(action);
+        recordOperationResult(requestId, msg, result);
         break;
     }
 
@@ -1609,6 +1632,23 @@ static bool handleAction(daemon::SystemAction& action) {
 
     switchu::FileLog::log("[action] handling type=%u", (u32)action.type);
     switch (action.type) {
+        case daemon::SystemActionType::LaunchHomebrewApp: {
+            // Serve hbloader as the host title's code for this launch; released
+            // again when the application exits (releaseHomebrewHost).
+            Result rc = daemon::registerExternalContent(action.titleId, "/switch/SwitchU/bin/hbl");
+            if (R_SUCCEEDED(rc)) {
+                g_homebrewHostTitleId = action.titleId;
+                rc = daemon::app::launch(action.titleId, action.uid);
+            }
+            recordOperationResult(action.requestId, smi::SystemMessage::LaunchHomebrewApp, rc, action.titleId);
+            if (R_FAILED(rc)) {
+                switchu::FileLog::log("[action] homebrew app 0x%016lX FAIL: 0x%X", action.titleId, rc);
+                releaseHomebrewHost();
+                daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
+            }
+            return true;
+        }
+
         case daemon::SystemActionType::LaunchApplication: {
             Result rc = daemon::app::launch(action.titleId, action.uid);
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchApplication,
@@ -1871,6 +1911,7 @@ static void mainLoop() {
 
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
+        releaseHomebrewHost();
         if (g_pendingHomeMenuLaunch) {
             switchu::FileLog::log("[main] clearing pending HOME foreground handoff: app exited");
             g_pendingHomeMenuLaunch = false;

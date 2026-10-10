@@ -225,11 +225,6 @@ void ListDetailScreen::drawCustomContent(nxui::Renderer& ren, const nxui::Rect&,
 }
 
 bool ListDetailScreen::handleCustomPressA() {
-    if (m_focusArea == FocusArea::Tabs) {
-        m_focusArea = FocusArea::Content;
-        if (m_navSfxCb) m_navSfxCb();
-        return true;
-    }
     const Entry* e = currentEntry();
     if (e && e->onActivate) {
         if (m_activateSfxCb) m_activateSfxCb();
@@ -239,29 +234,8 @@ bool ListDetailScreen::handleCustomPressA() {
     return true;
 }
 
-bool ListDetailScreen::handleCustomNavRight() {
-    if (m_focusArea == FocusArea::Tabs) {
-        m_focusArea = FocusArea::Content;
-        if (m_navSfxCb) m_navSfxCb();
-    }
-    return true;
-}
-
-bool ListDetailScreen::handleCustomNavLeft() {
-    if (m_focusArea != FocusArea::Content) return false;
-    m_focusArea = FocusArea::Tabs;
-    if (m_navSfxCb) m_navSfxCb();
-    return true;
-}
-
-bool ListDetailScreen::handleCustomNavUp() {
-    if (m_focusArea != FocusArea::Content) return false;
-    scrollBy(-kScrollStep);
-    return true;
-}
-
-bool ListDetailScreen::handleCustomNavDown() {
-    if (m_focusArea != FocusArea::Content) return false;
-    scrollBy(kScrollStep);
-    return true;
-}
+// The preview isn't selectable: left/right do nothing, up/down stay in the list.
+bool ListDetailScreen::handleCustomNavRight() { return true; }
+bool ListDetailScreen::handleCustomNavLeft() { return true; }
+bool ListDetailScreen::handleCustomNavUp() { return false; }
+bool ListDetailScreen::handleCustomNavDown() { return false; }

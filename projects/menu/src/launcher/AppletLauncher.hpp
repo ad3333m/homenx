@@ -19,7 +19,9 @@ public:
     void launchControllerPairing();
     void launchControllerRemapping();
     void launchNetConnect();
-    bool launchSphaira();
+    // Frontend: with a host title (an installed game) and hbloader unpacked,
+    // homebrew runs in application mode; otherwise over the Album (applet).
+    bool launchSphaira(uint64_t hostTitleId = 0, AccountUid uid = {});
     // Frontend: makes sdmc:/hbmenu.nro the HomeNX Loader (keeping the old one
     // as hbmenu.nro.homenx-original). Call when the menu starts.
     static bool installLoader(); // false if the Loader file is missing or the copy failed
@@ -27,8 +29,11 @@ public:
     // Frontend: copies the HomeNX Toggle shipped in switch/SwitchU/bin/ to
     // switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
     static void installToggle();
+    // Frontend: unpacks Atmosphere's sdmc:/atmosphere/hbl.nsp into
+    // switch/SwitchU/bin/hbl/ (main + main.npdm) for application-mode homebrew.
+    static bool prepareHbl();
     // Hands the process to an .nro through hbloader (.nro build only).
-    bool launchNro(const std::string& path);
+    bool launchNro(const std::string& path, uint64_t hostTitleId = 0, AccountUid uid = {});
     Result createMii();
     enum class FriendScreen { AddFriend, Requests };
     Result openFriendScreen(FriendScreen screen, AccountUid uid);

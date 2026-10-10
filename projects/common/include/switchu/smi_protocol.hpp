@@ -39,6 +39,7 @@ enum class SystemMessage : uint32_t {
     LaunchUserCreator     = 16,
     LaunchShop            = 17, // HomeNX: Nintendo eShop as the given user
     LaunchFriendsScreen   = 18, // HomeNX: a friends applet screen (FriendsArgs)
+    LaunchHomebrewApp     = 19, // HomeNX: hbloader as an application (HomebrewAppArgs)
 
     EnterSleep            = 20,
     Shutdown              = 21,
@@ -86,6 +87,15 @@ struct FriendsArgs {
     uint32_t reserved;
 };
 static_assert(sizeof(FriendsArgs) == 24);
+
+// HomeNX: LaunchHomebrewApp. The daemon serves sdmc:/switch/SwitchU/bin/hbl
+// (Atmosphere's hbloader, unpacked) as `host_title_id`'s code and launches
+// that title, so homebrew runs in application mode instead of over the Album.
+struct HomebrewAppArgs {
+    uint8_t user_uid[16];
+    uint64_t host_title_id;
+};
+static_assert(sizeof(HomebrewAppArgs) == 24);
 
 struct ManualDateTimeArgs {
     uint32_t year;

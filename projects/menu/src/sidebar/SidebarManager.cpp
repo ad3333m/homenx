@@ -36,7 +36,7 @@ std::string joinPath(const std::string& base, const std::string& name) {
 
 void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
                            const std::string& assetsBase,
-                           const Actions& actions) {
+                           const Actions& actions, const Order& order) {
     const float btnSize = kSidebarButtonSize;
     const float gap = kSidebarColumnGap;
     const float leftX = kSidebarMarginX;
@@ -75,27 +75,34 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         return raw;
     };
 
-    m_albumButton = column(m_leftButtons, leftX,
-        makeBtn(&m_icons[0], "sidebar.sphaira", "Sphaira", actions.onAlbum));
-    column(m_leftButtons, leftX,
-        makeBtn(&m_icons[1], "sidebar.mii_editor", "Mii Editor", actions.onMiiEditor));
-    column(m_leftButtons, leftX,
-        makeBtn(&m_icons[7], "sidebar.news", "News", actions.onNews));
-    column(m_leftButtons, leftX,
-        makeBtn(&m_icons[8], "sidebar.homebrew", "Homebrew", actions.onHomebrew));
-    m_settingsButton = column(m_leftButtons, leftX,
-        makeBtn(&m_icons[5], "sidebar.settings", "Settings", actions.onSettings));
-
-    column(m_rightButtons, rightX,
-        makeBtn(&m_icons[6], "sidebar.eshop", "Nintendo eShop", actions.onEshop));
-    column(m_rightButtons, rightX,
-        makeBtn(&m_icons[2], "sidebar.controllers", "Controllers", actions.onControllers));
-    column(m_rightButtons, rightX,
-        makeBtn(&m_icons[9], "sidebar.friends", "Friends", actions.onFriends));
-    m_themeShopButton = column(m_rightButtons, rightX,
-        makeBtn(&m_icons[4], "sidebar.theme_shop", "Theme Shop", actions.onMiiverse));
-    column(m_rightButtons, rightX,
-        makeBtn(&m_icons[3], "sidebar.sleep", "Sleep", actions.onSleep));
+    // HomeNX: ten buttons identified by their icon slot (kButton*). `order`
+    // lists them top-to-bottom, left column first, then the right column.
+    struct Def { int id; const char* key; const char* fallback; std::function<void()> action; };
+    const Def defs[kSidebarIconCount] = {
+        {kButtonSphaira, "sidebar.sphaira", "Sphaira", actions.onAlbum},
+        {kButtonMii, "sidebar.mii_editor", "Mii Editor", actions.onMiiEditor},
+        {kButtonControllers, "sidebar.controllers", "Controllers", actions.onControllers},
+        {kButtonSleep, "sidebar.sleep", "Sleep", actions.onSleep},
+        {kButtonThemeShop, "sidebar.theme_shop", "Theme Shop", actions.onMiiverse},
+        {kButtonSettings, "sidebar.settings", "Settings", actions.onSettings},
+        {kButtonEshop, "sidebar.eshop", "Nintendo eShop", actions.onEshop},
+        {kButtonNews, "sidebar.news", "News", actions.onNews},
+        {kButtonCustom, "sidebar.custom", "Empty", actions.onCustom},
+        {kButtonFriends, "sidebar.friends", "Friends", actions.onFriends},
+    };
+    m_byId.fill(nullptr);
+    for (int slot = 0; slot < kSidebarIconCount; ++slot) {
+        const Def& d = defs[order[(std::size_t)slot]];
+        auto btn = makeBtn(&m_icons[(std::size_t)d.id], d.key, d.fallback, d.action);
+        m_byId[(std::size_t)d.id] = btn.get();
+        if (slot < kSidebarRows)
+            column(m_leftButtons, leftX, std::move(btn));
+        else
+            column(m_rightButtons, rightX, std::move(btn));
+    }
+    m_albumButton = m_byId[kButtonSphaira];
+    m_settingsButton = m_byId[kButtonSettings];
+    m_themeShopButton = m_byId[kButtonThemeShop];
 
     if (!m_leftButtons.empty()) {
         m_leftButtons.front()->setCustomNavigation(nxui::FocusDirection::UP, m_leftButtons.front().get());
@@ -264,12 +271,12 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
 
     static const char* iconFiles[] = {
         "sphaira.png", "mii_editor.png", "controller.png", "power.png", "themes.png", "settings.png",
-        "eshop.png", "news.png", "homebrew.png", "friends.png",
+        "eshop.png", "news.png", nullptr /* custom: setCustomButton */, "friends.png",
     };
     if ((int)m_icons.size() != kSidebarIconCount)
         m_icons.resize(kSidebarIconCount);
     for (int i = 0; i < kSidebarIconCount; ++i)
-        loadIconTexture(i, iconFiles[i]);
+        if (iconFiles[i]) loadIconTexture(i, iconFiles[i]);
 
     static const struct { int iconIdx; const char* webpFile; bool useFirstFrame; } animDefs[] = {
         { 0, "sphaira.webp",    false },
@@ -287,11 +294,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     }
 
     for (const auto& def : animDefs) {
-        AppletButton* const byIcon[] = {
-            m_leftButtons[0].get(), m_leftButtons[1].get(), m_rightButtons[1].get(),
-            m_rightButtons[4].get(), m_rightButtons[3].get(), m_leftButtons[4].get(),
-        };
-        AppletButton* btn = byIcon[def.iconIdx];
+        AppletButton* btn = m_byId[(std::size_t)def.iconIdx];
         if (!btn)
             continue;
 
@@ -309,6 +312,19 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     m_loadedAssetsBase = assetsBase;
     m_loadedCustomIconsBase = customIconsBase;
     m_assetsLoaded = true;
+}
+
+void SidebarManager::setCustomButton(nxui::GpuDevice& gpu, nxui::Renderer& ren,
+                                     const std::vector<std::uint8_t>& image,
+                                     const std::string& label) {
+    AppletButton* btn = m_byId[kButtonCustom];
+    if (!btn) return;
+    gpu.waitIdle();
+    nxui::Texture& tex = m_icons[kButtonCustom];
+    tex = nxui::Texture{};
+    const bool ok = !image.empty() && tex.loadFromMemory(gpu, ren, image.data(), image.size(), 256);
+    btn->setIcon(ok ? &tex : nullptr); // empty button until it's set up
+    btn->setLabel(label);
 }
 
 void SidebarManager::tryLoadAnimation(nxui::GpuDevice& gpu, nxui::Renderer& ren,

@@ -245,6 +245,7 @@ int main(int argc, char* argv[]) {
         switchu::manager::ReleaseUpdater::applyPending();
         AppletLauncher::installLoader();
         AppletLauncher::installToggle();
+        AppletLauncher::prepareHbl();
     }
 
     DebugLog::log("[menu] start mode=%d  suspended=0x%016lX running=%d",

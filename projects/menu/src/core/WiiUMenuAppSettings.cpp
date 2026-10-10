@@ -456,6 +456,24 @@ void WiiUMenuApp::createSettings() {
     m_settings->onControllerRemapping(blocking(&AppletLauncher::launchControllerRemapping));
 #endif
     m_settings->onFindControllers([this]() { m_launcher.findControllers(); });
+    {
+        auto& i18n = nxui::I18n::instance();
+        const auto order = sidebarOrder();
+        // Names by button id (SidebarManager::kButton*).
+        m_settings->setSidebarOrderState(std::vector<int>(order.begin(), order.end()), {
+            "Sphaira", i18n.tr("sidebar.mii_editor", "Mii Editor"),
+            i18n.tr("sidebar.controllers", "Controllers"), i18n.tr("sidebar.sleep", "Sleep"),
+            i18n.tr("sidebar.theme_shop", "Theme Shop"), i18n.tr("sidebar.settings", "Settings"),
+            i18n.tr("sidebar.eshop", "Nintendo eShop"), i18n.tr("sidebar.news", "News"),
+            i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.friends", "Friends"),
+        });
+    }
+    m_settings->onSidebarOrderChange([this](std::vector<int> order) {
+        m_config.sidebarOrder = std::move(order);
+        m_config.save();
+    });
+    m_settings->onCustomButtonApp([this]() { openCustomButtonAppPicker(); });
+    m_settings->onCustomButtonIcon([this]() { openCustomButtonIconPicker(); });
     m_settings->setGlassEffectsState(m_config.glassEffects);
     m_settings->onGlassEffectsChange([this](bool on) {
         m_config.glassEffects = on;
@@ -1281,7 +1299,9 @@ void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
             m_accessibility.announce(text);
         });
         m_detail->onClosed([this]() {
-            m_navigator.routeDidClose(switchu::navigation::Route::ListDetail);
+            // Back to where it was opened from (Home, or Settings for pickers).
+            if (m_navigator.route() == switchu::navigation::Route::ListDetail)
+                m_navigator.navigate(m_detailPrevRoute);
             if (m_detailReturnFocus) focusManager().setFocus(m_detailReturnFocus);
         });
     }
@@ -1290,8 +1310,13 @@ void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
     m_detail->setEntries(std::move(entries), std::move(emptyTitle), std::move(emptyMessage));
     m_audio.playSfx(Sfx::ModalShow);
     if (m_titlePill) m_titlePill->hideAnimated();
+    if (m_navigator.route() != switchu::navigation::Route::ListDetail)
+        m_detailPrevRoute = m_navigator.route();
     m_navigator.navigate(switchu::navigation::Route::ListDetail);
     m_detail->show();
+    // ZL/ZR scroll the preview (show() resets the screen's actions).
+    m_detail->addAction(static_cast<uint64_t>(nxui::Button::ZL), [this]() { if (m_detail) m_detail->scrollPreview(-160.f); });
+    m_detail->addAction(static_cast<uint64_t>(nxui::Button::ZR), [this]() { if (m_detail) m_detail->scrollPreview(160.f); });
     focusManager().setFocus(m_detail.get());
 }
 
@@ -1469,7 +1494,8 @@ void WiiUMenuApp::openFriends() {
                      right.size() > 2 ? right[2].get() : nullptr);
 }
 
-void WiiUMenuApp::openHomebrew() {
+// Settings > HomeNX > Custom button app: every .nro on the SD card.
+void WiiUMenuApp::openCustomButtonAppPicker() {
     auto& i18n = nxui::I18n::instance();
     std::string self;
 #ifndef SWITCHU_MENU
@@ -1483,10 +1509,24 @@ void WiiUMenuApp::openHomebrew() {
         m_homebrewApps = scanHomebrew(self, false);
         m_homebrewScanned = true;
     }
+    auto choose = [this](const std::string& path) {
+        m_config.customButtonPath = path;
+        m_config.customButtonIcon.clear(); // default to the new app's own icon
+        m_config.save();
+        applyCustomButton();
+        m_audio.playSfx(Sfx::ConfirmPositive);
+        if (m_detail) m_detail->hide();
+    };
     std::vector<ListDetailScreen::Entry> entries;
+    ListDetailScreen::Entry none;
+    none.listName = i18n.tr("custom.none", "Nothing (empty button)");
+    none.title = none.listName;
+    none.actionHint = i18n.tr("custom.choose_hint", "Press A to choose");
+    none.onActivate = [choose]() { choose(std::string()); };
+    entries.push_back(none);
     for (const auto& a : m_homebrewApps) {
         ListDetailScreen::Entry e;
-        e.listName = a.name;
+        e.listName = (a.path == m_config.customButtonPath ? "\u2713 " : "") + a.name;
         e.title = a.name;
         e.kicker = a.author;
         e.body = (a.version.empty() ? std::string()
@@ -1500,25 +1540,59 @@ void WiiUMenuApp::openHomebrew() {
                 return nullptr;
             return tex;
         };
-        e.actionHint = i18n.tr("homebrew.launch_hint", "Press A to launch");
-        e.onActivate = [this, path = a.path]() {
-            m_audio.playSfx(Sfx::LaunchGame);
-#ifdef SWITCHU_MENU
-            // The frontend opens it through the HomeNX Loader over the Album.
-            // Close this screen first: leaving waits for overlays to finish.
-            if (!loaderReadyOrExplain()) return;
-            if (m_detail) m_detail->hide();
-            leaveThen([this, path] { m_launcher.launchNro(path); });
-#else
-            fadeOutThen([this, path] { m_launcher.launchNro(path); });
-#endif
-        };
+        e.actionHint = i18n.tr("custom.choose_hint", "Press A to choose");
+        e.onActivate = [choose, path = a.path]() { choose(path); };
         entries.push_back(std::move(e));
     }
-    const auto& left = m_sidebar.leftButtons();
-    showDetailScreen(std::move(entries), i18n.tr("sidebar.homebrew", "Homebrew"),
-                     i18n.tr("homebrew.empty", "No .nro files were found in sdmc:/switch/."),
-                     left.size() > 3 ? left[3].get() : nullptr);
+    showDetailScreen(std::move(entries), i18n.tr("custom.app_title", "Custom button app"),
+                     std::string(), m_settings ? m_settings.get() : nullptr);
+}
+
+// Settings > HomeNX > Custom button icon: the app's own icon, or any picture
+// in sdmc:/switch/SwitchU/custom_icons/.
+void WiiUMenuApp::openCustomButtonIconPicker() {
+    auto& i18n = nxui::I18n::instance();
+    const std::string dir = "sdmc:/switch/SwitchU/custom_icons";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    auto choose = [this](const std::string& image) {
+        m_config.customButtonIcon = image;
+        m_config.save();
+        applyCustomButton();
+        m_audio.playSfx(Sfx::ConfirmPositive);
+        if (m_detail) m_detail->hide();
+    };
+    auto loadImage = [this](std::string path) {
+        return [this, path]() -> std::shared_ptr<nxui::Texture> {
+            auto tex = std::make_shared<nxui::Texture>();
+            if (!tex->loadFromFile(app().gpu(), app().renderer(), path, 256)) return nullptr;
+            return tex;
+        };
+    };
+    std::vector<ListDetailScreen::Entry> entries;
+    ListDetailScreen::Entry own;
+    own.listName = i18n.tr("custom.icon_app", "The app's own icon");
+    own.title = own.listName;
+    own.body = i18n.tr("custom.icon_hint",
+                       "Put .png or .jpg pictures in sdmc:/switch/SwitchU/custom_icons/ to use them instead.");
+    own.actionHint = i18n.tr("custom.choose_hint", "Press A to choose");
+    own.onActivate = [choose]() { choose(std::string()); };
+    entries.push_back(own);
+    for (const auto& file : std::filesystem::directory_iterator(dir, ec)) {
+        std::string ext = file.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+        if (ext != ".png" && ext != ".jpg" && ext != ".jpeg") continue;
+        const std::string path = file.path().string();
+        ListDetailScreen::Entry e;
+        e.listName = (path == m_config.customButtonIcon ? "\u2713 " : "") + file.path().filename().string();
+        e.title = file.path().filename().string();
+        e.lazyImage = loadImage(path);
+        e.actionHint = i18n.tr("custom.choose_hint", "Press A to choose");
+        e.onActivate = [choose, path]() { choose(path); };
+        entries.push_back(std::move(e));
+    }
+    showDetailScreen(std::move(entries), i18n.tr("custom.icon_title", "Custom button icon"),
+                     std::string(), m_settings ? m_settings.get() : nullptr);
 }
 
 void WiiUMenuApp::openMiis() {

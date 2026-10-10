@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <strings.h>
 #include "homebrew/HomebrewStore.hpp"
+#include <algorithm>
 #include <filesystem>
 #include <cstring>
 #include <cerrno>
@@ -294,17 +295,81 @@ void AppletLauncher::installToggle() {
     DebugLog::log("[launcher] HomeNX Toggle updated ec=%d", ec.value());
 }
 
-bool AppletLauncher::launchSphaira() {
+namespace {
+constexpr const char* kHblDir = "sdmc:/switch/SwitchU/bin/hbl";
+constexpr const char* kHblNsp = "sdmc:/atmosphere/hbl.nsp";
+}
+
+bool AppletLauncher::prepareHbl() {
+    std::error_code ec;
+    const std::string mainPath = std::string(kHblDir) + "/main";
+    const std::string npdmPath = std::string(kHblDir) + "/main.npdm";
+    const std::string stampPath = std::string(kHblDir) + "/source-size";
+    if (!std::filesystem::exists(kHblNsp, ec)) return false;
+    const std::string size = std::to_string(std::filesystem::file_size(kHblNsp, ec));
+    {
+        std::ifstream stamp(stampPath);
+        std::string seen;
+        if (std::getline(stamp, seen) && seen == size
+            && std::filesystem::exists(mainPath, ec) && std::filesystem::exists(npdmPath, ec))
+            return true;
+    }
+    // PFS0: header, file entries {u64 offset, u64 size, u32 name, u32 pad},
+    // string table, then the file data.
+    std::ifstream in(kHblNsp, std::ios::binary);
+    std::vector<char> nsp{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    struct Header { u32 magic, count, strings, reserved; };
+    struct Entry { u64 offset, size; u32 name, reserved; };
+    if (nsp.size() < sizeof(Header)) return false;
+    Header h;
+    std::memcpy(&h, nsp.data(), sizeof(h));
+    const std::size_t entriesEnd = sizeof(Header) + std::size_t(h.count) * sizeof(Entry);
+    if (h.magic != 0x30534650 /* PFS0 */ || h.count > 16 || entriesEnd + h.strings > nsp.size()) return false;
+    const std::size_t dataStart = entriesEnd + h.strings;
+    std::filesystem::create_directories(kHblDir, ec);
+    bool gotMain = false, gotNpdm = false;
+    for (u32 i = 0; i < h.count; ++i) {
+        Entry e;
+        std::memcpy(&e, nsp.data() + sizeof(Header) + i * sizeof(Entry), sizeof(e));
+        if (e.name >= h.strings || dataStart + e.offset + e.size > nsp.size()) return false;
+        const char* name = nsp.data() + entriesEnd + e.name;
+        const std::string n(name, std::find(name, nsp.data() + entriesEnd + h.strings, 0));
+        if (n != "main" && n != "main.npdm") continue;
+        std::ofstream(std::string(kHblDir) + "/" + n, std::ios::binary | std::ios::trunc)
+            .write(nsp.data() + dataStart + e.offset, static_cast<std::streamsize>(e.size));
+        (n == "main" ? gotMain : gotNpdm) = true;
+    }
+    if (gotMain && gotNpdm) std::ofstream(stampPath) << size;
+    DebugLog::log("[launcher] hbl unpacked main=%d npdm=%d", gotMain, gotNpdm);
+    return gotMain && gotNpdm;
+}
+
+// Application mode when we can borrow a game; the Album (applet) otherwise.
+static void startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid uid,
+                          const AppletLauncher::Callbacks& cb) {
+    std::error_code ec;
+    if (hostTitleId != 0 && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {
+        const Result rc = switchu::menu::smi_cmd::launchHomebrewApp(uid, hostTitleId);
+        DebugLog::log("[launcher] homebrew as application via %016lX rc=0x%X", hostTitleId, rc);
+        if (R_SUCCEEDED(rc)) {
+            if (cb.requestExit) cb.requestExit();
+            return;
+        }
+    }
+    self.launchAlbum();
+}
+
+bool AppletLauncher::launchSphaira(uint64_t hostTitleId, AccountUid uid) {
     std::remove(kLoaderNext); // no request: the Loader opens Sphaira
     if (!installLoader()) return false;
-    launchAlbum();
+    startHomebrew(*this, hostTitleId, uid, m_cb);
     return true;
 }
 
-bool AppletLauncher::launchNro(const std::string& path) {
+bool AppletLauncher::launchNro(const std::string& path, uint64_t hostTitleId, AccountUid uid) {
     if (!installLoader()) return false;
     writeLine(kLoaderNext, path);
-    launchAlbum();
+    startHomebrew(*this, hostTitleId, uid, m_cb);
     return true;
 }
 
@@ -402,7 +467,7 @@ void AppletLauncher::launchAlbum()     { logRc("album", albumLaShowAllAlbumFiles
 
 // Hand the process to Sphaira through hbloader, so it keeps HomeNX's mode
 // (application mode when HomeNX was started over a game).
-bool AppletLauncher::launchNro(const std::string& path) {
+bool AppletLauncher::launchNro(const std::string& path, uint64_t, AccountUid) {
     std::string args = "\"" + path + "\"";
     Result rc = envSetNextLoad(path.c_str(), args.c_str());
     logRc(path.c_str(), rc);
@@ -414,10 +479,11 @@ bool AppletLauncher::launchNro(const std::string& path) {
 bool AppletLauncher::installLoader() { return true; }
 const std::string& AppletLauncher::loaderError() { static const std::string none; return none; }
 void AppletLauncher::installToggle() {}
+bool AppletLauncher::prepareHbl() { return false; }
 
 // HomeNX.nro carries Sphaira in its romfs; copy it to the SD once (an .nro
 // has to be a real file for hbloader), then use the user's own as a fallback.
-bool AppletLauncher::launchSphaira() {
+bool AppletLauncher::launchSphaira(uint64_t, AccountUid) {
     const char* bundled = "sdmc:/switch/SwitchU/bin/sphaira.nro";
     std::error_code ec;
     if (std::filesystem::exists("romfs:/bin/sphaira.nro", ec)

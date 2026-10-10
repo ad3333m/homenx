@@ -6,6 +6,8 @@
 #include <nxui/core/Renderer.hpp>
 #include <nxui/Theme.hpp>
 #include <nxui/widgets/Widget.hpp>
+#include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -13,6 +15,18 @@
 
 class SidebarManager {
 public:
+    // Button ids = icon slots. The order setting is a permutation of these.
+    enum : int {
+        kButtonSphaira = 0, kButtonMii = 1, kButtonControllers = 2, kButtonSleep = 3,
+        kButtonThemeShop = 4, kButtonSettings = 5, kButtonEshop = 6, kButtonNews = 7,
+        kButtonCustom = 8, kButtonFriends = 9, kButtonCount = 10,
+    };
+    using Order = std::array<int, kButtonCount>; // left column top-down, then right
+    static constexpr Order kDefaultOrder = {
+        kButtonSphaira, kButtonMii, kButtonNews, kButtonCustom, kButtonSettings,
+        kButtonEshop, kButtonControllers, kButtonFriends, kButtonThemeShop, kButtonSleep,
+    };
+
     struct Actions {
         std::function<void()> onAlbum; // homebrew build: opens Sphaira
         std::function<void()> onMiiEditor;
@@ -22,12 +36,16 @@ public:
         std::function<void()> onMiiverse;
         std::function<void()> onEshop;
         std::function<void()> onNews;
-        std::function<void()> onHomebrew;
+        std::function<void()> onCustom; // the button you set up in Settings > HomeNX
         std::function<void()> onFriends;
     };
 
     void build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
-               const std::string& assetsBase, const Actions& actions);
+               const std::string& assetsBase, const Actions& actions,
+               const Order& order = kDefaultOrder);
+    // Icon + label of the custom button (empty image = no icon).
+    void setCustomButton(nxui::GpuDevice& gpu, nxui::Renderer& ren,
+                         const std::vector<std::uint8_t>& image, const std::string& label);
 
     void reloadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
                       const std::string& assetsBase,
@@ -63,6 +81,7 @@ private:
                           nxui::Texture* staticIcon);
 
     std::vector<nxui::Texture> m_icons;
+    std::array<AppletButton*, kButtonCount> m_byId{};
     std::vector<std::shared_ptr<AppletButton>> m_leftButtons;
     std::vector<std::shared_ptr<AppletButton>> m_rightButtons;
     AppletButton*  m_albumButton    = nullptr;

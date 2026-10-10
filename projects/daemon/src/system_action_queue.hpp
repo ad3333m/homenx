@@ -20,6 +20,7 @@ enum class SystemActionType : std::uint32_t {
     OpenUserCreator,
     OpenShop,
     OpenFriendsScreen, // titleId carries the FriendsLaArgType
+    LaunchHomebrewApp, // titleId = host application
 };
 
 struct SystemAction {

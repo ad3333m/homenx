@@ -633,26 +633,6 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
         return false;
     }
 
-    // HomeNX: store the return frame at half size (2x2 average): a quarter of
-    // the SD traffic when leaving and, more importantly, when HOME brings the
-    // menu back. It is only on screen while it fades into the live menu.
-    if (width >= 2 && height >= 2) {
-        const int hw = width / 2, hh = height / 2;
-        std::vector<std::uint8_t> half(static_cast<std::size_t>(hw) * hh * 4);
-        for (int y = 0; y < hh; ++y)
-            for (int x = 0; x < hw; ++x)
-                for (int c = 0; c < 4; ++c) {
-                    const auto px = [&](int sx, int sy) {
-                        return static_cast<unsigned>(rgba[(static_cast<std::size_t>(sy) * width + sx) * 4 + c]);
-                    };
-                    half[(static_cast<std::size_t>(y) * hw + x) * 4 + c] = static_cast<std::uint8_t>(
-                        (px(2 * x, 2 * y) + px(2 * x + 1, 2 * y) + px(2 * x, 2 * y + 1) + px(2 * x + 1, 2 * y + 1) + 2) / 4);
-                }
-        rgba = std::move(half);
-        width = hw;
-        height = hh;
-    }
-
     const LeaveFrameSession session = captureLeaveSession();
     m_leaveCaptureFocusTitleId = 0;
     // HomeNX: the 3.6 MB SD write used to stall launches. Write it on a thread
@@ -1187,6 +1167,83 @@ void WiiUMenuApp::openEshop(AccountUid uid) {
 #else
     runSystemApplet(true, [this, uid] { return m_launcher.launchEshop(uid); });
 #endif
+}
+
+// An installed, launchable game whose code the daemon swaps for hbloader
+// while homebrew runs, so homebrew gets application mode (like holding R).
+std::uint64_t WiiUMenuApp::homebrewHostTitleId() const {
+    for (const AppEntry& app : m_allApps)
+        if (app.titleId != 0 && !app.isFolder() && !app.isWidget() && !app.isGameCard()
+            && app.isLaunchable() && app.titleId != m_launcher.suspendedTitleId())
+            return app.titleId;
+    return 0;
+}
+
+// Sidebar order from the config; anything that isn't a full permutation of
+// the ten buttons falls back to the default layout.
+SidebarManager::Order WiiUMenuApp::sidebarOrder() const {
+    SidebarManager::Order order = SidebarManager::kDefaultOrder;
+    if (m_config.sidebarOrder.size() != order.size()) return order;
+    std::array<bool, SidebarManager::kButtonCount> seen{};
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        const int id = m_config.sidebarOrder[i];
+        if (id < 0 || id >= SidebarManager::kButtonCount || seen[(std::size_t)id])
+            return SidebarManager::kDefaultOrder;
+        seen[(std::size_t)id] = true;
+        order[i] = id;
+    }
+    return order;
+}
+
+// The custom button: the chosen .nro's name, and its icon (or a picked image).
+void WiiUMenuApp::applyCustomButton() {
+    const std::string& path = m_config.customButtonPath;
+    std::vector<std::uint8_t> image;
+    std::string label = nxui::I18n::instance().tr("sidebar.custom_empty", "Empty");
+    if (!path.empty()) {
+        HomebrewApp app;
+        if (readHomebrew(path, app, m_config.customButtonIcon.empty())) {
+            label = app.name;
+            image = std::move(app.icon);
+        }
+        if (!m_config.customButtonIcon.empty()) {
+            std::ifstream in(m_config.customButtonIcon, std::ios::binary);
+            image.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+    }
+    m_sidebar.setCustomButton(app().gpu(), app().renderer(), image, label);
+}
+
+void WiiUMenuApp::activateCustomButton() {
+    auto& i18n = nxui::I18n::instance();
+    const std::string path = m_config.customButtonPath;
+    if (path.empty()) {
+        if (!m_dialog) return;
+        m_audio.playSfx(Sfx::ModalShow);
+        m_dialog->show(i18n.tr("custom.empty_title", "This button is empty"),
+                       i18n.tr("custom.empty_body", "Choose the app it opens (and its icon) in Settings > HomeNX."),
+                       {{i18n.tr("custom.setup", "Set up"), [this]() { openHomeNXSettings(); }, true},
+                        {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
+                       0, {});
+        focusManager().setFocus(m_dialog.get());
+        return;
+    }
+#ifdef SWITCHU_MENU
+    if (!loaderReadyOrExplain()) return;
+    leaveThen([this, path] { m_launcher.launchNro(path, homebrewHostTitleId(), activeProfileUid()); });
+#else
+    m_audio.playSfx(Sfx::LaunchGame);
+    fadeOutThen([this, path] { m_launcher.launchNro(path); });
+#endif
+}
+
+void WiiUMenuApp::openHomeNXSettings() {
+    if (!m_settings) return;
+    m_audio.playSfx(Sfx::ModalShow);
+    m_navigator.navigate(switchu::navigation::Route::Settings);
+    m_settings->show();
+    m_settings->selectTab(11); // HomeNXTab
+    focusManager().setFocus(m_settings.get());
 }
 
 AccountUid WiiUMenuApp::activeProfileUid() const {
@@ -3098,7 +3155,7 @@ void WiiUMenuApp::showAddContextMenu(int targetSlot, const nxui::Rect& anchor) {
     auto& i18n = nxui::I18n::instance();
     if (!m_contextMenu->isActive())
         m_contextMenuReturnFocus = focusManager().current();
-    m_contextMenu->show(anchor, i18n.tr("add.title", "Add"), {
+    std::vector<ContextMenu::Item> items = {
         {i18n.tr("folder.create", "Create new folder"),
          [this, targetSlot]() {
              m_contextMenu->hide();
@@ -3106,7 +3163,22 @@ void WiiUMenuApp::showAddContextMenu(int targetSlot, const nxui::Rect& anchor) {
          }},
         {i18n.tr("widget.create", "Create new widget"),
          [this, targetSlot, anchor]() { showWidgetTypeMenu(targetSlot, anchor); }},
-    });
+    };
+    // HomeNX: page options. Deleting a page that has software on it moves
+    // that software to the end of the HOME menu (nothing is uninstalled).
+    if (m_grid && m_grid->totalPages() > 1) {
+        items.push_back({i18n.tr("page.delete_this", "Delete this page"), [this]() {
+            m_contextMenu->hide();
+            m_audio.playSfx(Sfx::ConfirmPositive);
+            deleteCurrentPage();
+        }});
+        items.push_back({i18n.tr("page.delete_unused", "Remove empty pages"), [this]() {
+            m_contextMenu->hide();
+            m_audio.playSfx(Sfx::ConfirmPositive);
+            deleteAllUnusedPages();
+        }});
+    }
+    m_contextMenu->show(anchor, i18n.tr("options.title", "Options"), std::move(items));
     m_audio.playSfx(Sfx::ModalShow);
     focusManager().setFocus(m_contextMenu.get());
 }
@@ -4360,10 +4432,11 @@ void WiiUMenuApp::buildGrid() {
     SidebarManager::Actions sidebarActions;
 #ifdef SWITCHU_MENU
     // Frontend: Atmosphere's homebrew loader runs over the Album applet and
-    // starts sdmc:/hbmenu.nro; launchSphaira() copies Sphaira there first.
+    // starts sdmc:/hbmenu.nro (the HomeNX Loader -> Sphaira). With an installed
+    // game to borrow it runs as an application instead (see launchSphaira).
     sidebarActions.onAlbum = [this]() {
         if (!loaderReadyOrExplain()) return;
-        leaveThen([this]() { m_launcher.launchSphaira(); });
+        leaveThen([this]() { m_launcher.launchSphaira(homebrewHostTitleId(), activeProfileUid()); });
     };
 #else
     sidebarActions.onAlbum = [this]() {
@@ -4400,7 +4473,7 @@ void WiiUMenuApp::buildGrid() {
     // HomeNX menus: Miis, Homebrew, News and Friends are drawn by HomeNX, and
     // Controllers opens Settings > Controllers (Change Grip/Order, Find, ...).
     sidebarActions.onMiiEditor = [this]() { openMiis(); };
-    sidebarActions.onHomebrew = [this]() { openHomebrew(); };
+    sidebarActions.onCustom = [this]() { activateCustomButton(); };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
     sidebarActions.onControllers = [this]() {
@@ -4492,12 +4565,13 @@ void WiiUMenuApp::buildGrid() {
         focusManager().setFocus(m_themeShop.get());
     };
 
-    m_sidebar.build(app().gpu(), app().renderer(), SD_ASSETS, sidebarActions);
+    m_sidebar.build(app().gpu(), app().renderer(), SD_ASSETS, sidebarActions, sidebarOrder());
     configureDynamicLineNavigation();
     if (!fastReturn) {
         m_sidebar.reloadAssets(app().gpu(), app().renderer(), SD_ASSETS,
                                resolveThemeAssetPath(m_effectivePreset, m_effectivePreset.icons.basePath));
     }
+    applyCustomButton();
 
     wireGlobalActions();
     applyTheme();

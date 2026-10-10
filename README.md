@@ -8,13 +8,15 @@ Wii U-style home menu for modded Switch consoles, forked from
 
 | Left | Right |
 |---|---|
-| Sphaira, Miis, News, Homebrew, Settings | Nintendo eShop, Controllers, Friends, Theme Shop, Sleep |
+| Sphaira, Miis, News, Custom button, Settings | Nintendo eShop, Controllers, Friends, Theme Shop, Sleep |
+
+Settings > HomeNX: the custom button's app and icon, the order of the side
+buttons, and Glass effects (off = steady 60 FPS).
 
 - **Games** are the ones installed on the console. **Profiles** are always chosen.
 - **News** reads the console's own saved HOME-menu news.
 - **Friends** reads the console's friend list; Add Friend and Friend Requests open
   Nintendo's screens (they need the console to go online).
-- **Homebrew** lists every .nro in `sdmc:/switch/` and launches it (in the .nro build).
 - **Miis** lists your Miis with a HomeNX portrait; create/edit opens Mii Maker.
 - **Controllers** opens HomeNX's Controllers menu (Change Grip/Order, Find
   Controllers, Test Input Devices, Button Mapping).

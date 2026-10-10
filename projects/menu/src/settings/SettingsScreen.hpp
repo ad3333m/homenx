@@ -46,6 +46,14 @@ public:
     void onHomeNXUpdateCheck(VoidCb cb) { m_homenxUpdateCb = std::move(cb); }
     void onHomeNXTurnOff(VoidCb cb) { m_homenxOffCb = std::move(cb); }
     void onGlassEffectsChange(BoolCb cb) { m_glassEffectsCb = std::move(cb); }
+    void onCustomButtonApp(VoidCb cb) { m_customAppCb = std::move(cb); }
+    void onCustomButtonIcon(VoidCb cb) { m_customIconCb = std::move(cb); }
+    // Sidebar order: slot 0-4 left column, 5-9 right; value = button id.
+    void setSidebarOrderState(std::vector<int> order, std::vector<std::string> names) {
+        m_sidebarOrder = std::move(order);
+        m_sidebarNames = std::move(names);
+    }
+    void onSidebarOrderChange(std::function<void(std::vector<int>)> cb) { m_sidebarOrderCb = std::move(cb); }
     void setGlassEffectsState(bool on) { m_glassEffects = on; }
     using SoftwareDeleteCb = std::function<void(uint64_t, const std::string&)>;
     void onSoftwareDelete(SoftwareDeleteCb cb) { m_softwareDeleteCb = std::move(cb); }
@@ -140,6 +148,11 @@ private:
     VoidCb m_homenxUpdateCb;
     VoidCb m_homenxOffCb;
     BoolCb m_glassEffectsCb;
+    VoidCb m_customAppCb;
+    VoidCb m_customIconCb;
+    std::vector<int> m_sidebarOrder;
+    std::vector<std::string> m_sidebarNames;
+    std::function<void(std::vector<int>)> m_sidebarOrderCb;
     bool m_glassEffects = false;
     SoftwareDeleteCb m_softwareDeleteCb;
     VoidCb m_sleepCb;

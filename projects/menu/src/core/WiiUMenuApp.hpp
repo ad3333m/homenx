@@ -194,6 +194,13 @@ private:
                                     const std::string& launchTitle);
 #endif
     AccountUid activeProfileUid() const;
+    std::uint64_t homebrewHostTitleId() const;
+    SidebarManager::Order sidebarOrder() const;
+    void applyCustomButton();
+    void activateCustomButton();
+    void openHomeNXSettings();
+    void openCustomButtonAppPicker();
+    void openCustomButtonIconPicker();
     void openNews();
     // HomeNX: names set with Rename (game options), by title id.
     std::map<std::uint64_t, std::string> m_customNames;
@@ -202,7 +209,6 @@ private:
     std::set<std::string> readNewsReadList() const;
     void markNewsRead(const std::string& id);
     void openFriends();
-    void openHomebrew();
     std::vector<HomebrewApp> m_homebrewApps; // scanned once per session
     bool m_homebrewScanned = false;
     void openMiis();
@@ -462,6 +468,7 @@ private:
     // News and Friends share one list/detail overlay (only one is open at a time).
     std::shared_ptr<ListDetailScreen> m_detail;
     nxui::Widget* m_detailReturnFocus = nullptr;
+    switchu::navigation::Route m_detailPrevRoute = switchu::navigation::Route::Home;
     bool m_newsLoaded = false;
     std::function<void()> m_fadeThen;
     float m_fade = 0.f;        // 0 clear .. 1 black

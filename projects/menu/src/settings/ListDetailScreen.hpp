@@ -7,7 +7,8 @@
 
 // SwitchU-style overlay with a list on the left and the selected entry drawn
 // on the right (picture, title, text). Used for News, Friends, Homebrew and Miis.
-// Right / A moves into the entry so up/down scroll it; left / B goes back.
+// The cursor stays in the list: A runs the entry's action, ZL/ZR scroll the
+// preview on the right (it can't be selected).
 class ListDetailScreen final : public TabbedOverlayScreen {
 public:
     struct Entry {
@@ -32,6 +33,7 @@ public:
 
     // With no entries the right side shows emptyTitle / emptyMessage.
     void setEntries(std::vector<Entry> entries, std::string emptyTitle, std::string emptyMessage);
+    void scrollPreview(float dy) { scrollBy(dy); }
 
 protected:
     void buildTabs() override;
