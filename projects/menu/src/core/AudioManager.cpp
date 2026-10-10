@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <random>
 
@@ -341,11 +342,13 @@ void AudioManager::readMp3Metadata(const std::string& path, MusicTrackInfo& info
 }
 
 bool AudioManager::loadTrack(const std::string& path, const std::string& albumFolder) {
-    Mix_Music* music = Mix_LoadMUS(path.c_str());
-    if (!music) {
-        std::fprintf(stderr, "[Audio] Failed to load %s: %s\n", path.c_str(), Mix_GetError());
+    // HomeNX: the decoder is opened on first play (playCurrentInternal). Opening
+    // every song here put the whole playlist on the SD card before HOME's music
+    // could start on each return.
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec))
         return false;
-    }
+    Mix_Music* music = nullptr;
 
     MusicTrackInfo info;
     info.path = path;
@@ -560,8 +563,17 @@ void AudioManager::playCurrentInternal(bool fromStart) {
         return;
     s_instance.store(this);
     Mix_HookMusicFinished(onTrackFinished);
+    Mix_Music*& music = m_tracks[static_cast<size_t>(m_current)];
+    if (!music) {
+        const std::string& path = m_trackInfos[static_cast<size_t>(m_current)].path;
+        music = Mix_LoadMUS(path.c_str());
+        if (!music) {
+            std::fprintf(stderr, "[Audio] Failed to load %s: %s\n", path.c_str(), Mix_GetError());
+            return;
+        }
+    }
     m_suppressFinishedHook = true;
-    Mix_PlayMusic(m_tracks[static_cast<size_t>(m_current)], 1);
+    Mix_PlayMusic(music, 1);
     if (!fromStart && m_positionSeconds > 0.25f)
         Mix_SetMusicPosition(static_cast<double>(m_positionSeconds));
     else
@@ -710,6 +722,17 @@ void AudioManager::update(float dt) {
         const float dur = durationSeconds();
         if (dur > 0.f && m_positionSeconds > dur)
             m_positionSeconds = dur;
+    }
+    // HomeNX: open the next song a few seconds into this one, here on the main
+    // thread, so a song change never reads the SD card inside the audio callback.
+    if (m_playing.load() && m_positionSeconds > 5.f && m_preloadedAfter != m_current) {
+        std::lock_guard<std::mutex> lk(m_trackMutex);
+        m_preloadedAfter = m_current;
+        if (!m_tracks.empty()) {
+            const auto next = static_cast<size_t>(nextIndexInOrder(m_current));
+            if (next < m_tracks.size() && !m_tracks[next])
+                m_tracks[next] = Mix_LoadMUS(m_trackInfos[next].path.c_str());
+        }
     }
 }
 

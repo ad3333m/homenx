@@ -128,6 +128,7 @@ private:
     std::unordered_map<std::string, std::vector<uint8_t>> m_folderCovers;
     std::vector<int> m_shuffleOrder;
     int   m_current = 0;
+    int   m_preloadedAfter = -1; // track whose successor has been opened
     float m_volume  = 0.5f;
     float m_musicFade = 1.f;
     float m_positionSeconds = 0.f;
