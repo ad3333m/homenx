@@ -1279,6 +1279,7 @@ void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
         });
     }
     m_detailReturnFocus = returnFocus;
+    app().gpu().waitIdle(); // the previous entries' pictures are freed below
     m_detail->setEntries(std::move(entries), std::move(emptyTitle), std::move(emptyMessage));
     m_audio.playSfx(Sfx::ModalShow);
     if (m_titlePill) m_titlePill->hideAnimated();
@@ -1374,9 +1375,15 @@ void WiiUMenuApp::openFriends() {
     // need the console to reach Nintendo's servers.
     auto systemScreen = [this](AppletLauncher::FriendScreen which) {
         return [this, which]() {
+#ifdef SWITCHU_MENU
+            // Frontend: the daemon opens it; close this screen so leaving isn't held up.
+            if (m_detail) m_detail->hide();
+            leaveThen([this, which] { m_launcher.openFriendScreen(which, activeProfileUid()); });
+#else
             runSystemApplet(false, [this, which] {
                 return m_launcher.openFriendScreen(which, activeProfileUid());
             });
+#endif
         };
     };
     const std::string online = i18n.tr("friends.needs_online",
@@ -1463,12 +1470,14 @@ void WiiUMenuApp::openHomebrew() {
     extern char** __system_argv;
     if (__system_argc > 0 && __system_argv[0]) self = __system_argv[0];
 #endif
-    // ponytail: scanned on every open on the UI thread; cache it if SD cards
-    // with hundreds of .nro files make opening slow.
-    std::vector<HomebrewApp> apps = scanHomebrew(self);
-    app().gpu().waitIdle();
+    // Scanned once per session (names/versions only); each icon is read and
+    // decoded the first time its entry is selected, so opening stays quick.
+    if (!m_homebrewScanned) {
+        m_homebrewApps = scanHomebrew(self, false);
+        m_homebrewScanned = true;
+    }
     std::vector<ListDetailScreen::Entry> entries;
-    for (auto& a : apps) {
+    for (const auto& a : m_homebrewApps) {
         ListDetailScreen::Entry e;
         e.listName = a.name;
         e.title = a.name;
@@ -1476,11 +1485,14 @@ void WiiUMenuApp::openHomebrew() {
         e.body = (a.version.empty() ? std::string()
                                     : i18n.tr("homebrew.version", "Version") + " " + a.version + "\n")
                + a.path;
-        if (!a.icon.empty()) {
+        e.lazyImage = [this, path = a.path]() -> std::shared_ptr<nxui::Texture> {
+            const std::vector<std::uint8_t> icon = readHomebrewIcon(path);
+            if (icon.empty()) return nullptr;
             auto tex = std::make_shared<nxui::Texture>();
-            if (tex->loadFromMemory(app().gpu(), app().renderer(), a.icon.data(), a.icon.size(), 256))
-                e.image = std::move(tex);
-        }
+            if (!tex->loadFromMemory(app().gpu(), app().renderer(), icon.data(), icon.size(), 256))
+                return nullptr;
+            return tex;
+        };
         e.actionHint = i18n.tr("homebrew.launch_hint", "Press A to launch");
         e.onActivate = [this, path = a.path]() {
             m_audio.playSfx(Sfx::LaunchGame);

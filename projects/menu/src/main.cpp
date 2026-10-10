@@ -232,15 +232,20 @@ int main(int argc, char* argv[]) {
     DebugLog::log("[main] applet config...");
 #else
     DebugLog::log("[menu] main() entry");
-    // Finish an update first (files that were open while it ran), before any
-    // font or asset is opened.
-    switchu::manager::ReleaseUpdater::applyPending();
-    // Make sure sdmc:/hbmenu.nro is the HomeNX Loader (Sphaira / Homebrew page).
-    AppletLauncher::installLoader();
-    AppletLauncher::installToggle();
 
     auto startMode = readStartMode();
     auto sysStatus = readSystemStatus();
+
+    // HomeNX housekeeping only when the console boots, not on every HOME press
+    // (returning from a game has to be quick): finish an update (files that were
+    // open while it ran, before any font is opened), put the Loader in place as
+    // sdmc:/hbmenu.nro and copy the shipped Toggle. The Sphaira button re-checks
+    // the Loader itself.
+    if (startMode == switchu::smi::MenuStartMode::StartupBoot) {
+        switchu::manager::ReleaseUpdater::applyPending();
+        AppletLauncher::installLoader();
+        AppletLauncher::installToggle();
+    }
 
     DebugLog::log("[menu] start mode=%d  suspended=0x%016lX running=%d",
                   (int)startMode, sysStatus.suspended_app_id, sysStatus.app_running);

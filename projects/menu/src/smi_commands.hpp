@@ -90,6 +90,20 @@ inline Result launchShop(AccountUid uid) {
     return pushOutStorage(buf, sizeof(buf));
 }
 
+inline Result launchFriendsScreen(AccountUid uid, uint32_t screen) {
+    uint8_t buf[sizeof(smi::CommandHeader) + sizeof(smi::FriendsArgs)]{};
+    auto* hdr = reinterpret_cast<smi::CommandHeader*>(buf);
+    auto* args = reinterpret_cast<smi::FriendsArgs*>(buf + sizeof(smi::CommandHeader));
+
+    hdr->magic    = smi::kCommandMagic;
+    hdr->message  = static_cast<uint32_t>(smi::SystemMessage::LaunchFriendsScreen);
+    hdr->request_id = nextRequestId();
+    std::memcpy(args->user_uid, &uid, sizeof(uid));
+    args->screen = screen;
+
+    return pushOutStorage(buf, sizeof(buf));
+}
+
 static Result waitForCommandResponse(uint64_t requestId) {
     uint8_t response[smi::kStorageSize]{};
     size_t actual = 0;

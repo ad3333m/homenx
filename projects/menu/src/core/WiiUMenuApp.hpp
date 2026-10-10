@@ -31,6 +31,7 @@
 #include "settings/SettingsScreen.hpp"
 #include "settings/GameOptionsScreen.hpp"
 #include "settings/ListDetailScreen.hpp"
+#include "homebrew/HomebrewStore.hpp"
 #ifdef SWITCHU_MENU
 #include "ReleaseUpdater.hpp"
 #endif
@@ -202,6 +203,8 @@ private:
     void markNewsRead(const std::string& id);
     void openFriends();
     void openHomebrew();
+    std::vector<HomebrewApp> m_homebrewApps; // scanned once per session
+    bool m_homebrewScanned = false;
     void openMiis();
     void openEshop(AccountUid uid);
 #ifdef SWITCHU_MENU

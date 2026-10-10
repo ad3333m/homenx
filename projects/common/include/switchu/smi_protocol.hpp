@@ -38,6 +38,7 @@ enum class SystemMessage : uint32_t {
     LaunchControllerRemapping = 15,
     LaunchUserCreator     = 16,
     LaunchShop            = 17, // HomeNX: Nintendo eShop as the given user
+    LaunchFriendsScreen   = 18, // HomeNX: a friends applet screen (FriendsArgs)
 
     EnterSleep            = 20,
     Shutdown              = 21,
@@ -77,6 +78,14 @@ struct UserArgs {
     uint8_t user_uid[16];
 };
 static_assert(sizeof(UserArgs) == 16);
+
+// HomeNX: LaunchFriendsScreen. `screen` is a libnx FriendsLaArgType.
+struct FriendsArgs {
+    uint8_t user_uid[16];
+    uint32_t screen;
+    uint32_t reserved;
+};
+static_assert(sizeof(FriendsArgs) == 24);
 
 struct ManualDateTimeArgs {
     uint32_t year;

@@ -19,6 +19,8 @@ public:
         std::string actionHint;          // e.g. "Press A to launch"; shown when onActivate is set
         std::function<void()> onActivate; // A inside the entry
         std::shared_ptr<nxui::Texture> image;
+        // Loads `image` the first time the entry is selected (keeps opening fast).
+        std::function<std::shared_ptr<nxui::Texture>()> lazyImage;
         bool roundImage = false;          // avatar style instead of a banner
         bool unread = false;              // green dot on its row in the list
         std::function<void()> onShown;    // first time it's shown (marks it read)

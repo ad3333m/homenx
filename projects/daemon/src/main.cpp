@@ -1313,9 +1313,10 @@ static Result launchShop(AccountUid uid) {
     return launchLibraryApplet(AppletId_LibraryAppletShop, "Shop", &cfg.arg, sizeof(cfg.arg), cfg.version);
 }
 
-static Result launchUserProfile(AccountUid uid) {
+static Result launchUserProfile(AccountUid uid,
+                                FriendsLaArgType type = FriendsLaArgType_ShowMyProfile) {
     FriendsLaArg current{};
-    current.hdr.type = FriendsLaArgType_ShowMyProfile;
+    current.hdr.type = type;
     current.hdr.uid = uid;
 
     FriendsLaArgV1 legacy{};
@@ -1468,6 +1469,18 @@ static void handleMenuCommand() {
         result = g_actionQueue.enqueue(action);
         recordOperationResult(requestId, msg, result);
         switchu::FileLog::log("[smi] queued User Page launch (actions=%zu)", g_actionQueue.size());
+        break;
+    }
+
+    case smi::SystemMessage::LaunchFriendsScreen: {
+        auto args = reader.pop<smi::FriendsArgs>();
+        daemon::SystemAction action{};
+        action.type = daemon::SystemActionType::OpenFriendsScreen;
+        action.requestId = requestId;
+        action.titleId = args.screen;
+        std::memcpy(&action.uid, args.user_uid, sizeof(action.uid));
+        result = g_actionQueue.enqueue(action);
+        recordOperationResult(requestId, msg, result);
         break;
     }
 
@@ -1680,6 +1693,15 @@ static bool handleAction(daemon::SystemAction& action) {
             if (R_FAILED(rc))
                 switchu::FileLog::log("[action] NetConnect FAIL: 0x%X", rc);
             relaunchMenuAfterApplet("NetConnect");
+            return true;
+        }
+
+        case daemon::SystemActionType::OpenFriendsScreen: {
+            Result rc = launchUserProfile(action.uid, static_cast<FriendsLaArgType>(action.titleId));
+            recordOperationResult(action.requestId, smi::SystemMessage::LaunchFriendsScreen, rc);
+            if (R_FAILED(rc))
+                switchu::FileLog::log("[action] Friends screen FAIL: 0x%X", rc);
+            relaunchMenuAfterApplet("Friends");
             return true;
         }
 

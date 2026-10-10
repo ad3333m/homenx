@@ -30,7 +30,7 @@ std::string fileStem(const std::string& path) {
 
 // NRO layout (libnx nro.h): NroStart, NroHeader (size = end of code), then an
 // NroAssetHeader whose section offsets are relative to itself.
-bool readHomebrew(const std::string& path, HomebrewApp& app) {
+bool readHomebrew(const std::string& path, HomebrewApp& app, bool withIcon) {
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
     app.path = path;
@@ -67,7 +67,7 @@ bool readHomebrew(const std::string& path, HomebrewApp& app) {
             app.version = field(nacp->display_version, sizeof(nacp->display_version));
         }
     }
-    if (asset.icon.size > 0 && asset.icon.size <= 0x40000) {
+    if (withIcon && asset.icon.size > 0 && asset.icon.size <= 0x40000) {
         app.icon.resize(asset.icon.size);
         if (std::fseek(f, header.size + asset.icon.offset, SEEK_SET) != 0
             || std::fread(app.icon.data(), app.icon.size(), 1, f) != 1)
@@ -79,17 +79,18 @@ bool readHomebrew(const std::string& path, HomebrewApp& app) {
 
 namespace {
 
-void scanDir(const std::string& dir, int depth, const std::string& skip, std::vector<HomebrewApp>& out) {
+void scanDir(const std::string& dir, int depth, const std::string& skip, bool withIcons,
+             std::vector<HomebrewApp>& out) {
     DIR* d = opendir(dir.c_str());
     if (!d) return;
     while (dirent* e = readdir(d)) {
         if (e->d_name[0] == '.') continue;
         const std::string path = dir + "/" + e->d_name;
         if (e->d_type == DT_DIR) {
-            if (depth > 0) scanDir(path, depth - 1, skip, out);
+            if (depth > 0) scanDir(path, depth - 1, skip, withIcons, out);
         } else if (endsWithNro(e->d_name) && strcasecmp(path.c_str(), skip.c_str()) != 0) {
             HomebrewApp app;
-            if (readHomebrew(path, app)) out.push_back(std::move(app));
+            if (readHomebrew(path, app, withIcons)) out.push_back(std::move(app));
         }
     }
     closedir(d);
@@ -97,9 +98,9 @@ void scanDir(const std::string& dir, int depth, const std::string& skip, std::ve
 
 } // namespace
 
-std::vector<HomebrewApp> scanHomebrew(const std::string& skipPath) {
+std::vector<HomebrewApp> scanHomebrew(const std::string& skipPath, bool withIcons) {
     std::vector<HomebrewApp> apps;
-    scanDir("sdmc:/switch", 1, skipPath, apps);
+    scanDir("sdmc:/switch", 1, skipPath, withIcons, apps);
     std::sort(apps.begin(), apps.end(), [](const HomebrewApp& a, const HomebrewApp& b) {
         return strcasecmp(a.name.c_str(), b.name.c_str()) < 0;
     });
@@ -107,14 +108,20 @@ std::vector<HomebrewApp> scanHomebrew(const std::string& skipPath) {
     return apps;
 }
 
+std::vector<std::uint8_t> readHomebrewIcon(const std::string& path) {
+    HomebrewApp app;
+    readHomebrew(path, app, true);
+    return std::move(app.icon);
+}
+
 std::string findSphaira(bool allowHbmenu) {
     auto isSphaira = [](const std::string& path) {
         HomebrewApp app;
-        return readHomebrew(path, app) && strcasecmp(app.name.c_str(), "sphaira") == 0;
+        return readHomebrew(path, app, false) && strcasecmp(app.name.c_str(), "sphaira") == 0;
     };
     for (const char* path : {"sdmc:/switch/sphaira/sphaira.nro", "sdmc:/switch/sphaira.nro"})
         if (isSphaira(path)) return path;
-    for (const HomebrewApp& app : scanHomebrew(""))
+    for (const HomebrewApp& app : scanHomebrew("", false))
         if (strcasecmp(app.name.c_str(), "sphaira") == 0) return app.path;
     if (allowHbmenu && isSphaira("sdmc:/hbmenu.nro")) return "sdmc:/hbmenu.nro";
     return {};

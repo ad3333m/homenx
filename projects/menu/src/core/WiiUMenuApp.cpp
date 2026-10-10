@@ -632,6 +632,26 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
         return false;
     }
 
+    // HomeNX: store the return frame at half size (2x2 average): a quarter of
+    // the SD traffic when leaving and, more importantly, when HOME brings the
+    // menu back. It is only on screen while it fades into the live menu.
+    if (width >= 2 && height >= 2) {
+        const int hw = width / 2, hh = height / 2;
+        std::vector<std::uint8_t> half(static_cast<std::size_t>(hw) * hh * 4);
+        for (int y = 0; y < hh; ++y)
+            for (int x = 0; x < hw; ++x)
+                for (int c = 0; c < 4; ++c) {
+                    const auto px = [&](int sx, int sy) {
+                        return static_cast<unsigned>(rgba[(static_cast<std::size_t>(sy) * width + sx) * 4 + c]);
+                    };
+                    half[(static_cast<std::size_t>(y) * hw + x) * 4 + c] = static_cast<std::uint8_t>(
+                        (px(2 * x, 2 * y) + px(2 * x + 1, 2 * y) + px(2 * x, 2 * y + 1) + px(2 * x + 1, 2 * y + 1) + 2) / 4);
+                }
+        rgba = std::move(half);
+        width = hw;
+        height = hh;
+    }
+
     const LeaveFrameSession session = captureLeaveSession();
     m_leaveCaptureFocusTitleId = 0;
     // HomeNX: the 3.6 MB SD write used to stall launches. Write it on a thread

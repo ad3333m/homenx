@@ -309,7 +309,19 @@ bool AppletLauncher::launchNro(const std::string& path) {
 }
 
 Result AppletLauncher::createMii() { launchMiiEditor(); return 0; }
-Result AppletLauncher::openFriendScreen(FriendScreen, AccountUid) { return 0; }
+// The daemon runs the friends applet (MyPage) on the requested screen.
+Result AppletLauncher::openFriendScreen(FriendScreen screen, AccountUid uid) {
+    const uint32_t type = screen == FriendScreen::AddFriend
+        ? FriendsLaArgType_ShowMethodsOfSendingFriendRequest
+        : FriendsLaArgType_ShowReceivedFriendRequestList;
+    Result rc = switchu::menu::smi_cmd::launchFriendsScreen(uid, type);
+    DebugLog::log("[launcher] friends screen rc=0x%X", rc);
+    if (R_SUCCEEDED(rc)) {
+        if (m_cb.playSfxModalHide) m_cb.playSfxModalHide();
+        if (m_cb.requestExit)      m_cb.requestExit();
+    }
+    return rc;
+}
 void AppletLauncher::findControllers() {}
 Result AppletLauncher::launchEshop(AccountUid uid) {
     Result rc = switchu::menu::smi_cmd::launchShop(uid);

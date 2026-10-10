@@ -19,6 +19,7 @@ enum class SystemActionType : std::uint32_t {
     OpenUserPage,
     OpenUserCreator,
     OpenShop,
+    OpenFriendsScreen, // titleId carries the FriendsLaArgType
 };
 
 struct SystemAction {

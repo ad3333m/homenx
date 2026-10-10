@@ -157,6 +157,15 @@ void ListDetailScreen::scrollBy(float dy) {
 
 void ListDetailScreen::onContentUpdate(float dt) {
     TabbedOverlayScreen::onContentUpdate(dt);
+    if (m_tabIndex >= 0 && m_tabIndex < (int)m_entries.size()) {
+        Entry& e = m_entries[(size_t)m_tabIndex];
+        if (!e.image && e.lazyImage) {
+            auto load = std::move(e.lazyImage);
+            e.lazyImage = nullptr;
+            e.image = load();
+            if (e.image) m_layoutTab = -2; // lay out again with the picture
+        }
+    }
     m_scroll += (m_scrollGoal - m_scroll) * std::min(1.f, dt * 14.f);
 }
 
