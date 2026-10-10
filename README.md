@@ -32,9 +32,10 @@ Wii U-style home menu for modded Switch consoles, forked from
 **If the console won't reach the HOME menu**, put the SD card in a PC and delete
 `atmosphere/contents/0100000000001000`. The normal HOME menu comes back.
 
-In the frontend, the Sphaira button copies Sphaira in as `sdmc:/hbmenu.nro` for
-the visit (the original is restored when HomeNX comes back). Launching a chosen
-.nro from the Homebrew page isn't supported in the frontend yet.
+In the frontend, HomeNX installs **HomeNX Loader** as `sdmc:/hbmenu.nro` (the
+old one is kept as `hbmenu.nro.homenx-original`). The Album's homebrew loader
+always starts that file, so the Loader opens Sphaira, or the .nro picked on the
+Homebrew page. Settings > HomeNX checks for updates and turns HomeNX off.
 
 ---
 

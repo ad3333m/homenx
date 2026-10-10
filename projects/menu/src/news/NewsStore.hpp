@@ -13,9 +13,11 @@ struct NewsArticle {
     std::string body;
     std::string footer;
     std::string linkUrl;   // "more" browser button, if any
-    std::uint64_t publishedAt = 0;
+    std::string id;             // news_id, for remembering what was read
+    bool read = false;          // the console's own "read" flag
+    std::uint64_t publishedAt = 0; // POSIX seconds (published, else received)
     std::vector<std::uint8_t> image; // JPEG: body main image, else the list image
 };
 
-// Newest first. On failure returns empty and sets rc.
+// Newest first (oldest last). On failure returns empty and sets rc.
 std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles = 40);

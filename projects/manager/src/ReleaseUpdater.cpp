@@ -5,6 +5,9 @@
 #include <nlohmann/json.hpp>
 #include <switch.h>
 #include <switchu/file_log.hpp>
+#ifdef HOMENX_UPDATER_SHARED_NETWORK
+#include "themeshop/ThemeHttp.hpp"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -79,6 +82,16 @@ bool isNewerVersion(const std::string& candidate, const std::string& current) {
     return std::lexicographical_compare(b.begin(), b.end(), a.begin(), a.end());
 }
 
+#ifdef HOMENX_UPDATER_SHARED_NETWORK
+// Inside the HomeNX menu: reuse the Theme Shop's network runtime instead of
+// initialising (and later tearing down) sockets a second time.
+void shutdownNetworkLocked() {}
+
+void ensureNetworkLocked() {
+    if (!themeshop::http::initialize())
+        throw std::runtime_error("The internet connection isn't available");
+}
+#else
 void shutdownNetworkLocked() {
     if (g_curlInitialized) {
         curl_global_cleanup();
@@ -115,6 +128,7 @@ void ensureNetworkLocked() {
     }
     g_curlInitialized = true;
 }
+#endif
 
 void configureCurl(CURL* curl, const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -266,7 +280,8 @@ std::string safeRelativePath(std::string raw) {
     const bool daemon = raw.rfind("atmosphere/contents/0100000000001000/", 0) == 0;
     const bool menu = raw.rfind("switch/SwitchU/", 0) == 0;
     const bool manager = raw.rfind("switch/SwitchU-Manager/", 0) == 0
-        || raw.rfind("switch/HomeNX-Toggle/", 0) == 0;
+        || raw.rfind("switch/HomeNX-Toggle/", 0) == 0
+        || raw.rfind("switch/HomeNX-Loader/", 0) == 0;
     return daemon || menu || manager ? raw : std::string();
 }
 

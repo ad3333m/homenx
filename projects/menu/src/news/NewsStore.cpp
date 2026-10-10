@@ -76,6 +76,7 @@ bool parseArticle(const std::vector<u8>& bytes, NewsArticle& a) {
     a.footer = textOf(j, "footer");
     if (auto it = j.find("published_at"); it != j.end() && it->is_number())
         a.publishedAt = it->get<std::uint64_t>();
+    if (a.publishedAt > 100000000000ull) a.publishedAt /= 1000; // milliseconds
     if (auto body = j.find("body"); body != j.end() && body->is_object()) {
         a.body = textOf(*body, "text");
         a.image = binaryOf(*body, "main_image");
@@ -108,8 +109,14 @@ std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles) {
             std::vector<u8> bytes;
             Result r = readArticle(records[i], bytes);
             NewsArticle a;
-            if (R_SUCCEEDED(r) && parseArticle(bytes, a))
+            if (R_SUCCEEDED(r) && parseArticle(bytes, a)) {
+                a.id.assign(records[i].news_id,
+                            std::find(records[i].news_id, records[i].news_id + sizeof(records[i].news_id), '\0'));
+                a.read = records[i].read != 0;
+                if (a.publishedAt == 0 && records[i].received_at > 0)
+                    a.publishedAt = static_cast<std::uint64_t>(records[i].received_at);
                 articles.push_back(std::move(a));
+            }
             else
                 DebugLog::log("[news] article %.24s rc=0x%X bytes=%d", records[i].news_id, r, (int)bytes.size());
         }

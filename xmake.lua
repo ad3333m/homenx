@@ -180,6 +180,11 @@ target("SwitchU")
     add_includedirs("projects/common/include", {public = false})
     add_includedirs("projects/menu/src", {public = false})
     add_files("projects/menu/src/**.cpp")
+    -- HomeNX: Settings > HomeNX updates the frontend with the Toggle's updater.
+    add_files("projects/manager/src/ReleaseUpdater.cpp")
+    add_includedirs("projects/manager/src", {public = false})
+    add_defines("HOMENX_UPDATER_SHARED_NETWORK", homenx_build_define)
+    add_links("minizip")
     add_packages("nlohmann_json", "fmt", "libsdl", "libsdl_mixer", "libsdl_ttf", "zlib", "libwebp", "libcurl", "curlpp")
     add_linkgroups("SDL2_ttf", "harfbuzz-subset", "harfbuzz", "freetype", "png16", "bz2", "z", {group = true})
     add_linkgroups("SDL2_mixer", "FLAC++", "FLAC", "vorbisidec", "ogg", "modplug", "opusurl", "opusfile", "opus", {group = true})
@@ -316,6 +321,25 @@ target("SwitchU-Manager")
     set_values("switch.author",  "Adam (based on SwitchU Manager by PoloNX)")
     set_values("switch.version", version)
     set_values("switch.romfs",   "build/manager-romfs")
+    set_values("switch.icon",    "projects/manager/icon.jpg")
+    set_values("switch.format",  "nro")
+target_end()
+
+-- HomeNX Loader: the frontend installs it as sdmc:/hbmenu.nro so the Album's
+-- homebrew loader opens Sphaira, or the .nro picked on the Homebrew page.
+target("HomeNX-Loader")
+    set_kind("binary")
+    if not is_plat("cross") then return end
+
+    set_toolchains("devkita64")
+    set_languages("c++20")
+    add_rules("switch")
+    add_files("projects/loader/src/*.cpp")
+    add_syslinks("nx")
+
+    set_values("switch.name",    "HomeNX-Loader")
+    set_values("switch.author",  "Adam")
+    set_values("switch.version", version)
     set_values("switch.icon",    "projects/manager/icon.jpg")
     set_values("switch.format",  "nro")
 target_end()

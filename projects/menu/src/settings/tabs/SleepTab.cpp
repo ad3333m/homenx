@@ -95,40 +95,6 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
         t.items.push_back(std::move(it));
     }
 
-#ifdef SWITCHU_MENU
-    {
-        // HomeNX: give the normal HOME menu back without a PC. Same rename as
-        // HomeNX Toggle / SwitchU-Manager (exefs.nsp -> exefs.nsp.disabled).
-        SettingItem it; it.label = i18n.tr("settings.homenx_off", "Turn Off HomeNX");
-        it.buttonLabel = i18n.tr("settings.homenx_off_button", "Turn off");
-        it.type = ItemType::Action;
-        it.description = i18n.tr("settings.homenx_off_desc",
-            "Go back to the normal HOME menu. Run HomeNX Toggle from homebrew to turn it on again.");
-        it.onChange = [&screen, &i18n](SettingItem&) {
-            screen.requestDialog(
-                i18n.tr("settings.homenx_off", "Turn Off HomeNX"),
-                i18n.tr("settings.homenx_off_confirm",
-                        "The console restarts with the normal HOME menu."),
-                {
-                    { i18n.tr("settings.homenx_off_button", "Turn off"), [&screen, &i18n]() {
-                        const char* active = "sdmc:/atmosphere/contents/0100000000001000/exefs.nsp";
-                        const char* off = "sdmc:/atmosphere/contents/0100000000001000/exefs.nsp.disabled";
-                        std::remove(off);
-                        if (std::rename(active, off) == 0 ||
-                            std::rename("sdmc:/atmosphere/contents/0100000000001000",
-                                        "sdmc:/atmosphere/contents/0100000000001000-homenx-off") == 0) {
-                            if (screen.m_rebootCb) screen.m_rebootCb();
-                        } else {
-                            screen.requestToast(i18n.tr("settings.homenx_off_failed",
-                                "Couldn't turn it off. Run HomeNX Toggle from homebrew instead."), 4.f);
-                        }
-                    } },
-                    { i18n.tr("button.cancel", "Cancel"), []() {} }
-                });
-        };
-        t.items.push_back(std::move(it));
-    }
-#endif
 
     {
         SettingItem it; it.label = i18n.tr("settings.sleep.auto_sleep", "Auto-Sleep");

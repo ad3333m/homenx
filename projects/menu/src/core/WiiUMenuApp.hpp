@@ -31,6 +31,9 @@
 #include "settings/SettingsScreen.hpp"
 #include "settings/GameOptionsScreen.hpp"
 #include "settings/ListDetailScreen.hpp"
+#ifdef SWITCHU_MENU
+#include "ReleaseUpdater.hpp"
+#endif
 #include "settings/SteamGridDbPickerScreen.hpp"
 #include "settings/FolderOptionsScreen.hpp"
 #include "settings/AutoThemeScreen.hpp"
@@ -59,6 +62,8 @@
 #include <nxui/widgets/Label.hpp>
 #include <cstdint>
 #include <memory>
+#include <map>
+#include <set>
 #include <vector>
 #include <mutex>
 #include <atomic>
@@ -189,13 +194,39 @@ private:
 #endif
     AccountUid activeProfileUid() const;
     void openNews();
+    // HomeNX: names set with Rename (game options), by title id.
+    std::map<std::uint64_t, std::string> m_customNames;
+    void loadCustomNames();
+    void saveCustomNames() const;
+    std::set<std::string> readNewsReadList() const;
+    void markNewsRead(const std::string& id);
     void openFriends();
     void openHomebrew();
     void openMiis();
     void openEshop(AccountUid uid);
-    void runSystemApplet(bool needsApplication, const std::function<Result()>& open);
+#ifdef SWITCHU_MENU
+    void checkHomeNXUpdate();
+    void startHomeNXUpdate(const switchu::manager::ReleaseInfo& release);
+    void confirmTurnOffHomeNX();
+    struct HomeNXUpdateJob {
+        std::atomic<float> download{0.f};
+        std::atomic<float> installProgress{0.f};
+        std::atomic<int> stage{0};
+        std::atomic<bool> done{false};
+        switchu::manager::UpdateInstallResult result;
+    };
+    std::shared_ptr<HomeNXUpdateJob> m_homenxUpdate;
+#endif
+    void pollHomeNXUpdate();
+    void runSystemApplet(bool needsApplication, std::function<Result()> open,
+                         std::function<void()> after = {});
     void showDetailScreen(std::vector<ListDetailScreen::Entry> entries, std::string emptyTitle,
                           std::string emptyMessage, nxui::Widget* returnFocus);
+    // HomeNX: save the return frame, fade to black, then run `fn` (an applet
+    // or homebrew launch). In the .nro the blocking call returns and it fades
+    // back in.
+    void leaveThen(std::function<void()> fn);
+    void fadeOutThen(std::function<void()> fn);
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);
     bool hasActiveLeaveCaptureOverlay() const;
@@ -426,6 +457,11 @@ private:
     std::shared_ptr<ListDetailScreen> m_detail;
     nxui::Widget* m_detailReturnFocus = nullptr;
     bool m_newsLoaded = false;
+    std::function<void()> m_fadeThen;
+    float m_fade = 0.f;        // 0 clear .. 1 black
+    float m_fadeTarget = 0.f;
+    bool m_fadeHeld = false;   // one fully black frame presented before running
+    float m_fadeRecover = 0.f; // frontend: fade back in if the launch never left
     std::vector<ListDetailScreen::Entry> m_newsEntries;
     std::string m_newsEmpty;
     std::shared_ptr<SteamGridDbPickerScreen> m_steamGridDbPicker;

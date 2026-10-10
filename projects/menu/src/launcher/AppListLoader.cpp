@@ -29,6 +29,19 @@ bool isTitleIdFallback(const std::string& title, uint64_t titleId) {
     return title == expected;
 }
 
+// Reads a game's NACP (name) and icon from ns into the control cache. Used
+// when the cache has no entry, which is what made some games show their
+// title id ("random numbers") instead of a name.
+bool fillControlCache(uint64_t titleId) {
+    auto control = std::make_unique<NsApplicationControlData>();
+    u64 size = 0;
+    if (R_FAILED(nsGetApplicationControlData(NsApplicationControlSource_Storage, titleId,
+                                             control.get(), sizeof(*control), &size)))
+        return false;
+    switchu::control_cache::ensureDirectory();
+    return switchu::control_cache::writeFromControlData(titleId, *control, size);
+}
+
 #if defined(SWITCHU_MENU) || defined(SWITCHU_HOMEBREW)
 static constexpr s32 kMaxTrackedApplicationRecords = 1024;
 static constexpr s32 kApplicationRecordChunkCount = 30;
@@ -132,6 +145,8 @@ bool fetchDaemonCatalog(std::vector<PendingApp>& out, bool prefetchIcons) {
         switchu::control_cache::Meta meta{};
         const bool needsMetadata = prefetchIcons || isTitleIdFallback(a.title, ent.titleId)
             || !a.startupUserKnown;
+        if (isTitleIdFallback(a.title, ent.titleId) && !switchu::control_cache::hasMeta(ent.titleId))
+            fillControlCache(ent.titleId);
         if (switchu::control_cache::readMeta(ent.titleId, meta)) {
             a.englishTitle = meta.english_name;
             if (needsMetadata && meta.name[0] != '\0')
@@ -240,16 +255,8 @@ void AppListLoader::fetchApps(std::vector<PendingApp>& output, bool prefetchIcon
         bool haveMeta = switchu::control_cache::readMeta(tid, meta);
 #ifdef SWITCHU_HOMEBREW
         // No daemon fills the cache in the .nro: read NACP + icon from ns once.
-        if (!haveMeta) {
-            auto control = std::make_unique<NsApplicationControlData>();
-            u64 size = 0;
-            if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, tid,
-                                                        control.get(), sizeof(*control), &size))) {
-                switchu::control_cache::ensureDirectory();
-                switchu::control_cache::writeFromControlData(tid, *control, size);
-                haveMeta = switchu::control_cache::readMeta(tid, meta);
-            }
-        }
+        if (!haveMeta && fillControlCache(tid))
+            haveMeta = switchu::control_cache::readMeta(tid, meta);
 #endif
         if (haveMeta) {
             PendingApp a;

@@ -19,6 +19,9 @@ void SettingsScreen::buildTabs() {
         {.name = i18n.tr("settings.tabs.bluetooth", "Bluetooth")},
         {.name = i18n.tr("settings.tabs.sleep", "Sleep")},
         {.name = i18n.tr("settings.tabs.about", "About")},
+#ifdef SWITCHU_MENU
+        {.name = "HomeNX"}, // 11: updates and turning the frontend off
+#endif
     };
     m_loadedTabs.assign(m_tabs.size(), false);
     m_loadingTabs.assign(m_tabs.size(), false);
@@ -68,6 +71,7 @@ SettingsScreen::Tab SettingsScreen::buildTabNow(int tabIndex) {
         case 8: return settings::tabs::BluetoothTab::build(*this);
         case 9: return settings::tabs::SleepTab::build(*this);
         case 10: return settings::tabs::AboutTab::build(*this);
+        case 11: return settings::tabs::HomeNXTab::build(*this);
         default: break;
     }
 

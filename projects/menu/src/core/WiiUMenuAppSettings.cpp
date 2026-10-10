@@ -7,6 +7,8 @@
 #include "friends/FriendStore.hpp"
 #include "homebrew/HomebrewStore.hpp"
 #include "mii/MiiStore.hpp"
+#include <cstdio>
+#include <thread>
 #include <ctime>
 
 #include <nxui/core/I18n.hpp>
@@ -432,12 +434,12 @@ void WiiUMenuApp::createSettings() {
     m_settings->onControllerPairing([this]() {
         if (m_settings) m_settings->hide();
         m_navigator.resetToHome();
-        scheduleLeaveCapture([this]() { m_launcher.launchControllerPairing(); });
+        leaveThen([this]() { m_launcher.launchControllerPairing(); });
     });
     m_settings->onControllerRemapping([this]() {
         if (m_settings) m_settings->hide();
         m_navigator.resetToHome();
-        scheduleLeaveCapture([this]() { m_launcher.launchControllerRemapping(); });
+        leaveThen([this]() { m_launcher.launchControllerRemapping(); });
     });
 #else
     // HomeNX .nro: the system screens open on top and return to this menu.
@@ -453,6 +455,10 @@ void WiiUMenuApp::createSettings() {
     m_settings->onControllerRemapping(blocking(&AppletLauncher::launchControllerRemapping));
 #endif
     m_settings->onFindControllers([this]() { m_launcher.findControllers(); });
+#ifdef SWITCHU_MENU
+    m_settings->onHomeNXUpdateCheck([this]() { checkHomeNXUpdate(); });
+    m_settings->onHomeNXTurnOff([this]() { confirmTurnOffHomeNX(); });
+#endif
     m_settings->onControllerTest([this]() {
         if (!m_controllerTest) return;
         m_navigator.navigate(switchu::navigation::Route::ControllerTest);
@@ -1281,6 +1287,27 @@ void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
     focusManager().setFocus(m_detail.get());
 }
 
+// News HomeNX has shown, one news_id per line (the console's own "read" flag
+// isn't written by HomeNX).
+namespace {
+constexpr const char* kNewsReadPath = "sdmc:/config/SwitchU/news_read.txt";
+}
+
+std::set<std::string> WiiUMenuApp::readNewsReadList() const {
+    std::set<std::string> ids;
+    std::ifstream in(kNewsReadPath);
+    for (std::string line; std::getline(in, line);)
+        if (!line.empty()) ids.insert(line);
+    return ids;
+}
+
+void WiiUMenuApp::markNewsRead(const std::string& id) {
+    if (id.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    std::ofstream(kNewsReadPath, std::ios::app) << id << '\n';
+}
+
 void WiiUMenuApp::openNews() {
     auto& i18n = nxui::I18n::instance();
     // ponytail: news is read once per session on the UI thread (a second or
@@ -1288,6 +1315,7 @@ void WiiUMenuApp::openNews() {
     if (!m_newsLoaded) {
         Result rc = 0;
         std::vector<NewsArticle> raw = loadNewsArticles(rc);
+        const std::set<std::string> newsRead = readNewsReadList();
         m_newsEntries.clear();
         app().gpu().waitIdle();
         for (auto& r : raw) {
@@ -1297,6 +1325,19 @@ void WiiUMenuApp::openNews() {
             e.title = r.subject;
             e.body = r.body;
             e.footer = r.footer;
+            if (r.publishedAt > 0) {
+                const time_t t = static_cast<time_t>(r.publishedAt);
+                char when[48];
+                std::strftime(when, sizeof(when), "%d %B %Y", std::localtime(&t));
+                e.footer += (e.footer.empty() ? "" : "\n") + std::string(when);
+            }
+            // Unread = the console hasn't marked it read and HomeNX hasn't shown it.
+            e.unread = !r.read && !newsRead.count(r.id);
+            const std::size_t index = m_newsEntries.size();
+            e.onShown = [this, id = r.id, index]() {
+                if (index < m_newsEntries.size()) m_newsEntries[index].unread = false;
+                markNewsRead(id);
+            };
 #ifndef SWITCHU_MENU
             if (!r.linkUrl.empty()) {
                 e.actionHint = i18n.tr("news.open_link_hint", "Press A to open the link");
@@ -1440,17 +1481,18 @@ void WiiUMenuApp::openHomebrew() {
             if (tex->loadFromMemory(app().gpu(), app().renderer(), a.icon.data(), a.icon.size(), 256))
                 e.image = std::move(tex);
         }
-#ifndef SWITCHU_MENU
         e.actionHint = i18n.tr("homebrew.launch_hint", "Press A to launch");
         e.onActivate = [this, path = a.path]() {
             m_audio.playSfx(Sfx::LaunchGame);
-            m_launcher.launchNro(path);
-        };
+#ifdef SWITCHU_MENU
+            // The frontend opens it through the HomeNX Loader over the Album.
+            // Close this screen first: leaving waits for overlays to finish.
+            if (m_detail) m_detail->hide();
+            leaveThen([this, path] { m_launcher.launchNro(path); });
 #else
-        e.footer = i18n.tr("homebrew.frontend_note",
-                           "Launching a chosen .nro from the frontend isn't supported yet. "
-                           "Use the Sphaira button, or HomeNX.nro.");
+            fadeOutThen([this, path] { m_launcher.launchNro(path); });
 #endif
+        };
         entries.push_back(std::move(e));
     }
     const auto& left = m_sidebar.leftButtons();
@@ -1481,10 +1523,10 @@ void WiiUMenuApp::openMiis() {
     create.onActivate = [this, reopen]() {
 #ifdef SWITCHU_MENU
         (void)reopen;
-        scheduleLeaveCapture([this]() { m_launcher.launchMiiEditor(); });
+        if (m_detail) m_detail->hide();
+        leaveThen([this]() { m_launcher.launchMiiEditor(); });
 #else
-        runSystemApplet(false, [this] { return m_launcher.createMii(); });
-        reopen();
+        runSystemApplet(false, [this] { return m_launcher.createMii(); }, reopen);
 #endif
     };
     entries.push_back(create);
@@ -1517,10 +1559,10 @@ void WiiUMenuApp::openMiis() {
         e.onActivate = [this, reopen]() {
 #ifdef SWITCHU_MENU
             (void)reopen;
-            scheduleLeaveCapture([this]() { m_launcher.launchMiiEditor(); });
+            if (m_detail) m_detail->hide();
+            leaveThen([this]() { m_launcher.launchMiiEditor(); });
 #else
-            runSystemApplet(false, [this] { m_launcher.launchMiiEditor(); return Result(0); });
-            reopen();
+            runSystemApplet(false, [this] { m_launcher.launchMiiEditor(); return Result(0); }, reopen);
 #endif
         };
         entries.push_back(std::move(e));
@@ -1536,6 +1578,115 @@ void WiiUMenuApp::openMiis() {
     showDetailScreen(std::move(entries), i18n.tr("mii.title", "Miis"), std::string(),
                      left.size() > 1 ? left[1].get() : nullptr);
 }
+
+#ifdef SWITCHU_MENU
+// Settings > HomeNX: same release and installer as the HomeNX Toggle app.
+void WiiUMenuApp::checkHomeNXUpdate() {
+    using switchu::manager::ReleaseUpdater;
+    auto& i18n = nxui::I18n::instance();
+    auto tell = [this](const std::string& title, const std::string& body) {
+        if (!m_dialog) return;
+        m_dialog->show(title, body, {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
+    };
+    switchu::manager::ReleaseInfo release;
+    try {
+        // ponytail: a ~1 s GitHub request on the UI thread; it only runs on a button press.
+        release = ReleaseUpdater::checkLatest();
+    } catch (const std::exception& e) {
+        tell(i18n.tr("settings.homenx.update_failed", "Couldn't check for updates"), e.what());
+        return;
+    }
+    if (!release.updateAvailable) {
+        tell(i18n.tr("settings.homenx.up_to_date", "HomeNX is up to date"),
+             "HomeNX " + ReleaseUpdater::installedVersion() + ".");
+        return;
+    }
+    if (!m_dialog) return;
+    m_dialog->show(i18n.tr("settings.homenx.update_title", "Update available"),
+                   i18n.tr("settings.homenx.update_body", "Install HomeNX") + " " + release.version + "? "
+                   + i18n.tr("settings.homenx.update_keep", "Your settings and themes are kept."),
+                   {{i18n.tr("settings.homenx.install", "Install"), [this, release]() { startHomeNXUpdate(release); }, true},
+                    {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
+                   0, {});
+    focusManager().setFocus(m_dialog.get());
+}
+
+void WiiUMenuApp::startHomeNXUpdate(const switchu::manager::ReleaseInfo& release) {
+    if (m_homenxUpdate) return;
+    auto job = std::make_shared<HomeNXUpdateJob>();
+    m_homenxUpdate = job;
+    if (m_progressDialog)
+        m_progressDialog->show(nxui::I18n::instance().tr("settings.homenx.updating", "Updating HomeNX"),
+                               nxui::I18n::instance().tr("settings.homenx.downloading", "Downloading..."), 0.f);
+    std::thread([job, release]() {
+        job->result = switchu::manager::ReleaseUpdater::install(
+            release, false, job->download, job->installProgress, job->stage);
+        job->done = true;
+    }).detach();
+}
+
+// Called every frame: progress for a running update, then the restart prompt.
+void WiiUMenuApp::pollHomeNXUpdate() {
+    if (!m_homenxUpdate) return;
+    auto& i18n = nxui::I18n::instance();
+    auto job = m_homenxUpdate;
+    if (!job->done) {
+        const bool downloading = job->stage.load() <= static_cast<int>(switchu::manager::UpdateWorkerStage::Downloading);
+        if (m_progressDialog)
+            m_progressDialog->updateState(
+                downloading ? i18n.tr("settings.homenx.downloading", "Downloading...")
+                            : i18n.tr("settings.homenx.installing", "Installing..."),
+                0.7f * job->download.load() + 0.3f * job->installProgress.load());
+        return;
+    }
+    m_homenxUpdate.reset();
+    if (m_progressDialog) m_progressDialog->hide();
+    if (!m_dialog) return;
+    if (!job->result.success) {
+        m_dialog->show(i18n.tr("settings.homenx.update_failed_title", "Update failed"),
+                       job->result.error.empty() ? i18n.tr("settings.homenx.update_failed_body", "Nothing was changed.")
+                                                 : job->result.error,
+                       {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+    } else {
+        m_dialog->show(i18n.tr("settings.homenx.updated", "HomeNX updated"),
+                       i18n.tr("settings.homenx.restart_body", "Restart the console to use the new version."),
+                       {{i18n.tr("power.reboot", "Restart now"), [this]() { m_launcher.reboot(); }, true},
+                        {i18n.tr("button.later", "Later"), [] {}, true}},
+                       0, {});
+    }
+    focusManager().setFocus(m_dialog.get());
+}
+
+void WiiUMenuApp::confirmTurnOffHomeNX() {
+    auto& i18n = nxui::I18n::instance();
+    if (!m_dialog) return;
+    m_dialog->show(i18n.tr("settings.homenx_off", "Turn Off HomeNX"),
+                   i18n.tr("settings.homenx_off_confirm", "The console restarts with the normal HOME menu."),
+                   {{i18n.tr("settings.homenx_off_button", "Turn off"), [this]() {
+                         // Same rename as HomeNX Toggle: exefs.nsp -> exefs.nsp.disabled,
+                         // or move the folder aside if the file can't be renamed.
+                         const char* active = "sdmc:/atmosphere/contents/0100000000001000/exefs.nsp";
+                         const char* off = "sdmc:/atmosphere/contents/0100000000001000/exefs.nsp.disabled";
+                         std::remove(off);
+                         if (std::rename(active, off) == 0
+                             || std::rename("sdmc:/atmosphere/contents/0100000000001000",
+                                            "sdmc:/atmosphere/contents/0100000000001000-homenx-off") == 0) {
+                             m_launcher.reboot();
+                         } else if (m_settings) {
+                             m_settings->requestToast(nxui::I18n::instance().tr("settings.homenx_off_failed",
+                                 "Couldn't turn it off. Open HomeNX Toggle from homebrew instead."), 4.f);
+                         }
+                     }, true},
+                    {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
+                   0, {});
+    focusManager().setFocus(m_dialog.get());
+}
+#endif
+
+#ifndef SWITCHU_MENU
+void WiiUMenuApp::pollHomeNXUpdate() {}
+#endif
 
 void WiiUMenuApp::createFolderOptions() {
     if (m_folderOptions) return;
@@ -1725,7 +1876,7 @@ void WiiUMenuApp::createProfileCarousel() {
         m_profileCarousel->hide();
 #ifdef SWITCHU_MENU
         // The leave capture waits for the carousel to finish fading out.
-        scheduleLeaveCapture([this, uid]() { m_launcher.launchUserPage(uid); });
+        leaveThen([this, uid]() { m_launcher.launchUserPage(uid); });
 #else
         // HomeNX: A switches to this profile (games and eShop launch as it).
         m_audio.playSfx(Sfx::ConfirmPositive);
@@ -1736,7 +1887,7 @@ void WiiUMenuApp::createProfileCarousel() {
         m_audio.playSfx(Sfx::Activate);
         m_profileCarousel->hide();
 #ifdef SWITCHU_MENU
-        scheduleLeaveCapture([this]() { m_launcher.launchUserCreator(); });
+        leaveThen([this]() { m_launcher.launchUserCreator(); });
 #else
         if (R_SUCCEEDED(pselShowUserCreator()))
             loadProfiles(true);

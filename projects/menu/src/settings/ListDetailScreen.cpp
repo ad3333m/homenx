@@ -77,7 +77,7 @@ void ListDetailScreen::buildTabs() {
     const auto& list = m_entries.empty() ? std::vector<Entry>{m_empty} : m_entries;
     for (const Entry& e : list) {
         Tab tab;
-        tab.name = ellipsize(m_font, e.listName.empty() ? e.title : e.listName, 250.f, 0.9f);
+        tab.name = ellipsize(m_font, e.listName.empty() ? e.title : e.listName, 232.f, 0.9f); // room for the unread dot
         m_tabs.push_back(std::move(tab));
     }
     m_cachedTabContentWidgets.clear();
@@ -89,6 +89,13 @@ void ListDetailScreen::buildTabs() {
 void ListDetailScreen::layout(float width) {
     m_lines.clear();
     m_imageRect = {};
+    if (m_layoutTab != m_tabIndex && m_tabIndex >= 0 && m_tabIndex < (int)m_entries.size()) {
+        Entry& shown = m_entries[(size_t)m_tabIndex];
+        if (shown.unread) {
+            shown.unread = false;
+            if (shown.onShown) shown.onShown();
+        }
+    }
     m_layoutTab = m_tabIndex;
     m_layoutWidth = width;
     const Entry* e = currentEntry();
@@ -130,7 +137,12 @@ void ListDetailScreen::layout(float width) {
         add(para, m_font, 0.86f, 0);
         y += 12.f;
     }
-    if (!e->footer.empty()) { y += 6.f; add(e->footer, m_smallFont, 0.8f, 1); }
+    if (!e->footer.empty()) {
+        y += 6.f;
+        std::istringstream footer(e->footer);
+        for (std::string line; std::getline(footer, line);)
+            if (!line.empty()) add(line, m_smallFont, 0.8f, 1);
+    }
     if (e->onActivate && !e->actionHint.empty()) {
         y += 10.f;
         add(e->actionHint, m_smallFont, 0.86f, 2);
@@ -146,6 +158,22 @@ void ListDetailScreen::scrollBy(float dy) {
 void ListDetailScreen::onContentUpdate(float dt) {
     TabbedOverlayScreen::onContentUpdate(dt);
     m_scroll += (m_scrollGoal - m_scroll) * std::min(1.f, dt * 14.f);
+}
+
+// Green dot at the end of unread rows (the tab rows are laid out by drawTabs).
+void ListDetailScreen::onContentRender(nxui::Renderer& ren) {
+    TabbedOverlayScreen::onContentRender(ren);
+    if (!m_tabBar || m_entries.empty()) return;
+    const float op = visibilityProgress();
+    ren.pushClipRect(tabsRect(panelRect(scale())));
+    const auto& rows = m_tabBar->children();
+    for (std::size_t i = 0; i < rows.size() && i < m_entries.size(); ++i) {
+        if (!m_entries[i].unread) continue;
+        const nxui::Rect r = rows[i]->rect();
+        ren.drawCircle({r.x + r.width - 18.f, r.y + r.height * 0.5f}, 6.5f,
+                       nxui::Color(0x34C759FF).withAlpha(op), 24);
+    }
+    ren.popClipRect();
 }
 
 void ListDetailScreen::drawCustomContent(nxui::Renderer& ren, const nxui::Rect&,

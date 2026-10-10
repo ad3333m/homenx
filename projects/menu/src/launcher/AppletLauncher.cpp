@@ -6,6 +6,7 @@
 #endif
 #include <switch.h>
 #include <sys/stat.h>
+#include <strings.h>
 #include "homebrew/HomebrewStore.hpp"
 #include <filesystem>
 #include <cstdio>
@@ -173,43 +174,62 @@ void AppletLauncher::checkRunningApplication() {
 // ponytail: the daemon has no eShop/News/Web/Friends messages yet; homebrew build only.
 namespace {
 constexpr const char* kHbmenu = "sdmc:/hbmenu.nro";
-constexpr const char* kHbmenuBackup = "sdmc:/hbmenu.nro.homenx-original";
+constexpr const char* kHbmenuOriginal = "sdmc:/hbmenu.nro.homenx-original";
+constexpr const char* kLoaderNro = "sdmc:/switch/HomeNX-Loader/HomeNX-Loader.nro";
+constexpr const char* kLoaderNext = "sdmc:/config/SwitchU/hbl_next.txt";
+constexpr const char* kSphairaPath = "sdmc:/config/SwitchU/sphaira_path.txt";
 
-bool isSphairaNro(const char* path) {
+bool nroNamed(const char* path, const char* name) {
     HomebrewApp app;
-    return readHomebrew(path, app) && app.name == "sphaira";
+    return readHomebrew(path, app) && strcasecmp(app.name.c_str(), name) == 0;
+}
+
+void writeLine(const char* path, const std::string& line) {
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+    if (FILE* f = std::fopen(path, "w")) {
+        std::fputs((line + "\n").c_str(), f);
+        std::fclose(f);
+    }
 }
 } // namespace
 
 // Atmosphere's homebrew loader (over the Album applet) always starts
-// sdmc:/hbmenu.nro, so for this visit Sphaira is copied there; the original
-// is kept as hbmenu.nro.homenx-original and restoreHbmenu() puts it back.
-bool AppletLauncher::launchSphaira() {
+// sdmc:/hbmenu.nro, also after every app exits. HomeNX puts its own tiny
+// Loader there, which hands over to the requested .nro or to Sphaira.
+void AppletLauncher::installLoader() {
     std::error_code ec;
-    const std::string sphaira = findSphaira(false);
-    if (!sphaira.empty() && !isSphairaNro(kHbmenu)) {
-        if (std::filesystem::exists(kHbmenu, ec) && !std::filesystem::exists(kHbmenuBackup, ec))
-            std::filesystem::rename(kHbmenu, kHbmenuBackup, ec);
-        if (!ec)
-            std::filesystem::copy_file(sphaira, kHbmenu,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-        DebugLog::log("[launcher] sphaira as hbmenu from %s ec=%d", sphaira.c_str(), ec.value());
-        if (ec) restoreHbmenu();
+    if (!std::filesystem::exists(kLoaderNro, ec)) return;
+    if (nroNamed(kHbmenu, "HomeNX-Loader")
+        && std::filesystem::file_size(kHbmenu, ec) == std::filesystem::file_size(kLoaderNro, ec))
+        return;
+    if (std::filesystem::exists(kHbmenu, ec)) {
+        if (!nroNamed(kHbmenu, "HomeNX-Loader") && !std::filesystem::exists(kHbmenuOriginal, ec))
+            std::filesystem::rename(kHbmenu, kHbmenuOriginal, ec);
+        else
+            std::filesystem::remove(kHbmenu, ec);
     }
+    ec.clear();
+    std::filesystem::copy_file(kLoaderNro, kHbmenu, std::filesystem::copy_options::overwrite_existing, ec);
+    DebugLog::log("[launcher] HomeNX Loader as hbmenu ec=%d", ec.value());
+}
+
+bool AppletLauncher::launchSphaira() {
+    const std::string sphaira = findSphaira(false);
+    if (!sphaira.empty()) writeLine(kSphairaPath, sphaira);
+    std::remove(kLoaderNext);
+    installLoader();
     launchAlbum();
     return true;
 }
 
-void AppletLauncher::restoreHbmenu() {
-    std::error_code ec;
-    if (!std::filesystem::exists(kHbmenuBackup, ec)) return;
-    std::filesystem::remove(kHbmenu, ec);
-    std::filesystem::rename(kHbmenuBackup, kHbmenu, ec);
-    DebugLog::log("[launcher] restored hbmenu.nro ec=%d", ec.value());
+bool AppletLauncher::launchNro(const std::string& path) {
+    writeLine(kLoaderNext, path);
+    installLoader();
+    launchAlbum();
+    return true;
 }
-// ponytail: the frontend can't target one .nro yet (Atmosphere's hbl always
-// starts sdmc:/hbmenu.nro); needs a loader registered through ecs.
-bool AppletLauncher::launchNro(const std::string&) { return false; }
+
 Result AppletLauncher::createMii() { launchMiiEditor(); return 0; }
 Result AppletLauncher::openFriendScreen(FriendScreen, AccountUid) { return 0; }
 void AppletLauncher::findControllers() {}
@@ -301,7 +321,7 @@ bool AppletLauncher::launchNro(const std::string& path) {
     return true;
 }
 
-void AppletLauncher::restoreHbmenu() {}
+void AppletLauncher::installLoader() {}
 
 bool AppletLauncher::launchSphaira() {
     const std::string path = findSphaira(true);

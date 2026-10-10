@@ -24,6 +24,7 @@ class SleepTab;
 class ThemeShopInstalledTab;
 class ThemeShopCommunityTab;
 class AboutTab;
+class HomeNXTab;
 }
 
 class TabbedOverlayScreen : public nxui::GlassWidget {

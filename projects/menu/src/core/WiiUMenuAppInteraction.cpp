@@ -1506,6 +1506,21 @@ void WiiUMenuApp::showGameContextMenu(GlossyIcon* icon) {
         if (m_openFolderId == 0)
             applyDisplayModel(buildRootFolderModel(), titleId, false);
     });
+    m_gameOptions->onRename([this, titleId, title]() {
+        auto& i18n = nxui::I18n::instance();
+        const auto custom = m_customNames.find(titleId);
+        requestTextEntry(i18n.tr("game.rename_title", "Rename"),
+            i18n.tr("game.rename_guide", "Leave empty to use the game's own name"),
+            custom != m_customNames.end() ? custom->second : title, 64, false,
+            [this, titleId](const std::string& value) {
+                if (value.empty()) m_customNames.erase(titleId);
+                else m_customNames[titleId] = value;
+                saveCustomNames();
+                if (m_gameOptions) m_gameOptions->hide();
+                m_refreshQueued = true; // reload the list so the new name shows everywhere
+                m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 2);
+            });
+    });
     m_gameOptions->onCloseSoftware([this]() { m_launcher.terminateApplication(); });
     m_gameOptions->onDeleteSoftware([this, titleId, title]() {
         auto& localI18n = nxui::I18n::instance();

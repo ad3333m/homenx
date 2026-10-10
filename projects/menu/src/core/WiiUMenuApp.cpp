@@ -420,6 +420,43 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
 #endif
 }
 
+namespace {
+constexpr const char* kCustomNamesPath = "sdmc:/config/SwitchU/homenx_names.json";
+}
+
+void WiiUMenuApp::loadCustomNames() {
+    m_customNames.clear();
+    std::ifstream in(kCustomNamesPath);
+    if (!in) return;
+    auto j = nlohmann::json::parse(in, nullptr, false);
+    if (!j.is_object()) return;
+    for (auto& [key, value] : j.items())
+        if (value.is_string())
+            m_customNames[std::strtoull(key.c_str(), nullptr, 16)] = value.get<std::string>();
+}
+
+void WiiUMenuApp::saveCustomNames() const {
+    nlohmann::json j = nlohmann::json::object();
+    char key[17];
+    for (const auto& [titleId, name] : m_customNames) {
+        std::snprintf(key, sizeof(key), "%016lX", static_cast<unsigned long>(titleId));
+        j[key] = name;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    std::ofstream(kCustomNamesPath) << j.dump(2);
+}
+
+void WiiUMenuApp::leaveThen(std::function<void()> fn) {
+    scheduleLeaveCapture([this, fn = std::move(fn)]() mutable { fadeOutThen(std::move(fn)); });
+}
+
+void WiiUMenuApp::fadeOutThen(std::function<void()> fn) {
+    m_fadeThen = std::move(fn);
+    m_fadeTarget = 1.f;
+    m_fadeHeld = false;
+}
+
 void WiiUMenuApp::scheduleLeaveCapture(std::function<void()> afterCapture,
                                        std::uint64_t previewSuspendedTitleId) {
     // Title launch/resume: lock green pulse, blue cursor, and session focus to
@@ -713,7 +750,12 @@ bool WiiUMenuApp::onCreate() {
         if (!m_widgetStore.save())
             DebugLog::log("[widgets] recent activity duration could not be saved");
     }
+    loadCustomNames();
     m_appLoader.setPendingTransform([this](std::vector<PendingApp>& apps) {
+        for (auto& app : apps) {
+            auto it = m_customNames.find(app.titleId);
+            if (it != m_customNames.end()) app.title = it->second;
+        }
         applyMenuLayoutToPending(apps);
     });
 
@@ -1042,8 +1084,8 @@ void WiiUMenuApp::refreshProfileLockButton() {
 
 // Runs a blocking system applet from the .nro (music paused) and reports
 // failures with their error code. Web-based ones need application mode.
-void WiiUMenuApp::runSystemApplet(bool needsApplication, const std::function<Result()>& open) {
-    auto& i18n = nxui::I18n::instance();
+void WiiUMenuApp::runSystemApplet(bool needsApplication, std::function<Result()> open,
+                                  std::function<void()> after) {
     auto tell = [this](const std::string& title, const std::string& body) {
         if (!m_dialog) return;
         m_dialog->show(title, body, {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
@@ -1051,6 +1093,7 @@ void WiiUMenuApp::runSystemApplet(bool needsApplication, const std::function<Res
     };
 #ifndef SWITCHU_MENU
     if (needsApplication && appletGetAppletType() != AppletType_Application) {
+        auto& i18n = nxui::I18n::instance();
         m_audio.playSfx(Sfx::ModalShow);
         tell(i18n.tr("applet.mode_title", "Open HomeNX over a game"),
              i18n.tr("applet.mode_body",
@@ -1062,22 +1105,27 @@ void WiiUMenuApp::runSystemApplet(bool needsApplication, const std::function<Res
     (void)needsApplication;
 #endif
     m_audio.playSfx(Sfx::Activate);
-    const bool resume = m_audio.isPlaying();
-    if (resume) m_audio.pause();
-    const Result rc = open();
-    if (resume) m_audio.play();
-    if (R_FAILED(rc)) {
-        char code[32];
-        std::snprintf(code, sizeof(code), "%04u-%04u", 2000 + R_MODULE(rc), R_DESCRIPTION(rc));
-        tell(i18n.tr("applet.error_title", "Couldn't open it"),
-             i18n.tr("applet.error_body", "The system returned error") + " " + code + ".");
-    }
+    // Fade out, run the blocking applet, fade back in (see onUpdate).
+    fadeOutThen([this, tell, open = std::move(open), after = std::move(after)]() {
+        const bool resume = m_audio.isPlaying();
+        if (resume) m_audio.pause();
+        const Result rc = open();
+        if (resume) m_audio.play();
+        if (R_FAILED(rc)) {
+            auto& i18n = nxui::I18n::instance();
+            char code[32];
+            std::snprintf(code, sizeof(code), "%04u-%04u", 2000 + R_MODULE(rc), R_DESCRIPTION(rc));
+            tell(i18n.tr("applet.error_title", "Couldn't open it"),
+                 i18n.tr("applet.error_body", "The system returned error") + " " + code + ".");
+        }
+        if (after) after();
+    });
 }
 
 void WiiUMenuApp::openEshop(AccountUid uid) {
 #ifdef SWITCHU_MENU
     // The daemon runs the Shop applet and relaunches the menu afterwards.
-    scheduleLeaveCapture([this, uid]() { m_launcher.launchEshop(uid); });
+    leaveThen([this, uid]() { m_launcher.launchEshop(uid); });
 #else
     runSystemApplet(true, [this, uid] { return m_launcher.launchEshop(uid); });
 #endif
@@ -3693,7 +3741,7 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
                     m_widgetStore.save();
                     m_launcher.launchApplication(id, selectedUid);
                 });
-        }, titleId);
+        }); // HomeNX: no "suspended" preview; the badge waits for the real game
     };
 
     if (entry) {
@@ -4254,21 +4302,23 @@ void WiiUMenuApp::buildGrid() {
     // Frontend: Atmosphere's homebrew loader runs over the Album applet and
     // starts sdmc:/hbmenu.nro; launchSphaira() copies Sphaira there first.
     sidebarActions.onAlbum = [this]() {
-        scheduleLeaveCapture([this]() { m_launcher.launchSphaira(); });
+        leaveThen([this]() { m_launcher.launchSphaira(); });
     };
 #else
     sidebarActions.onAlbum = [this]() {
         auto& i18n = nxui::I18n::instance();
         auto open = [this]() {
-            auto& i18n = nxui::I18n::instance();
             m_audio.playSfx(Sfx::ModalHide);
-            if (!m_launcher.launchSphaira() && m_dialog) {
+            fadeOutThen([this]() {
+                if (m_launcher.launchSphaira() || !m_dialog) return;
+                m_fadeTarget = 0.f;
+                auto& i18n = nxui::I18n::instance();
                 m_dialog->show(i18n.tr("sphaira.title", "Sphaira"),
                                i18n.tr("sphaira.missing",
-                                       "sphaira.nro was not found in sdmc:/switch/sphaira/, sdmc:/switch/ or sdmc:/hbmenu.nro."),
+                                       "Sphaira wasn't found anywhere in sdmc:/switch/."),
                                {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
                 focusManager().setFocus(m_dialog.get());
-            }
+            });
         };
         if (appletGetAppletType() == AppletType_Application || !m_dialog) {
             open();
@@ -4996,6 +5046,27 @@ void WiiUMenuApp::finalizeRefresh() {
 #endif
 
 void WiiUMenuApp::onUpdate(float dt) {
+    // HomeNX fade: ~0.28 s each way.
+    const float fadeStep = dt / 0.28f;
+    m_fade = m_fade < m_fadeTarget ? std::min(m_fadeTarget, m_fade + fadeStep)
+                                   : std::max(m_fadeTarget, m_fade - fadeStep);
+    if (m_fadeThen && m_fade >= 1.f) {
+        if (!m_fadeHeld) {
+            m_fadeHeld = true; // let one black frame reach the screen first
+        } else {
+            auto fn = std::move(m_fadeThen);
+            m_fadeThen = {};
+            fn();
+#ifndef SWITCHU_MENU
+            m_fadeTarget = 0.f; // the .nro's applet call returned: fade back in
+#else
+            m_fadeRecover = 2.f; // the menu should exit now; if not, show it again
+#endif
+        }
+    }
+    if (m_fadeRecover > 0.f && (m_fadeRecover -= dt) <= 0.f)
+        m_fadeTarget = 0.f;
+    pollHomeNXUpdate();
     if (m_systemAsleep) {
         // Console is asleep. Application stopped presenting frames, so the only
         // work left is reading the wake notification: the frame work in
@@ -5464,7 +5535,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
 
     if (m_pendingNetConnect) {
         m_pendingNetConnect = false;
-        scheduleLeaveCapture([this]() { m_launcher.launchNetConnect(); });
+        leaveThen([this]() { m_launcher.launchNetConnect(); });
         return;
     }
 
@@ -6853,6 +6924,9 @@ void WiiUMenuApp::onRender(nxui::Renderer& ren) {
         renderActionHintPanel(ren);
     else
         renderActionHintBar(ren);
+
+    if (m_fade > 0.f)
+        ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, m_fade));
 
 #ifdef SWITCHU_DEBUG_UI
     if (m_debugOverlay) {

@@ -43,6 +43,8 @@ public:
     void onControllerRemapping(VoidCb cb) { m_controllerRemappingCb = std::move(cb); }
     void onControllerTest(VoidCb cb) { m_controllerTestCb = std::move(cb); }
     void onFindControllers(VoidCb cb) { m_findControllersCb = std::move(cb); }
+    void onHomeNXUpdateCheck(VoidCb cb) { m_homenxUpdateCb = std::move(cb); }
+    void onHomeNXTurnOff(VoidCb cb) { m_homenxOffCb = std::move(cb); }
     using SoftwareDeleteCb = std::function<void(uint64_t, const std::string&)>;
     void onSoftwareDelete(SoftwareDeleteCb cb) { m_softwareDeleteCb = std::move(cb); }
     void onSleepRequest(VoidCb cb)      { m_sleepCb = std::move(cb); }
@@ -112,6 +114,7 @@ private:
     friend class settings::tabs::SleepTab;
     friend class settings::tabs::StorageTab;
     friend class settings::tabs::AboutTab;
+    friend class settings::tabs::HomeNXTab;
 
     BoolCb m_wireframeCb;
     IntCb m_gridColumnsCb;
@@ -132,6 +135,8 @@ private:
     VoidCb m_controllerRemappingCb;
     VoidCb m_controllerTestCb;
     VoidCb m_findControllersCb;
+    VoidCb m_homenxUpdateCb;
+    VoidCb m_homenxOffCb;
     SoftwareDeleteCb m_softwareDeleteCb;
     VoidCb m_sleepCb;
     VoidCb m_shutdownCb;

@@ -59,6 +59,18 @@ void GameOptionsScreen::buildTabs() {
     Tab data;
     data.name = i18n.tr("game.data_management", "Data Management");
 
+    {
+        // HomeNX: fix names that show up wrong (or just pick your own).
+        SettingItem rename;
+        rename.label = i18n.tr("game.rename_title", "Rename");
+        rename.buttonLabel = i18n.tr("button.rename", "Rename");
+        rename.description = i18n.tr("game.rename_desc",
+            "Change the name shown on the HOME menu. Leave it empty to use the game's own name.");
+        rename.type = ItemType::Action;
+        rename.onChange = [this](SettingItem&) { if (m_renameCb) m_renameCb(); };
+        data.items.push_back(std::move(rename));
+    }
+
     if (m_game.canMove) {
         SettingItem move;
         move.label = i18n.tr("game.move_title", "Move software");

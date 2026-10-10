@@ -20,6 +20,8 @@ public:
         std::function<void()> onActivate; // A inside the entry
         std::shared_ptr<nxui::Texture> image;
         bool roundImage = false;          // avatar style instead of a banner
+        bool unread = false;              // green dot on its row in the list
+        std::function<void()> onShown;    // first time it's shown (marks it read)
         // Draws a portrait in the image slot instead of a texture (Mii faces).
         std::function<void(nxui::Renderer&, const nxui::Rect&, float opacity)> drawPortrait;
     };
@@ -36,6 +38,7 @@ protected:
     void drawCustomContent(nxui::Renderer& ren, const nxui::Rect& panel,
                            const nxui::Rect& content, float opacity) override;
     void onContentUpdate(float dt) override;
+    void onContentRender(nxui::Renderer& ren) override;
     bool handleCustomPressA() override;
     bool handleCustomNavUp() override;
     bool handleCustomNavDown() override;
