@@ -49,6 +49,16 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     }
     {
         SettingItem it;
+        it.label = i18n.tr("settings.homenx.pages", "Home pages");
+        it.buttonLabel = i18n.tr("button.choose", "Choose");
+        it.description = i18n.tr("settings.homenx.pages_desc",
+            "Choose how many pages HOME has. Empty pages are removed and software moves forward to fit.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_homePagesCb) screen.m_homePagesCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
         it.label = i18n.tr("settings.homenx.order", "Sidebar buttons");
         it.type = ItemType::Section;
         t.items.push_back(std::move(it));

@@ -440,6 +440,11 @@ void ManagerActivity::syncUpdater() {
         }
         refreshPresentation();
         focusFirstAvailable();
+        if (m_autoInstall) {
+            m_autoInstall = false;
+            if (m_updateState == UpdateUiState::Available)
+                startUpdateInstall();
+        }
     }
 
     if (m_updateState == UpdateUiState::Installing && m_updateInstallFuture.valid()) {
@@ -664,6 +669,13 @@ void ManagerActivity::rebootNow() {
 void ManagerActivity::onUpdate(float dt) {
     nxui::AnimationManager::instance().update(dt);
     syncUpdater();
+    if (!m_autoUpdateChecked && !m_loading) {
+        m_autoUpdateChecked = true;
+        if (std::remove("sdmc:/config/SwitchU/update/autostart") == 0) {
+            m_autoInstall = true;
+            startUpdateCheck();
+        }
+    }
     if (m_dialog && m_dialog->isActive())
         m_dialog->handleTouch(app().input());
 

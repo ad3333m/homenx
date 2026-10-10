@@ -96,6 +96,9 @@ private:
         Error,
     };
     UpdateUiState m_updateState = UpdateUiState::Idle;
+    // Settings > HomeNX > Install opens this app with an "autostart" file.
+    bool m_autoUpdateChecked = false;
+    bool m_autoInstall = false;
     ReleaseInfo m_latestRelease;
     std::future<ReleaseInfo> m_updateCheckFuture;
     std::future<UpdateInstallResult> m_updateInstallFuture;

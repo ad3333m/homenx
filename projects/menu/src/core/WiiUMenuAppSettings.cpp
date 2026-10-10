@@ -474,6 +474,7 @@ void WiiUMenuApp::createSettings() {
     });
     m_settings->onCustomButtonApp([this]() { openCustomButtonAppPicker(); });
     m_settings->onCustomButtonIcon([this]() { openCustomButtonIconPicker(); });
+    m_settings->onHomePages([this]() { openHomePagesPicker(); });
     m_settings->setGlassEffectsState(m_config.glassEffects);
     m_settings->onGlassEffectsChange([this](bool on) {
         m_config.glassEffects = on;
@@ -1595,6 +1596,42 @@ void WiiUMenuApp::openCustomButtonIconPicker() {
                      std::string(), m_settings ? m_settings.get() : nullptr);
 }
 
+void WiiUMenuApp::openHomePagesPicker() {
+    auto& i18n = nxui::I18n::instance();
+    const int perPage = std::max(1, std::clamp(m_config.gridColumns, 1, 8) *
+                                    std::clamp(m_config.gridRows, 1, 5));
+    const int pages = std::max(1, (static_cast<int>(m_layoutSlots.size()) + perPage - 1) / perPage);
+    const int used = static_cast<int>(std::count_if(m_layoutSlots.begin(), m_layoutSlots.end(),
+                                                    [](std::uint64_t id) { return id != 0; }));
+    const int fewest = std::max(1, (used + perPage - 1) / perPage);
+    std::vector<ListDetailScreen::Entry> entries;
+    for (int n = fewest; n <= pages; ++n) {
+        ListDetailScreen::Entry e;
+        e.listName = (n == pages ? "✓ " : "") + std::to_string(n) + " "
+                   + (n == 1 ? i18n.tr("pages.one", "page") : i18n.tr("pages.many", "pages"));
+        e.title = e.listName;
+        e.body = i18n.tr("pages.body",
+            "Empty pages are removed first. Then software on the last pages moves into free spaces "
+            "on the first ones. Nothing is uninstalled.");
+        e.actionHint = i18n.tr("custom.choose_hint", "Press A to choose");
+        e.onActivate = [this, n]() {
+            const int result = setHomePageCount(n);
+            m_audio.playSfx(Sfx::ConfirmPositive);
+            if (m_detail) m_detail->hide();
+            if (m_settings)
+                m_settings->requestToast(result == n
+                    ? nxui::I18n::instance().tr("pages.done", "HOME now has ") + std::to_string(n) + " "
+                          + (n == 1 ? nxui::I18n::instance().tr("pages.one", "page")
+                                    : nxui::I18n::instance().tr("pages.many", "pages"))
+                    : nxui::I18n::instance().tr("pages.full", "Not everything fits; HOME now has ")
+                          + std::to_string(result) + " " + nxui::I18n::instance().tr("pages.many", "pages"));
+        };
+        entries.push_back(std::move(e));
+    }
+    showDetailScreen(std::move(entries), i18n.tr("pages.title", "Home pages"), std::string(),
+                     m_settings ? m_settings.get() : nullptr);
+}
+
 void WiiUMenuApp::openMiis() {
     auto& i18n = nxui::I18n::instance();
     Result rc = 0;
@@ -1699,57 +1736,24 @@ void WiiUMenuApp::checkHomeNXUpdate() {
     if (!m_dialog) return;
     m_dialog->show(i18n.tr("settings.homenx.update_title", "Update available"),
                    i18n.tr("settings.homenx.update_body", "Install HomeNX") + " " + release.version + "? "
-                   + i18n.tr("settings.homenx.update_keep", "Your settings and themes are kept."),
-                   {{i18n.tr("settings.homenx.install", "Install"), [this, release]() { startHomeNXUpdate(release); }, true},
+                   + i18n.tr("settings.homenx.update_keep", "HomeNX Toggle opens and installs it; your settings and themes are kept."),
+                   {{i18n.tr("settings.homenx.install", "Install"), [this]() { startHomeNXUpdate(); }, true},
                     {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
                    0, {});
     focusManager().setFocus(m_dialog.get());
 }
 
-void WiiUMenuApp::startHomeNXUpdate(const switchu::manager::ReleaseInfo& release) {
-    if (m_homenxUpdate) return;
-    auto job = std::make_shared<HomeNXUpdateJob>();
-    m_homenxUpdate = job;
-    if (m_progressDialog)
-        m_progressDialog->show(nxui::I18n::instance().tr("settings.homenx.updating", "Updating HomeNX"),
-                               nxui::I18n::instance().tr("settings.homenx.downloading", "Downloading..."), 0.f);
-    std::thread([job, release]() {
-        job->result = switchu::manager::ReleaseUpdater::install(
-            release, false, job->download, job->installProgress, job->stage);
-        job->done = true;
-    }).detach();
-}
-
-// Called every frame: progress for a running update, then the restart prompt.
-void WiiUMenuApp::pollHomeNXUpdate() {
-    if (!m_homenxUpdate) return;
-    auto& i18n = nxui::I18n::instance();
-    auto job = m_homenxUpdate;
-    if (!job->done) {
-        const bool downloading = job->stage.load() <= static_cast<int>(switchu::manager::UpdateWorkerStage::Downloading);
-        if (m_progressDialog)
-            m_progressDialog->updateState(
-                downloading ? i18n.tr("settings.homenx.downloading", "Downloading...")
-                            : i18n.tr("settings.homenx.installing", "Installing..."),
-                0.7f * job->download.load() + 0.3f * job->installProgress.load());
-        return;
-    }
-    m_homenxUpdate.reset();
-    if (m_progressDialog) m_progressDialog->hide();
-    if (!m_dialog) return;
-    if (!job->result.success) {
-        m_dialog->show(i18n.tr("settings.homenx.update_failed_title", "Update failed"),
-                       job->result.error.empty() ? i18n.tr("settings.homenx.update_failed_body", "Nothing was changed.")
-                                                 : job->result.error,
-                       {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
-    } else {
-        m_dialog->show(i18n.tr("settings.homenx.updated", "HomeNX updated"),
-                       i18n.tr("settings.homenx.restart_body", "Restart the console to use the new version."),
-                       {{i18n.tr("power.reboot", "Restart now"), [this]() { m_launcher.reboot(); }, true},
-                        {i18n.tr("button.later", "Later"), [] {}, true}},
-                       0, {});
-    }
-    focusManager().setFocus(m_dialog.get());
+// The install itself runs in HomeNX Toggle (the same installer, proven to
+// work); the autostart file makes it check and install as soon as it opens.
+void WiiUMenuApp::startHomeNXUpdate() {
+    if (!loaderReadyOrExplain()) return;
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU/update", ec);
+    std::ofstream("sdmc:/config/SwitchU/update/autostart") << "1";
+    leaveThen([this] {
+        m_launcher.launchNro("sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro",
+                             homebrewHostTitleId(), activeProfileUid());
+    });
 }
 
 void WiiUMenuApp::confirmTurnOffHomeNX() {
@@ -1776,10 +1780,6 @@ void WiiUMenuApp::confirmTurnOffHomeNX() {
                    0, {});
     focusManager().setFocus(m_dialog.get());
 }
-#endif
-
-#ifndef SWITCHU_MENU
-void WiiUMenuApp::pollHomeNXUpdate() {}
 #endif
 
 void WiiUMenuApp::createFolderOptions() {

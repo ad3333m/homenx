@@ -5201,7 +5201,6 @@ void WiiUMenuApp::onUpdate(float dt) {
     }
     if (m_fadeRecover > 0.f && (m_fadeRecover -= dt) <= 0.f)
         m_fadeTarget = 0.f;
-    pollHomeNXUpdate();
     if (m_systemAsleep) {
         // Console is asleep. Application stopped presenting frames, so the only
         // work left is reading the wake notification: the frame work in
@@ -5569,9 +5568,11 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     // Finish music start only after leave-splash + deferred assets. Doing
     // Mix_PlayMusic/seek in the same burst as sidebar/icon GPU uploads was
     // freezing AppletReturn (menu.log stopped right after deferred uploads).
+    // HomeNX: don't wait for the return splash to finish; music coming in late
+    // made HOME feel unfinished. The freeze came from the GPU upload burst,
+    // which the deferred-asset gate still avoids.
     if (m_audioPlaybackRestorePending
         && m_audioStarted
-        && !leaveSplashActive()
         && m_deferredInitialAssetFrames == 0) {
         if (m_audioPlaybackRestoreDelayFrames > 0)
             --m_audioPlaybackRestoreDelayFrames;
@@ -5586,8 +5587,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
             m_audioSeekAfterHoldoff = false;
             DebugLog::log("[boot] music playback restore returned");
         }
-    } else if (m_audioSeekAfterHoldoff
-               && !leaveSplashActive()) {
+    } else if (m_audioSeekAfterHoldoff) {
         DebugLog::log("[boot] applying deferred music seek");
         m_audioSeekAfterHoldoff = false;
         m_audio.updateDeferredSeek();
@@ -6877,6 +6877,41 @@ void WiiUMenuApp::deleteAllUnusedPages() {
     m_accessibility.announce(nxui::I18n::instance().tr(
         "page.unused_deleted", "Unused pages deleted"), true, true);
     updateCursor();
+}
+
+// Settings > HomeNX > Home pages. Empty pages go first; then software on the
+// pages past `target` moves into free cells of the first `target` pages.
+// Returns how many pages HOME has afterwards (more than `target` when it's full).
+int WiiUMenuApp::setHomePageCount(int target) {
+    const int perPage = std::max(1, std::clamp(m_config.gridColumns, 1, 8) *
+                                    std::clamp(m_config.gridRows, 1, 5));
+    removeEmptySlotPages(m_layoutSlots, perPage);
+    const int keep = std::max(1, target) * perPage;
+    // Free = no software and not under a big widget (the model knows the spans).
+    const GridModel model = buildRootFolderModel();
+    if (model.count() == static_cast<int>(m_layoutSlots.size())) {
+        int free = 0;
+        for (int from = keep; from < static_cast<int>(m_layoutSlots.size()); ++from) {
+            auto& item = m_layoutSlots[static_cast<std::size_t>(from)];
+            if (item == 0) continue;
+            while (free < keep && (m_layoutSlots[static_cast<std::size_t>(free)] != 0 ||
+                                   model.at(free).kind != GridEntryKind::Empty))
+                ++free;
+            if (free >= keep) break;
+            m_layoutSlots[static_cast<std::size_t>(free++)] = item;
+            item = 0;
+        }
+        removeEmptySlotPages(m_layoutSlots, perPage);
+    }
+    m_layoutDirty = true;
+    saveMenuLayout();
+    if (m_openFolderId == 0 && m_grid) {
+        applyDisplayModel(buildRootFolderModel(), 0, false);
+        syncPageIndicator();
+        m_grid->setPage(0);
+        updateCursor();
+    }
+    return std::max(1, (static_cast<int>(m_layoutSlots.size()) + perPage - 1) / perPage);
 }
 
 bool WiiUMenuApp::flipPage(int dir) {

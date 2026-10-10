@@ -1153,6 +1153,21 @@ static bool consumeForegroundAppletHomeRequest() {
 
 // HomeNX: the title currently borrowed to run homebrew as an application.
 static uint64_t g_homebrewHostTitleId = 0;
+static uint64_t g_homebrewLaunchedAt = 0;
+// Once application mode has failed on this console, the menu goes straight to
+// the Album (applet-mode hbloader) path, which is known to work.
+static constexpr const char* kHomebrewAppletFlag = "sdmc:/switch/SwitchU/homebrew_applet_mode";
+
+static void fallBackToAlbum(const char* why) {
+    switchu::FileLog::log("[homebrew] application mode failed (%s); using Album", why);
+    if (FILE* f = std::fopen(kHomebrewAppletFlag, "w")) {
+        std::fputs(why, f);
+        std::fclose(f);
+    }
+    daemon::SystemAction album{};
+    album.type = daemon::SystemActionType::OpenAlbum;
+    g_actionQueue.enqueue(album);
+}
 
 static void releaseHomebrewHost() {
     if (g_homebrewHostTitleId == 0) return;
@@ -1638,13 +1653,16 @@ static bool handleAction(daemon::SystemAction& action) {
             Result rc = daemon::registerExternalContent(action.titleId, "/switch/SwitchU/bin/hbl");
             if (R_SUCCEEDED(rc)) {
                 g_homebrewHostTitleId = action.titleId;
+                g_homebrewLaunchedAt = armGetSystemTick();
                 rc = daemon::app::launch(action.titleId, action.uid);
             }
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchHomebrewApp, rc, action.titleId);
             if (R_FAILED(rc)) {
                 switchu::FileLog::log("[action] homebrew app 0x%016lX FAIL: 0x%X", action.titleId, rc);
                 releaseHomebrewHost();
-                daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
+                char why[48];
+                std::snprintf(why, sizeof(why), "launch rc=0x%X", rc);
+                fallBackToAlbum(why);
             }
             return true;
         }
@@ -1911,6 +1929,10 @@ static void mainLoop() {
 
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
+        // Homebrew that dies within seconds never really started (bad host
+        // title or loader refused the hbl code): open it over the Album instead.
+        const bool homebrewDiedEarly = g_homebrewHostTitleId != 0 &&
+            armTicksToNs(armGetSystemTick() - g_homebrewLaunchedAt) < 6'000'000'000ULL;
         releaseHomebrewHost();
         if (g_pendingHomeMenuLaunch) {
             switchu::FileLog::log("[main] clearing pending HOME foreground handoff: app exited");
@@ -1920,6 +1942,8 @@ static void mainLoop() {
         }
         if (daemon::menu_la::isActive()) {
             pushNotification(smi::MenuMessage::ApplicationExited);
+        } else if (homebrewDiedEarly) {
+            fallBackToAlbum("exited early");
         } else {
             daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
         }

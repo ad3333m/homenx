@@ -48,6 +48,7 @@ public:
     void onGlassEffectsChange(BoolCb cb) { m_glassEffectsCb = std::move(cb); }
     void onCustomButtonApp(VoidCb cb) { m_customAppCb = std::move(cb); }
     void onCustomButtonIcon(VoidCb cb) { m_customIconCb = std::move(cb); }
+    void onHomePages(VoidCb cb) { m_homePagesCb = std::move(cb); }
     // Sidebar order: slot 0-4 left column, 5-9 right; value = button id.
     void setSidebarOrderState(std::vector<int> order, std::vector<std::string> names) {
         m_sidebarOrder = std::move(order);
@@ -150,6 +151,7 @@ private:
     BoolCb m_glassEffectsCb;
     VoidCb m_customAppCb;
     VoidCb m_customIconCb;
+    VoidCb m_homePagesCb;
     std::vector<int> m_sidebarOrder;
     std::vector<std::string> m_sidebarNames;
     std::function<void(std::vector<int>)> m_sidebarOrderCb;

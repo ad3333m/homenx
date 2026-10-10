@@ -349,7 +349,9 @@ bool AppletLauncher::prepareHbl() {
 static void startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid uid,
                           const AppletLauncher::Callbacks& cb) {
     std::error_code ec;
-    if (hostTitleId != 0 && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {
+    // The daemon drops this flag once application mode fails on this console.
+    const bool appletOnly = std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec);
+    if (!appletOnly && hostTitleId != 0 && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {
         const Result rc = switchu::menu::smi_cmd::launchHomebrewApp(uid, hostTitleId);
         DebugLog::log("[launcher] homebrew as application via %016lX rc=0x%X", hostTitleId, rc);
         if (R_SUCCEEDED(rc)) {

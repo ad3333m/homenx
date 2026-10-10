@@ -201,6 +201,7 @@ private:
     void openHomeNXSettings();
     void openCustomButtonAppPicker();
     void openCustomButtonIconPicker();
+    void openHomePagesPicker();
     void openNews();
     // HomeNX: names set with Rename (game options), by title id.
     std::map<std::uint64_t, std::string> m_customNames;
@@ -215,18 +216,9 @@ private:
     void openEshop(AccountUid uid);
 #ifdef SWITCHU_MENU
     void checkHomeNXUpdate();
-    void startHomeNXUpdate(const switchu::manager::ReleaseInfo& release);
+    void startHomeNXUpdate();
     void confirmTurnOffHomeNX();
-    struct HomeNXUpdateJob {
-        std::atomic<float> download{0.f};
-        std::atomic<float> installProgress{0.f};
-        std::atomic<int> stage{0};
-        std::atomic<bool> done{false};
-        switchu::manager::UpdateInstallResult result;
-    };
-    std::shared_ptr<HomeNXUpdateJob> m_homenxUpdate;
 #endif
-    void pollHomeNXUpdate();
     void runSystemApplet(bool needsApplication, std::function<Result()> open,
                          std::function<void()> after = {});
     void showDetailScreen(std::vector<ListDetailScreen::Entry> entries, std::string emptyTitle,
@@ -332,6 +324,7 @@ private:
     void showDeletePageDialog();
     void deleteCurrentPage();
     void deleteAllUnusedPages();
+    int setHomePageCount(int target);
     float m_addPageHold = 0.f;
     bool  m_addPageMode = false;
     bool  m_addPageTouchHold = false;
@@ -720,7 +713,7 @@ private:
     bool m_leaveMotionFrozen = false;
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
-    static constexpr float kLeaveSplashFadeDur = 0.25f;
+    static constexpr float kLeaveSplashFadeDur = 0.15f; // HomeNX: a long crossfade ghosts two frames (looks blurry)
 
     bool  m_audioInitPending = false;
     bool  m_audioHeldLogged  = false;
