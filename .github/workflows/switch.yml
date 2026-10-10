@@ -31,7 +31,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install curl gcc g++ zip zstd cmake
+          apt-get -y install curl gcc g++ zip unzip zstd cmake
 
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
@@ -43,6 +43,13 @@ jobs:
 
       - name: Update xmake repository
         run: xmake repo -u --root
+
+      - name: Bundle Sphaira (GPL-3, ITotalJustice/sphaira)
+        run: |
+          mkdir -p romfs/bin
+          curl -fsSL -o /tmp/sphaira.zip https://github.com/ITotalJustice/sphaira/releases/download/1.0.8/sphaira.zip
+          unzip -p /tmp/sphaira.zip switch/sphaira/sphaira.nro > romfs/bin/sphaira.nro
+          test -s romfs/bin/sphaira.nro
 
       - name: Configure (homebrew .nro)
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y -vD --root
@@ -87,7 +94,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install curl gcc g++ zip zstd cmake
+          apt-get -y install curl gcc g++ zip unzip zstd cmake
 
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
@@ -100,6 +107,13 @@ jobs:
       - name: Update xmake repository
         run: xmake repo -u --root
 
+      - name: Bundle Sphaira (GPL-3, ITotalJustice/sphaira)
+        run: |
+          mkdir -p romfs/bin
+          curl -fsSL -o /tmp/sphaira.zip https://github.com/ITotalJustice/sphaira/releases/download/1.0.8/sphaira.zip
+          unzip -p /tmp/sphaira.zip switch/sphaira/sphaira.nro > romfs/bin/sphaira.nro
+          test -s romfs/bin/sphaira.nro
+
       - name: Configure frontend (replaces the HOME menu)
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root
 
@@ -111,6 +125,10 @@ jobs:
           xmake install -o dist/frontend --root
           test -d dist/frontend/atmosphere
           test -d dist/frontend/switch
+          # The Loader lives in HomeNX's own folder so every updater installs it.
+          mkdir -p dist/frontend/switch/SwitchU/bin
+          cp build/cross/aarch64/release/HomeNX-Loader.nro dist/frontend/switch/SwitchU/bin/homenx-loader.nro
+          cp romfs/bin/sphaira.nro dist/frontend/switch/SwitchU/bin/sphaira.nro
           # HomeNX Toggle reads this to know which frontend build is installed.
           echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out

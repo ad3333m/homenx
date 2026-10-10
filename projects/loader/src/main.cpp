@@ -1,8 +1,8 @@
 // HomeNX Loader: the HomeNX frontend installs this as sdmc:/hbmenu.nro.
 // Atmosphere's homebrew loader starts sdmc:/hbmenu.nro on every visit and
 // again after every app exits, so this hands over straight away: to the .nro
-// HomeNX asked for (Homebrew page), else to Sphaira, else to the hbmenu that
-// was there before. No UI, it only picks the next .nro.
+// HomeNX asked for (Homebrew page), else to Sphaira (HomeNX ships its own copy),
+// else to the hbmenu that was there before. No UI, it only picks the next .nro.
 #include <switch.h>
 #include <cstdio>
 #include <string>
@@ -13,6 +13,7 @@ namespace {
 constexpr const char* kNext = "sdmc:/config/SwitchU/hbl_next.txt";        // one-shot request
 constexpr const char* kSphairaPath = "sdmc:/config/SwitchU/sphaira_path.txt";
 constexpr const char* kOriginal = "sdmc:/hbmenu.nro.homenx-original";
+constexpr const char* kBundledSphaira = "sdmc:/switch/SwitchU/bin/sphaira.nro"; // ships with HomeNX
 
 bool exists(const std::string& path) {
     struct stat st;
@@ -44,6 +45,7 @@ int main(int, char**) {
         std::remove(kNext);
         if (chain(next)) return 0;
     }
+    if (chain(kBundledSphaira)) return 0;
     if (chain(readLine(kSphairaPath))) return 0;
     for (const char* path : {"sdmc:/switch/sphaira/sphaira.nro", "sdmc:/switch/sphaira.nro"})
         if (chain(path)) return 0;

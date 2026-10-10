@@ -1487,6 +1487,7 @@ void WiiUMenuApp::openHomebrew() {
 #ifdef SWITCHU_MENU
             // The frontend opens it through the HomeNX Loader over the Album.
             // Close this screen first: leaving waits for overlays to finish.
+            if (!loaderReadyOrExplain()) return;
             if (m_detail) m_detail->hide();
             leaveThen([this, path] { m_launcher.launchNro(path); });
 #else

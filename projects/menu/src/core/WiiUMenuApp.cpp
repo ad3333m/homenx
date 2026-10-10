@@ -448,7 +448,34 @@ void WiiUMenuApp::saveCustomNames() const {
 }
 
 void WiiUMenuApp::leaveThen(std::function<void()> fn) {
-    scheduleLeaveCapture([this, fn = std::move(fn)]() mutable { fadeOutThen(std::move(fn)); });
+    scheduleLeaveCapture([this, fn = std::move(fn)]() mutable {
+        fadeOutThen([this, fn = std::move(fn)]() {
+            waitLeaveFrameWrite();
+            fn();
+        });
+    });
+}
+
+// Frontend: the Sphaira button and Homebrew page go through the HomeNX Loader
+// (installed as sdmc:/hbmenu.nro). Say so instead of landing in hbmenu.
+bool WiiUMenuApp::loaderReadyOrExplain() {
+    if (AppletLauncher::installLoader()) return true;
+    if (m_dialog) {
+        auto& i18n = nxui::I18n::instance();
+        m_audio.playSfx(Sfx::ModalShow);
+        m_dialog->show(i18n.tr("loader.missing_title", "HomeNX Loader is missing"),
+                       i18n.tr("loader.missing_body",
+                               "Update HomeNX (Settings > HomeNX, or HomeNX Toggle). The Loader is what "
+                               "opens Sphaira and homebrew."),
+                       {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
+    }
+    return false;
+}
+
+void WiiUMenuApp::waitLeaveFrameWrite() {
+    if (m_leaveFrameWrite.valid())
+        m_leaveFrameWrite.wait();
 }
 
 void WiiUMenuApp::fadeOutThen(std::function<void()> fn) {
@@ -607,14 +634,19 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
 
     const LeaveFrameSession session = captureLeaveSession();
     m_leaveCaptureFocusTitleId = 0;
-    if (!LeaveFrameCache::save(session, rgba.data(), width, height)) {
-        DebugLog::log("[leave] cache write failed");
-        return false;
-    }
-
-    DebugLog::log("[leave] saved %dx%d page=%d folder=%u focus=%016lX",
-                  width, height, session.page, session.openFolderId,
-                  static_cast<unsigned long>(session.focusTitleId));
+    // HomeNX: the 3.6 MB SD write used to stall launches. Write it on a thread
+    // while the launch animation / fade plays; waitLeaveFrameWrite() joins it
+    // right before the menu actually leaves.
+    waitLeaveFrameWrite();
+    m_leaveFrameWrite = std::async(std::launch::async,
+        [session, rgba = std::move(rgba), width, height]() {
+            if (!LeaveFrameCache::save(session, rgba.data(), width, height))
+                DebugLog::log("[leave] cache write failed");
+            else
+                DebugLog::log("[leave] saved %dx%d page=%d folder=%u focus=%016lX",
+                              width, height, session.page, session.openFolderId,
+                              static_cast<unsigned long>(session.focusTitleId));
+        });
     return true;
 }
 
@@ -624,6 +656,10 @@ void WiiUMenuApp::onAfterPresent(nxui::Renderer& ren) {
 
     m_leaveCapturePending = false;
     saveLeaveFrame(ren);
+    // HomeNX: the "suspended" badge was drawn only for the saved return frame
+    // (so coming back from the game shows it at once). Take it off the live
+    // menu again until the game is really running.
+    setSuspendedIconVisuals(m_launcher.suspendedTitleId());
     if (m_leaveCaptureAfter) {
         auto after = std::move(m_leaveCaptureAfter);
         m_leaveCaptureAfter = {};
@@ -3687,6 +3723,7 @@ void WiiUMenuApp::resumeSuspendedApplication(std::uint64_t titleId,
             m_widgetStore.recordLaunch(titleId, launchTitle,
                 static_cast<std::int64_t>(std::time(nullptr)));
             m_widgetStore.save();
+            waitLeaveFrameWrite();
             m_launcher.resumeApplication();
         });
     }, titleId);
@@ -3739,9 +3776,10 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
                     m_widgetStore.recordLaunch(id, launchTitle,
                         static_cast<std::int64_t>(std::time(nullptr)));
                     m_widgetStore.save();
+                    waitLeaveFrameWrite();
                     m_launcher.launchApplication(id, selectedUid);
                 });
-        }); // HomeNX: no "suspended" preview; the badge waits for the real game
+        }, titleId); // the saved return frame shows the badge (see onAfterPresent)
     };
 
     if (entry) {
@@ -4302,6 +4340,7 @@ void WiiUMenuApp::buildGrid() {
     // Frontend: Atmosphere's homebrew loader runs over the Album applet and
     // starts sdmc:/hbmenu.nro; launchSphaira() copies Sphaira there first.
     sidebarActions.onAlbum = [this]() {
+        if (!loaderReadyOrExplain()) return;
         leaveThen([this]() { m_launcher.launchSphaira(); });
     };
 #else
@@ -5046,8 +5085,8 @@ void WiiUMenuApp::finalizeRefresh() {
 #endif
 
 void WiiUMenuApp::onUpdate(float dt) {
-    // HomeNX fade: ~0.28 s each way.
-    const float fadeStep = dt / 0.28f;
+    // HomeNX fade: ~0.18 s each way.
+    const float fadeStep = dt / 0.18f;
     m_fade = m_fade < m_fadeTarget ? std::min(m_fadeTarget, m_fade + fadeStep)
                                    : std::max(m_fadeTarget, m_fade - fadeStep);
     if (m_fadeThen && m_fade >= 1.f) {

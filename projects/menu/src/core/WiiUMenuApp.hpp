@@ -227,6 +227,9 @@ private:
     // back in.
     void leaveThen(std::function<void()> fn);
     void fadeOutThen(std::function<void()> fn);
+    void waitLeaveFrameWrite();
+    bool loaderReadyOrExplain();
+    std::future<void> m_leaveFrameWrite; // background save of the return frame
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);
     bool hasActiveLeaveCaptureOverlay() const;

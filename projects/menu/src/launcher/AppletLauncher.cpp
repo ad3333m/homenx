@@ -175,9 +175,13 @@ void AppletLauncher::checkRunningApplication() {
 namespace {
 constexpr const char* kHbmenu = "sdmc:/hbmenu.nro";
 constexpr const char* kHbmenuOriginal = "sdmc:/hbmenu.nro.homenx-original";
-constexpr const char* kLoaderNro = "sdmc:/switch/HomeNX-Loader/HomeNX-Loader.nro";
+// The Loader ships inside HomeNX's own folder (every updater writes there);
+// switch/HomeNX-Loader/ was build 13's spot, which older updaters skipped.
+constexpr const char* kLoaderSources[] = {
+    "sdmc:/switch/SwitchU/bin/homenx-loader.nro",
+    "sdmc:/switch/HomeNX-Loader/HomeNX-Loader.nro",
+};
 constexpr const char* kLoaderNext = "sdmc:/config/SwitchU/hbl_next.txt";
-constexpr const char* kSphairaPath = "sdmc:/config/SwitchU/sphaira_path.txt";
 
 bool nroNamed(const char* path, const char* name) {
     HomebrewApp app;
@@ -197,35 +201,44 @@ void writeLine(const char* path, const std::string& line) {
 // Atmosphere's homebrew loader (over the Album applet) always starts
 // sdmc:/hbmenu.nro, also after every app exits. HomeNX puts its own tiny
 // Loader there, which hands over to the requested .nro or to Sphaira.
-void AppletLauncher::installLoader() {
+bool AppletLauncher::installLoader() {
     std::error_code ec;
-    if (!std::filesystem::exists(kLoaderNro, ec)) return;
-    if (nroNamed(kHbmenu, "HomeNX-Loader")
-        && std::filesystem::file_size(kHbmenu, ec) == std::filesystem::file_size(kLoaderNro, ec))
-        return;
+    const char* source = nullptr;
+    for (const char* candidate : kLoaderSources)
+        if (std::filesystem::exists(candidate, ec)) { source = candidate; break; }
+    if (!source) {
+        DebugLog::log("[launcher] HomeNX Loader missing");
+        return false;
+    }
+    const bool isLoader = nroNamed(kHbmenu, "HomeNX-Loader");
+    if (isLoader && std::filesystem::file_size(kHbmenu, ec) == std::filesystem::file_size(source, ec))
+        return true;
     if (std::filesystem::exists(kHbmenu, ec)) {
-        if (!nroNamed(kHbmenu, "HomeNX-Loader") && !std::filesystem::exists(kHbmenuOriginal, ec))
+        if (!isLoader) {
+            // Keep the user's own hbmenu (newest one wins) for the Loader's fallback.
+            std::filesystem::remove(kHbmenuOriginal, ec);
             std::filesystem::rename(kHbmenu, kHbmenuOriginal, ec);
-        else
+        } else {
             std::filesystem::remove(kHbmenu, ec);
+        }
     }
     ec.clear();
-    std::filesystem::copy_file(kLoaderNro, kHbmenu, std::filesystem::copy_options::overwrite_existing, ec);
-    DebugLog::log("[launcher] HomeNX Loader as hbmenu ec=%d", ec.value());
+    std::filesystem::copy_file(source, kHbmenu, std::filesystem::copy_options::overwrite_existing, ec);
+    const bool ok = !ec && nroNamed(kHbmenu, "HomeNX-Loader");
+    DebugLog::log("[launcher] HomeNX Loader as hbmenu from %s ok=%d ec=%d", source, ok ? 1 : 0, ec.value());
+    return ok;
 }
 
 bool AppletLauncher::launchSphaira() {
-    const std::string sphaira = findSphaira(false);
-    if (!sphaira.empty()) writeLine(kSphairaPath, sphaira);
-    std::remove(kLoaderNext);
-    installLoader();
+    std::remove(kLoaderNext); // no request: the Loader opens Sphaira
+    if (!installLoader()) return false;
     launchAlbum();
     return true;
 }
 
 bool AppletLauncher::launchNro(const std::string& path) {
+    if (!installLoader()) return false;
     writeLine(kLoaderNext, path);
-    installLoader();
     launchAlbum();
     return true;
 }
@@ -321,9 +334,21 @@ bool AppletLauncher::launchNro(const std::string& path) {
     return true;
 }
 
-void AppletLauncher::installLoader() {}
+bool AppletLauncher::installLoader() { return true; }
 
+// HomeNX.nro carries Sphaira in its romfs; copy it to the SD once (an .nro
+// has to be a real file for hbloader), then use the user's own as a fallback.
 bool AppletLauncher::launchSphaira() {
+    const char* bundled = "sdmc:/switch/SwitchU/bin/sphaira.nro";
+    std::error_code ec;
+    if (std::filesystem::exists("romfs:/bin/sphaira.nro", ec)
+        && (!std::filesystem::exists(bundled, ec)
+            || std::filesystem::file_size(bundled, ec) != std::filesystem::file_size("romfs:/bin/sphaira.nro", ec))) {
+        std::filesystem::create_directories("sdmc:/switch/SwitchU/bin", ec);
+        std::filesystem::copy_file("romfs:/bin/sphaira.nro", bundled,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+    }
+    if (std::filesystem::exists(bundled, ec)) return launchNro(bundled);
     const std::string path = findSphaira(true);
     if (path.empty()) {
         DebugLog::log("[launcher] sphaira not found");

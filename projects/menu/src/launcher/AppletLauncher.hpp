@@ -22,7 +22,7 @@ public:
     bool launchSphaira();
     // Frontend: makes sdmc:/hbmenu.nro the HomeNX Loader (keeping the old one
     // as hbmenu.nro.homenx-original). Call when the menu starts.
-    static void installLoader();
+    static bool installLoader(); // false if the Loader file is missing or the copy failed
     // Hands the process to an .nro through hbloader (.nro build only).
     bool launchNro(const std::string& path);
     Result createMii();

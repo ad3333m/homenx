@@ -17,3 +17,6 @@ compile_commands.json
 
 # Keep the local ulaunch checkout out of this repository.
 /ulaunch/
+
+# downloaded by CI (Sphaira release)
+romfs/bin/sphaira.nro

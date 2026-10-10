@@ -41,11 +41,12 @@ private:
     bool  m_resume   = false;
     float m_timer    = 0.f;
 
-    static constexpr float kZoomDur   = 0.45f;
-    static constexpr float kHoldDur   = 0.35f;
-    static constexpr float kFadeDur   = 0.25f;
-    static constexpr float kBlackDur  = 0.30f;
-    static constexpr float kBlackHold = 0.10f;
+    // HomeNX: snappier than SwitchU (1.45 s -> 0.8 s before the launch request).
+    static constexpr float kZoomDur   = 0.32f;
+    static constexpr float kHoldDur   = 0.10f;
+    static constexpr float kFadeDur   = 0.18f;
+    static constexpr float kBlackDur  = 0.15f;
+    static constexpr float kBlackHold = 0.05f;
     static constexpr float kPostLaunchBlackHold = 0.15f;
     static constexpr float kTotalDur  = kZoomDur + kHoldDur + kFadeDur
                                       + kBlackDur + kBlackHold;

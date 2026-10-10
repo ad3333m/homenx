@@ -37,6 +37,9 @@ old one is kept as `hbmenu.nro.homenx-original`). The Album's homebrew loader
 always starts that file, so the Loader opens Sphaira, or the .nro picked on the
 Homebrew page. Settings > HomeNX checks for updates and turns HomeNX off.
 
+HomeNX ships [Sphaira](https://github.com/ITotalJustice/sphaira) 1.0.8 by
+ITotalJustice (GPL-3.0) unmodified, at `switch/SwitchU/bin/sphaira.nro`.
+
 ---
 
 <div align="center">
