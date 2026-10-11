@@ -16,8 +16,8 @@ using LaunchCallback = std::function<void(uint64_t titleId, AccountUid uid)>;
 // to the centre over a darkening HOME, the game's name fades in under it and a
 // shimmer runs while the game starts; then everything fades to black.
 //
-// onLaunch fires early (kLaunchAt), so the game loads in the background while
-// the card plays; onDone fires at the end, when the screen is black.
+// onLaunch then onDone fire at the end, on a black screen; the daemon starts the
+// game while the menu closes.
 class LaunchAnimation : public nxui::Widget {
 public:
     LaunchAnimation() = default;
@@ -52,12 +52,15 @@ private:
     std::uint64_t m_startTick = 0;
 
     static constexpr float kRiseDur   = 0.45f; // icon to the centre
-    static constexpr float kLaunchAt  = 0.25f; // game starts loading from here
     static constexpr float kTitleIn   = 0.30f; // name fades in from here...
     static constexpr float kTitleDur  = 0.35f; // ...over this long
-    static constexpr float kCardUntil = 1.35f; // card fully shown until here
-    static constexpr float kOutDur    = 0.35f; // then fades to black
+    static constexpr float kCardUntil = 0.90f; // card fully shown until here
+    static constexpr float kOutDur    = 0.30f; // then fades to black
     static constexpr float kTotalDur  = kCardUntil + kOutDur;
+    // The launch goes out once the screen is black. Starting the game while the
+    // card played froze it: the game's start-up threads and GPU work starved
+    // the card, and the system can put the game's logo up as soon as it starts.
+    static constexpr float kLaunchAt  = kTotalDur;
     static constexpr float kMusicFadeDur = kTotalDur;
     static constexpr float kCardSize  = 196.f;
 
