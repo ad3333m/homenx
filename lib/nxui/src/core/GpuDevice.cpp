@@ -180,11 +180,9 @@ bool GpuDevice::downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
     return true;
 }
 
-dk::UniqueMemBlock GpuDevice::readFramebuffer(int& outW, int& outH) {
-    dk::UniqueMemBlock staging;
-    if (!copyFramebuffer(staging, outW, outH, false))
-        return {};
-    return staging;
+bool GpuDevice::readFramebuffer(dk::UniqueMemBlock& out, int& outW, int& outH) {
+    // dk::UniqueHandle can't be returned by value (no move constructor).
+    return copyFramebuffer(out, outW, outH, false);
 }
 
 bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& outH,

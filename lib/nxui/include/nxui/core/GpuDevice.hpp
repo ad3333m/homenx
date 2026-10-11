@@ -83,8 +83,8 @@ public:
                                  bool halfRes = true);
 #ifdef NXUI_BACKEND_DEKO3D
     /// Full-res framebuffer copy left in a CPU-visible block, so a worker thread
-    /// can read the pixels (no 3.6 MB copy on the render thread). Empty on failure.
-    dk::UniqueMemBlock readFramebuffer(int& outW, int& outH);
+    /// can read the pixels (no 3.6 MB copy on the render thread).
+    bool readFramebuffer(dk::UniqueMemBlock& out, int& outW, int& outH);
 #endif
 
     int  width()  const { return FB_WIDTH; }

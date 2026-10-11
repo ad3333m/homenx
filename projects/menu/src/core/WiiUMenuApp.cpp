@@ -481,7 +481,7 @@ void WiiUMenuApp::waitLeaveFrameWrite() {
     if (m_leaveFrameWrite.valid())
         m_leaveFrameWrite.wait();
 #ifdef NXUI_BACKEND_DEKO3D
-    m_leaveStaging = {};
+    m_leaveStaging = nullptr;
 #endif
 }
 
@@ -638,8 +638,7 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
     // pixels and writing them to the SD card run on a worker, so pressing a game
     // or a button no longer hitches.
     (void)ren;
-    m_leaveStaging = app().gpu().readFramebuffer(width, height);
-    if (!m_leaveStaging) {
+    if (!app().gpu().readFramebuffer(m_leaveStaging, width, height)) {
         DebugLog::log("[leave] framebuffer download failed");
         m_leaveCaptureFocusTitleId = 0;
         return false;
