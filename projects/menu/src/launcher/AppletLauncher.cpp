@@ -300,13 +300,47 @@ constexpr const char* kHblDir = "sdmc:/switch/SwitchU/bin/hbl";
 constexpr const char* kHblNsp = "sdmc:/atmosphere/hbl.nsp";
 }
 
+// hbl.nsp's npdm declares the process an applet (kernel capability "application
+// type" = 2). Atmosphère's own hbl-over-a-game path swaps in the game's
+// capabilities; launching it as external code doesn't, so AM rejected the
+// borrowed game and Sphaira fell back to HOME. Declare it an application (1), in
+// both the ACI0 and the ACID kernel capabilities (the ACI0 must fit the ACID).
+// Capability word for the type: (type << 14) | 0x1FFF.
+static bool patchHblNpdmAsApplication(std::vector<char>& npdm) {
+    auto u32At = [&](std::size_t off) -> u32 {
+        u32 v = 0;
+        if (off + 4 <= npdm.size()) std::memcpy(&v, npdm.data() + off, 4);
+        return v;
+    };
+    auto patchKac = [&](std::size_t kacOff, std::size_t kacSize) {
+        int patched = 0;
+        for (std::size_t off = kacOff; off + 4 <= kacOff + kacSize && off + 4 <= npdm.size(); off += 4) {
+            const u32 cap = u32At(off);
+            if ((cap & 0x3FFF) == 0x1FFF && ((cap >> 14) & 7) != 1) {
+                const u32 app = (1u << 14) | 0x1FFF;
+                std::memcpy(npdm.data() + off, &app, 4);
+                ++patched;
+            }
+        }
+        return patched;
+    };
+    if (npdm.size() < 0x80 || u32At(0) != 0x4154454D /* META */) return false;
+    const std::size_t aci = u32At(0x70), acid = u32At(0x78);
+    if (u32At(aci) != 0x30494341 /* ACI0 */ || u32At(acid + 0x200) != 0x44494341 /* ACID */) return false;
+    const int a = patchKac(aci + u32At(aci + 0x30), u32At(aci + 0x34));
+    const int b = patchKac(acid + u32At(acid + 0x230), u32At(acid + 0x234));
+    DebugLog::log("[launcher] hbl npdm application type patched aci=%d acid=%d", a, b);
+    return true;
+}
+
 bool AppletLauncher::prepareHbl() {
     std::error_code ec;
     const std::string mainPath = std::string(kHblDir) + "/main";
     const std::string npdmPath = std::string(kHblDir) + "/main.npdm";
     const std::string stampPath = std::string(kHblDir) + "/source-size";
     if (!std::filesystem::exists(kHblNsp, ec)) return false;
-    const std::string size = std::to_string(std::filesystem::file_size(kHblNsp, ec));
+    // "-app": stamp of npdms patched to application type (older ones get redone).
+    const std::string size = std::to_string(std::filesystem::file_size(kHblNsp, ec)) + "-app";
     {
         std::ifstream stamp(stampPath);
         std::string seen;
@@ -336,8 +370,11 @@ bool AppletLauncher::prepareHbl() {
         const char* stringsEnd = nsp.data() + entriesEnd + h.strings;
         const std::string n(name, std::find(name, stringsEnd, '\0'));
         if (n != "main" && n != "main.npdm") continue;
+        std::vector<char> data(nsp.begin() + dataStart + e.offset,
+                               nsp.begin() + dataStart + e.offset + e.size);
+        if (n == "main.npdm" && !patchHblNpdmAsApplication(data)) return false;
         std::ofstream(std::string(kHblDir) + "/" + n, std::ios::binary | std::ios::trunc)
-            .write(nsp.data() + dataStart + e.offset, static_cast<std::streamsize>(e.size));
+            .write(data.data(), static_cast<std::streamsize>(data.size()));
         (n == "main" ? gotMain : gotNpdm) = true;
     }
     if (gotMain && gotNpdm) std::ofstream(stampPath) << size;

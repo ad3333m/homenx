@@ -721,14 +721,15 @@ private:
     LeaveSplashPhase m_leaveSplashPhase = LeaveSplashPhase::None;
     float m_leaveSplashHoldRemaining = 0.f;
     float m_leaveSplashWaited = 0.f;
+    std::uint64_t m_leaveSplashStartTick = 0;
     // Settings > HomeNX > Return timing (system ticks; 0 = not reached).
-    std::uint64_t m_tFirstFrame = 0, m_tResources = 0, m_tGrid = 0, m_tReady = 0;
+    std::uint64_t m_tFirstFrame = 0, m_tResources = 0, m_tGrid = 0, m_tReady = 0, m_tMusic = 0;
     float m_leaveSplashFade = 0.f;
     bool m_leaveSplashDrawn = false;
     bool m_leaveMotionFrozen = false;
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
-    static constexpr float kLeaveSplashMaxWait = 1.5f; // never block HOME longer than this
+    static constexpr float kLeaveSplashMaxWait = 1.0f; // never block HOME longer than this
     static constexpr float kLeaveSplashFadeDur = 0.5f; // HomeNX: brighten + zoom settle into the live menu
 
     bool  m_audioInitPending = false;

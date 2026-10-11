@@ -730,16 +730,15 @@ void WiiUMenuApp::restoreLeaveSession() {
 }
 
 // HomeNX return transition. While the menu loads (its main thread is busy, so
-// nothing can animate) the saved HOME picture shows dimmed and slightly zoomed:
+// nothing can animate) the saved HOME picture shows slightly dimmed:
 // "on the way", not "frozen". Once the live menu is ready, t runs 1 -> 0 and the
 // picture brightens and settles into it at full frame rate.
 void WiiUMenuApp::drawReturnVeil(nxui::Renderer& ren, float t) {
+    // Drawn 1:1 (scaling the picture made it look blurry), just dimmed.
     const float e = t * t * (3.f - 2.f * t); // smoothstep
-    const float scale = 1.f + 0.035f * e;
-    const float w = 1280.f * scale, h = 720.f * scale;
-    ren.drawTexture(&m_leaveSplashTex, {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h},
+    ren.drawTexture(&m_leaveSplashTex, {0.f, 0.f, 1280.f, 720.f},
                     nxui::Color::white().withAlpha(e));
-    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.42f * e));
+    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * e));
 }
 
 bool WiiUMenuApp::leaveSplashActive() const {
@@ -778,14 +777,16 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
 
     if (m_leaveSplashPhase == LeaveSplashPhase::Hold) {
         m_leaveSplashHoldRemaining -= dt;
-        m_leaveSplashWaited += dt;
+        // Real time: dt is clamped on long frames, which stretched the cap.
+        if (m_leaveSplashStartTick == 0) m_leaveSplashStartTick = armGetSystemTick();
+        m_leaveSplashWaited = armTicksToNs(armGetSystemTick() - m_leaveSplashStartTick) / 1e9f;
         // HomeNX: the saved HOME frame stays up until the live menu underneath
-        // is complete (page icons, sidebar art, music started). Fading earlier
+        // is complete (page icons, sidebar art). Fading earlier
         // showed placeholders and silence that "fixed themselves" a moment later.
         const bool sceneReady = m_deferredInitialAssetFrames == 0
             && !(m_grid && m_iconStreamer.needsVisibleLoads(m_grid->currentPage(),
-                                                            m_grid->iconsPerPage()))
-            && (!m_config.musicEnabled || (m_audioStarted && !m_audioPlaybackRestorePending));
+                                                            m_grid->iconsPerPage()));
+        // Music isn't waited for: it starts on the audio worker and fades in on its own.
         // A button press means "let me in": never hold the picture over a menu
         // that is already usable.
         const bool userWants = m_leaveSplashWaited > 0.1f && app().input().hasUserActivity();
@@ -834,7 +835,7 @@ bool WiiUMenuApp::onCreate() {
     normalizeWidgetPlacements();
     if (m_widgetStore.recentActivity().titleId != 0) {
         refreshRecentActivityDuration();
-        if (!m_widgetStore.save())
+        if (!m_widgetStore.save(false))
             DebugLog::log("[widgets] recent activity duration could not be saved");
     }
     loadCustomNames();
@@ -3868,7 +3869,7 @@ void WiiUMenuApp::resumeSuspendedApplication(std::uint64_t titleId,
             m_config.save();
             m_widgetStore.recordLaunch(titleId, launchTitle,
                 static_cast<std::int64_t>(std::time(nullptr)));
-            m_widgetStore.save();
+            m_widgetStore.save(false);
             waitLeaveFrameWrite();
             m_launcher.resumeApplication();
         });
@@ -3921,7 +3922,7 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
                     m_config.save();
                     m_widgetStore.recordLaunch(id, launchTitle,
                         static_cast<std::int64_t>(std::time(nullptr)));
-                    m_widgetStore.save();
+                    m_widgetStore.save(false);
                     waitLeaveFrameWrite();
                     m_launcher.launchApplication(id, selectedUid);
                 });
@@ -5671,7 +5672,11 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         } else {
             m_audioInitPending = false;
             DebugLog::log("[audio] no foreground application; starting audio subsystem");
-            m_audioFuture = m_threadPool.submit([this]() {
+            // HomeNX: the whole music start (open the song, seek to where it was)
+            // runs here on the worker too. On the main thread the MP3 seek froze
+            // HOME for a second or more after every return.
+            const AppConfig cfg = m_config;
+            m_audioFuture = m_threadPool.submit([this, cfg]() {
                 m_audio.initialize();
                 m_availablePresets = scanAvailablePresets();
                 if (!isPackageSoundPreset(m_config.soundPreset) &&
@@ -5681,29 +5686,28 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                     m_config.soundPreset = kBuiltInSoundPreset;
                 }
                 loadSoundPreset(resolveSoundPresetId(m_config.soundPreset));
+                m_audio.setVolume(cfg.musicVolume);
+                m_audio.setSfxVolume(cfg.sfxVolume);
+                m_audio.setShuffle(cfg.musicShuffle);
+                m_audio.setRepeatMode(static_cast<MusicRepeatMode>(
+                    std::clamp(cfg.musicRepeatMode, 0, 2)));
+                if (!cfg.musicPlaylistOrder.empty())
+                    m_audio.applyPlaylistOrder(cfg.musicPlaylistOrder);
+                m_audio.restorePlaybackState(cfg.musicTrackIndex, cfg.musicPositionSeconds,
+                                             cfg.musicEnabled);
+                m_audio.updateDeferredSeek(); // then fades in from update()
             });
         }
     }
 
     if (!m_audioStarted && m_audioFuture.valid() &&
         m_audioFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        DebugLog::log("[boot] audio future ready — applying volume/playlist (playback delayed)");
+        DebugLog::log("[boot] audio future ready (music already started on the worker)");
         m_audioFuture.get();
-        m_audio.setVolume(m_config.musicVolume);
-        m_audio.setSfxVolume(m_config.sfxVolume);
-        m_audio.setShuffle(m_config.musicShuffle);
-        m_audio.setRepeatMode(static_cast<MusicRepeatMode>(
-            std::clamp(m_config.musicRepeatMode, 0, 2)));
-        if (!m_config.musicPlaylistOrder.empty())
-            m_audio.applyPlaylistOrder(m_config.musicPlaylistOrder);
+        m_tMusic = armGetSystemTick();
         m_loadedSoundPreset = resolveSoundPresetId(m_config.soundPreset);
         m_audioStarted = true;
-        m_audioPlaybackRestorePending = true;
-        // A few frames after the deferred GPU uploads, never in the same burst
-        // (that froze AppletReturn upstream).
-        m_audioPlaybackRestoreDelayFrames = 3;
-        DebugLog::log("[init] Audio ready (deferred); playback restore armed delay=%d",
-                      m_audioPlaybackRestoreDelayFrames);
+        m_audioPlaybackRestorePending = false;
     }
 
     if (m_presetChangePending && m_audioFuture.valid() &&

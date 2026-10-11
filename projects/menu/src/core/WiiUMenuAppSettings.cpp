@@ -1647,7 +1647,8 @@ void WiiUMenuApp::openReturnTimings() {
         i18n.tr("timing.picture", "Picture on screen") + ": " + secs(m_tFirstFrame) + "\n" +
         i18n.tr("timing.fonts", "Fonts and app list") + ": " + secs(m_tResources) + "\n" +
         i18n.tr("timing.grid", "Menu built") + ": " + secs(m_tGrid) + "\n" +
-        i18n.tr("timing.ready", "Icons and music ready") + ": " + secs(m_tReady) + "\n" +
+        i18n.tr("timing.ready", "Live menu shown") + ": " + secs(m_tReady) + "\n" +
+        i18n.tr("timing.music", "Music started") + ": " + secs(m_tMusic) + "\n" +
         (m_fastReturnRequested ? i18n.tr("timing.return", "This was a return from a game or app.")
                                : i18n.tr("timing.boot", "This was a fresh start, not a return."));
     m_audio.playSfx(Sfx::ModalShow);

@@ -87,7 +87,13 @@ bool WidgetStore::load() {
     return true;
 }
 
-bool WidgetStore::save() const {
+// durable=false: the game-launch / HOME-return saves (recent activity). Those
+// sit between a button press and the next screen, and each SD commit stalls;
+// the data is a play-time counter, not worth a flush there.
+bool WidgetStore::save(bool durable) const {
+    const auto commit = [durable](const char* reason) {
+        return !durable || switchu::commitSdCard(reason);
+    };
     std::error_code ec;
     std::filesystem::create_directories("sdmc:/config/SwitchU/widgets", ec);
     ec.clear();
@@ -122,7 +128,7 @@ bool WidgetStore::save() const {
         file.flush();
         if (!file.good()) return false;
     }
-    if (!switchu::commitSdCard("widgets temp")) return false;
+    if (!commit("widgets temp")) return false;
 
     const bool hadOriginal = std::filesystem::is_regular_file(kPath, ec) && !ec;
     ec.clear();
@@ -139,22 +145,22 @@ bool WidgetStore::save() const {
             std::error_code restoreError;
             std::filesystem::rename(kBackupPath, kPath, restoreError);
         }
-        fsdevCommitDevice("sdmc");
+        if (durable) fsdevCommitDevice("sdmc");
         return false;
     }
-    if (!switchu::commitSdCard("widgets final")) {
+    if (!commit("widgets final")) {
         DebugLog::log("[widgets] final commit failed");
         std::filesystem::remove(kPath, ec);
         if (hadOriginal) {
             ec.clear();
             std::filesystem::rename(kBackupPath, kPath, ec);
         }
-        fsdevCommitDevice("sdmc");
+        if (durable) fsdevCommitDevice("sdmc");
         return false;
     }
     if (hadOriginal) {
         std::filesystem::remove(kBackupPath, ec);
-        fsdevCommitDevice("sdmc");
+        if (durable) fsdevCommitDevice("sdmc");
     }
     DebugLog::log("[widgets] saved count=%d", static_cast<int>(m_widgets.size()));
     return true;

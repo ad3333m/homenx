@@ -69,7 +69,7 @@ public:
     static constexpr const char* kAssetRoot = "sdmc:/config/SwitchU/widgets/assets";
 
     bool load();
-    bool save() const;
+    bool save(bool durable = true) const;
 
     const std::vector<Widget>& all() const { return m_widgets; }
     Widget* find(std::uint32_t id);
