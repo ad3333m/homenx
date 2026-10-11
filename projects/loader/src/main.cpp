@@ -14,6 +14,11 @@ constexpr const char* kNext = "sdmc:/config/SwitchU/hbl_next.txt";        // one
 constexpr const char* kSphairaPath = "sdmc:/config/SwitchU/sphaira_path.txt";
 constexpr const char* kOriginal = "sdmc:/hbmenu.nro.homenx-original";
 constexpr const char* kBundledSphaira = "sdmc:/switch/SwitchU/bin/sphaira.nro"; // ships with HomeNX
+// Process id we already handed over in. The homebrew loader starts us again
+// whenever the .nro we chose exits, so seeing our own process id here means the
+// user left it: end the process (closes the game it borrowed) instead of opening
+// Sphaira again forever. HomeNX deletes this before every launch.
+constexpr const char* kChained = "sdmc:/config/SwitchU/hbl_chained.txt";
 
 bool exists(const std::string& path) {
     struct stat st;
@@ -31,15 +36,30 @@ std::string readLine(const char* path) {
     return line;
 }
 
+std::string processId() {
+    u64 pid = 0;
+    svcGetProcessId(&pid, CUR_PROCESS_HANDLE);
+    return std::to_string(pid);
+}
+
 bool chain(const std::string& path) {
     if (!exists(path) || path == "sdmc:/hbmenu.nro") return false; // never ourselves
     const std::string args = "\"" + path + "\"";
-    return R_SUCCEEDED(envSetNextLoad(path.c_str(), args.c_str()));
+    if (R_FAILED(envSetNextLoad(path.c_str(), args.c_str()))) return false;
+    if (FILE* f = std::fopen(kChained, "w")) {
+        std::fputs(processId().c_str(), f);
+        std::fclose(f);
+    }
+    return true;
 }
 
 } // namespace
 
 int main(int, char**) {
+    if (readLine(kChained) == processId()) {
+        std::remove(kChained);
+        svcExitProcess();
+    }
     const std::string next = readLine(kNext);
     if (!next.empty()) {
         std::remove(kNext);

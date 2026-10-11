@@ -7,6 +7,7 @@
 //     // ... poll with fut.wait_for(0s) or block with fut.get() ...
 //
 // The pool shuts down cleanly in its destructor (waits for in-flight tasks).
+#include <atomic>
 #include <functional>
 #include <future>
 #include <queue>
@@ -16,8 +17,23 @@
 #include <vector>
 #include <cstddef>
 #include <stdexcept>
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
 
 namespace nxui {
+
+/// Move the calling thread off core 0. On the Switch every new thread starts on
+/// the process's default core (0, the render thread's) at a lower priority, so
+/// workers only ran in the gaps between frames while cores 1 and 2 sat idle.
+inline void moveToWorkerCores() {
+#ifdef __SWITCH__
+    // Preferred core 1 or 2, either allowed; ignore failure (keeps core 0).
+    static std::atomic<int> next{0};
+    const int core = 1 + (next.fetch_add(1) & 1);
+    svcSetThreadCoreMask(CUR_THREAD_HANDLE, core, (1u << 1) | (1u << 2));
+#endif
+}
 
 class ThreadPool {
 public:
@@ -85,6 +101,7 @@ public:
 
 private:
     void workerLoop() {
+        moveToWorkerCores();
         for (;;) {
             std::function<void()> task;
             {

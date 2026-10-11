@@ -256,6 +256,7 @@ private:
     void setLeaveMotionFrozen(bool frozen);
     void updateLeaveSplashHandoff(float dt);
     bool leaveSplashActive() const;
+    void confirmCloseSuspendedThen(std::function<void()> go);
     void drawReturnVeil(nxui::Renderer& ren, float t);
     void renameFolder(std::uint32_t folderId);
     void showFolderContextMenu(std::uint32_t folderId);

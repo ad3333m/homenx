@@ -1131,14 +1131,20 @@ void TabbedOverlayScreen::onContentUpdate(float dt) {
         const nxui::Rect tr = tabsRect();
         const float totalHeight = 28.f + kTabRowHeight * m_tabs.size();
         const float maxTabScroll = std::max(0.f, totalHeight - tr.height);
-        const float rowTop = 14.f + kTabRowHeight * m_tabIndex;
-        const float rowBottom = rowTop + (kTabRowHeight - 10.f);
-        const float viewTop = m_tabScrollTarget + 10.f;
-        const float viewBottom = m_tabScrollTarget + tr.height - 10.f;
-        if (rowTop < viewTop)
-            m_tabScrollTarget = rowTop - 10.f;
-        else if (rowBottom > viewBottom)
-            m_tabScrollTarget = rowBottom - tr.height + 10.f;
+        // HomeNX: bring the selected tab into view only when the selection
+        // changes. Doing it every frame pulled a finger-scrolled list straight
+        // back, so touch couldn't reach the tabs below "Sleep".
+        if (m_tabIndex != m_tabScrollFollowIndex) {
+            m_tabScrollFollowIndex = m_tabIndex;
+            const float rowTop = 14.f + kTabRowHeight * m_tabIndex;
+            const float rowBottom = rowTop + (kTabRowHeight - 10.f);
+            const float viewTop = m_tabScrollTarget + 10.f;
+            const float viewBottom = m_tabScrollTarget + tr.height - 10.f;
+            if (rowTop < viewTop)
+                m_tabScrollTarget = rowTop - 10.f;
+            else if (rowBottom > viewBottom)
+                m_tabScrollTarget = rowBottom - tr.height + 10.f;
+        }
         m_tabScrollTarget = std::clamp(m_tabScrollTarget, 0.f, maxTabScroll);
         m_tabScrollY += (m_tabScrollTarget - m_tabScrollY) * std::min(1.f, dt * 16.f);
     }

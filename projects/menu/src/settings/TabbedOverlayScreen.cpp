@@ -307,6 +307,7 @@ void TabbedOverlayScreen::show() {
     m_scrollTarget = 0.f;
     m_tabScrollY = 0.f;
     m_tabScrollTarget = 0.f;
+    m_tabScrollFollowIndex = -1;
     m_tabReveal.setImmediate(0.f);
     m_tabReveal.set(1.f, 0.24f, nxui::Easing::outCubic);
     m_dropdownOpen = false;

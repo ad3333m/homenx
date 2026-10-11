@@ -11,7 +11,7 @@ def canvas():
     return Image.new("RGBA", (N, N), (0, 0, 0, 0))
 
 
-def save(im, path, size=512):
+def save(im, path, size=256):  # sidebar draws at 128; bigger PNGs only slow every HOME return
     im.resize((size, size), Image.LANCZOS).save(path)
 
 

@@ -386,6 +386,9 @@ bool AppletLauncher::prepareHbl() {
 static void startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid uid,
                           const AppletLauncher::Callbacks& cb) {
     std::error_code ec;
+    // A fresh session: the Loader ends the process when it's started again in the
+    // one it recorded here (the homebrew was closed). See projects/loader.
+    std::filesystem::remove("sdmc:/config/SwitchU/hbl_chained.txt", ec);
     // The daemon drops this flag once application mode fails on this console.
     const bool appletOnly = std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec);
     if (!appletOnly && hostTitleId != 0 && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {

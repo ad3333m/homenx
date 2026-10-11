@@ -233,6 +233,7 @@ protected:
     float     m_scrollTarget = 0.f;
     float     m_tabScrollY = 0.f;
     float     m_tabScrollTarget = 0.f;
+    int   m_tabScrollFollowIndex = -1; // tab the rail last scrolled to
     bool      m_backdropCacheValid = false;
     float     m_cachedPreBlurRadius = -1.f;
     int       m_cachedBlurIterations = -1;

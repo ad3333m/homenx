@@ -462,6 +462,34 @@ void WiiUMenuApp::leaveThen(std::function<void()> fn) {
 
 // Frontend: the Sphaira button and Homebrew page go through the HomeNX Loader
 // (installed as sdmc:/hbmenu.nro). Say so instead of landing in hbmenu.
+// Homebrew as an application borrows a game, and only one application can run:
+// a suspended game gets closed. Ask first, like launching another game does.
+void WiiUMenuApp::confirmCloseSuspendedThen(std::function<void()> go) {
+#ifdef SWITCHU_MENU
+    std::error_code ec;
+    const std::uint64_t running = m_launcher.suspendedTitleId();
+    if (running != 0 && m_dialog
+        && !std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec)) {
+        auto& i18n = nxui::I18n::instance();
+        std::string title = i18n.tr("game.this_software", "the software that's open");
+        for (const AppEntry& app : m_allApps)
+            if (app.titleId == running) { title = app.title; break; }
+        m_audio.playSfx(Sfx::ModalShow);
+        m_dialog->show(i18n.tr("game.close_title", "Close game"),
+                       i18n.tr("game.close_prefix", "Close") + std::string(" ") + title
+                           + i18n.tr("homebrew.close_suffix",
+                                     "?\nSphaira runs as an application, so it has to close first. "
+                                     "Unsaved progress will be lost."),
+                       {{i18n.tr("button.cancel", "Cancel"), [] {}, true},
+                        {i18n.tr("button.close", "Close"), [go]() { go(); }, true}},
+                       1, {});
+        focusManager().setFocus(m_dialog.get());
+        return;
+    }
+#endif
+    go();
+}
+
 bool WiiUMenuApp::loaderReadyOrExplain() {
     if (AppletLauncher::installLoader()) return true;
     if (m_dialog) {
@@ -663,6 +691,7 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
          , shared
 #endif
         ]() {
+            nxui::moveToWorkerCores(); // off the render core, so it finishes during the animation
             if (!LeaveFrameCache::save(session, pixels, width, height))
                 DebugLog::log("[leave] cache write failed");
             else
@@ -1283,7 +1312,9 @@ void WiiUMenuApp::activateCustomButton() {
     }
 #ifdef SWITCHU_MENU
     if (!loaderReadyOrExplain()) return;
-    leaveThen([this, path] { m_launcher.launchNro(path, homebrewHostTitleId(), activeProfileUid()); });
+    confirmCloseSuspendedThen([this, path] {
+        leaveThen([this, path] { m_launcher.launchNro(path, homebrewHostTitleId(), activeProfileUid()); });
+    });
 #else
     m_audio.playSfx(Sfx::LaunchGame);
     fadeOutThen([this, path] { m_launcher.launchNro(path); });
@@ -4489,7 +4520,9 @@ void WiiUMenuApp::buildGrid() {
     // game to borrow it runs as an application instead (see launchSphaira).
     sidebarActions.onAlbum = [this]() {
         if (!loaderReadyOrExplain()) return;
-        leaveThen([this]() { m_launcher.launchSphaira(homebrewHostTitleId(), activeProfileUid()); });
+        confirmCloseSuspendedThen([this]() {
+            leaveThen([this]() { m_launcher.launchSphaira(homebrewHostTitleId(), activeProfileUid()); });
+        });
     };
 #else
     sidebarActions.onAlbum = [this]() {
