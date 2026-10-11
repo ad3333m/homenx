@@ -83,8 +83,12 @@ public:
                                  bool halfRes = true);
 #ifdef NXUI_BACKEND_DEKO3D
     /// Full-res framebuffer copy left in a CPU-visible block, so a worker thread
-    /// can read the pixels (no 3.6 MB copy on the render thread).
-    bool readFramebuffer(dk::UniqueMemBlock& out, int& outW, int& outH);
+    /// can read the pixels (no 3.6 MB copy on the render thread). The pixels live
+    /// in a block the device keeps and reuses: valid until the next call.
+    const uint8_t* readFramebufferPixels(int& outW, int& outH);
+    /// Allocate that block (and the blit target) ahead of time, so the first
+    /// capture (a press on a game) doesn't stall on ~7 MB of GPU allocation.
+    bool prepareFramebufferReadback();
 #endif
 
     int  width()  const { return FB_WIDTH; }
@@ -204,6 +208,10 @@ private:
     dk::Image  m_fbImages[NUM_FB];
     dk::Image  m_dsImage;
     dk::Image  m_offImages[NUM_OFFSCREEN];
+    dk::UniqueMemBlock m_readStaging;   // readFramebufferPixels() target
+    dk::UniqueMemBlock m_readImageMem;  // uncompressed full-res blit target
+    dk::Image          m_readImage;
+    bool               m_readImageReady = false;
     GpuPool    m_offPool;
     bool       m_offscreenReady = false;
 

@@ -180,9 +180,38 @@ bool GpuDevice::downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
     return true;
 }
 
-bool GpuDevice::readFramebuffer(dk::UniqueMemBlock& out, int& outW, int& outH) {
-    // dk::UniqueHandle can't be returned by value (no move constructor).
-    return copyFramebuffer(out, outW, outH, false);
+bool GpuDevice::prepareFramebufferReadback() {
+    if (!m_dev) return false;
+    if (!m_readStaging) {
+        const uint32_t bytes = static_cast<uint32_t>(FB_WIDTH) * static_cast<uint32_t>(FB_HEIGHT) * 4u;
+        m_readStaging = dk::MemBlockMaker{m_dev, (bytes + kGpuAlign - 1) & ~(kGpuAlign - 1)}
+            .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
+            .create();
+    }
+    if (!m_readImageReady) {
+        dk::ImageLayout layout;
+        dk::ImageLayoutMaker{m_dev}
+            .setFlags(DkImageFlags_UsageRender | DkImageFlags_Usage2DEngine)
+            .setFormat(DkImageFormat_RGBA8_Unorm)
+            .setDimensions(static_cast<uint32_t>(FB_WIDTH), static_cast<uint32_t>(FB_HEIGHT))
+            .initialize(layout);
+        const uint32_t imgSize =
+            (static_cast<uint32_t>(layout.getSize()) + kGpuAlign - 1) & ~(kGpuAlign - 1);
+        m_readImageMem = dk::MemBlockMaker{m_dev, imgSize}
+            .setFlags(DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image)
+            .create();
+        if (m_readImageMem) {
+            m_readImage.initialize(layout, m_readImageMem, 0);
+            m_readImageReady = true;
+        }
+    }
+    return m_readStaging && m_readImageReady;
+}
+
+const uint8_t* GpuDevice::readFramebufferPixels(int& outW, int& outH) {
+    if (!prepareFramebufferReadback() || !copyFramebuffer(m_readStaging, outW, outH, false))
+        return nullptr;
+    return static_cast<const uint8_t*>(m_readStaging.getCpuAddr());
 }
 
 bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& outH,
@@ -204,9 +233,11 @@ bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& out
     const uint32_t byteSize = static_cast<uint32_t>(outW) * static_cast<uint32_t>(outH) * 4u;
     const uint32_t stagingSize = (byteSize + kGpuAlign - 1) & ~(kGpuAlign - 1);
     // MemBlockMaker::create() returns a plain handle; only UniqueMemBlock frees it.
-    staging = dk::MemBlockMaker{m_dev, stagingSize}
-        .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
-        .create();
+    // A caller's block that's already there (readFramebufferPixels) is reused.
+    if (!staging)
+        staging = dk::MemBlockMaker{m_dev, stagingSize}
+            .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
+            .create();
     if (!staging || !staging.getCpuAddr())
         return false;
 
@@ -214,7 +245,9 @@ bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& out
     // HwCompression, and copyImageToBuffer from those is unreliable / soft.
     dk::Image tempImage;
     dk::UniqueMemBlock tempImageMem;
-    if (!useHalf) {
+    // Prepared once and reused (no per-capture allocation) when available.
+    dk::Image& blitTarget = (!useHalf && m_readImageReady) ? m_readImage : tempImage;
+    if (!useHalf && !m_readImageReady) {
         dk::ImageLayout layout;
         dk::ImageLayoutMaker{m_dev}
             .setFlags(DkImageFlags_UsageRender | DkImageFlags_Usage2DEngine)
@@ -248,7 +281,7 @@ bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& out
         m_uploadCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
         srcView = dk::ImageView{m_offImages[0]};
     } else {
-        dk::ImageView dstView{tempImage};
+        dk::ImageView dstView{blitTarget};
         const DkImageRect rect{0, 0, 0,
                                static_cast<uint32_t>(fullW),
                                static_cast<uint32_t>(fullH), 1};
@@ -530,6 +563,9 @@ void GpuDevice::shutdown() {
     m_fbPool      = {};
     m_dsPool      = {};
     m_offPool     = {};
+    m_readStaging  = nullptr;
+    m_readImageMem = nullptr;
+    m_readImageReady = false;
     m_offscreenReady = false;
     for (int i = 0; i < NUM_FB; ++i)
         m_cmdPool[i] = {};

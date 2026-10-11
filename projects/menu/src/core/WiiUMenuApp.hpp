@@ -235,11 +235,8 @@ private:
     void fadeOutThen(std::function<void()> fn);
     void waitLeaveFrameWrite();
     bool loaderReadyOrExplain();
-#ifdef NXUI_BACKEND_DEKO3D
-    // Return-frame pixels the save worker reads. Declared before the future so the
-    // future (destroyed first) has joined the worker before this is freed.
-    dk::UniqueMemBlock m_leaveStaging;
-#endif
+    bool  m_readbackPrepared = false;   // capture buffers allocated (see onUpdate)
+    float m_readbackPrepDelay = 1.5f;
     std::future<void> m_leaveFrameWrite; // background save of the return frame
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);

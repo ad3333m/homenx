@@ -508,9 +508,6 @@ bool WiiUMenuApp::loaderReadyOrExplain() {
 void WiiUMenuApp::waitLeaveFrameWrite() {
     if (m_leaveFrameWrite.valid())
         m_leaveFrameWrite.wait();
-#ifdef NXUI_BACKEND_DEKO3D
-    m_leaveStaging = nullptr;
-#endif
 }
 
 void WiiUMenuApp::fadeOutThen(std::function<void()> fn) {
@@ -608,7 +605,8 @@ void WiiUMenuApp::setSuspendedIconVisuals(std::uint64_t titleId) {
 
 void WiiUMenuApp::previewLeaveCaptureTitle(std::uint64_t titleId) {
     m_leaveCaptureFocusTitleId = titleId;
-    setSuspendedIconVisuals(titleId);
+    // HomeNX: no green "playing" outline painted just for the capture: it showed
+    // as a one-frame flicker on the icon you pressed. The live menu shows it on return.
     if (titleId == 0 || !m_grid)
         return;
 
@@ -666,12 +664,14 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
     // pixels and writing them to the SD card run on a worker, so pressing a game
     // or a button no longer hitches.
     (void)ren;
-    if (!app().gpu().readFramebuffer(m_leaveStaging, width, height)) {
+    // The device's reusable readback block: valid until the next capture, and
+    // waitLeaveFrameWrite() above makes sure the previous save is done with it.
+    const std::uint8_t* pixels = app().gpu().readFramebufferPixels(width, height);
+    if (!pixels) {
         DebugLog::log("[leave] framebuffer download failed");
         m_leaveCaptureFocusTitleId = 0;
         return false;
     }
-    const auto* pixels = static_cast<const std::uint8_t*>(m_leaveStaging.getCpuAddr());
 #else
     std::vector<std::uint8_t> rgba;
     if (!ren.downloadFramebufferRgba(rgba, width, height, false)) {
@@ -5278,6 +5278,13 @@ void WiiUMenuApp::finalizeRefresh() {
 #endif
 
 void WiiUMenuApp::onUpdate(float dt) {
+#ifdef NXUI_BACKEND_DEKO3D
+    // HomeNX: once HOME has settled, allocate the capture buffers, so pressing a
+    // game later doesn't stall on ~7 MB of GPU allocation.
+    if (!m_readbackPrepared && !leaveSplashActive() && m_deferredInitialAssetFrames == 0
+        && !(m_launchAnim && m_launchAnim->isPlaying()) && (m_readbackPrepDelay -= dt) <= 0.f)
+        m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
+#endif
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
