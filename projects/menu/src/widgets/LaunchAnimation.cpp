@@ -95,8 +95,9 @@ void LaunchAnimation::onRender(nxui::Renderer& ren) {
     const float out = t > kCardUntil ? nxui::Easing::inOutCubic(std::min((t - kCardUntil) / kOutDur, 1.f)) : 0.f;
     const float alpha = 1.f - out;
 
-    // HOME darkens behind the card, then the whole screen goes to black.
-    ren.drawRect(screen, nxui::Color(0, 0, 0, 0.86f * ef + 0.14f * out));
+    // HOME fades to black behind the rising card (fully black once it's up, so
+    // the menu underneath stops being drawn; see coversScreen()).
+    ren.drawRect(screen, nxui::Color(0, 0, 0, ef));
 
     // The card: from the pressed tile to the centre.
     const nxui::Rect card{m_from.x + (m_target.x - m_from.x) * er,
@@ -121,6 +122,11 @@ void LaunchAnimation::onRender(nxui::Renderer& ren) {
     // The game's name, then a shimmer while it starts.
     const float titleA = std::clamp((t - kTitleIn) / kTitleDur, 0.f, 1.f) * alpha;
     float y = m_target.y + kCardSize + 30.f;
+    if (m_font && !m_title.empty() && titleA <= 0.f && t < 0.1f) {
+        // Draw it once, invisibly, right at the start: the font prepares the title's
+        // letters now, inside the press frame, not as a hitch when it fades in.
+        ren.drawText(m_title, {0.f, 0.f}, m_font, nxui::Color(1.f, 1.f, 1.f, 0.f), 1.05f);
+    }
     if (m_font && !m_title.empty() && titleA > 0.f) {
         const float scale = 1.05f;
         const nxui::Vec2 size = m_font->measure(m_title);

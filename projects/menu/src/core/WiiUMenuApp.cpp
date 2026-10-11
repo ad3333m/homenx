@@ -3937,6 +3937,25 @@ void WiiUMenuApp::resumeSuspendedApplication(std::uint64_t titleId,
     }, titleId);
 }
 
+// HomeNX launch, after the card: the screen is black by now, so the launch
+// request, the saves and the wait for the return-picture write can't freeze a
+// visible frame (they used to run before the black frame was presented).
+void WiiUMenuApp::finishLaunch() {
+    if (!m_launcher.requestLaunch(m_launchTitleId, m_launchUid)) { // refused: back to HOME
+        svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
+        m_launchAnim->stop();
+        resumeMenuMusicAfterReturn();
+        return;
+    }
+    m_config.noteOpened(m_launchTitleId);
+    m_config.save();
+    m_widgetStore.recordLaunch(m_launchTitleId, m_launchTitleName,
+                               static_cast<std::int64_t>(std::time(nullptr)));
+    m_widgetStore.save(false);
+    waitLeaveFrameWrite();
+    m_launcher.closeForLaunch();
+}
+
 void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
                                       std::uint64_t titleId,
                                       const std::string& launchTitle) {
@@ -3981,25 +4000,14 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
             // keep the card's frames ahead of the game's loading threads.
             svcSetThreadPriority(CUR_THREAD_HANDLE, 0x24);
             m_launchAnim->start(frame, texture, radius, base, border, titleId, uid, launchTitle,
-                // Early: the daemon starts the game now (it gets the screen when we exit).
-                [this](std::uint64_t id, AccountUid selectedUid) {
-                    m_launchRequested = m_launcher.requestLaunch(id, selectedUid);
-                },
-                // End of the card, screen black: save, then close.
-                [this, titleId, launchTitle]() {
-                    if (!m_launchRequested) { // the daemon refused: back to HOME
-                        svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
-                        m_launchAnim->stop();
-                        resumeMenuMusicAfterReturn();
-                        return;
-                    }
-                    m_config.noteOpened(titleId);
-                    m_config.save();
-                    m_widgetStore.recordLaunch(titleId, launchTitle,
-                        static_cast<std::int64_t>(std::time(nullptr)));
-                    m_widgetStore.save(false);
-                    waitLeaveFrameWrite();
-                    m_launcher.closeForLaunch();
+                {},
+                // End of the card: wait until black is actually on screen, then
+                // launch, save and close (see finishLaunch / onUpdate).
+                [this, titleId, launchTitle, uid]() {
+                    m_launchTitleId = titleId;
+                    m_launchTitleName = launchTitle;
+                    m_launchUid = uid;
+                    m_launchFinishFrames = 2;
                 });
         }, titleId);
     };
@@ -5312,6 +5320,18 @@ void WiiUMenuApp::finalizeRefresh() {
 #endif
 
 void WiiUMenuApp::onUpdate(float dt) {
+    // HomeNX launch card: once it covers the screen, stop drawing HOME under it
+    // (that was what made the card stutter); finish the launch on black frames.
+    {
+        const bool cover = m_launchAnim && m_launchAnim->coversScreen();
+        if (cover != m_launchCovering) {
+            m_launchCovering = cover;
+            if (m_bgLayer) m_bgLayer->setVisible(!cover);
+            if (m_contentLayer) m_contentLayer->setVisible(!cover);
+        }
+        if (m_launchFinishFrames > 0 && --m_launchFinishFrames == 0)
+            finishLaunch();
+    }
 #ifdef NXUI_BACKEND_DEKO3D
     // HomeNX: once HOME has settled, allocate the capture buffers, so pressing a
     // game later doesn't stall on ~7 MB of GPU allocation.

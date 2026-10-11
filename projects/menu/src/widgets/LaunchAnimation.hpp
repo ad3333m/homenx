@@ -33,6 +33,8 @@ public:
     void startResume(nxui::VoidCallback onDone);
 
     bool isPlaying() const { return m_playing; }
+    // The card's backdrop is fully black from here on: HOME underneath needn't be drawn.
+    bool coversScreen() const { return m_playing && !m_resume && m_timer >= kRiseDur; }
     void stop() { m_playing = false; m_tex = nullptr; m_resume = false; }
 
     float musicFadeProgress() const { // between 0 and 1, where 0 is the initial state

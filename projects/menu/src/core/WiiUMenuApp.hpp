@@ -236,7 +236,12 @@ private:
     void waitLeaveFrameWrite();
     bool loaderReadyOrExplain();
     bool  m_readbackPrepared = false;   // capture buffers allocated (see onUpdate)
-    bool  m_launchRequested = false;    // launch card: daemon accepted the launch
+    // Launch card hand-off (finishLaunch).
+    int  m_launchFinishFrames = 0;
+    bool m_launchCovering = false;
+    std::uint64_t m_launchTitleId = 0;
+    std::string m_launchTitleName;
+    AccountUid m_launchUid{};
     float m_readbackPrepDelay = 1.5f;
     std::future<void> m_leaveFrameWrite; // background save of the return frame
     void scheduleLeaveCapture(std::function<void()> afterCapture,
@@ -255,6 +260,7 @@ private:
     void updateLeaveSplashHandoff(float dt);
     bool leaveSplashActive() const;
     void confirmCloseSuspendedThen(std::function<void()> go);
+    void finishLaunch();
     void drawReturnVeil(nxui::Renderer& ren, float t);
     void renameFolder(std::uint32_t folderId);
     void showFolderContextMenu(std::uint32_t folderId);
