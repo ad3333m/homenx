@@ -780,10 +780,8 @@ void AudioManager::restorePlaybackState(int trackIndex, float positionSeconds, b
         applyMusicVolume();
         if (m_positionSeconds > 0.25f)
             m_deferredSeekSeconds = m_positionSeconds;
-        else {
-            m_musicFade = 1.f;
-            applyMusicVolume();
-        }
+        else
+            m_restoreFadeIn = true; // from silence, ramped in update()
         playCurrentInternal(true);
     } else {
         m_suppressFinishedHook = true;
@@ -808,9 +806,10 @@ void AudioManager::updateDeferredSeek() {
     }
     Mix_SetMusicPosition(static_cast<double>(seekTo));
     {
+        // HomeNX: ramp in (update()) with the HOME reveal instead of snapping to full volume.
         std::lock_guard<std::mutex> lk(m_trackMutex);
-        m_musicFade = 1.f;
-        m_restoreFadeIn = false;
+        m_musicFade = 0.f;
+        m_restoreFadeIn = true;
         applyMusicVolume();
     }
 }

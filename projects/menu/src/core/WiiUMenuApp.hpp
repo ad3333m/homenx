@@ -1,6 +1,7 @@
 #pragma once
 #include <nxui/Activity.hpp>
 #include <nxui/Application.hpp>
+#include <nxui/core/GpuDevice.hpp>
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
 #include <nxui/core/I18n.hpp>
@@ -83,6 +84,9 @@ static constexpr const char* SD_ASSETS = "romfs:";
 #else
 static constexpr const char* SD_ASSETS = "sdmc:/switch/SwitchU";
 #endif
+
+// When this HomeNX process started (set first thing in main.cpp).
+extern std::uint64_t g_homenxStartTick;
 
 class WiiUMenuApp : public nxui::Activity {
 public:
@@ -231,6 +235,11 @@ private:
     void fadeOutThen(std::function<void()> fn);
     void waitLeaveFrameWrite();
     bool loaderReadyOrExplain();
+#ifdef NXUI_BACKEND_DEKO3D
+    // Return-frame pixels the save worker reads. Declared before the future so the
+    // future (destroyed first) has joined the worker before this is freed.
+    dk::UniqueMemBlock m_leaveStaging;
+#endif
     std::future<void> m_leaveFrameWrite; // background save of the return frame
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);
@@ -247,6 +256,7 @@ private:
     void setLeaveMotionFrozen(bool frozen);
     void updateLeaveSplashHandoff(float dt);
     bool leaveSplashActive() const;
+    void drawReturnVeil(nxui::Renderer& ren, float t);
     void renameFolder(std::uint32_t folderId);
     void showFolderContextMenu(std::uint32_t folderId);
     bool saveFoldersOrReport(const char* operation);
@@ -711,13 +721,15 @@ private:
     LeaveSplashPhase m_leaveSplashPhase = LeaveSplashPhase::None;
     float m_leaveSplashHoldRemaining = 0.f;
     float m_leaveSplashWaited = 0.f;
+    // Settings > HomeNX > Return timing (system ticks; 0 = not reached).
+    std::uint64_t m_tFirstFrame = 0, m_tResources = 0, m_tGrid = 0, m_tReady = 0;
     float m_leaveSplashFade = 0.f;
     bool m_leaveSplashDrawn = false;
     bool m_leaveMotionFrozen = false;
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
     static constexpr float kLeaveSplashMaxWait = 1.5f; // never block HOME longer than this
-    static constexpr float kLeaveSplashFadeDur = 0.15f; // HomeNX: a long crossfade ghosts two frames (looks blurry)
+    static constexpr float kLeaveSplashFadeDur = 0.5f; // HomeNX: brighten + zoom settle into the live menu
 
     bool  m_audioInitPending = false;
     bool  m_audioHeldLogged  = false;

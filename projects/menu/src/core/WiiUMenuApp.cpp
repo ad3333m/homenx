@@ -386,7 +386,10 @@ void WiiUMenuApp::setStartupStatus(const switchu::smi::SystemStatus& status, boo
 }
 #endif
 
+std::uint64_t g_homenxStartTick = 0;
+
 bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
+    m_tFirstFrame = armGetSystemTick();
 #ifdef SWITCHU_MENU
     if (!m_fastReturnRequested)
         return false;
@@ -395,7 +398,7 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
     if (LeaveFrameCache::load(m_leaveSession, image) && image.valid()
         && m_leaveSplashTex.loadFromPixels(app().gpu(), ren,
                                            image.rgba.data(), image.width, image.height)) {
-        ren.drawTexture(&m_leaveSplashTex, {0.f, 0.f, 1280.f, 720.f});
+        drawReturnVeil(ren, 1.f);
         m_leaveSplashDrawn = true;
         m_leaveSplashPhase = LeaveSplashPhase::Hold;
         m_leaveSplashHoldRemaining = kLeaveSplashHoldDur;
@@ -477,6 +480,9 @@ bool WiiUMenuApp::loaderReadyOrExplain() {
 void WiiUMenuApp::waitLeaveFrameWrite() {
     if (m_leaveFrameWrite.valid())
         m_leaveFrameWrite.wait();
+#ifdef NXUI_BACKEND_DEKO3D
+    m_leaveStaging = {};
+#endif
 }
 
 void WiiUMenuApp::fadeOutThen(std::function<void()> fn) {
@@ -624,24 +630,41 @@ LeaveFrameSession WiiUMenuApp::captureLeaveSession() const {
 }
 
 bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
-    std::vector<std::uint8_t> rgba;
+    waitLeaveFrameWrite();
     int width = 0;
     int height = 0;
+#ifdef NXUI_BACKEND_DEKO3D
+    // HomeNX: only the GPU copy happens on this frame. Reading the 3.6 MB of
+    // pixels and writing them to the SD card run on a worker, so pressing a game
+    // or a button no longer hitches.
+    (void)ren;
+    m_leaveStaging = app().gpu().readFramebuffer(width, height);
+    if (!m_leaveStaging) {
+        DebugLog::log("[leave] framebuffer download failed");
+        m_leaveCaptureFocusTitleId = 0;
+        return false;
+    }
+    const auto* pixels = static_cast<const std::uint8_t*>(m_leaveStaging.getCpuAddr());
+#else
+    std::vector<std::uint8_t> rgba;
     if (!ren.downloadFramebufferRgba(rgba, width, height, false)) {
         DebugLog::log("[leave] framebuffer download failed");
         m_leaveCaptureFocusTitleId = 0;
         return false;
     }
+    auto shared = std::make_shared<std::vector<std::uint8_t>>(std::move(rgba));
+    const auto* pixels = shared->data();
+#endif
 
     const LeaveFrameSession session = captureLeaveSession();
     m_leaveCaptureFocusTitleId = 0;
-    // HomeNX: the 3.6 MB SD write used to stall launches. Write it on a thread
-    // while the launch animation / fade plays; waitLeaveFrameWrite() joins it
-    // right before the menu actually leaves.
-    waitLeaveFrameWrite();
     m_leaveFrameWrite = std::async(std::launch::async,
-        [session, rgba = std::move(rgba), width, height]() {
-            if (!LeaveFrameCache::save(session, rgba.data(), width, height))
+        [session, pixels, width, height
+#ifndef NXUI_BACKEND_DEKO3D
+         , shared
+#endif
+        ]() {
+            if (!LeaveFrameCache::save(session, pixels, width, height))
                 DebugLog::log("[leave] cache write failed");
             else
                 DebugLog::log("[leave] saved %dx%d page=%d folder=%u focus=%016lX",
@@ -707,6 +730,19 @@ void WiiUMenuApp::restoreLeaveSession() {
                   session.page, static_cast<unsigned long>(session.focusTitleId));
 }
 
+// HomeNX return transition. While the menu loads (its main thread is busy, so
+// nothing can animate) the saved HOME picture shows dimmed and slightly zoomed:
+// "on the way", not "frozen". Once the live menu is ready, t runs 1 -> 0 and the
+// picture brightens and settles into it at full frame rate.
+void WiiUMenuApp::drawReturnVeil(nxui::Renderer& ren, float t) {
+    const float e = t * t * (3.f - 2.f * t); // smoothstep
+    const float scale = 1.f + 0.035f * e;
+    const float w = 1280.f * scale, h = 720.f * scale;
+    ren.drawTexture(&m_leaveSplashTex, {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h},
+                    nxui::Color::white().withAlpha(e));
+    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.42f * e));
+}
+
 bool WiiUMenuApp::leaveSplashActive() const {
     return m_leaveSplashPhase != LeaveSplashPhase::None;
 }
@@ -758,6 +794,7 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
             || userWants || m_leaveSplashWaited >= kLeaveSplashMaxWait) {
             DebugLog::log("[leave] scene %s after %.2fs", sceneReady ? "ready"
                           : userWants ? "skipped by input" : "timeout", m_leaveSplashWaited);
+            m_tReady = armGetSystemTick();
             m_leaveSplashHoldRemaining = 0.f;
             m_leaveSplashPhase = LeaveSplashPhase::Fade;
             DebugLog::log("[leave] splash crossfade begin");
@@ -857,9 +894,11 @@ bool WiiUMenuApp::onCreate() {
     DebugLog::log("[init] loadResources...");
     loadResources();
     DebugLog::log("[init] loadResources done at %lums", initElapsedMs());
+    m_tResources = armGetSystemTick();
     DebugLog::log("[init] buildGrid...");
     buildGrid();
     DebugLog::log("[init] buildGrid done at %lums", initElapsedMs());
+    m_tGrid = armGetSystemTick();
 
 #ifdef SWITCHU_MENU
     if (m_startupFailure.result != 0 && m_dialog) {
@@ -7049,13 +7088,8 @@ void WiiUMenuApp::onRender(nxui::Renderer& ren) {
         DebugLog::log("[first-frame] fast HOME return rendered in %lums", elapsedMs);
         m_fastReturnStartupTick = 0;
     }
-    if (leaveSplashActive() && m_leaveSplashTex.valid()) {
-        const float alpha = (m_leaveSplashPhase == LeaveSplashPhase::Hold)
-            ? 1.f
-            : m_leaveSplashFade;
-        ren.drawTexture(&m_leaveSplashTex, {0.f, 0.f, 1280.f, 720.f},
-                        nxui::Color::white().withAlpha(alpha));
-    }
+    if (leaveSplashActive() && m_leaveSplashTex.valid())
+        drawReturnVeil(ren, m_leaveSplashPhase == LeaveSplashPhase::Hold ? 1.f : m_leaveSplashFade);
     if (m_returnFadeTimer > 0.f) {
         float alpha = m_returnFadeTimer / kReturnFadeInDur;
         ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, alpha));

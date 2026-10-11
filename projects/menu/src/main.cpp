@@ -109,6 +109,7 @@ extern "C" void userAppExit(void) {
 #else
 extern "C" void __appInit(void) {
     Result rc;
+    g_homenxStartTick = armGetSystemTick();
 
     svcOutputDebugString("[SwitchU-menu] __appInit start", 30);
 
@@ -227,6 +228,7 @@ int main(int argc, char* argv[]) {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
 
 #ifdef SWITCHU_HOMEBREW
+    g_homenxStartTick = armGetSystemTick();
     DebugLog::openFileLog();
     DebugLog::log("[hb] main() entry");
     DebugLog::log("[main] applet config...");

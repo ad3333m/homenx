@@ -171,6 +171,24 @@ void GpuDevice::endFrame() {
 bool GpuDevice::downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
                                         int& outW, int& outH,
                                         bool halfRes) {
+    dk::UniqueMemBlock staging;
+    if (!copyFramebuffer(staging, outW, outH, halfRes))
+        return false;
+    const size_t byteSize = static_cast<size_t>(outW) * static_cast<size_t>(outH) * 4u;
+    outRgba.resize(byteSize);
+    std::memcpy(outRgba.data(), staging.getCpuAddr(), byteSize);
+    return true;
+}
+
+dk::UniqueMemBlock GpuDevice::readFramebuffer(int& outW, int& outH) {
+    dk::UniqueMemBlock staging;
+    if (!copyFramebuffer(staging, outW, outH, false))
+        return {};
+    return staging;
+}
+
+bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& outH,
+                                bool halfRes) {
     if (m_slot < 0 || !m_queue)
         return false;
 
@@ -188,7 +206,7 @@ bool GpuDevice::downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
     const uint32_t byteSize = static_cast<uint32_t>(outW) * static_cast<uint32_t>(outH) * 4u;
     const uint32_t stagingSize = (byteSize + kGpuAlign - 1) & ~(kGpuAlign - 1);
     // MemBlockMaker::create() returns a plain handle; only UniqueMemBlock frees it.
-    dk::UniqueMemBlock staging = dk::MemBlockMaker{m_dev, stagingSize}
+    staging = dk::MemBlockMaker{m_dev, stagingSize}
         .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
         .create();
     if (!staging || !staging.getCpuAddr())
@@ -256,9 +274,7 @@ bool GpuDevice::downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
 
     m_queue.submitCommands(m_uploadCmdbuf.finishList());
     m_queue.waitIdle();
-
-    outRgba.resize(byteSize);
-    std::memcpy(outRgba.data(), staging.getCpuAddr(), byteSize);
+    (void)byteSize;
     return true;
 }
 

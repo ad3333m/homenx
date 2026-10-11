@@ -1633,51 +1633,27 @@ void WiiUMenuApp::openHomePagesPicker() {
                      m_settings ? m_settings.get() : nullptr);
 }
 
-// Settings > HomeNX > Return timing: the HOME / launch lines from the menu and
-// daemon logs, newest last, so a screenshot shows where a slow return spends time.
+// Settings > HomeNX > Return timing: how long this HomeNX start took, step by
+// step (recorded in memory while it started; HOME restarts the menu, so after
+// leaving a game this is that return).
 void WiiUMenuApp::openReturnTimings() {
+    if (!m_dialog) return;
     auto& i18n = nxui::I18n::instance();
-    static constexpr const char* kKeys[] = {
-        "HOME", "start mode", "[init] DONE", "[leave] scene", "splash handoff", "restoring music",
-        "[menu_la] started", "[menu_la] create", "launch title", "foreground title", "finished reason",
-        "menu exited", "app exited", "resume",
+    auto secs = [this](std::uint64_t tick) -> std::string {
+        if (tick == 0 || tick < g_homenxStartTick) return "-";
+        return fmt::format("{:.2f} s", armTicksToNs(tick - g_homenxStartTick) / 1e9);
     };
-    auto tail = [](const char* path) {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return std::string();
-        in.seekg(0, std::ios::end);
-        const std::streamoff size = in.tellg();
-        in.seekg(std::max<std::streamoff>(0, size - 48 * 1024));
-        std::vector<std::string> lines;
-        for (std::string line; std::getline(in, line);) {
-            for (const char* key : kKeys)
-                if (line.find(key) != std::string::npos) { lines.push_back(line); break; }
-        }
-        if (lines.size() > 28) lines.erase(lines.begin(), lines.end() - 28);
-        std::string out;
-        for (const auto& l : lines) out += l + "\n";
-        return out;
-    };
-#ifdef SWITCHU_MENU
-    switchu::FileLog::flush(); // this return's own lines are still queued
-    constexpr const char* kMenuLog = "sdmc:/config/SwitchU/menu.log";
-#else
-    constexpr const char* kMenuLog = "sdmc:/config/SwitchU/log.log";
-#endif
-    std::vector<ListDetailScreen::Entry> entries;
-    for (auto [name, path] : {std::pair{"Menu", kMenuLog},
-                              std::pair{"HOME (daemon)", "sdmc:/config/SwitchU/daemon.log"}}) {
-        ListDetailScreen::Entry e;
-        e.listName = name;
-        e.title = name;
-        e.kicker = path;
-        e.body = tail(path);
-        if (e.body.empty()) e.body = i18n.tr("timing.empty", "Nothing logged yet.");
-        e.footer = i18n.tr("timing.hint", "Press ZR to scroll. Screenshot this after leaving a game to report a slow return.");
-        entries.push_back(std::move(e));
-    }
-    showDetailScreen(std::move(entries), i18n.tr("timing.title", "Return timing"), std::string(),
-                     m_settings ? m_settings.get() : nullptr);
+    const std::string body =
+        i18n.tr("timing.picture", "Picture on screen") + ": " + secs(m_tFirstFrame) + "\n" +
+        i18n.tr("timing.fonts", "Fonts and app list") + ": " + secs(m_tResources) + "\n" +
+        i18n.tr("timing.grid", "Menu built") + ": " + secs(m_tGrid) + "\n" +
+        i18n.tr("timing.ready", "Icons and music ready") + ": " + secs(m_tReady) + "\n" +
+        (m_fastReturnRequested ? i18n.tr("timing.return", "This was a return from a game or app.")
+                               : i18n.tr("timing.boot", "This was a fresh start, not a return."));
+    m_audio.playSfx(Sfx::ModalShow);
+    m_dialog->show(i18n.tr("timing.title", "Return timing"), body,
+                   {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+    focusManager().setFocus(m_dialog.get());
 }
 
 void WiiUMenuApp::openMiis() {

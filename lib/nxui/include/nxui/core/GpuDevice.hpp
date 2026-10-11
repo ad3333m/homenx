@@ -81,6 +81,11 @@ public:
     bool downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
                                  int& outW, int& outH,
                                  bool halfRes = true);
+#ifdef NXUI_BACKEND_DEKO3D
+    /// Full-res framebuffer copy left in a CPU-visible block, so a worker thread
+    /// can read the pixels (no 3.6 MB copy on the render thread). Empty on failure.
+    dk::UniqueMemBlock readFramebuffer(int& outW, int& outH);
+#endif
 
     int  width()  const { return FB_WIDTH; }
     int  height() const { return FB_HEIGHT; }
@@ -173,6 +178,9 @@ public:
 #endif
 
 private:
+#ifdef NXUI_BACKEND_DEKO3D
+    bool copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& outH, bool halfRes);
+#endif
 #ifdef NXUI_BACKEND_DEKO3D
     void createFramebuffers();
     void createDepthStencil();
