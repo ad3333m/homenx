@@ -348,7 +348,8 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
     // screen on hardware even though the menu process stayed alive.
     int uploads = 0;
     for (size_t pendingIndex = 0;
-         pendingIndex < m_pendingDecodes.size() && uploads < kUploadsPerFrame;) {
+         pendingIndex < m_pendingDecodes.size()
+         && uploads < (m_burst ? kBurstUploadsPerFrame : kUploadsPerFrame);) {
         auto& pending = m_pendingDecodes[pendingIndex];
         if (pending.future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
             ++pendingIndex;
@@ -451,7 +452,7 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
             loadOrder.push_back(appIndex);
     }
     for (int appIndex : loadOrder) {
-        if ((int)m_pendingDecodes.size() >= kMaxPendingDecodes)
+        if ((int)m_pendingDecodes.size() >= (m_burst ? kBurstMaxPendingDecodes : kMaxPendingDecodes))
             break;
         if (m_appToSlot[(size_t)appIndex] >= 0 || !hasData(appIndex))
             continue;

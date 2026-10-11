@@ -515,7 +515,7 @@ void IconGrid::startAppearAnimation(const IconAppearOptions& opt) {
             float delay = std::min(0.40f, dist * 0.06f);
             if (opt.fromTile)
                 m_allIcons[i]->setAppearOrigin(opt.origin);
-            m_allIcons[i]->startAppear(opt.baseDelay + delay);
+            m_allIcons[i]->startAppear(opt.baseDelay + delay, opt.fromScale, opt.fromOpacity);
         }
         return;
     }
@@ -529,7 +529,7 @@ void IconGrid::startAppearAnimation(const IconAppearOptions& opt) {
         float t   = maxDist > 0 ? (float)(col + row) / maxDist : 0.f;
         if (opt.fromTile)
             m_allIcons[i]->setAppearOrigin(opt.origin);
-        m_allIcons[i]->startAppear(opt.baseDelay + t * opt.stagger);
+        m_allIcons[i]->startAppear(opt.baseDelay + t * opt.stagger, opt.fromScale, opt.fromOpacity);
     }
 }
 

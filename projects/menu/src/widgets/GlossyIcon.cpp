@@ -513,13 +513,13 @@ void GlossyIcon::onFocusLost() {
     m_focusGlow.set(0.f, 0.16f, nxui::Easing::outCubic);
 }
 
-void GlossyIcon::startAppear(float delay) {
+void GlossyIcon::startAppear(float delay, float fromScale, float fromOpacity) {
     m_appearDelay = delay;
     m_appearTimer = 0.f;
     m_appearing   = true;
     m_disappearing = false;
-    m_animScale.setImmediate(0.f);
-    m_appearOpacity.setImmediate(0.f);
+    m_animScale.setImmediate(fromScale);
+    m_appearOpacity.setImmediate(fromOpacity);
 }
 
 void GlossyIcon::startDisappear(const nxui::Rect& target, float delay, float dur) {

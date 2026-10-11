@@ -5,6 +5,7 @@
 #include <nxui/core/Texture.hpp>
 #include <switch/services/acc.h>
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 
 
@@ -14,7 +15,7 @@ class LaunchAnimation : public nxui::Widget {
 public:
     LaunchAnimation() = default;
 
-    // Cold launch: zoom to center, hold, fade, then black, then launch.
+    // Cold launch: fly to centre, settle, dive into black, then launch.
     void start(const nxui::Rect& from, const nxui::Texture* tex, float cornerRadius,
                const nxui::Color& panelColor, const nxui::Color& borderColor,
                uint64_t titleId, AccountUid uid,
@@ -40,16 +41,18 @@ private:
     bool  m_playing  = false;
     bool  m_resume   = false;
     float m_timer    = 0.f;
+    std::uint64_t m_startTick = 0;
 
-    static constexpr float kZoomDur   = 0.45f;
-    static constexpr float kHoldDur   = 0.35f;
-    static constexpr float kFadeDur   = 0.25f;
-    static constexpr float kBlackDur  = 0.30f;
-    static constexpr float kBlackHold = 0.10f;
+    // HomeNX launch: the icon flies to the centre and grows, settles for a beat,
+    // then dives toward the viewer into black. Timed on the real clock (see
+    // onUpdate) so a slow frame jumps ahead instead of stalling the motion.
+    static constexpr float kZoomDur   = 0.40f;
+    static constexpr float kHoldDur   = 0.14f;
+    static constexpr float kDiveDur   = 0.38f;
+    static constexpr float kBlackHold = 0.05f;
     static constexpr float kPostLaunchBlackHold = 0.15f;
-    static constexpr float kTotalDur  = kZoomDur + kHoldDur + kFadeDur
-                                      + kBlackDur + kBlackHold;
-    static constexpr float kMusicFadeDur = kZoomDur + kHoldDur + kFadeDur + kBlackDur;
+    static constexpr float kTotalDur  = kZoomDur + kHoldDur + kDiveDur + kBlackHold;
+    static constexpr float kMusicFadeDur = kZoomDur + kHoldDur + kDiveDur;
 
     // Resume: soft blackout only — no zoom or icon flare.
     static constexpr float kResumeFadeDur = 0.16f;

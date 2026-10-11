@@ -74,6 +74,9 @@ public:
     int  iconCount()         const { return (int)m_appToSlot.size(); }
     bool hasData(int index)  const;
     bool needsVisibleLoads(int currentPage, int iconsPerPage) const;
+    // HomeNX: while the HOME return picture covers the screen nothing animates,
+    // so fill the page fast (more uploads per frame, deeper decode queue).
+    void setBurst(bool on) { m_burst = on; }
 
 private:
     struct DecodeState {
@@ -113,11 +116,14 @@ private:
     int m_lastPage = -1;
     int m_lastIconsPerPage = -1;
     int m_pinnedIndex = -1;
+    bool m_burst = false;
 
     static constexpr int kPageCacheRadius = 4;
     static constexpr int kGridPageCacheRadius = 1;
     static constexpr int kIconSize        = 160;
     static constexpr int kUploadsPerFrame = 1;
     static constexpr int kMaxPendingDecodes = 4;
+    static constexpr int kBurstUploadsPerFrame = 8;
+    static constexpr int kBurstMaxPendingDecodes = 16;
     static constexpr std::uint64_t kGpuImageReserve = 4u * 1024u * 1024u;
 };

@@ -763,11 +763,11 @@ void WiiUMenuApp::restoreLeaveSession() {
 // "on the way", not "frozen". Once the live menu is ready, t runs 1 -> 0 and the
 // picture brightens and settles into it at full frame rate.
 void WiiUMenuApp::drawReturnVeil(nxui::Renderer& ren, float t) {
-    // Drawn 1:1 (scaling the picture made it look blurry), just dimmed.
+    // Drawn 1:1 and undimmed (zoom looked blurry, the dim looked dark).
     const float e = t * t * (3.f - 2.f * t); // smoothstep
     ren.drawTexture(&m_leaveSplashTex, {0.f, 0.f, 1280.f, 720.f},
                     nxui::Color::white().withAlpha(e));
-    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * e));
+
 }
 
 bool WiiUMenuApp::leaveSplashActive() const {
@@ -809,21 +809,24 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
         // Real time: dt is clamped on long frames, which stretched the cap.
         if (m_leaveSplashStartTick == 0) m_leaveSplashStartTick = armGetSystemTick();
         m_leaveSplashWaited = armTicksToNs(armGetSystemTick() - m_leaveSplashStartTick) / 1e9f;
-        // HomeNX: the saved HOME frame stays up until the live menu underneath
-        // is complete (page icons, sidebar art). Fading earlier
-        // showed placeholders and silence that "fixed themselves" a moment later.
-        const bool sceneReady = m_deferredInitialAssetFrames == 0
-            && !(m_grid && m_iconStreamer.needsVisibleLoads(m_grid->currentPage(),
-                                                            m_grid->iconsPerPage()));
-        // Music isn't waited for: it starts on the audio worker and fades in on its own.
-        // A button press means "let me in": never hold the picture over a menu
-        // that is already usable.
+        // HomeNX return animation: as soon as the menu exists and its deferred
+        // uploads (one heavy frame) are done, dissolve the picture into it with an
+        // icon wave instead of holding a frozen picture until every icon loaded.
+        // Icons keep streaming in (burst) during the wave; music fades in on its own.
+        const bool sceneReady = m_deferredInitialAssetFrames == 0;
         const bool userWants = m_leaveSplashWaited > 0.1f && app().input().hasUserActivity();
         if ((m_leaveSplashHoldRemaining <= 0.f && sceneReady)
             || userWants || m_leaveSplashWaited >= kLeaveSplashMaxWait) {
             DebugLog::log("[leave] scene %s after %.2fs", sceneReady ? "ready"
                           : userWants ? "skipped by input" : "timeout", m_leaveSplashWaited);
             m_tReady = armGetSystemTick();
+            if (m_grid && m_openFolderId == 0) {
+                IconAppearOptions wave;
+                wave.stagger = 0.32f;
+                wave.fromScale = 0.82f;
+                wave.fromOpacity = 0.35f;
+                m_grid->startAppearAnimation(wave);
+            }
             m_leaveSplashHoldRemaining = 0.f;
             m_leaveSplashPhase = LeaveSplashPhase::Fade;
             DebugLog::log("[leave] splash crossfade begin");
@@ -928,6 +931,14 @@ bool WiiUMenuApp::onCreate() {
     buildGrid();
     DebugLog::log("[init] buildGrid done at %lums", initElapsedMs());
     m_tGrid = armGetSystemTick();
+    if (fastReturn && m_grid && leaveSplashActive()) { // the picture turns burst off again
+        // HomeNX: start decoding this page's icons on the worker cores now (no GPU
+        // work: nothing has finished decoding yet, so nothing uploads here) and
+        // upload them in bulk while the return picture still covers the screen.
+        m_iconStreamer.setBurst(true);
+        m_iconStreamer.onPageChanged(m_grid->currentPage(), m_grid->iconsPerPage(),
+                                     app().gpu(), app().renderer(), m_grid->allIcons());
+    }
 
 #ifdef SWITCHU_MENU
     if (m_startupFailure.result != 0 && m_dialog) {
@@ -5578,6 +5589,8 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         m_iconStreamer.onPageChanged(streamPage, streamPageSize,
                                      app().gpu(), app().renderer(),
                                      m_grid->allIcons());
+    } else if (m_deferredInitialAssetFrames == 0) {
+        m_iconStreamer.setBurst(false); // HomeNX: return page filled, back to one upload per frame
     }
 
     if (m_deferredProfileListFuture.valid() &&

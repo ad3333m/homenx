@@ -16,6 +16,8 @@ struct IconAppearOptions {
     float stagger   = 0.40f;
     bool  fromTile  = false;
     nxui::Rect origin{};
+    float fromScale   = 0.f; // HomeNX return wave starts icons part-grown
+    float fromOpacity = 0.f;
 };
 
 class IconGrid : public nxui::Widget {

@@ -1,5 +1,6 @@
 #include "LaunchAnimation.hpp"
 #include <nxui/core/Renderer.hpp>
+#include <switch.h>
 
 
 void LaunchAnimation::start(const nxui::Rect& from, const nxui::Texture* tex, float cornerRadius,
@@ -17,6 +18,7 @@ void LaunchAnimation::start(const nxui::Rect& from, const nxui::Texture* tex, fl
     m_onLaunch     = std::move(onLaunch);
     m_onDone       = std::move(onDone);
     m_timer        = 0.f;
+    m_startTick    = armGetSystemTick();
     m_playing      = true;
     m_resume       = false;
     m_launched     = false;
@@ -36,6 +38,7 @@ void LaunchAnimation::startResume(nxui::VoidCallback onDone) {
     m_onLaunch = {};
     m_onDone = std::move(onDone);
     m_timer = 0.f;
+    m_startTick = armGetSystemTick();
     m_playing = true;
     m_resume = true;
     m_launched = false;
@@ -43,9 +46,10 @@ void LaunchAnimation::startResume(nxui::VoidCallback onDone) {
     m_postLaunchHold = false;
 }
 
-void LaunchAnimation::onUpdate(float dt) {
+void LaunchAnimation::onUpdate(float) {
     if (!m_playing) return;
-    m_timer += dt;
+    // Real elapsed time, not the frame dt (which is clamped after a long frame).
+    m_timer = static_cast<float>(armTicksToNs(armGetSystemTick() - m_startTick)) / 1e9f;
 
     if (m_resume) {
         if (m_timer >= kResumeTotalDur) {
@@ -95,59 +99,45 @@ void LaunchAnimation::onRender(nxui::Renderer& ren) {
         return;
     }
 
-    float t = m_timer;
-    constexpr float kIconEnd = kZoomDur + kHoldDur + kFadeDur;
-
-    if (t >= kIconEnd) {
-        float bt = (t - kIconEnd) / kBlackDur;
-        float blackAlpha = std::min(bt, 1.f);
-        ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, blackAlpha));
+    const float t = m_timer;
+    constexpr float kDiveStart = kZoomDur + kHoldDur;
+    if (t >= kDiveStart + kDiveDur) {
+        ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, 1.f));
         return;
     }
 
-
-    float zoomT = std::min(t / kZoomDur, 1.f);
-    float ez = nxui::Easing::outCubic(zoomT);
-
-    float x = m_from.x + (m_target.x - m_from.x) * ez;
-    float y = m_from.y + (m_target.y - m_from.y) * ez;
-    float w = m_from.width  + (m_target.width  - m_from.width)  * ez;
-    float h = m_from.height + (m_target.height - m_from.height) * ez;
-    float cr = m_cornerRadius * (1.f + 0.3f * ez);
-
-    float pulseScale = 1.f;
-    if (t > kZoomDur && t < kZoomDur + kHoldDur) {
-        float pt = (t - kZoomDur) / kHoldDur;
-        pulseScale = 1.f + 0.04f * std::sin(pt * 3.14159f * 2.f);
+    // 1. Fly + grow to the centre (the rest of HOME dims behind it).
+    const float ez = nxui::Easing::outCubic(std::min(t / kZoomDur, 1.f));
+    nxui::Rect r = {m_from.x + (m_target.x - m_from.x) * ez,
+                    m_from.y + (m_target.y - m_from.y) * ez,
+                    m_from.width  + (m_target.width  - m_from.width)  * ez,
+                    m_from.height + (m_target.height - m_from.height) * ez};
+    float scale = 1.f;
+    // 2. Settle: a gentle 4% swell.
+    if (t > kZoomDur && t < kDiveStart) {
+        const float st = (t - kZoomDur) / kHoldDur;
+        scale = 1.f + 0.04f * nxui::Easing::outCubic(st);
     }
-
-    float fadeAlpha = 1.f;
-    if (t > kZoomDur + kHoldDur) {
-        float ft = (t - kZoomDur - kHoldDur) / kFadeDur;
-        fadeAlpha = 1.f - nxui::Easing::outCubic(std::min(ft, 1.f));
+    // 3. Dive: grow past the screen edges while everything goes to black.
+    float dive = 0.f;
+    if (t >= kDiveStart) {
+        dive = nxui::Easing::inCubic(std::min((t - kDiveStart) / kDiveDur, 1.f));
+        scale = 1.04f + 5.f * dive;
     }
+    const float w = r.width * scale, h = r.height * scale;
+    const nxui::Rect anim = {r.x + (r.width - w) * 0.5f, r.y + (r.height - h) * 0.5f, w, h};
+    const float cr = m_cornerRadius * (1.f + 0.3f * ez) * (1.f + dive);
+    const float alpha = 1.f - 0.5f * dive;
 
-    float pw = w * pulseScale;
-    float ph = h * pulseScale;
-    float px = x + (w - pw) * 0.5f;
-    float py = y + (h - ph) * 0.5f;
-    nxui::Rect animRect = {px, py, pw, ph};
-
-    float dimAlpha = 0.5f * ez * fadeAlpha;
-    ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, dimAlpha));
-
-    nxui::Color body = m_panelColor.withAlpha(m_panelColor.a * fadeAlpha);
-    ren.drawRoundedRect(animRect, body, cr);
-
-    nxui::Rect shine = {animRect.x, animRect.y, animRect.width, animRect.height * 0.4f};
-    ren.drawRoundedRect(shine, nxui::Color(1, 1, 1, 0.06f * fadeAlpha), cr);
-
-    nxui::Color border = m_borderColor.withAlpha(m_borderColor.a * fadeAlpha);
-    ren.drawRoundedRectOutline(animRect, border, cr, 1.f);
-
-    if (m_tex && m_tex->valid()) {
-        nxui::Rect texRect = animRect.shrunk(8.f);
-        ren.drawTextureRounded(m_tex, texRect, cr - 4.f,
-                               nxui::Color::white().withAlpha(fadeAlpha));
-    }
+    ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, 0.55f * ez));
+    ren.drawRoundedRect(anim, m_panelColor.withAlpha(m_panelColor.a * alpha), cr);
+    ren.drawRoundedRect({anim.x, anim.y, anim.width, anim.height * 0.4f},
+                        nxui::Color(1, 1, 1, 0.06f * alpha), cr);
+    ren.drawRoundedRectOutline(anim, m_borderColor.withAlpha(m_borderColor.a * alpha), cr, 1.f);
+    if (m_tex && m_tex->valid())
+        ren.drawTextureRounded(m_tex, anim.shrunk(8.f * scale), std::max(0.f, cr - 4.f),
+                               nxui::Color::white().withAlpha(alpha));
+    // Black rises over the dive, so the last frame before launch is fully black.
+    if (dive > 0.f)
+        ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, dive));
 }

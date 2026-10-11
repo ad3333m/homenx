@@ -38,6 +38,7 @@ public:
     Result launch(std::uint64_t titleId, AccountUid uid);
     Result resume();
     Result terminate();
+    Result kill(); // HomeNX: terminate now, no graceful-exit wait
     Result requestExitLibraryAppletOrTerminate(std::uint64_t timeoutNs);
     Result areLibraryAppletsLeft(bool* out);
 
@@ -77,6 +78,7 @@ Event* stateChangedEvent();
 Result launch(std::uint64_t titleId, AccountUid uid);
 Result resume();
 Result terminate();
+Result kill();
 Result areLibraryAppletsLeft(bool* out);
 Result requestExitLibraryAppletOrTerminate(std::uint64_t timeoutNs);
 bool checkFinished();

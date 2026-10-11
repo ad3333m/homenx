@@ -106,7 +106,7 @@ public:
     int gridSpanColumns() const { return m_widgetColumns; }
     int gridSpanRows() const { return m_widgetRows; }
 
-    void startAppear(float delay);
+    void startAppear(float delay, float fromScale = 0.f, float fromOpacity = 0.f);
     // Reverse of a tile appear: fly back into `target` while shrinking out.
     void startDisappear(const nxui::Rect& target, float delay, float dur);
     // Travel into the laid-out slot from `from` without scaling or fading.

@@ -731,7 +731,7 @@ private:
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
     static constexpr float kLeaveSplashMaxWait = 1.0f; // never block HOME longer than this
-    static constexpr float kLeaveSplashFadeDur = 0.5f; // HomeNX: brighten + zoom settle into the live menu
+    static constexpr float kLeaveSplashFadeDur = 0.35f; // HomeNX: dissolve into the live menu while the icon wave plays
 
     bool  m_audioInitPending = false;
     bool  m_audioHeldLogged  = false;

@@ -837,9 +837,14 @@ static void stopControlCacheWorker();
 static Result startEventManager();
 static void stopEventManager();
 
+static bool closeHomebrewApp(const char* why);
+
 static Result launchPendingHomeMenu() {
     if (!g_pendingHomeMenuLaunch)
         return 0;
+    // HomeNX: homebrew running in a borrowed game (Sphaira) closes on HOME, so
+    // that game doesn't stay "open" on the HOME menu.
+    closeHomebrewApp("home");
 
     const char* source = g_pendingHomeMenuSource ? g_pendingHomeMenuSource : "home";
     const uint64_t startedAt = g_pendingHomeMenuStartedAt;
@@ -1174,6 +1179,15 @@ static void releaseHomebrewHost() {
     const Result rc = daemon::unregisterExternalContent(g_homebrewHostTitleId);
     switchu::FileLog::log("[homebrew] released host 0x%016lX rc=0x%X", g_homebrewHostTitleId, rc);
     g_homebrewHostTitleId = 0;
+}
+
+static bool closeHomebrewApp(const char* why) {
+    if (g_homebrewHostTitleId == 0 || !daemon::app::isRunning())
+        return false;
+    const Result rc = daemon::app::kill();
+    switchu::FileLog::log("[homebrew] closed on %s rc=0x%X", why, rc);
+    releaseHomebrewHost();
+    return true;
 }
 
 static Result launchLibraryApplet(AppletId id, const char* name,

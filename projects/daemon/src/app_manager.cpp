@@ -326,6 +326,21 @@ Result ApplicationSession::terminate() {
     return stopCurrent(kGracefulExitTimeoutNs, "explicit-terminate");
 }
 
+Result ApplicationSession::kill() {
+    if (!appletApplicationActive(&m_application)) {
+        resetToIdle();
+        return 0;
+    }
+    m_state = SessionState::Terminating;
+    const Result rc = appletApplicationTerminate(&m_application);
+    appletApplicationJoin(&m_application);
+    m_lastExitReason = appletApplicationGetExitReason(&m_application);
+    switchu::FileLog::log("[app] session=%lu killed rc=0x%X",
+                          static_cast<unsigned long>(m_sessionId), rc);
+    resetToIdle();
+    return rc;
+}
+
 Result ApplicationSession::areLibraryAppletsLeft(bool* out) {
     if (!out)
         return MAKERESULT(Module_Libnx, 0xFC);
@@ -378,6 +393,7 @@ Event* stateChangedEvent() { return session().stateChangedEvent(); }
 Result launch(std::uint64_t titleId, AccountUid uid) { return session().launch(titleId, uid); }
 Result resume() { return session().resume(); }
 Result terminate() { return session().terminate(); }
+Result kill() { return session().kill(); }
 Result areLibraryAppletsLeft(bool* out) { return session().areLibraryAppletsLeft(out); }
 Result requestExitLibraryAppletOrTerminate(std::uint64_t timeoutNs) {
     return session().requestExitLibraryAppletOrTerminate(timeoutNs);
