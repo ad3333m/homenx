@@ -1,11 +1,11 @@
 #include "LaunchAnimation.hpp"
 #include <nxui/core/Renderer.hpp>
 #include <switch.h>
-
+#include <cmath>
 
 void LaunchAnimation::start(const nxui::Rect& from, const nxui::Texture* tex, float cornerRadius,
                             const nxui::Color& panelColor, const nxui::Color& borderColor,
-                            uint64_t titleId, AccountUid uid,
+                            uint64_t titleId, AccountUid uid, std::string title,
                             LaunchCallback onLaunch, nxui::VoidCallback onDone)
 {
     m_from         = from;
@@ -15,6 +15,7 @@ void LaunchAnimation::start(const nxui::Rect& from, const nxui::Texture* tex, fl
     m_borderColor  = borderColor;
     m_titleId      = titleId;
     m_uid          = uid;
+    m_title        = std::move(title);
     m_onLaunch     = std::move(onLaunch);
     m_onDone       = std::move(onDone);
     m_timer        = 0.f;
@@ -23,10 +24,7 @@ void LaunchAnimation::start(const nxui::Rect& from, const nxui::Texture* tex, fl
     m_resume       = false;
     m_launched     = false;
     m_doneCalled   = false;
-    m_postLaunchHold = false;
-
-    float side = std::min(from.width, from.height) * 1.8f;
-    m_target = {(1280 - side) * 0.5f, (720 - side) * 0.5f, side, side};
+    m_target = {(1280.f - kCardSize) * 0.5f, 178.f, kCardSize, kCardSize};
 }
 
 void LaunchAnimation::startResume(nxui::VoidCallback onDone) {
@@ -35,6 +33,7 @@ void LaunchAnimation::startResume(nxui::VoidCallback onDone) {
     m_tex = nullptr;
     m_titleId = 0;
     m_uid = {};
+    m_title.clear();
     m_onLaunch = {};
     m_onDone = std::move(onDone);
     m_timer = 0.f;
@@ -43,101 +42,103 @@ void LaunchAnimation::startResume(nxui::VoidCallback onDone) {
     m_resume = true;
     m_launched = false;
     m_doneCalled = false;
-    m_postLaunchHold = false;
 }
 
 void LaunchAnimation::onUpdate(float) {
     if (!m_playing) return;
-    // Real elapsed time, not the frame dt (which is clamped after a long frame).
+    // Real elapsed time, not the frame dt (which is clamped after a long frame):
+    // a slow frame jumps ahead instead of stalling the motion.
     m_timer = static_cast<float>(armTicksToNs(armGetSystemTick() - m_startTick)) / 1e9f;
 
     if (m_resume) {
-        if (m_timer >= kResumeTotalDur) {
-            if (!m_doneCalled) {
-                m_doneCalled = true;
-                if (m_onDone)
-                    m_onDone();
-                m_postLaunchHold = true;
-            }
-            // Keep black briefly after the resume command so the menu does not
-            // flash back while the applet is handing off.
-            if (!m_postLaunchHold || m_timer >= kResumeTotalDur + 0.08f)
-                m_playing = false;
+        if (m_timer >= kResumeTotalDur && !m_doneCalled) {
+            m_doneCalled = true;
+            if (m_onDone) m_onDone();
         }
-        return;
+        return; // stays black until the menu has exited
     }
 
-    if (m_timer >= kTotalDur) {
-        if (!m_launched) {
-            m_launched = true;
-            if (m_titleId != 0 && m_onLaunch) {
-                m_onLaunch(m_titleId, m_uid);
-                m_postLaunchHold = true;
-            }
-        }
-        if (!m_doneCalled) {
-            m_doneCalled = true;
-            if (m_onDone) {
-                m_onDone();
-                m_postLaunchHold = true;
-            }
-        }
-        if (!m_postLaunchHold || m_timer >= kTotalDur + kPostLaunchBlackHold) {
-            m_playing = false;
-        }
+    if (m_timer >= kLaunchAt && !m_launched) {
+        m_launched = true;
+        if (m_titleId != 0 && m_onLaunch)
+            m_onLaunch(m_titleId, m_uid);
     }
+    if (m_timer >= kTotalDur && !m_doneCalled) {
+        m_doneCalled = true;
+        if (m_onDone) m_onDone();
+    }
+    // Keeps drawing black after onDone while the menu closes; give the menu back
+    // if it never did (a failed launch).
+    if (m_doneCalled && m_timer >= kTotalDur + 3.f)
+        m_playing = false;
 }
 
 void LaunchAnimation::onRender(nxui::Renderer& ren) {
     if (!m_playing) return;
+    const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
 
     if (m_resume) {
-        float alpha = 1.f;
-        if (m_timer < kResumeFadeDur)
-            alpha = nxui::Easing::outCubic(std::min(m_timer / kResumeFadeDur, 1.f));
-        ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, alpha));
+        const float a = nxui::Easing::outCubic(std::min(m_timer / kResumeFadeDur, 1.f));
+        ren.drawRect(screen, nxui::Color(0, 0, 0, a));
         return;
     }
 
     const float t = m_timer;
-    constexpr float kDiveStart = kZoomDur + kHoldDur;
-    if (t >= kDiveStart + kDiveDur) {
-        ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, 1.f));
+    if (t >= kTotalDur) {
+        ren.drawRect(screen, nxui::Color(0, 0, 0, 1.f));
         return;
     }
 
-    // 1. Fly + grow to the centre (the rest of HOME dims behind it).
-    const float ez = nxui::Easing::outCubic(std::min(t / kZoomDur, 1.f));
-    nxui::Rect r = {m_from.x + (m_target.x - m_from.x) * ez,
-                    m_from.y + (m_target.y - m_from.y) * ez,
-                    m_from.width  + (m_target.width  - m_from.width)  * ez,
-                    m_from.height + (m_target.height - m_from.height) * ez};
-    float scale = 1.f;
-    // 2. Settle: a gentle 4% swell.
-    if (t > kZoomDur && t < kDiveStart) {
-        const float st = (t - kZoomDur) / kHoldDur;
-        scale = 1.f + 0.04f * nxui::Easing::outCubic(st);
-    }
-    // 3. Dive: grow past the screen edges while everything goes to black.
-    float dive = 0.f;
-    if (t >= kDiveStart) {
-        dive = nxui::Easing::inCubic(std::min((t - kDiveStart) / kDiveDur, 1.f));
-        scale = 1.04f + 5.f * dive;
-    }
-    const float w = r.width * scale, h = r.height * scale;
-    const nxui::Rect anim = {r.x + (r.width - w) * 0.5f, r.y + (r.height - h) * 0.5f, w, h};
-    const float cr = m_cornerRadius * (1.f + 0.3f * ez) * (1.f + dive);
-    const float alpha = 1.f - 0.5f * dive;
+    const float rise = std::min(t / kRiseDur, 1.f);
+    const float er = nxui::Easing::outBack(rise);          // slight overshoot, then settles
+    const float ef = nxui::Easing::outCubic(rise);
+    const float out = t > kCardUntil ? nxui::Easing::inOutCubic(std::min((t - kCardUntil) / kOutDur, 1.f)) : 0.f;
+    const float alpha = 1.f - out;
 
-    ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, 0.55f * ez));
-    ren.drawRoundedRect(anim, m_panelColor.withAlpha(m_panelColor.a * alpha), cr);
-    ren.drawRoundedRect({anim.x, anim.y, anim.width, anim.height * 0.4f},
-                        nxui::Color(1, 1, 1, 0.06f * alpha), cr);
-    ren.drawRoundedRectOutline(anim, m_borderColor.withAlpha(m_borderColor.a * alpha), cr, 1.f);
+    // HOME darkens behind the card, then the whole screen goes to black.
+    ren.drawRect(screen, nxui::Color(0, 0, 0, 0.86f * ef + 0.14f * out));
+
+    // The card: from the pressed tile to the centre.
+    const nxui::Rect card{m_from.x + (m_target.x - m_from.x) * er,
+                          m_from.y + (m_target.y - m_from.y) * er,
+                          m_from.width + (m_target.width - m_from.width) * ef,
+                          m_from.height + (m_target.height - m_from.height) * ef};
+    const float radius = m_cornerRadius + (30.f - m_cornerRadius) * ef;
+
+    // Soft glow: a few widening, fading rings in the theme's panel colour.
+    for (int i = 3; i >= 1; --i) {
+        const float grow = 10.f * i * ef;
+        ren.drawRoundedRect(card.expanded(grow), nxui::Color(m_panelColor.r, m_panelColor.g, m_panelColor.b,
+                                                             0.07f * (4 - i) * ef * alpha),
+                            radius + grow);
+    }
+    ren.drawRoundedRect(card, m_panelColor.withAlpha(m_panelColor.a * alpha), radius);
     if (m_tex && m_tex->valid())
-        ren.drawTextureRounded(m_tex, anim.shrunk(8.f * scale), std::max(0.f, cr - 4.f),
+        ren.drawTextureRounded(m_tex, card.shrunk(6.f), std::max(0.f, radius - 5.f),
                                nxui::Color::white().withAlpha(alpha));
-    // Black rises over the dive, so the last frame before launch is fully black.
-    if (dive > 0.f)
-        ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, dive));
+    ren.drawRoundedRectOutline(card, m_borderColor.withAlpha(m_borderColor.a * alpha), radius, 1.5f);
+
+    // The game's name, then a shimmer while it starts.
+    const float titleA = std::clamp((t - kTitleIn) / kTitleDur, 0.f, 1.f) * alpha;
+    float y = m_target.y + kCardSize + 30.f;
+    if (m_font && !m_title.empty() && titleA > 0.f) {
+        const float scale = 1.05f;
+        const nxui::Vec2 size = m_font->measure(m_title);
+        const float rise2 = 10.f * (1.f - nxui::Easing::outCubic(std::clamp((t - kTitleIn) / kTitleDur, 0.f, 1.f)));
+        ren.drawText(m_title, {640.f - size.x * scale * 0.5f, y + rise2}, m_font,
+                     nxui::Color(1.f, 1.f, 1.f, titleA), scale);
+        y += size.y * scale + 22.f;
+    } else {
+        y += 50.f;
+    }
+    if (titleA > 0.f) {
+        const nxui::Rect track{640.f - 110.f, y, 220.f, 4.f};
+        ren.drawRoundedRect(track, nxui::Color(1.f, 1.f, 1.f, 0.16f * titleA), 2.f);
+        const float phase = std::fmod(t, 1.1f) / 1.1f;
+        const float segW = 70.f;
+        const float x = track.x - segW + (track.width + segW) * nxui::Easing::inOutCubic(phase);
+        ren.pushClipRect(track);
+        ren.drawRoundedRect({x, track.y, segW, track.height}, nxui::Color(1.f, 1.f, 1.f, 0.85f * titleA), 2.f);
+        ren.popClipRect();
+    }
 }

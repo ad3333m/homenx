@@ -398,7 +398,26 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
     if (LeaveFrameCache::load(m_leaveSession, image) && image.valid()
         && m_leaveSplashTex.loadFromPixels(app().gpu(), ren,
                                            image.rgba.data(), image.width, image.height)) {
-        drawReturnVeil(ren, 1.f);
+        // HomeNX: HOME eases in (fade from black + a slight zoom settling to 1:1)
+        // instead of snapping in. These frames are presented here, before the
+        // menu starts loading, because nothing can animate while it loads.
+        auto& gpu = app().gpu();
+        const std::uint64_t introStart = armGetSystemTick();
+        for (;;) {
+            const float t = std::min(1.f, armTicksToNs(armGetSystemTick() - introStart) / 1e9f
+                                              / kReturnIntroDur);
+            const float e = nxui::Easing::outCubic(t);
+            const float scale = 1.05f - 0.05f * e;
+            const float w = 1280.f * scale, h = 720.f * scale;
+            ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 1.f));
+            ren.drawTexture(&m_leaveSplashTex, {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h},
+                            nxui::Color::white().withAlpha(e));
+            if (t >= 1.f) break; // Application presents this last (1:1) frame
+            ren.endFrame();
+            gpu.endFrame();
+            gpu.beginFrame();
+            ren.beginFrame();
+        }
         m_leaveSplashDrawn = true;
         m_leaveSplashPhase = LeaveSplashPhase::Hold;
         m_leaveSplashHoldRemaining = kLeaveSplashHoldDur;
@@ -822,9 +841,9 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
             m_tReady = armGetSystemTick();
             if (m_grid && m_openFolderId == 0) {
                 IconAppearOptions wave;
-                wave.stagger = 0.32f;
-                wave.fromScale = 0.82f;
-                wave.fromOpacity = 0.35f;
+                wave.stagger = 0.45f;
+                wave.fromScale = 0.75f;
+                wave.fromOpacity = 0.2f;
                 m_grid->startAppearAnimation(wave);
             }
             m_leaveSplashHoldRemaining = 0.f;
@@ -3958,17 +3977,31 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
         scheduleLeaveCapture([this, frame, texture, radius, base, border,
                               titleId, launchTitle, uid]() {
             m_audio.playSfx(Sfx::LaunchGame);
-            m_launchAnim->start(frame, texture, radius, base, border, titleId, uid,
-                [this, launchTitle](std::uint64_t id, AccountUid selectedUid) {
-                    m_config.noteOpened(id);
+            // HomeNX: the game loads in the background while the launch card plays;
+            // keep the card's frames ahead of the game's loading threads.
+            svcSetThreadPriority(CUR_THREAD_HANDLE, 0x24);
+            m_launchAnim->start(frame, texture, radius, base, border, titleId, uid, launchTitle,
+                // Early: the daemon starts the game now (it gets the screen when we exit).
+                [this](std::uint64_t id, AccountUid selectedUid) {
+                    m_launchRequested = m_launcher.requestLaunch(id, selectedUid);
+                },
+                // End of the card, screen black: save, then close.
+                [this, titleId, launchTitle]() {
+                    if (!m_launchRequested) { // the daemon refused: back to HOME
+                        svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
+                        m_launchAnim->stop();
+                        resumeMenuMusicAfterReturn();
+                        return;
+                    }
+                    m_config.noteOpened(titleId);
                     m_config.save();
-                    m_widgetStore.recordLaunch(id, launchTitle,
+                    m_widgetStore.recordLaunch(titleId, launchTitle,
                         static_cast<std::int64_t>(std::time(nullptr)));
                     m_widgetStore.save(false);
                     waitLeaveFrameWrite();
-                    m_launcher.launchApplication(id, selectedUid);
+                    m_launcher.closeForLaunch();
                 });
-        }, titleId); // the saved return frame shows the badge (see onAfterPresent)
+        }, titleId);
     };
 
     if (entry) {
@@ -4379,6 +4412,7 @@ void WiiUMenuApp::buildGrid() {
     m_pageIndicator->setBlurEnabled(false);
 
     m_launchAnim = std::make_shared<LaunchAnimation>();
+    m_launchAnim->setFont(&m_fontNormal);
 
     m_folderZoom = std::make_shared<FolderZoom>();
     m_folderZoom->setRect({0, 0, 1280, 720});

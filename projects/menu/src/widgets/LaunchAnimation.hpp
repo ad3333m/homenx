@@ -1,24 +1,32 @@
 #pragma once
 #include <nxui/widgets/Widget.hpp>
-#include <nxui/widgets/GlassPanel.hpp>
 #include <nxui/core/Animation.hpp>
+#include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
 #include <switch/services/acc.h>
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <string>
 
 
 using LaunchCallback = std::function<void(uint64_t titleId, AccountUid uid)>;
 
+// HomeNX launch card (our own; replaced SwitchU's zoom). The pressed icon rises
+// to the centre over a darkening HOME, the game's name fades in under it and a
+// shimmer runs while the game starts; then everything fades to black.
+//
+// onLaunch fires early (kLaunchAt), so the game loads in the background while
+// the card plays; onDone fires at the end, when the screen is black.
 class LaunchAnimation : public nxui::Widget {
 public:
     LaunchAnimation() = default;
 
-    // Cold launch: fly to centre, settle, dive into black, then launch.
+    void setFont(nxui::Font* font) { m_font = font; }
+
     void start(const nxui::Rect& from, const nxui::Texture* tex, float cornerRadius,
                const nxui::Color& panelColor, const nxui::Color& borderColor,
-               uint64_t titleId, AccountUid uid,
+               uint64_t titleId, AccountUid uid, std::string title,
                LaunchCallback onLaunch = {}, nxui::VoidCallback onDone = {});
 
     // Resume an already-open title: brief fade to black, then onDone.
@@ -43,18 +51,17 @@ private:
     float m_timer    = 0.f;
     std::uint64_t m_startTick = 0;
 
-    // HomeNX launch: the icon flies to the centre and grows, settles for a beat,
-    // then dives toward the viewer into black. Timed on the real clock (see
-    // onUpdate) so a slow frame jumps ahead instead of stalling the motion.
-    static constexpr float kZoomDur   = 0.40f;
-    static constexpr float kHoldDur   = 0.14f;
-    static constexpr float kDiveDur   = 0.38f;
-    static constexpr float kBlackHold = 0.05f;
-    static constexpr float kPostLaunchBlackHold = 0.15f;
-    static constexpr float kTotalDur  = kZoomDur + kHoldDur + kDiveDur + kBlackHold;
-    static constexpr float kMusicFadeDur = kZoomDur + kHoldDur + kDiveDur;
+    static constexpr float kRiseDur   = 0.45f; // icon to the centre
+    static constexpr float kLaunchAt  = 0.25f; // game starts loading from here
+    static constexpr float kTitleIn   = 0.30f; // name fades in from here...
+    static constexpr float kTitleDur  = 0.35f; // ...over this long
+    static constexpr float kCardUntil = 1.35f; // card fully shown until here
+    static constexpr float kOutDur    = 0.35f; // then fades to black
+    static constexpr float kTotalDur  = kCardUntil + kOutDur;
+    static constexpr float kMusicFadeDur = kTotalDur;
+    static constexpr float kCardSize  = 196.f;
 
-    // Resume: soft blackout only — no zoom or icon flare.
+    // Resume: soft blackout only.
     static constexpr float kResumeFadeDur = 0.16f;
     static constexpr float kResumeHoldDur = 0.06f;
     static constexpr float kResumeTotalDur = kResumeFadeDur + kResumeHoldDur;
@@ -63,6 +70,8 @@ private:
     nxui::Rect     m_target;
     float    m_cornerRadius = 24.f;
     const nxui::Texture* m_tex = nullptr;
+    nxui::Font* m_font = nullptr;
+    std::string m_title;
     nxui::Color   m_panelColor;
     nxui::Color   m_borderColor;
     uint64_t m_titleId = 0;
@@ -71,5 +80,4 @@ private:
     nxui::VoidCallback m_onDone;
     bool    m_launched = false;
     bool    m_doneCalled = false;
-    bool    m_postLaunchHold = false;
 };
