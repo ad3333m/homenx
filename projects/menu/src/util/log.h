@@ -7,6 +7,7 @@
 namespace Log {
 
 void Init(const std::string& path);
+void Close();
 void Write(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 
 }  // namespace Log

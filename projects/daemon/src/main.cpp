@@ -254,6 +254,9 @@ static bool g_pendingHomeMenuLaunch = false;
 static bool g_launchForegroundPending = false;
 static const char* g_pendingHomeMenuSource = nullptr;
 static uint64_t g_pendingHomeMenuStartedAt = 0;
+// HomeNX: when the menu asked for something that only happens once it has
+// closed (a game, an applet), and it hasn't closed yet. See forceMenuGone().
+static uint64_t g_menuExitExpectedAt = 0;
 static uint8_t g_lastBatteryPercent = 0xFF;
 static PsmChargerType g_lastChargerType = (PsmChargerType)0xFF;
 
@@ -824,8 +827,16 @@ static void logHomeState(const char* source, const char* stage) {
                           g_foregroundAppletActive ? 1 : 0);
 }
 
+// The game may own the screen: in the foreground, or started in the background
+// while the menu closed and handed the screen without us confirming it.
+static bool appMayOwnScreen() {
+    return daemon::app::isRunning()
+        && (daemon::app::hasForeground()
+            || daemon::app::snapshot().state == daemon::app::SessionState::Started);
+}
+
 static bool takeForegroundFromRunningApp(const char* source) {
-    if (!daemon::app::isRunning() || !daemon::app::hasForeground())
+    if (!appMayOwnScreen())
         return true;
 
     const uint64_t startedAt = armGetSystemTick();
@@ -878,6 +889,28 @@ static Result launchPendingHomeMenu() {
         armCatalogHold(kCatalogHoldAfterHomeNs);
     logHomeState(source, "after");
     return rc;
+}
+
+static bool menuExitExpected() {
+    return daemon::menu_la::hasHolder() && (g_launchForegroundPending || !g_actionQueue.empty());
+}
+
+// HomeNX: the menu said it was closing but its process is still there. Whatever
+// holds it up (once it was the Discord connection), it must not keep the game
+// off the screen with HOME handed to a menu that no longer listens: close it.
+static void forceMenuGone(const char* why) {
+    switchu::FileLog::logCommit("[menu] still open %lums after asking to close (%s); closing it",
+        static_cast<unsigned long>(g_menuExitExpectedAt
+            ? armTicksToNs(armGetSystemTick() - g_menuExitExpectedAt) / 1'000'000ULL : 0), why);
+    daemon::menu_la::terminate(1'000'000'000ULL);
+    g_menuExitExpectedAt = 0;
+    if (g_launchForegroundPending) {
+        g_launchForegroundPending = false;
+        const Result fgRc = daemon::app::resume();
+        switchu::FileLog::log("[menu] early-launched game takes the screen rc=0x%X", fgRc);
+        if (R_FAILED(fgRc))
+            daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
+    }
 }
 
 static void requestPowerStateChange(const char* source, bool reboot) {
@@ -969,7 +1002,18 @@ static void openMenuFromHome(const char* source) {
         return;
     }
 
-    if (daemon::app::isRunning() && daemon::app::hasForeground()) {
+    // HomeNX: a menu that's closing doesn't get HOME. Once it has had a moment to
+    // save and go, close it ourselves and handle HOME normally.
+    if (menuExitExpected()) {
+        if (g_menuExitExpectedAt == 0) g_menuExitExpectedAt = armGetSystemTick();
+        if (armTicksToNs(armGetSystemTick() - g_menuExitExpectedAt) < 1'500'000'000ULL) {
+            switchu::FileLog::log("[%s] HOME ignored: the menu is closing", source);
+            return;
+        }
+        forceMenuGone(source);
+    }
+
+    if (!daemon::menu_la::isActive() && !g_foregroundAppletActive && appMayOwnScreen()) {
         if (!takeForegroundFromRunningApp(source)) {
             switchu::FileLog::log("[%s] HOME aborted: foreground request failed", source);
             return;
@@ -1972,6 +2016,25 @@ static void mainLoop() {
             g_menuFastExitCount = 0;
         }
         didWork = true;
+    }
+
+    // HomeNX: HOME presses are ignored while a handoff is pending; if the
+    // ChangeIntoForeground that finishes it never comes, open HOME anyway.
+    if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0
+        && armTicksToNs(armGetSystemTick() - g_pendingHomeMenuStartedAt) > 2'000'000'000ULL) {
+        switchu::FileLog::logCommit("[home] no ChangeIntoForeground 2 s after HOME; opening HOME anyway");
+        launchPendingHomeMenu();
+        didWork = true;
+    }
+    if (menuExitExpected()) {
+        if (g_menuExitExpectedAt == 0)
+            g_menuExitExpectedAt = armGetSystemTick();
+        else if (armTicksToNs(armGetSystemTick() - g_menuExitExpectedAt) > 5'000'000'000ULL) {
+            forceMenuGone("watchdog");
+            didWork = true;
+        }
+    } else {
+        g_menuExitExpectedAt = 0;
     }
 
     didWork |= consumeOneAction();

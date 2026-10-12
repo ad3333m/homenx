@@ -1,5 +1,7 @@
 #include "net/async.h"
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
@@ -18,10 +20,12 @@ struct WorkerPool {
     std::condition_variable cv;
     std::deque<std::function<void()>> jobs;
     std::vector<std::thread> threads;
+    std::atomic<int> live{0};
     bool stop = false;
 
     void Start(int n) {
         stop = false;
+        live += n;
         for (int i = 0; i < n; i++) {
             threads.emplace_back([this] {
                 nxui::moveToWorkerCores(); // HomeNX: keep core 0 for the menu's frames
@@ -37,6 +41,7 @@ struct WorkerPool {
                     job();
                 }
                 Http::ThreadCleanup();
+                --live;
             });
         }
     }
@@ -48,6 +53,19 @@ struct WorkerPool {
             jobs.clear();
         }
         cv.notify_all();
+    }
+
+    bool StopFor(int timeoutMs) {
+        RequestStop();
+        for (int t = 0; t < timeoutMs && live > 0; t += 5)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        const bool done = live <= 0;
+        for (auto& t : threads) {
+            if (done) t.join();
+            else t.detach(); // finishes its request on its own
+        }
+        threads.clear();
+        return done;
     }
 
     void Stop() {
@@ -62,9 +80,11 @@ struct WorkerPool {
     }
 };
 
-WorkerPool g_api, g_images;
-std::mutex g_mainMu;
-std::vector<std::function<void()>> g_main;
+// Never destroyed: a worker let go by StopFor() may still use them at exit.
+WorkerPool& g_api = *new WorkerPool;
+WorkerPool& g_images = *new WorkerPool;
+std::mutex& g_mainMu = *new std::mutex;
+std::vector<std::function<void()>>& g_main = *new std::vector<std::function<void()>>;
 
 WorkerPool& Get(Pool p) { return p == Pool::Api ? g_api : g_images; }
 
@@ -80,6 +100,14 @@ void Stop() {
     g_images.Stop();
     std::lock_guard<std::mutex> lk(g_mainMu);
     g_main.clear();
+}
+
+bool StopFor(int timeoutMs) {
+    const bool api = g_api.StopFor(timeoutMs);
+    const bool images = g_images.StopFor(timeoutMs / 2);
+    std::lock_guard<std::mutex> lk(g_mainMu);
+    g_main.clear();
+    return api && images;
 }
 
 void RequestStop() {

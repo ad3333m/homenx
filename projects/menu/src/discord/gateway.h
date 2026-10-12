@@ -25,6 +25,10 @@ public:
     void Start(const std::string& token);
     void Stop();
     void RequestStop() { stop_ = true; } // Stop() then only joins
+    // Stops within timeoutMs or lets the thread finish on its own (then this
+    // object must outlive it). Returns whether it stopped.
+    bool StopFor(int timeoutMs);
+    bool Done() const { return done_; }
     void Send(std::string payload);  // raw JSON, queued until the session is ready
     std::vector<Event> Drain();
 
@@ -47,6 +51,7 @@ private:
 
     std::thread thread_;
     std::atomic<bool> stop_{false};
+    std::atomic<bool> done_{true};
     std::atomic<State> state_{State::Idle};
 
     std::string token_;

@@ -1114,7 +1114,8 @@ void WiiUMenuApp::onDestroy() {
     // Discord's threads use the sockets: stop them before the sockets go away
     // (closing the menu for a game crashed in the Discord connection).
     m_discord.shutdown();
-    themeshop::http::shutdown();
+    if (!m_discord.lingering())
+        themeshop::http::shutdown();
 
     bluetooth::Finalize();
 

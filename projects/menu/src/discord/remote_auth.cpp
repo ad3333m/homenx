@@ -94,10 +94,24 @@ void RemoteAuth::Start() {
         snap_ = Snapshot{};
         snap_.phase = Phase::Preparing;
     }
+    done_ = false;
     thread_ = std::thread([this] {
         nxui::moveToWorkerCores(); // HomeNX: keep core 0 for the menu's frames
         Run();
+        done_ = true;
     });
+}
+
+bool RemoteAuth::StopFor(int timeoutMs) {
+    stop_ = true;
+    for (int t = 0; t < timeoutMs && !done_; t += 5) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    if (!thread_.joinable()) return true;
+    if (!done_) {
+        thread_.detach();
+        return false;
+    }
+    thread_.join();
+    return true;
 }
 
 void RemoteAuth::Stop() {

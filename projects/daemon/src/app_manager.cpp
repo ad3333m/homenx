@@ -380,7 +380,7 @@ bool ApplicationSession::checkFinished() {
 }
 
 void ApplicationSession::onHomeSuspend() {
-    if (m_state == SessionState::Foreground)
+    if (m_state == SessionState::Foreground || m_state == SessionState::Started)
         m_state = SessionState::Suspended;
 }
 

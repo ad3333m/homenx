@@ -49,6 +49,8 @@ public:
     // Starts stopping without waiting (a game is launching), so shutdown()
     // at exit only joins threads that are already gone.
     void beginShutdown();
+    // A thread was still busy at shutdown(): keep the sockets up for it.
+    bool lingering() const { return m_lingering; }
 
     State state() const { return m_state; }
     std::string error() const { return m_error; }
@@ -91,6 +93,8 @@ private:
     std::unique_ptr<Store> m_store;
     std::unique_ptr<Gateway> m_gateway;
     std::unique_ptr<RemoteAuth> m_auth;
+    std::vector<std::unique_ptr<Gateway>> m_oldGateways;  // closing, see retire()
+    std::vector<std::unique_ptr<RemoteAuth>> m_oldAuths;
     std::vector<Account> m_accounts;
     std::vector<std::string> m_signedOut; // ids not to take back from SwitchCord
     std::string m_current;  // account id ("" until Discord says who a new token is)
@@ -101,4 +105,5 @@ private:
     std::string m_error;
     bool m_started = false;
     bool m_stopping = false;
+    bool m_lingering = false;
 };

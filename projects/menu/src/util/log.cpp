@@ -21,6 +21,12 @@ void Init(const std::string& path) {
     g_file = fopen(path.c_str(), "w");
 }
 
+void Close() {
+    std::lock_guard<std::mutex> lk(g_mu);
+    if (g_file) fclose(g_file);
+    g_file = nullptr;
+}
+
 void Write(const char* fmt, ...) {
     char buf[2048];
     va_list ap;

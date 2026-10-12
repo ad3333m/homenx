@@ -13,6 +13,8 @@ void Stop();
 // Tells the workers to finish (drops queued work) without waiting for them;
 // Stop() then only joins. HomeNX starts this when a game launches.
 void RequestStop();
+// Stop() that waits at most timeoutMs; workers still busy then are let go.
+bool StopFor(int timeoutMs);
 void Run(Pool pool, std::function<void()> work);
 // Queues fn to run on the main thread during Pump().
 void Post(std::function<void()> fn);

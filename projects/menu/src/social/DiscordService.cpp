@@ -54,6 +54,14 @@ std::string when(int64_t ms) {
 
 }  // namespace
 
+// Stops a connection without waiting: update() drops it once its thread is done.
+template <class T>
+static void retire(std::unique_ptr<T>& p, std::vector<std::unique_ptr<T>>& bin) {
+    if (!p) return;
+    p->RequestStop();
+    bin.push_back(std::move(p));
+}
+
 std::string DiscordService::Account::avatarUrl() const {
     User u;
     u.id = Str::ParseU64(id);
@@ -72,19 +80,47 @@ void DiscordService::beginShutdown() {
     if (m_auth) m_auth->RequestStop();
     if (m_gateway) m_gateway->RequestStop();
     Async::RequestStop();
+    Log::Close();
 }
 
+// Discord must never hold the menu up (closing for a game waited on it, and the
+// old menu then never let go of HOME). Threads get a short time to stop; any
+// still busy is left to finish on its own, with what it uses kept alive, and
+// lingering() tells the menu to leave the sockets up for it.
 void DiscordService::shutdown() {
     m_stopping = false;
     if (!m_started) return;
-    // Transfers in flight fail fast instead of holding the menu open.
-    Http::AbortAll();
-    if (m_auth) m_auth->Stop();
-    if (m_gateway) m_gateway->Stop();
-    Async::Stop();
+    Http::AbortAll(); // transfers in flight fail fast
+    Log::Close();
+    constexpr int kBudgetMs = 250;
+    bool clean = true;
+    if (m_auth && !m_auth->StopFor(kBudgetMs)) {
+        (void)m_auth.release();
+        clean = false;
+    }
+    if (m_gateway && !m_gateway->StopFor(kBudgetMs)) {
+        (void)m_gateway.release();
+        clean = false;
+    }
+    for (auto& g : m_oldGateways)
+        if (!g->StopFor(kBudgetMs)) {
+            (void)g.release();
+            clean = false;
+        }
+    for (auto& a : m_oldAuths)
+        if (!a->StopFor(kBudgetMs)) {
+            (void)a.release();
+            clean = false;
+        }
+    m_oldGateways.clear();
+    m_oldAuths.clear();
+    if (!Async::StopFor(kBudgetMs)) clean = false;
+    if (!clean) (void)m_store.release(); // callbacks still running may touch it
     m_auth.reset();
     m_gateway.reset();
+    m_lingering = m_lingering || !clean;
     m_started = false;
+    DebugLog::log("[discord] stopped clean=%d", clean ? 1 : 0);
 }
 
 void DiscordService::loadAccounts() {
@@ -163,7 +199,7 @@ void DiscordService::activate() {
 }
 
 void DiscordService::connect(const Account& account) {
-    if (m_gateway) m_gateway->Stop();
+    retire(m_gateway, m_oldGateways);
     m_store->Clear();
     m_token = account.token;
     m_current = account.id;
@@ -202,12 +238,14 @@ void DiscordService::rememberMe() {
 void DiscordService::update() {
     if (!m_started || m_stopping) return;
     Async::Pump();
+    // Old connections (account switch, sign-in) close on their own threads.
+    std::erase_if(m_oldGateways, [](const auto& g) { return g->Done(); });
+    std::erase_if(m_oldAuths, [](const auto& a) { return a->Done(); });
 
     if (m_auth) {
         const RemoteAuth::Snapshot s = m_auth->Get();
         if (s.phase == RemoteAuth::Phase::Done && !s.token.empty()) {
-            m_auth->Stop();
-            m_auth.reset();
+            retire(m_auth, m_oldAuths);
             Account added{s.userId, s.username, "", s.avatar, s.token};
             m_accounts.erase(std::remove_if(m_accounts.begin(), m_accounts.end(),
                                             [&](const Account& a) { return !a.id.empty() && a.id == added.id; }),
@@ -234,8 +272,7 @@ void DiscordService::update() {
             break;
         case Gateway::State::AuthFailed: {
             // The token no longer works (signed out elsewhere): forget it.
-            m_gateway->Stop();
-            m_gateway.reset();
+            retire(m_gateway, m_oldGateways);
             std::string who;
             for (const Account& a : m_accounts)
                 if (a.token == m_token) who = a.name();
@@ -312,7 +349,7 @@ void DiscordService::retry() {
 
 void DiscordService::startQrLogin() {
     if (!m_started) activate();
-    if (m_auth) m_auth->Stop();
+    retire(m_auth, m_oldAuths);
     m_auth = std::make_unique<RemoteAuth>();
     m_auth->Start();
     m_state = State::QrLogin;
@@ -320,8 +357,7 @@ void DiscordService::startQrLogin() {
 }
 
 void DiscordService::cancelQrLogin() {
-    if (m_auth) m_auth->Stop();
-    m_auth.reset();
+    retire(m_auth, m_oldAuths);
     m_error.clear();
     // Back to whatever account was connected (update() works out its state).
     m_state = m_gateway ? (m_store && m_store->ready ? State::Ready : State::Connecting) : State::SignedOut;
@@ -346,8 +382,7 @@ std::string DiscordService::qrStatus() const {
 
 void DiscordService::signOut() {
     cancelQrLogin();
-    if (m_gateway) m_gateway->Stop();
-    m_gateway.reset();
+    retire(m_gateway, m_oldGateways);
     if (m_store) m_store->Clear();
     Api::SetToken("");
     const std::string token = m_token;
