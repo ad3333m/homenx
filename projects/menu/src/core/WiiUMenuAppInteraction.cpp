@@ -1963,7 +1963,10 @@ void WiiUMenuApp::handleSystemAction(SysAction a) {
 #endif
 
 void WiiUMenuApp::updateCursor() {
-    if (m_contextMenu && m_contextMenu->isActive()) {
+    // The Discord panel is a full-screen focus target: a ring around it turns
+    // the whole screen blue.
+    if ((m_contextMenu && m_contextMenu->isActive()) ||
+        (m_discordPanel && m_discordPanel->isOpen())) {
         if (m_cursor) m_cursor->setVisible(false);
         return;
     }

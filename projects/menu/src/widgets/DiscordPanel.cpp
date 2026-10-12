@@ -1,8 +1,12 @@
 #include "widgets/DiscordPanel.hpp"
 
+#include "net/async.h"
+#include "net/http.h"
 #include "third_party/qrcodegen.hpp"
+#include "util/strings.h"
 
 #include <nxui/core/Animation.hpp>
+#include <nxui/core/GpuDevice.hpp>
 #include <nxui/core/I18n.hpp>
 #include <nxui/core/Input.hpp>
 #include <nxui/core/Renderer.hpp>
@@ -12,22 +16,41 @@
 
 namespace {
 
-constexpr float kPanelW = 440.f;
-constexpr float kPanelH = 652.f;
-constexpr float kPanelTop = 16.f;
-constexpr float kMarginLeft = 20.f;
+constexpr float kPanelX = 16.f;
+constexpr float kPanelY = 16.f;
+constexpr float kPanelW = 460.f;
+constexpr float kPanelH = 688.f;
 constexpr float kAnimDur = 0.25f;
-constexpr float kRowH = 46.f;
-constexpr float kHeaderH = 34.f;
-constexpr float kListTop = 74.f;    // below the title block
-constexpr float kListBottom = 50.f; // above the button hints
-const nxui::Color kBlurple(0.345f, 0.396f, 0.949f, 1.f);
+constexpr float kTopH = 56.f;     // title bar
+constexpr float kMeH = 64.f;      // your account, at the bottom
+constexpr float kInputH = 60.f;   // the message bar in a chat
+constexpr float kWelcomeH = 176.f;
+constexpr float kChatTextX = 62.f;
+constexpr float kChatTextW = kPanelW - kChatTextX - 20.f;
 
-nxui::Color statusColor(const std::string& s) {
-    if (s == "online") return nxui::Color(0.137f, 0.647f, 0.353f, 1.f);
-    if (s == "idle") return nxui::Color(0.941f, 0.698f, 0.196f, 1.f);
-    if (s == "dnd") return nxui::Color(0.949f, 0.247f, 0.263f, 1.f);
-    return nxui::Color(0.5f, 0.52f, 0.56f, 1.f);
+// Discord's dark theme.
+nxui::Color rgb(int r, int g, int b, float a) { return nxui::Color(r / 255.f, g / 255.f, b / 255.f, a); }
+nxui::Color bgPrimary(float a) { return rgb(49, 51, 56, a); }    // chat
+nxui::Color bgSecondary(float a) { return rgb(43, 45, 49, a); }  // DM list
+nxui::Color bgTertiary(float a) { return rgb(30, 31, 34, a); }
+nxui::Color bgUser(float a) { return rgb(35, 36, 40, a); }       // your account
+nxui::Color bgSelected(float a) { return rgb(64, 66, 73, a); }
+nxui::Color bgInput(float a) { return rgb(56, 58, 64, a); }
+nxui::Color textNormal(float a) { return rgb(219, 222, 225, a); }
+nxui::Color textHeader(float a) { return rgb(242, 243, 245, a); }
+nxui::Color textMuted(float a) { return rgb(148, 155, 164, a); }
+nxui::Color blurple(float a) { return rgb(88, 101, 242, a); }
+nxui::Color blurpleDark(float a) { return rgb(71, 82, 196, a); }
+nxui::Color red(float a) { return rgb(242, 63, 67, a); }
+nxui::Color green(float a) { return rgb(35, 165, 90, a); }
+
+std::string statusLabel(const std::string& s) {
+    auto& i18n = nxui::I18n::instance();
+    if (s == "online") return i18n.tr("discord.status.online", "Online");
+    if (s == "idle") return i18n.tr("discord.status.idle", "Idle");
+    if (s == "dnd") return i18n.tr("discord.status.dnd", "Do Not Disturb");
+    if (s == "invisible") return i18n.tr("discord.status.invisible", "Invisible");
+    return i18n.tr("discord.status.offline", "Offline");
 }
 
 // Drop whole UTF-8 characters until the text (plus "...") fits.
@@ -47,6 +70,7 @@ std::string fit(nxui::Font* font, std::string text, float maxW, float scale) {
 // Greedy word wrap, at most maxLines (the last one ellipsized).
 std::vector<std::string> wrap(nxui::Font* font, const std::string& text, float maxW, float scale, int maxLines) {
     std::vector<std::string> lines;
+    if (!font) return lines;
     std::string line;
     size_t i = 0;
     while (i <= text.size()) {
@@ -56,11 +80,10 @@ std::vector<std::string> wrap(nxui::Font* font, const std::string& text, float m
         if (font->measure(candidate).x * scale <= maxW || line.empty()) {
             line = candidate;
         } else {
-            lines.push_back(line);
+            lines.push_back(fit(font, line, maxW, scale));
             line = word;
             if ((int)lines.size() == maxLines - 1) {
-                const std::string rest = text.substr(i);
-                lines.push_back(fit(font, rest, maxW, scale));
+                lines.push_back(fit(font, text.substr(i), maxW, scale));
                 return lines;
             }
         }
@@ -69,6 +92,10 @@ std::vector<std::string> wrap(nxui::Font* font, const std::string& text, float m
     }
     if (!line.empty()) lines.push_back(fit(font, line, maxW, scale));
     return lines;
+}
+
+bool inside(const nxui::Rect& r, float x, float y) {
+    return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
 }
 
 }  // namespace
@@ -84,6 +111,7 @@ void DiscordPanel::show() {
     m_chat = 0;
     m_sel = -1;
     m_scroll = 0.f;
+    m_followSel = true;
     m_builtVersion = ~0ull;
     m_builtState = -1;
     setVisible(true);
@@ -96,6 +124,9 @@ void DiscordPanel::hide() {
     if (!m_active) return;
     m_active = false;
     clearActions();
+    // A focusable full-screen widget left behind is what the selection ring
+    // wrapped (the whole screen turned blue): hand focus back for good.
+    setFocusable(false);
     if (m_cb.onClosed) m_cb.onClosed();
 }
 
@@ -110,27 +141,42 @@ void DiscordPanel::bindInput() {
     addAction(static_cast<uint64_t>(nxui::Button::X), [this]() {
         if (m_view == View::Chat && m_chat && m_cb.onReply) m_cb.onReply(m_chat, m_chatName);
     });
+    addAction(static_cast<uint64_t>(nxui::Button::Y), [this]() { openAccounts(); });
+}
+
+void DiscordPanel::openAccounts() {
+    if (!m_service || m_view == View::Accounts) return;
+    const auto st = m_service->state();
+    if (st != DiscordService::State::Ready && st != DiscordService::State::Connecting) return;
+    m_view = View::Accounts;
+    m_sel = -1;
+    m_scroll = 0.f;
+    m_followSel = true;
+    m_builtVersion = ~0ull;
+    if (m_cb.onActivate) m_cb.onActivate();
 }
 
 void DiscordPanel::back() {
-    if (m_view == View::Chat) {
+    if (m_service && m_service->state() == DiscordService::State::QrLogin) {
+        m_service->cancelQrLogin();
+        m_builtVersion = ~0ull;
+        if (m_cb.onNavigate) m_cb.onNavigate();
+        return;
+    }
+    if (m_view != View::Home) {
         m_view = View::Home;
         m_chat = 0;
         m_builtVersion = ~0ull;
         if (m_cb.onNavigate) m_cb.onNavigate();
         return;
     }
-    if (m_service && m_service->state() == DiscordService::State::QrLogin) {
-        m_service->signOut(); // cancels the QR sign-in, back to the sign-in button
-        m_builtVersion = ~0ull;
-        return;
-    }
     hide();
 }
 
 void DiscordPanel::move(int dir) {
-    if (m_view == View::Chat) { // scroll the conversation
-        m_scroll = std::max(0.f, m_scroll + (dir < 0 ? 60.f : -60.f));
+    if (!m_service || m_service->state() == DiscordService::State::QrLogin) return;
+    if (m_view == View::Chat) { // scroll the conversation; Up goes back in time
+        m_chatScroll = std::max(0.f, m_chatScroll + (dir < 0 ? 80.f : -80.f));
         return;
     }
     if (m_rows.empty()) return;
@@ -140,6 +186,7 @@ void DiscordPanel::move(int dir) {
         if (i < 0 || i >= (int)m_rows.size()) return;
         if (selectable(m_rows[(size_t)i])) {
             m_sel = i;
+            m_followSel = true;
             if (m_cb.onNavigate) m_cb.onNavigate();
             return;
         }
@@ -147,67 +194,208 @@ void DiscordPanel::move(int dir) {
 }
 
 void DiscordPanel::activateRow() {
-    if (!m_service || m_view != View::Home || m_sel < 0 || m_sel >= (int)m_rows.size()) return;
-    const Row& r = m_rows[(size_t)m_sel];
+    if (!m_service) return;
+    if (m_service->state() == DiscordService::State::QrLogin) {
+        m_service->startQrLogin(); // a fresh code
+        if (m_cb.onActivate) m_cb.onActivate();
+        return;
+    }
+    if (m_view == View::Chat) {
+        if (m_chat && m_cb.onReply) m_cb.onReply(m_chat, m_chatName);
+        return;
+    }
+    if (m_sel < 0 || m_sel >= (int)m_rows.size()) return;
+    const Row r = m_rows[(size_t)m_sel]; // the service calls below rebuild the rows
+    if (!selectable(r)) return;
     if (m_cb.onActivate) m_cb.onActivate();
-    if (r.kind == Row::Dm) {
-        m_view = View::Chat;
-        m_chat = r.channelId;
-        m_chatName = r.text;
-        m_scroll = 0.f;
-        m_service->openChannel(r.channelId);
-    } else if (r.action == 1) {
-        m_service->startQrLogin();
-    } else if (r.action == 2) {
-        m_service->signOut();
-    } else if (r.action == 3) {
-        m_service->startQrLogin();
+    switch (r.kind) {
+        case Row::Dm:
+            m_view = View::Chat;
+            m_chat = r.channelId;
+            m_chatName = r.text;
+            m_chatAvatar = r.avatarUrl;
+            m_chatStatus = r.status;
+            m_chatScroll = 0.f;
+            m_chatBuiltFor = 0;
+            m_service->openChannel(r.channelId);
+            break;
+        case Row::Me:
+            openAccounts();
+            break;
+        case Row::Account:
+            m_service->switchAccount(r.accountId);
+            m_view = View::Home;
+            m_sel = -1;
+            break;
+        case Row::Button:
+            if (r.action == 1) m_service->startQrLogin();
+            if (r.action == 2) {
+                m_service->signOut();
+                m_view = View::Home;
+                m_sel = -1;
+            }
+            if (r.action == 3) m_service->retry();
+            break;
+        default:
+            break;
     }
     m_builtVersion = ~0ull;
 }
 
-void DiscordPanel::rebuildRows() {
-    auto& i18n = nxui::I18n::instance();
-    const int state = m_service ? static_cast<int>(m_service->state()) : -1;
-    const uint64_t version = m_service ? m_service->version() : 0;
-    if (state == m_builtState && version == m_builtVersion) return;
-    m_builtState = state;
-    m_builtVersion = version;
+std::string DiscordPanel::rowKey(const Row& r) const {
+    switch (r.kind) {
+        case Row::Dm: return "c" + std::to_string(r.channelId);
+        case Row::Account: return "a" + r.accountId;
+        case Row::Button: return "b" + std::to_string(r.action);
+        case Row::Me: return "me";
+        default: return {};
+    }
+}
 
-    const Snowflake keep = (m_sel >= 0 && m_sel < (int)m_rows.size()) ? m_rows[(size_t)m_sel].channelId : 0;
-    m_rows.clear();
+// Names and messages often carry emoji or scripts the menu's font doesn't have:
+// leave those letters out instead of drawing boxes.
+std::string DiscordPanel::clean(const std::string& text) const {
+    if (!m_font) return text;
+    std::string out;
+    out.reserve(text.size());
+    const char* p = text.data();
+    const char* end = p + text.size();
+    while (p < end) {
+        const uint32_t cp = Str::NextCp(p, end);
+        bool ok = cp == ' ';
+        if (!ok && cp >= 0x20 && cp != 0xFFFD) {
+            auto it = m_glyphs.find(cp);
+            if (it == m_glyphs.end()) it = m_glyphs.emplace(cp, m_font->hasGlyph(cp)).first;
+            ok = it->second;
+        }
+        if (!ok) continue;
+        if (cp == ' ' && (out.empty() || out.back() == ' ')) continue; // no gaps left behind
+        Str::AppendCp(out, cp);
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+
+void DiscordPanel::rebuildRows() {
+    if (!m_service) return;
+    auto& i18n = nxui::I18n::instance();
     using S = DiscordService::State;
-    const S st = m_service ? m_service->state() : S::Failed;
-    if (st == S::SignedOut) {
-        if (m_service && !m_service->error().empty())
-            m_rows.push_back({Row::Info, m_service->error()});
-        m_rows.push_back({Row::Info, i18n.tr("discord.signin_body",
-            "Sign in once with the Discord app on your phone. HomeNX also uses your SwitchCord account if you have one.")});
-        m_rows.push_back({Row::Action, i18n.tr("discord.signin_qr", "Sign in with a QR code"), "", 0, false, 0, 1});
-    } else if (st == S::Failed) {
-        m_rows.push_back({Row::Info, m_service && !m_service->error().empty() ? m_service->error()
-                                                                               : i18n.tr("discord.failed", "Couldn't reach Discord.")});
-        m_rows.push_back({Row::Action, i18n.tr("discord.retry", "Sign in again"), "", 0, false, 0, 3});
-    } else if (st == S::Ready && m_service) {
-        const auto friends = m_service->onlineFriends();
-        m_rows.push_back({Row::Header, i18n.tr("discord.online", "Online") + " - " + std::to_string(friends.size())});
-        if (friends.empty())
-            m_rows.push_back({Row::Info, i18n.tr("discord.nobody", "Nobody's online right now.")});
-        for (size_t i = 0; i < friends.size() && i < 12; ++i)
-            m_rows.push_back({Row::Friend, friends[i].name, friends[i].status});
-        m_rows.push_back({Row::Header, i18n.tr("discord.dms", "Direct messages")});
-        for (const auto& d : m_service->dms(25))
-            m_rows.push_back({Row::Dm, d.name, "", d.channelId, d.unread, d.mentions});
-        m_rows.push_back({Row::Action, i18n.tr("discord.signout", "Sign out of Discord"), "", 0, false, 0, 2});
+    const S st = m_service->state();
+    const uint64_t version = m_service->version();
+    if ((int)st == m_builtState && version == m_builtVersion && m_view == m_builtView) return;
+    m_builtState = (int)st;
+    m_builtVersion = version;
+    m_builtView = m_view;
+
+    const std::string keep = (m_sel >= 0 && m_sel < (int)m_rows.size()) ? rowKey(m_rows[(size_t)m_sel]) : std::string();
+    m_rows.clear();
+    const float textW = kPanelW - 32.f;
+    auto info = [&](Row::Kind kind, const std::string& text) {
+        Row r;
+        r.kind = kind;
+        r.lines = wrap(m_smallFont, text, textW, 0.78f, 5);
+        m_rows.push_back(std::move(r));
+    };
+    auto button = [&](int action, const std::string& text, bool primary, bool danger) {
+        Row r;
+        r.kind = Row::Button;
+        r.text = text;
+        r.action = action;
+        r.primary = primary;
+        r.danger = danger;
+        m_rows.push_back(std::move(r));
+    };
+    auto accountRows = [&](bool markCurrent) {
+        for (const auto& acc : m_service->accounts()) {
+            Row r;
+            r.kind = Row::Account;
+            r.text = clean(acc.name());
+            if (r.text.empty()) r.text = clean(acc.username);
+            r.detail = acc.username.empty() ? std::string() : "@" + clean(acc.username);
+            r.avatarUrl = acc.avatarUrl();
+            r.accountId = acc.id;
+            r.current = markCurrent && acc.id == m_service->currentAccount();
+            m_rows.push_back(std::move(r));
+        }
+    };
+
+    if (st == S::QrLogin) {
+        // Drawn as the QR page, no rows.
+    } else if (m_view == View::Accounts) {
+        info(Row::Info, i18n.tr("discord.accounts_body", "Switch between your Discord accounts, or add another one."));
+        accountRows(true);
+        button(1, i18n.tr("discord.add_account", "Add an account"), false, false);
+        const std::string me = clean(m_service->myName());
+        button(2, i18n.tr("discord.log_out", "Log out") + (me.empty() ? std::string() : " " + me), false, true);
+    } else if (st == S::SignedOut || st == S::Failed) {
+        if (!m_service->error().empty()) info(Row::Error, m_service->error());
+        if (st == S::Failed) button(3, i18n.tr("discord.retry", "Try again"), true, false);
+        accountRows(false);
+        button(1, i18n.tr("discord.signin_qr", "Sign in with a QR code"), st != S::Failed, false);
+        info(Row::Info, i18n.tr("discord.signin_body",
+            "HomeNX also signs in with your SwitchCord accounts. Third-party Discord clients are "
+            "against Discord's Terms of Service, so use this at your own risk."));
+    } else {
+        if (st == S::Connecting) {
+            info(Row::Info, i18n.tr("discord.connecting", "Connecting..."));
+        } else {
+            for (const auto& d : m_service->dms(40)) {
+                Row r;
+                r.kind = Row::Dm;
+                r.text = clean(d.name);
+                r.avatarUrl = d.avatarUrl;
+                r.status = d.status;
+                if (d.members > 0)
+                    r.detail = std::to_string(d.members) + " " + i18n.tr("discord.members", "Members");
+                else if (d.status != "offline")
+                    r.detail = statusLabel(d.status);
+                r.channelId = d.channelId;
+                r.unread = d.unread;
+                r.mentions = d.mentions;
+                m_rows.push_back(std::move(r));
+            }
+            if (m_rows.empty()) info(Row::Info, i18n.tr("discord.no_dms", "No direct messages yet."));
+        }
+        Row me;
+        me.kind = Row::Me;
+        m_rows.push_back(std::move(me));
     }
 
-    // Keep the selection on the same DM across refreshes, else the first selectable row.
+    // Keep the selection on the same thing across refreshes, else the first one
+    // (the sign-in button when nothing is saved).
     m_sel = -1;
     for (int i = 0; i < (int)m_rows.size(); ++i)
-        if (keep && m_rows[(size_t)i].channelId == keep) m_sel = i;
+        if (!keep.empty() && rowKey(m_rows[(size_t)i]) == keep) m_sel = i;
     if (m_sel < 0)
         for (int i = 0; i < (int)m_rows.size(); ++i)
             if (selectable(m_rows[(size_t)i])) { m_sel = i; break; }
+}
+
+void DiscordPanel::rebuildChat() {
+    if (!m_service) return;
+    const uint64_t version = m_service->version();
+    if (m_chatBuiltFor == m_chat && m_chatVersion == version) return;
+    m_chatBuiltFor = m_chat;
+    m_chatVersion = version;
+    m_chatItems.clear();
+    Snowflake prevAuthor = 0;
+    int64_t prevMs = 0;
+    for (const auto& l : m_service->lines(m_chat, 50)) {
+        ChatItem it;
+        // Like Discord: a run of messages from one person within a few minutes
+        // shares one avatar and name.
+        it.header = l.authorId != prevAuthor || l.ms - prevMs > 7 * 60 * 1000;
+        it.author = clean(l.author);
+        it.avatarUrl = l.avatarUrl;
+        it.time = l.time;
+        it.lines = wrap(m_font, clean(l.text), kChatTextW, 0.66f, 12);
+        if (it.lines.empty()) it.lines.push_back(std::string());
+        it.tone = l.failed ? 2 : l.pending ? 1 : 0;
+        it.height = (it.header ? 40.f : 2.f) + it.lines.size() * 21.f + 2.f;
+        prevAuthor = l.authorId;
+        prevMs = l.ms;
+        m_chatItems.push_back(std::move(it));
+    }
 }
 
 void DiscordPanel::onUpdate(float dt) {
@@ -217,14 +405,86 @@ void DiscordPanel::onUpdate(float dt) {
         m_anim = m_anim < target ? std::min(target, m_anim + step) : std::max(target, m_anim - step);
         if (m_anim <= 0.f && !m_active) setVisible(false);
     }
-    if (m_active && m_view == View::Home) rebuildRows();
+    if (!m_active || !m_service) return;
+    const auto st = m_service->state();
+    // Signed out or switching accounts: the chat or account list no longer applies.
+    if (m_view == View::Chat && st != DiscordService::State::Ready) m_view = View::Home;
+    if (m_view == View::Accounts && st != DiscordService::State::Ready && st != DiscordService::State::Connecting)
+        m_view = View::Home;
+    if (m_view == View::Chat) rebuildChat();
+    else rebuildRows();
 }
 
 nxui::Rect DiscordPanel::panelRect() const {
-    const float openX = kMarginLeft;
     const float closedX = -kPanelW - 10.f;
-    const float x = closedX + (openX - closedX) * nxui::Easing::outCubic(m_anim);
-    return {x, kPanelTop, kPanelW, kPanelH};
+    const float x = closedX + (kPanelX - closedX) * nxui::Easing::outCubic(m_anim);
+    return {x, kPanelY, kPanelW, kPanelH};
+}
+
+// Profile pictures load in the background; until one arrives (or if it can't),
+// drawAvatar shows a coloured circle with the first letter.
+const nxui::Texture* DiscordPanel::avatar(const std::string& url) {
+    if (url.empty() || !m_gpu || !m_ren) return nullptr;
+    auto it = m_avatars.find(url);
+    if (it != m_avatars.end()) return it->second.get();
+    if (m_avatars.size() >= 160) return nullptr; // ponytail: no eviction, plenty for a DM list
+    m_avatars.emplace(url, nullptr);
+    std::weak_ptr<bool> alive = m_alive;
+    Async::Run(Async::Pool::Images, [this, url, alive]() {
+        Http::Request req;
+        req.url = url;
+        req.timeoutMs = 15000;
+        req.maxBytes = 2u << 20;
+        Http::Response res = Http::Perform(req);
+        std::string body = res.Ok() ? std::move(res.body) : std::string();
+        Async::Post([this, url, alive, body = std::move(body)]() {
+            if (alive.expired() || body.empty()) return;
+            auto tex = std::make_unique<nxui::Texture>();
+            if (tex->loadFromMemory(*m_gpu, *m_ren, reinterpret_cast<const uint8_t*>(body.data()), body.size(), 64))
+                m_avatars[url] = std::move(tex);
+        });
+    });
+    return nullptr;
+}
+
+void DiscordPanel::drawAvatar(nxui::Renderer& ren, const std::string& url, const std::string& name,
+                              float x, float y, float size, float a) {
+    if (const nxui::Texture* t = avatar(url); t && t->valid()) {
+        ren.drawTextureRounded(t, {x, y, size, size}, size * 0.5f, nxui::Color::white().withAlpha(a));
+        return;
+    }
+    static const int kColors[5][3] = {{88, 101, 242}, {116, 127, 141}, {59, 165, 93}, {250, 166, 26}, {237, 66, 69}};
+    const auto* c = kColors[std::hash<std::string>{}(name) % 5];
+    ren.drawCircle({x + size * 0.5f, y + size * 0.5f}, size * 0.5f, rgb(c[0], c[1], c[2], a), 32);
+    if (name.empty() || !m_font) return;
+    const char* p = name.data();
+    uint32_t cp = Str::NextCp(p, name.data() + name.size());
+    if (cp >= 'a' && cp <= 'z') cp -= 32;
+    std::string letter;
+    Str::AppendCp(letter, cp);
+    const float s = size / 48.f;
+    const nxui::Vec2 m = m_font->measure(letter);
+    ren.drawText(letter, {x + (size - m.x * s) * 0.5f, y + (size - m.y * s) * 0.5f}, m_font,
+                 nxui::Color(1.f, 1.f, 1.f, a), s);
+}
+
+// Discord's status badges: a green dot, a yellow moon, a red "no entry" and a
+// grey ring, each cut out of the background behind the avatar.
+void DiscordPanel::drawStatus(nxui::Renderer& ren, const std::string& s, float cx, float cy, float r,
+                              const nxui::Color& ring, float a) {
+    ren.drawCircle({cx, cy}, r + 3.f, ring, 24);
+    if (s == "online") {
+        ren.drawCircle({cx, cy}, r, green(a), 24);
+    } else if (s == "idle") {
+        ren.drawCircle({cx, cy}, r, rgb(240, 178, 50, a), 24);
+        ren.drawCircle({cx - r * 0.45f, cy - r * 0.45f}, r * 0.62f, ring, 20);
+    } else if (s == "dnd") {
+        ren.drawCircle({cx, cy}, r, red(a), 24);
+        ren.drawRoundedRect({cx - r * 0.6f, cy - r * 0.2f, r * 1.2f, r * 0.4f}, ring, r * 0.2f);
+    } else {
+        ren.drawCircle({cx, cy}, r, rgb(128, 132, 142, a), 24);
+        ren.drawCircle({cx, cy}, r * 0.5f, ring, 20);
+    }
 }
 
 void DiscordPanel::drawQr(nxui::Renderer& ren, const std::string& text, const nxui::Rect& area, float alpha) {
@@ -241,12 +501,12 @@ void DiscordPanel::drawQr(nxui::Renderer& ren, const std::string& text, const nx
                     m_qrModules[(size_t)y * (size_t)m_qrSize + (size_t)x] = qr.getModule(x, y);
         }
     }
-    ren.drawRoundedRect(area, nxui::Color(1.f, 1.f, 1.f, alpha), 14.f);
+    ren.drawRoundedRect(area, nxui::Color(1.f, 1.f, 1.f, alpha), 10.f);
     if (m_qrSize <= 0) return;
-    const float quiet = 4.f;
+    const float quiet = 3.f;
     const float cell = std::floor(area.width / (m_qrSize + quiet * 2.f));
     const float side = cell * m_qrSize;
-    const float ox = area.x + (area.width - side) * 0.5f, oy = area.y + (area.height - side) * 0.5f;
+    const float ox = area.x + std::floor((area.width - side) * 0.5f), oy = area.y + std::floor((area.height - side) * 0.5f);
     const nxui::Color dark(0.f, 0.f, 0.f, alpha);
     for (int y = 0; y < m_qrSize; ++y) {
         int run = -1; // draw horizontal runs as one rect
@@ -261,151 +521,372 @@ void DiscordPanel::drawQr(nxui::Renderer& ren, const std::string& text, const nx
     }
 }
 
-void DiscordPanel::onRender(nxui::Renderer& ren) {
-    if (m_anim <= 0.001f || !m_font || !m_smallFont) return;
-    auto& i18n = nxui::I18n::instance();
-    const float a = m_anim;
-    const bool light = m_theme && m_theme->mode == nxui::ThemeMode::Light;
-    const nxui::Color text = light ? nxui::Color(0.06f, 0.07f, 0.09f, a) : nxui::Color(1.f, 1.f, 1.f, a);
-    const nxui::Color muted = light ? nxui::Color(0.31f, 0.34f, 0.40f, a) : nxui::Color(0.70f, 0.76f, 0.86f, a);
-    const nxui::Color fill = light ? nxui::Color(0.96f, 0.97f, 0.99f, 0.97f * a)
-                                   : (m_theme ? m_theme->panelBase.withAlpha(0.94f * a)
-                                              : nxui::Color(0.10f, 0.13f, 0.18f, 0.94f * a));
-    const nxui::Color border = light ? nxui::Color(0.08f, 0.10f, 0.14f, 0.14f * a) : nxui::Color(1.f, 1.f, 1.f, 0.14f * a);
-    const nxui::Color cursor = m_theme ? m_theme->cursorNormal.withAlpha(a) : kBlurple.withAlpha(a);
-
-    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.25f * a));
-    const nxui::Rect p = panelRect();
-    ren.drawRoundedRect(p, fill, 24.f);
-    ren.drawRoundedRectOutline(p, border, 24.f, 1.2f);
-
-    // Title: a blurple badge, "Discord", and who's signed in.
-    const nxui::Rect badge{p.x + 20.f, p.y + 18.f, 38.f, 38.f};
-    ren.drawRoundedRect(badge, kBlurple.withAlpha(a), 11.f);
-    ren.drawText("D", {badge.x + 11.f, badge.y + 5.f}, m_font, nxui::Color(1.f, 1.f, 1.f, a), 1.0f);
-    ren.drawText("Discord", {badge.x + 50.f, p.y + 16.f}, m_font, text, 1.0f);
-    std::string who;
-    if (m_service) {
-        switch (m_service->state()) {
-            case DiscordService::State::Ready: who = m_service->myName(); break;
-            case DiscordService::State::Connecting: who = i18n.tr("discord.connecting", "Connecting..."); break;
-            case DiscordService::State::QrLogin: who = i18n.tr("discord.signing_in", "Signing in"); break;
-            case DiscordService::State::SignedOut: who = i18n.tr("discord.signed_out", "Not signed in"); break;
-            default: who = i18n.tr("discord.offline", "Offline"); break;
-        }
+float DiscordPanel::rowHeight(const Row& r) const {
+    switch (r.kind) {
+        case Row::Dm: return 50.f;
+        case Row::Account: return 58.f;
+        case Row::Button: return 54.f;
+        case Row::Info:
+        case Row::Error: return 22.f * r.lines.size() + 14.f;
+        default: return 0.f; // Me is drawn at the bottom
     }
-    ren.drawText(fit(m_smallFont, who, kPanelW - 110.f, 0.85f), {badge.x + 50.f, p.y + 44.f}, m_smallFont, muted, 0.85f);
+}
 
-    const float contentX = p.x + 20.f, contentW = kPanelW - 40.f;
-    const float top = p.y + kListTop, bottom = p.y + kPanelH - kListBottom;
-    ren.pushClipRect({p.x, top, kPanelW, bottom - top});
+void DiscordPanel::drawTopBar(nxui::Renderer& ren, const nxui::Rect& p, float a) {
+    auto& i18n = nxui::I18n::instance();
+    using S = DiscordService::State;
+    const S st = m_service ? m_service->state() : S::Failed;
+    const bool qr = st == S::QrLogin;
+    const bool withBack = qr || m_view != View::Home;
+    m_backRect = withBack ? nxui::Rect{p.x, p.y, 64.f, kTopH} : nxui::Rect{};
 
-    if (m_service && m_service->state() == DiscordService::State::QrLogin) {
-        const std::string url = m_service->qrUrl();
-        const nxui::Rect area{p.x + (kPanelW - 280.f) * 0.5f, top + 10.f, 280.f, 280.f};
-        drawQr(ren, url, area, a);
-        if (url.empty())
-            ren.drawText(i18n.tr("discord.qr_wait", "Getting a code..."), {area.x + 70.f, area.y + 128.f}, m_smallFont,
-                         nxui::Color(0.f, 0.f, 0.f, a), 0.9f);
-        float y = area.y + area.height + 22.f;
-        for (const auto& line : wrap(m_smallFont, m_service->qrStatus(), contentW, 0.88f, 4)) {
-            ren.drawText(line, {contentX, y}, m_smallFont, text, 0.88f);
-            y += 26.f;
-        }
-    } else if (m_view == View::Chat && m_service) {
-        ren.drawText(fit(m_font, m_chatName, contentW, 0.9f), {contentX, top}, m_font, text, 0.9f);
-        const auto lines = m_service->lines(m_chat, 40);
-        // Newest at the bottom; Up scrolls back.
-        float y = bottom - 8.f + m_scroll;
-        if (lines.empty())
-            ren.drawText(m_service->loading(m_chat) ? i18n.tr("discord.loading", "Loading...")
-                                                    : i18n.tr("discord.no_messages", "No messages yet."),
-                         {contentX, top + 44.f}, m_smallFont, muted, 0.88f);
-        for (auto it = lines.rbegin(); it != lines.rend() && y > top + 30.f; ++it) {
-            const auto body = wrap(m_smallFont, it->text.empty() ? std::string(" ") : it->text, contentW, 0.86f, 4);
-            const float blockH = 24.f + body.size() * 23.f + 10.f;
-            y -= blockH;
-            const nxui::Color nameCol = it->mine ? kBlurple.withAlpha(a) : text;
-            ren.drawText(fit(m_smallFont, it->author, contentW, 0.82f), {contentX, y}, m_smallFont, nameCol, 0.82f);
-            float ly = y + 24.f;
-            const nxui::Color bodyCol = it->failed ? statusColor("dnd").withAlpha(a)
-                                       : it->pending ? muted : text;
-            for (const auto& l : body) {
-                ren.drawText(l, {contentX, ly}, m_smallFont, bodyCol, 0.86f);
-                ly += 23.f;
-            }
-        }
+    float tx = p.x + 18.f;
+    if (withBack) {
+        const float cx = p.x + 26.f, cy = p.y + kTopH * 0.5f;
+        ren.drawLine({cx + 4.f, cy - 8.f}, {cx - 4.f, cy}, textMuted(a), 2.5f);
+        ren.drawLine({cx - 4.f, cy}, {cx + 4.f, cy + 8.f}, textMuted(a), 2.5f);
+        tx = p.x + 46.f;
+    }
+
+    std::string title, hint;
+    if (qr) {
+        title = i18n.tr("discord.qr_title", "Log in with QR Code");
+        hint = i18n.tr("discord.hint_cancel", "B  Cancel");
+    } else if (m_view == View::Chat) {
+        drawAvatar(ren, m_chatAvatar, m_chatName, tx, p.y + 14.f, 28.f, a);
+        if (!m_chatStatus.empty())
+            drawStatus(ren, m_chatStatus, tx + 23.f, p.y + 37.f, 4.5f, bgPrimary(a), a);
+        tx += 38.f;
+        title = m_chatName;
+        hint = i18n.tr("discord.hint_reply", "X  Reply");
+    } else if (m_view == View::Accounts) {
+        title = i18n.tr("discord.accounts_title", "Switch Accounts");
+        hint = i18n.tr("discord.hint_back", "B  Back");
     } else {
-        // Keep the selected row in view.
-        float total = 0.f, selTop = 0.f, selH = 0.f;
-        for (int i = 0; i < (int)m_rows.size(); ++i) {
-            const float h = m_rows[(size_t)i].kind == Row::Header ? kHeaderH
-                          : m_rows[(size_t)i].kind == Row::Info ? 26.f * wrap(m_smallFont, m_rows[(size_t)i].text, contentW, 0.86f, 4).size() + 10.f
-                          : kRowH;
-            if (i == m_sel) { selTop = total; selH = h; }
-            total += h;
-        }
-        const float viewH = bottom - top;
+        if (m_logo.valid())
+            ren.drawTexture(&m_logo, {tx, p.y + 14.f, 28.f, 28.f}, nxui::Color::white().withAlpha(a));
+        else
+            ren.drawCircle({tx + 14.f, p.y + 28.f}, 14.f, blurple(a), 28);
+        tx += 40.f;
+        const bool in = st == S::Ready || st == S::Connecting;
+        title = in ? i18n.tr("discord.dms", "Direct Messages") : std::string("Discord");
+        hint = in ? i18n.tr("discord.hint_home", "Y  Accounts") : i18n.tr("discord.hint_close", "B  Close");
+    }
+    const float hintW = m_smallFont->measure(hint).x * 0.72f;
+    ren.drawText(hint, {p.x + kPanelW - 18.f - hintW, p.y + 19.f}, m_smallFont, textMuted(a), 0.72f);
+    ren.drawText(fit(m_font, title, p.x + kPanelW - 30.f - hintW - tx, 0.78f), {tx, p.y + 16.f}, m_font,
+                 textHeader(a), 0.78f);
+    // Discord's header edge: a dark line and a soft shadow.
+    ren.drawRect({p.x, p.y + kTopH - 1.f, kPanelW, 1.f}, rgb(31, 32, 35, a));
+    ren.drawGradientRect({p.x, p.y + kTopH, kPanelW, 5.f}, nxui::Color(0.f, 0.f, 0.f, 0.22f * a),
+                         nxui::Color(0.f, 0.f, 0.f, 0.f));
+}
+
+void DiscordPanel::drawRows(nxui::Renderer& ren, const nxui::Rect& area, float a) {
+    auto& i18n = nxui::I18n::instance();
+    using S = DiscordService::State;
+    const S st = m_service ? m_service->state() : S::Failed;
+    float top = area.y + 8.f;
+
+    // Signed out: a welcome above the sign-in choices.
+    if (m_view == View::Home && (st == S::SignedOut || st == S::Failed)) {
+        const float cx = area.x + kPanelW * 0.5f;
+        const float logoY = area.y + 22.f;
+        if (m_logo.valid())
+            ren.drawTexture(&m_logo, {cx - 36.f, logoY, 72.f, 72.f}, nxui::Color::white().withAlpha(a));
+        else
+            ren.drawCircle({cx, logoY + 36.f}, 36.f, blurple(a), 40);
+        const std::string hi = i18n.tr("discord.welcome", "Welcome to Discord");
+        ren.drawText(hi, {cx - m_font->measure(hi).x * 0.45f, logoY + 84.f}, m_font, textHeader(a), 0.9f);
+        const std::string sub = i18n.tr("discord.welcome_sub", "Sign in to see your DMs and who's online.");
+        ren.drawText(sub, {cx - m_smallFont->measure(sub).x * 0.38f, logoY + 118.f}, m_smallFont,
+                     textMuted(a), 0.76f);
+        top = area.y + kWelcomeH;
+    }
+
+    // Keep the selected row in view (unless a finger is scrolling).
+    float total = 0.f, selTop = 0.f, selH = 0.f;
+    for (int i = 0; i < (int)m_rows.size(); ++i) {
+        const float h = rowHeight(m_rows[(size_t)i]);
+        if (i == m_sel) { selTop = total; selH = h; }
+        total += h;
+    }
+    const float viewH = area.y + area.height - 8.f - top;
+    if (m_followSel && selH > 0.f) {
         if (selTop - m_scroll < 0.f) m_scroll = selTop;
         if (selTop + selH - m_scroll > viewH) m_scroll = selTop + selH - viewH;
-        m_scroll = std::clamp(m_scroll, 0.f, std::max(0.f, total - viewH));
+    }
+    m_scroll = std::clamp(m_scroll, 0.f, std::max(0.f, total - viewH));
 
-        float y = top - m_scroll;
-        if (m_rows.empty())
-            ren.drawText(i18n.tr("discord.connecting", "Connecting..."), {contentX, top + 6.f}, m_smallFont, muted, 0.9f);
-        for (int i = 0; i < (int)m_rows.size(); ++i) {
-            const Row& r = m_rows[(size_t)i];
-            if (r.kind == Row::Header) {
-                ren.drawText(r.text, {contentX, y + 8.f}, m_smallFont, muted, 0.78f);
-                y += kHeaderH;
-                continue;
+    const nxui::Rect clip{area.x, top - 4.f, area.width, area.y + area.height - top + 4.f};
+    ren.pushClipRect(clip);
+    float y = top - m_scroll;
+    const float x = area.x + 8.f, w = area.width - 16.f;
+    for (int i = 0; i < (int)m_rows.size(); ++i) {
+        const Row& r = m_rows[(size_t)i];
+        const float h = rowHeight(r);
+        if (h <= 0.f) continue;
+        const nxui::Rect row{x, y, w, h};
+        y += h;
+        if (row.y + h < clip.y || row.y > clip.y + clip.height) continue;
+        const bool sel = i == m_sel;
+        if (selectable(r)) m_hits.push_back({i, row});
+
+        if (r.kind == Row::Info || r.kind == Row::Error) {
+            float ly = row.y + 6.f;
+            for (const auto& line : r.lines) {
+                ren.drawText(line, {x + 8.f, ly}, m_smallFont, r.kind == Row::Error ? red(a) : textMuted(a), 0.78f);
+                ly += 22.f;
             }
-            if (r.kind == Row::Info) {
-                for (const auto& line : wrap(m_smallFont, r.text, contentW, 0.86f, 4)) {
-                    ren.drawText(line, {contentX, y + 4.f}, m_smallFont, muted, 0.86f);
-                    y += 26.f;
-                }
-                y += 10.f;
-                continue;
+            continue;
+        }
+        if (r.kind == Row::Button && r.primary) {
+            const nxui::Rect b{x + 8.f, row.y + 6.f, w - 16.f, h - 12.f};
+            ren.drawRoundedRect(b, sel ? blurpleDark(a) : blurple(a), 5.f);
+            if (sel) ren.drawRoundedRectOutline(b, nxui::Color(1.f, 1.f, 1.f, 0.85f * a), 5.f, 2.f);
+            const float tw = m_font->measure(r.text).x * 0.72f;
+            ren.drawText(r.text, {b.x + (b.width - tw) * 0.5f, b.y + 10.f}, m_font, nxui::Color(1.f, 1.f, 1.f, a), 0.72f);
+            continue;
+        }
+
+        const nxui::Color rowBg = sel ? bgSelected(a) : bgSecondary(a);
+        if (sel) ren.drawRoundedRect(row, rowBg, 6.f);
+        const float av = r.kind == Row::Account ? 38.f : 34.f;
+        const float ax = x + 8.f, ay = row.y + (h - av) * 0.5f;
+        if (r.kind == Row::Button) {
+            ren.drawCircle({ax + av * 0.5f, ay + av * 0.5f}, av * 0.5f, bgTertiary(a), 32);
+            if (r.action == 1) { // a plus
+                ren.drawRect({ax + av * 0.5f - 8.f, ay + av * 0.5f - 1.25f, 16.f, 2.5f}, green(a));
+                ren.drawRect({ax + av * 0.5f - 1.25f, ay + av * 0.5f - 8.f, 2.5f, 16.f}, green(a));
+            } else { // an arrow out of a door
+                ren.drawLine({ax + 11.f, ay + av * 0.5f}, {ax + 25.f, ay + av * 0.5f}, red(a), 2.5f);
+                ren.drawLine({ax + 20.f, ay + av * 0.5f - 5.f}, {ax + 25.f, ay + av * 0.5f}, red(a), 2.5f);
+                ren.drawLine({ax + 20.f, ay + av * 0.5f + 5.f}, {ax + 25.f, ay + av * 0.5f}, red(a), 2.5f);
             }
-            const nxui::Rect row{contentX - 6.f, y + 3.f, contentW + 12.f, kRowH - 6.f};
-            if (i == m_sel) {
-                ren.drawRoundedRect(row, cursor.withAlpha(0.18f * a), 12.f);
-                ren.drawRoundedRectOutline(row, cursor, 12.f, 2.f);
-            }
-            float tx = contentX + 6.f;
-            if (r.kind == Row::Friend) {
-                ren.drawCircle({tx + 6.f, y + kRowH * 0.5f}, 6.f, statusColor(r.detail).withAlpha(a), 20);
-                tx += 22.f;
-            }
-            if (r.kind == Row::Action) {
-                ren.drawText(fit(m_font, r.text, contentW - 12.f, 0.8f), {tx, y + 9.f}, m_font, cursor, 0.8f);
-            } else {
-                ren.drawText(fit(m_font, r.text, contentW - (tx - contentX) - 40.f, 0.8f), {tx, y + 9.f}, m_font, text, 0.8f);
-            }
-            if (r.kind == Row::Dm && (r.unread || r.mentions > 0)) {
-                const nxui::Vec2 c{contentX + contentW - 10.f, y + kRowH * 0.5f};
-                if (r.mentions > 0) {
-                    ren.drawCircle(c, 11.f, statusColor("dnd").withAlpha(a), 24);
-                    const std::string n = r.mentions > 9 ? "9+" : std::to_string(r.mentions);
-                    const float w = m_smallFont->measure(n).x * 0.7f;
-                    ren.drawText(n, {c.x - w * 0.5f, c.y - 9.f}, m_smallFont, nxui::Color(1.f, 1.f, 1.f, a), 0.7f);
-                } else {
-                    ren.drawCircle(c, 5.f, text, 16);
-                }
-            }
-            y += kRowH;
+            const nxui::Color col = r.danger ? red(a) : (sel ? textHeader(a) : textNormal(a));
+            ren.drawText(fit(m_font, r.text, w - av - 32.f, 0.72f), {ax + av + 12.f, row.y + (h - 20.f) * 0.5f},
+                         m_font, col, 0.72f);
+            continue;
+        }
+
+        drawAvatar(ren, r.avatarUrl, r.text, ax, ay, av, a);
+        if (!r.status.empty()) drawStatus(ren, r.status, ax + av - 5.f, ay + av - 5.f, 5.5f, rowBg, a);
+        const float tx = ax + av + 12.f;
+        const float badgeW = r.mentions > 0 ? 40.f : (r.current ? 36.f : 8.f);
+        const float textW = x + w - tx - badgeW;
+        const bool bright = sel || r.unread || r.kind == Row::Account;
+        const nxui::Color nameCol = bright ? textHeader(a) : textMuted(a);
+        if (r.detail.empty()) {
+            ren.drawText(fit(m_font, r.text, textW, 0.72f), {tx, row.y + (h - 20.f) * 0.5f}, m_font, nameCol, 0.72f);
+        } else {
+            ren.drawText(fit(m_font, r.text, textW, 0.72f), {tx, row.y + h * 0.5f - 21.f}, m_font, nameCol, 0.72f);
+            ren.drawText(fit(m_smallFont, r.detail, textW, 0.7f), {tx, row.y + h * 0.5f + 2.f}, m_smallFont,
+                         textMuted(a), 0.7f);
+        }
+        const float cy = row.y + h * 0.5f;
+        if (r.mentions > 0) {
+            const std::string n = r.mentions > 99 ? "99+" : std::to_string(r.mentions);
+            const float nw = m_smallFont->measure(n).x * 0.7f;
+            const float bw = std::max(20.f, nw + 12.f);
+            ren.drawRoundedRect({x + w - 12.f - bw, cy - 10.f, bw, 20.f}, red(a), 10.f);
+            ren.drawText(n, {x + w - 12.f - bw + (bw - nw) * 0.5f, cy - 8.f}, m_smallFont,
+                         nxui::Color(1.f, 1.f, 1.f, a), 0.7f);
+        } else if (r.unread) { // Discord's white pill at the edge
+            ren.drawRoundedRect({area.x, cy - 4.f, 4.f, 8.f}, nxui::Color(1.f, 1.f, 1.f, a), 2.f);
+        }
+        if (r.current) { // the account in use: a green tick
+            const nxui::Vec2 c{x + w - 22.f, cy};
+            ren.drawCircle(c, 11.f, green(a), 24);
+            ren.drawLine({c.x - 5.f, c.y + 0.5f}, {c.x - 1.5f, c.y + 4.f}, nxui::Color(1.f, 1.f, 1.f, a), 2.5f);
+            ren.drawLine({c.x - 1.5f, c.y + 4.f}, {c.x + 5.5f, c.y - 4.f}, nxui::Color(1.f, 1.f, 1.f, a), 2.5f);
+        }
+    }
+    ren.popClipRect();
+}
+
+// Your account, pinned to the bottom like Discord's user panel.
+void DiscordPanel::drawMe(nxui::Renderer& ren, const nxui::Rect& area, float a) {
+    auto& i18n = nxui::I18n::instance();
+    ren.drawRoundedRect(area, bgUser(a), 14.f);
+    ren.drawRect({area.x, area.y, area.width, 16.f}, bgUser(a)); // square top corners
+    int meIndex = -1;
+    for (int i = 0; i < (int)m_rows.size(); ++i)
+        if (m_rows[(size_t)i].kind == Row::Me) meIndex = i;
+    const bool sel = meIndex >= 0 && meIndex == m_sel;
+    const nxui::Rect inner{area.x + 8.f, area.y + 7.f, area.width - 16.f, area.height - 14.f};
+    if (meIndex >= 0) m_hits.push_back({meIndex, inner});
+    if (sel) ren.drawRoundedRect(inner, bgSelected(a), 6.f);
+
+    const bool ready = m_service && m_service->state() == DiscordService::State::Ready;
+    std::string name = ready ? clean(m_service->myName()) : std::string();
+    if (name.empty() && ready) name = clean(m_service->myUsername());
+    const std::string status = ready ? m_service->myStatus() : std::string("offline");
+    const float av = 36.f, ax = inner.x + 8.f, ay = inner.y + (inner.height - av) * 0.5f;
+    drawAvatar(ren, ready ? m_service->myAvatarUrl() : std::string(), name, ax, ay, av, a);
+    drawStatus(ren, status, ax + av - 5.f, ay + av - 5.f, 5.5f, sel ? bgSelected(a) : bgUser(a), a);
+
+    const std::string chip = i18n.tr("discord.switch", "Switch");
+    const float chipW = m_smallFont->measure(chip).x * 0.68f + 34.f;
+    const nxui::Rect c{inner.x + inner.width - chipW - 8.f, inner.y + (inner.height - 26.f) * 0.5f, chipW, 26.f};
+    ren.drawRoundedRect(c, bgSecondary(a), 13.f);
+    ren.drawText("Y", {c.x + 10.f, c.y + 5.f}, m_smallFont, textHeader(a), 0.68f);
+    ren.drawText(chip, {c.x + 24.f, c.y + 5.f}, m_smallFont, textMuted(a), 0.68f);
+
+    const float tx = ax + av + 10.f, tw = c.x - tx - 8.f;
+    ren.drawText(fit(m_font, ready ? name : i18n.tr("discord.connecting", "Connecting..."), tw, 0.68f),
+                 {tx, inner.y + 6.f}, m_font, textHeader(a), 0.68f);
+    ren.drawText(fit(m_smallFont, ready ? statusLabel(status) : std::string(), tw, 0.66f),
+                 {tx, inner.y + 28.f}, m_smallFont, textMuted(a), 0.66f);
+}
+
+void DiscordPanel::drawChat(nxui::Renderer& ren, const nxui::Rect& area, float a) {
+    auto& i18n = nxui::I18n::instance();
+    float total = 16.f;
+    for (const auto& it : m_chatItems) total += it.height;
+    m_chatScroll = std::clamp(m_chatScroll, 0.f, std::max(0.f, total - area.height));
+
+    if (m_chatItems.empty()) {
+        // The start of a conversation, as Discord shows it.
+        drawAvatar(ren, m_chatAvatar, m_chatName, area.x + 18.f, area.y + 22.f, 72.f, a);
+        ren.drawText(fit(m_font, m_chatName, kPanelW - 40.f, 1.0f), {area.x + 18.f, area.y + 106.f}, m_font,
+                     textHeader(a), 1.0f);
+        const bool loading = m_service && m_service->loading(m_chat);
+        const std::string body = loading ? i18n.tr("discord.loading", "Loading...")
+            : i18n.tr("discord.dm_start", "This is the beginning of your direct message history with") + " " + m_chatName + ".";
+        float ly = area.y + 144.f;
+        for (const auto& line : wrap(m_smallFont, body, kPanelW - 40.f, 0.78f, 3)) {
+            ren.drawText(line, {area.x + 18.f, ly}, m_smallFont, textMuted(a), 0.78f);
+            ly += 22.f;
+        }
+    }
+
+    ren.pushClipRect(area);
+    float y = area.y + area.height - 8.f + m_chatScroll; // newest at the bottom
+    for (auto it = m_chatItems.rbegin(); it != m_chatItems.rend(); ++it) {
+        y -= it->height;
+        if (y > area.y + area.height) continue;
+        if (y + it->height < area.y) break;
+        float ly = y + 2.f;
+        if (it->header) {
+            drawAvatar(ren, it->avatarUrl, it->author, area.x + 14.f, y + 10.f, 36.f, a);
+            const std::string name = fit(m_font, it->author, kChatTextW - 110.f, 0.7f);
+            ren.drawText(name, {area.x + kChatTextX, y + 8.f}, m_font, textHeader(a), 0.7f);
+            const float nw = m_font->measure(name).x * 0.7f;
+            ren.drawText(it->time, {area.x + kChatTextX + nw + 8.f, y + 12.f}, m_smallFont, textMuted(a), 0.62f);
+            ly = y + 34.f;
+        }
+        const nxui::Color col = it->tone == 2 ? red(a) : it->tone == 1 ? textMuted(a) : textNormal(a);
+        for (const auto& line : it->lines) {
+            ren.drawText(line, {area.x + kChatTextX, ly}, m_font, col, 0.66f);
+            ly += 21.f;
         }
     }
     ren.popClipRect();
 
-    // Button hints.
-    std::string hints;
-    if (m_service && m_service->state() == DiscordService::State::QrLogin)
-        hints = i18n.tr("discord.hint_qr", "B  Cancel");
-    else if (m_view == View::Chat)
-        hints = i18n.tr("discord.hint_chat", "X  Reply     Up/Down  Scroll     B  Back");
-    else
-        hints = i18n.tr("discord.hint_home", "A  Open     B  Close");
-    ren.drawText(hints, {contentX, p.y + kPanelH - 36.f}, m_smallFont, muted, 0.8f);
+    // The message bar: X (or a tap) opens the keyboard.
+    m_inputRect = {area.x + 12.f, area.y + area.height + 8.f, kPanelW - 24.f, kInputH - 20.f};
+    ren.drawRoundedRect(m_inputRect, bgInput(a), 8.f);
+    const std::string hint = i18n.tr("discord.message", "Message") + " @" + m_chatName;
+    ren.drawText(fit(m_smallFont, hint, m_inputRect.width - 64.f, 0.76f), {m_inputRect.x + 16.f, m_inputRect.y + 10.f},
+                 m_smallFont, textMuted(a), 0.76f);
+    const nxui::Rect key{m_inputRect.x + m_inputRect.width - 36.f, m_inputRect.y + 8.f, 24.f, 24.f};
+    ren.drawRoundedRect(key, bgSecondary(a), 12.f);
+    ren.drawText("X", {key.x + 7.f, key.y + 3.f}, m_smallFont, textHeader(a), 0.7f);
+}
+
+void DiscordPanel::drawQrView(nxui::Renderer& ren, const nxui::Rect& area, float a) {
+    auto& i18n = nxui::I18n::instance();
+    const std::string url = m_service->qrUrl();
+    const float side = 250.f;
+    const nxui::Rect box{area.x + (kPanelW - side) * 0.5f, area.y + 28.f, side, side};
+    drawQr(ren, url, box, a);
+    if (url.empty()) {
+        const std::string wait = i18n.tr("discord.qr_wait", "Getting a code...");
+        ren.drawText(wait, {box.x + (side - m_smallFont->measure(wait).x * 0.8f) * 0.5f, box.y + side * 0.5f - 10.f},
+                     m_smallFont, rgb(30, 31, 34, a), 0.8f);
+    }
+    float y = box.y + side + 24.f;
+    for (const auto& line : wrap(m_font, i18n.tr("discord.qr_body",
+             "Scan this with the Discord mobile app to log in instantly."), kPanelW - 48.f, 0.74f, 3)) {
+        ren.drawText(line, {area.x + (kPanelW - m_font->measure(line).x * 0.74f) * 0.5f, y}, m_font,
+                     textHeader(a), 0.74f);
+        y += 25.f;
+    }
+    y += 8.f;
+    for (const auto& line : wrap(m_smallFont, m_service->qrStatus(), kPanelW - 48.f, 0.76f, 4)) {
+        ren.drawText(line, {area.x + (kPanelW - m_smallFont->measure(line).x * 0.76f) * 0.5f, y}, m_smallFont,
+                     textMuted(a), 0.76f);
+        y += 22.f;
+    }
+}
+
+void DiscordPanel::onRender(nxui::Renderer& ren) {
+    if (m_anim <= 0.001f || !m_font || !m_smallFont || !m_service) return;
+    if (!m_logoTried && m_gpu && m_ren && !m_logoPath.empty()) {
+        m_logoTried = true;
+        m_logo.loadFromFile(*m_gpu, *m_ren, m_logoPath, 96);
+    }
+    const float a = m_anim;
+    m_hits.clear();
+    m_inputRect = {};
+
+    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.35f * a));
+    const nxui::Rect p = panelRect();
+    ren.drawRoundedRect(p, m_view == View::Chat ? bgPrimary(a) : bgSecondary(a), 14.f);
+    ren.drawRoundedRectOutline(p, bgTertiary(a), 14.f, 1.f);
+
+    using S = DiscordService::State;
+    const S st = m_service->state();
+    const nxui::Rect body{p.x, p.y + kTopH, kPanelW, kPanelH - kTopH};
+    if (st == S::QrLogin) {
+        drawQrView(ren, body, a);
+    } else if (m_view == View::Chat) {
+        drawChat(ren, {body.x, body.y, body.width, body.height - kInputH}, a);
+    } else if (m_view == View::Home && (st == S::Ready || st == S::Connecting)) {
+        drawRows(ren, {body.x, body.y, body.width, body.height - kMeH}, a);
+        drawMe(ren, {p.x, p.y + kPanelH - kMeH, kPanelW, kMeH}, a);
+    } else {
+        drawRows(ren, body, a);
+    }
+    drawTopBar(ren, p, a); // last: its shadow falls over the list
+}
+
+void DiscordPanel::handleTouch(const nxui::Input& in) {
+    if (!m_active || !m_service) return;
+    const float tx = in.touchX(), ty = in.touchY();
+    if (in.touchDown()) {
+        if (tx > kPanelX + kPanelW) { // a tap beside the panel closes it
+            hide();
+            return;
+        }
+        m_touchDragging = false;
+        m_touchScrollStart = m_view == View::Chat ? m_chatScroll : m_scroll;
+    }
+    if (!in.isTouching() && !in.touchUp()) return;
+    if (in.touchStartX() > kPanelX + kPanelW) return;
+    if (std::abs(in.touchDeltaY()) > 14.f) m_touchDragging = true;
+    if (m_touchDragging) {
+        if (m_view == View::Chat) {
+            m_chatScroll = std::max(0.f, m_touchScrollStart + in.touchDeltaY());
+        } else {
+            m_scroll = std::max(0.f, m_touchScrollStart - in.touchDeltaY());
+            m_followSel = false;
+        }
+        return;
+    }
+    if (!in.touchUp()) return;
+    if (m_backRect.width > 0.f && inside(m_backRect, tx, ty)) {
+        back();
+        return;
+    }
+    if (m_view == View::Chat && m_inputRect.width > 0.f && inside(m_inputRect, tx, ty)) {
+        if (m_chat && m_cb.onReply) m_cb.onReply(m_chat, m_chatName);
+        return;
+    }
+    for (const auto& [i, r] : m_hits)
+        if (inside(r, tx, ty)) {
+            m_sel = i;
+            activateRow();
+            return;
+        }
 }

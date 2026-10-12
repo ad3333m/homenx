@@ -394,30 +394,54 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
     if (!m_fastReturnRequested)
         return false;
 
+    auto& gpu = app().gpu();
+    // HomeNX: coming out of a game starts from the game's own last frame (the
+    // picture that sits frozen on screen while HOME loads) and zooms it away,
+    // so leaving looks like one motion instead of a freeze and a cut to black.
+    nxui::Texture gameTex;
+    if (m_launcher.suspendedTitleId() != 0) {
+        std::vector<std::uint8_t> px(1280u * 720u * 4u);
+        bool ok = false;
+        if (R_SUCCEEDED(appletGetLastApplicationCaptureImageEx(px.data(), px.size(), &ok)) && ok) {
+            for (size_t i = 3; i < px.size(); i += 4) px[i] = 0xFF; // games leave alpha undefined
+            gameTex.loadFromPixels(gpu, ren, px.data(), 1280, 720);
+        }
+        DebugLog::log("[leave] game capture ok=%d tex=%d", ok ? 1 : 0, gameTex.valid() ? 1 : 0);
+    }
+
     LeaveFrameImage image;
-    if (LeaveFrameCache::load(m_leaveSession, image) && image.valid()
-        && m_leaveSplashTex.loadFromPixels(app().gpu(), ren,
-                                           image.rgba.data(), image.width, image.height)) {
-        // HomeNX: HOME eases in (fade from black + a slight zoom settling to 1:1)
-        // instead of snapping in. These frames are presented here, before the
-        // menu starts loading, because nothing can animate while it loads.
-        auto& gpu = app().gpu();
+    const bool haveMenu = LeaveFrameCache::load(m_leaveSession, image) && image.valid()
+        && m_leaveSplashTex.loadFromPixels(gpu, ren, image.rgba.data(), image.width, image.height);
+    if (haveMenu || gameTex.valid()) {
+        // HOME eases in (the game shrinking away, the menu settling from a slight
+        // zoom to 1:1). These frames are presented here, before the menu starts
+        // loading, because nothing can animate while it loads.
+        const float dur = gameTex.valid() ? kReturnZoomDur : kReturnIntroDur;
+        const nxui::Color base = haveMenu ? nxui::Color(0.f, 0.f, 0.f, 1.f)
+                                          : nxui::Color(0.07f, 0.12f, 0.18f, 1.f);
+        auto centered = [](float scale) {
+            const float w = 1280.f * scale, h = 720.f * scale;
+            return nxui::Rect{(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h};
+        };
         const std::uint64_t introStart = armGetSystemTick();
         for (;;) {
-            const float t = std::min(1.f, armTicksToNs(armGetSystemTick() - introStart) / 1e9f
-                                              / kReturnIntroDur);
+            const float t = std::min(1.f, armTicksToNs(armGetSystemTick() - introStart) / 1e9f / dur);
             const float e = nxui::Easing::outCubic(t);
-            const float scale = 1.05f - 0.05f * e;
-            const float w = 1280.f * scale, h = 720.f * scale;
-            ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 1.f));
-            ren.drawTexture(&m_leaveSplashTex, {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h},
-                            nxui::Color::white().withAlpha(e));
+            ren.drawRect({0.f, 0.f, 1280.f, 720.f}, base);
+            if (haveMenu)
+                ren.drawTexture(&m_leaveSplashTex, centered(1.05f - 0.05f * e),
+                                nxui::Color::white().withAlpha(e));
+            if (gameTex.valid() && t < 1.f)
+                ren.drawTexture(&gameTex, centered(1.f - 0.14f * e),
+                                nxui::Color::white().withAlpha(1.f - e));
             if (t >= 1.f) break; // Application presents this last (1:1) frame
             ren.endFrame();
             gpu.endFrame();
             gpu.beginFrame();
             ren.beginFrame();
         }
+    }
+    if (haveMenu) {
         m_leaveSplashDrawn = true;
         m_leaveSplashPhase = LeaveSplashPhase::Hold;
         m_leaveSplashHoldRemaining = kLeaveSplashHoldDur;
@@ -1086,6 +1110,9 @@ void WiiUMenuApp::onDestroy() {
     if (m_steamGridDbBrowseFuture.valid()) m_steamGridDbBrowseFuture.wait();
     if (m_steamGridDbApplyFuture.valid()) m_steamGridDbApplyFuture.wait();
     if (m_steamGridDbPicker) m_steamGridDbPicker->wait();
+    // Discord's threads use the sockets: stop them before the sockets go away
+    // (closing the menu for a game crashed in the Discord connection).
+    m_discord.shutdown();
     themeshop::http::shutdown();
 
     bluetooth::Finalize();
@@ -6110,10 +6137,9 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     {
         handleTouch();
     }
-    // HomeNX: a tap beside the Discord panel closes it (it covers the left 460 px).
-    if (m_discordPanel && m_discordPanel->isActive() && app().input().touchDown()
-        && app().input().touchX() > 470.f && !(m_textEntry && m_textEntry->isActive()))
-        m_discordPanel->hide();
+    // HomeNX: the Discord panel takes taps and drags; a tap beside it closes it.
+    if (m_discordPanel && m_discordPanel->isActive() && !(m_textEntry && m_textEntry->isActive()))
+        m_discordPanel->handleTouch(app().input());
 
     bool dialogActiveNow = (m_dialog && m_dialog->isActive());
     const bool textEntryActive = m_textEntry && m_textEntry->isActive();

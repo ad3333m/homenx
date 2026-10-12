@@ -32,6 +32,20 @@ bool Font::load(GpuDevice& gpu, Renderer& ren,
     return true;
 }
 
+bool Font::hasGlyph(std::uint32_t cp) const {
+    if (!m_font) return false;
+#if defined(SDL_TTF_VERSION_ATLEAST)
+#if SDL_TTF_VERSION_ATLEAST(2, 0, 18)
+#define NXUI_TTF_GLYPH32 1
+#endif
+#endif
+#ifdef NXUI_TTF_GLYPH32
+    return TTF_GlyphIsProvided32(m_font, cp) != 0;
+#else
+    return cp <= 0xFFFF && TTF_GlyphIsProvided(m_font, static_cast<Uint16>(cp)) != 0;
+#endif
+}
+
 Vec2 Font::measure(const std::string& text) const {
     if (!m_font || text.empty()) return {0, 0};
     // Rendered strings already carry their exact dimensions. Avoid invoking

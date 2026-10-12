@@ -799,7 +799,8 @@ void WiiUMenuApp::openDiscordPanel() {
         m_discordPanel = std::make_shared<DiscordPanel>();
         m_discordPanel->setFont(&m_fontNormal);
         m_discordPanel->setSmallFont(&m_fontSmall);
-        m_discordPanel->setTheme(&m_theme);
+        m_discordPanel->setGpu(&app().gpu(), &app().renderer());
+        m_discordPanel->setLogoPath(std::string(SD_ASSETS) + "/icons/discord.png");
         m_discordPanel->setService(&m_discord);
         DiscordPanel::Callbacks cb;
         cb.onClosed = [this]() {

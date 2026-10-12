@@ -26,6 +26,8 @@ public:
 
     // Measure text dimensions
     Vec2 measure(const std::string& text) const;
+    // Whether the font has a glyph for this Unicode codepoint.
+    bool hasGlyph(std::uint32_t cp) const;
 
     // Clear all cached glyph textures (call before GPU descriptor reset)
     void clearCache();

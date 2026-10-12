@@ -743,6 +743,7 @@ private:
     static constexpr float kLeaveSplashMaxWait = 1.0f; // never block HOME longer than this
     static constexpr float kLeaveSplashFadeDur = 0.4f; // HomeNX: dissolve into the live menu while the icon wave plays
     static constexpr float kReturnIntroDur = 0.2f; // HOME eases in before the menu loads
+    static constexpr float kReturnZoomDur = 0.32f; // ...from the game's last frame zooming away
 
     bool  m_audioInitPending = false;
     bool  m_audioHeldLogged  = false;
