@@ -38,7 +38,7 @@ jobs:
           curl -fsSL -o /tmp/sphaira.zip https://github.com/ITotalJustice/sphaira/releases/download/1.0.8/sphaira.zip
           unzip -p /tmp/sphaira.zip switch/sphaira/sphaira.nro > romfs/bin/sphaira.nro
       - name: Configure frontend
-        run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root
+        run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root --ldflags="-Wl,-Map=/tmp/menu.map"
       - name: Build
         run: |
           xmake build -vD --root HomeNX-Loader
@@ -47,18 +47,31 @@ jobs:
           xmake build -vD --root SwitchU
       - name: Symbolize
         run: |
-          find build -type f \( -name 'SwitchU' -o -name 'SwitchU.elf' -o -name '*.nso' \) | xargs ls -la
-          ELF=$(find build -type f \( -name 'SwitchU.elf' -o -name 'SwitchU' \) | head -1)
-          A2L=/opt/devkitpro/devkitA64/bin/aarch64-none-elf-addr2line
-          NM=/opt/devkitpro/devkitA64/bin/aarch64-none-elf-nm
-          echo "== PC / LR"
-          $A2L -e "$ELF" -f -C -i -p 0xAE1B30 0xAE1B1C
-          echo "== backtrace (return address - 4)"
-          for a in 0x4B1024 0x4CD388 0x4B921C 0x4B3DF0 0x4CCDB4 0x4B0658 0x26B1D8 0x242714 0x24429C 0x99A13C 0xA1F8D0 0x9CD7FC; do
-            printf '%s: ' "$a"; $A2L -e "$ELF" -f -C -i -p $(printf '0x%X' $((a - 4)))
-          done
-          echo "== X0 0xE382D0"
-          $NM -C -n -S "$ELF" | awk '{ if (strtonum("0x"$1) <= 0xE382D0) last=$0; else { print last; exit } }'
+          ls -la /tmp/menu.map
+          cat > /tmp/sym.py <<'PY'
+          import bisect, re, subprocess, sys
+          entries = []
+          for line in open('/tmp/menu.map', errors='replace'):
+              m = re.match(r'^\s*(\S+)?\s+0x([0-9a-f]{8,16})\s+0x([0-9a-f]+)\s+(\S+)', line)
+              if m:
+                  entries.append((int(m.group(2), 16), (m.group(1) or '') + ' ' + m.group(4)))
+                  continue
+              m = re.match(r'^\s+0x([0-9a-f]{8,16})\s+(\S.*)$', line)
+              if m and not m.group(2).startswith('0x'):
+                  entries.append((int(m.group(1), 16), m.group(2).strip()))
+          entries = sorted(e for e in entries if e[0] > 0)
+          keys = [e[0] for e in entries]
+          names = {'PC': 0xAE1B30, 'LR': 0xAE1B1C}
+          bt = [0x4B1024, 0x4CD388, 0x4B921C, 0x4B3DF0, 0x4CCDB4, 0x4B0658, 0x26B1D8, 0x242714, 0x24429C, 0x99A13C, 0xA1F8D0, 0x9CD7FC]
+          todo = list(names.items()) + [('BT%02d' % i, a - 4) for i, a in enumerate(bt)] + [('X0', 0xE382D0)]
+          for label, addr in todo:
+              i = bisect.bisect_right(keys, addr) - 1
+              near = [entries[j] for j in range(max(0, i - 2), i + 1)]
+              desc = ' | '.join('%x %s' % (a, n) for a, n in near)
+              out = subprocess.run(['c++filt'], input=desc, capture_output=True, text=True).stdout.strip()
+              print('%-5s %x: %s' % (label, addr, out))
+          PY
+          python3 /tmp/sym.py
       - uses: actions/upload-artifact@v4
         with:
           name: menu-elf-39
