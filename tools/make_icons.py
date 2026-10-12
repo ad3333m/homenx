@@ -67,6 +67,20 @@ def friends():
     return im
 
 
+def discord():
+    # blurple tile with a white controller-shaped face and two eyes (HomeNX Discord panel)
+    im = canvas(); d = ImageDraw.Draw(im)
+    blurple = (88, 101, 242)
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(110), fill=blurple)
+    # face: a wide rounded body with two lower "grips"
+    d.rounded_rectangle([p(118), p(150), p(394), p(330)], radius=p(80), fill="white")
+    d.ellipse([p(104), p(250), p(214), p(370)], fill="white")
+    d.ellipse([p(298), p(250), p(408), p(370)], fill="white")
+    d.ellipse([p(186), p(222), p(236), p(282)], fill=blurple)
+    d.ellipse([p(276), p(222), p(326), p(282)], fill=blurple)
+    return im
+
+
 def sphaira():
     # Sphaira's own icon (tools/sphaira-icon.jpg, from ITotalJustice/sphaira) cropped to a circle
     im = canvas()
@@ -114,7 +128,7 @@ def toggle_icon():
 
 
 if __name__ == "__main__":
-    for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends)]:
+    for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()
     toggle_icon()

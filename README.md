@@ -4,27 +4,31 @@ Wii U-style home menu for modded Switch consoles, forked from
 [SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX (GPL-3.0). It ships two ways:
 
 - **HomeNX.nro**: run it from Sphaira/hbmenu like any homebrew.
-- **HomeNX-frontend.zip**: replaces the console's HOME menu (needs Atmosphere).
+- **HomeNX-full.zip**: replaces the console's HOME menu (needs Atmosphere).
+  (`HomeNX-frontend.zip` is the smaller update package the console downloads itself.)
 
 | Left | Right |
 |---|---|
-| Sphaira, Miis, News, Custom button, Settings | Nintendo eShop, Controllers, Friends, Theme Shop, Sleep |
+| Sphaira, Discord, News, Custom button, Settings | Nintendo eShop, Controllers, Social, Theme Shop, Sleep |
 
 Settings > HomeNX: the custom button's app and icon, the order of the side
 buttons, and Glass effects (off = steady 60 FPS).
 
 - **Games** are the ones installed on the console. **Profiles** are always chosen.
 - **News** reads the console's own saved HOME-menu news.
-- **Friends** reads the console's friend list; Add Friend and Friend Requests open
-  Nintendo's screens (they need the console to go online).
-- **Miis** lists your Miis with a HomeNX portrait; create/edit opens Mii Maker.
+- **Social** reads the console's friend list; Add Friend and Friend Requests open
+  Nintendo's screens (they need the console to go online). The **Mii Editor** is in
+  Social too: your Miis with a HomeNX portrait; create/edit opens Mii Maker.
+- **Discord** slides in from the left: friends online, your DMs (read and reply).
+  Sign in once with a QR code, or HomeNX uses your SwitchCord account. Discord can
+  flag accounts that use third-party clients; that risk is yours.
 - **Controllers** opens HomeNX's Controllers menu (Change Grip/Order, Find
   Controllers, Test Input Devices, Button Mapping).
 - R opens Quick Settings.
 
 ## Installing the frontend
 
-1. Extract `HomeNX-frontend.zip` to the root of the SD card (it adds
+1. Extract `HomeNX-full.zip` to the root of the SD card (it adds
    `atmosphere/` and `switch/` folders) and reboot. It's on straight away.
 2. **HomeNX Toggle** (`switch/HomeNX-Toggle/HomeNX-Toggle.nro`, copied there
    by HomeNX on its first start) has buttons to

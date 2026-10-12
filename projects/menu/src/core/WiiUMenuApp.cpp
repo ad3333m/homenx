@@ -600,7 +600,8 @@ bool WiiUMenuApp::hasActiveLeaveCaptureOverlay() const {
         || (m_folderOptions && m_folderOptions->isActive())
         || (m_controllerTest && m_controllerTest->isActive())
         || (m_profileCarousel && m_profileCarousel->isActive())
-        || (m_steamGridDbPicker && m_steamGridDbPicker->isActive());
+        || (m_steamGridDbPicker && m_steamGridDbPicker->isActive())
+        || (m_discordPanel && m_discordPanel->isActive());
 }
 
 void WiiUMenuApp::pollDeferredLeaveCapture() {
@@ -4611,7 +4612,7 @@ void WiiUMenuApp::buildGrid() {
 #endif
     // HomeNX menus: Miis, Homebrew, News and Friends are drawn by HomeNX, and
     // Controllers opens Settings > Controllers (Change Grip/Order, Find, ...).
-    sidebarActions.onMiiEditor = [this]() { openMiis(); };
+    sidebarActions.onMiiEditor = [this]() { openDiscordPanel(); }; // the Mii Editor is in Social now
     sidebarActions.onCustom = [this]() { activateCustomButton(); };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
@@ -5347,6 +5348,7 @@ void WiiUMenuApp::onUpdate(float dt) {
         && !(m_launchAnim && m_launchAnim->isPlaying()) && (m_readbackPrepDelay -= dt) <= 0.f)
         m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
 #endif
+    m_discord.update(); // HomeNX Discord panel (idle until it has been opened)
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
@@ -6103,10 +6105,15 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_controllerTest && m_controllerTest->isActive())
         && !(m_profileCarousel && m_profileCarousel->isActive())
         && !(m_userSelect && m_userSelect->isActive())
-        && !(m_progressDialog && m_progressDialog->isActive()))
+        && !(m_progressDialog && m_progressDialog->isActive())
+        && !(m_discordPanel && m_discordPanel->isActive()))
     {
         handleTouch();
     }
+    // HomeNX: a tap beside the Discord panel closes it (it covers the left 460 px).
+    if (m_discordPanel && m_discordPanel->isActive() && app().input().touchDown()
+        && app().input().touchX() > 470.f && !(m_textEntry && m_textEntry->isActive()))
+        m_discordPanel->hide();
 
     bool dialogActiveNow = (m_dialog && m_dialog->isActive());
     const bool textEntryActive = m_textEntry && m_textEntry->isActive();

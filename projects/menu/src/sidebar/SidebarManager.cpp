@@ -80,7 +80,7 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     struct Def { int id; const char* key; const char* fallback; std::function<void()> action; };
     const Def defs[kSidebarIconCount] = {
         {kButtonSphaira, "sidebar.sphaira", "Sphaira", actions.onAlbum},
-        {kButtonMii, "sidebar.mii_editor", "Mii Editor", actions.onMiiEditor},
+        {kButtonMii, "sidebar.discord", "Discord", actions.onMiiEditor}, // HomeNX: the Mii Editor moved into Social
         {kButtonControllers, "sidebar.controllers", "Controllers", actions.onControllers},
         {kButtonSleep, "sidebar.sleep", "Sleep", actions.onSleep},
         {kButtonThemeShop, "sidebar.theme_shop", "Theme Shop", actions.onMiiverse},
@@ -88,7 +88,7 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         {kButtonEshop, "sidebar.eshop", "Nintendo eShop", actions.onEshop},
         {kButtonNews, "sidebar.news", "News", actions.onNews},
         {kButtonCustom, "sidebar.custom", "Empty", actions.onCustom},
-        {kButtonFriends, "sidebar.friends", "Friends", actions.onFriends},
+        {kButtonFriends, "sidebar.social", "Social", actions.onFriends},
     };
     m_byId.fill(nullptr);
     for (int slot = 0; slot < kSidebarIconCount; ++slot) {
@@ -270,7 +270,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     };
 
     static const char* iconFiles[] = {
-        "sphaira.png", "mii_editor.png", "controller.png", "power.png", "themes.png", "settings.png",
+        "sphaira.png", "discord.png", "controller.png", "power.png", "themes.png", "settings.png",
         "eshop.png", "news.png", nullptr /* custom: setCustomButton */, "friends.png",
     };
     if ((int)m_icons.size() != kSidebarIconCount)
@@ -280,7 +280,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
 
     static const struct { int iconIdx; const char* webpFile; bool useFirstFrame; } animDefs[] = {
         { 0, "sphaira.webp",    false },
-        { 1, "mii_editor.webp", false },
+        { 1, "discord.webp", false },
         { 2, "controller.webp", true  },
         { 3, "power.webp",      false },
         { 4, "themes.webp",     false },

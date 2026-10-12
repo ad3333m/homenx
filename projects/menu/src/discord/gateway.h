@@ -1,0 +1,60 @@
+#pragma once
+
+#include <atomic>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "util/json.h"
+
+// The Discord gateway on its own thread: heartbeats, identify/resume, zlib-stream,
+// reconnects. Dispatches are parsed there and handed to the main thread via Drain().
+class Gateway {
+public:
+    enum class State { Idle, Connecting, Ready, Reconnecting, AuthFailed, Failed };
+
+    struct Event {
+        std::string type;  // dispatch name, e.g. MESSAGE_CREATE
+        J::Doc doc;        // keeps d alive
+        yyjson_val* d = nullptr;
+    };
+
+    ~Gateway();
+    void Start(const std::string& token);
+    void Stop();
+    void Send(std::string payload);  // raw JSON, queued until the session is ready
+    std::vector<Event> Drain();
+
+    State GetState() const { return state_.load(); }
+    std::string LastError() const;
+
+    // Subscribes to typing/messages for the channel being viewed in a large guild.
+    void Subscribe(uint64_t guildId, uint64_t channelId);
+    // Asks for the member records (nickname, roles) of these users.
+    void RequestMembers(uint64_t guildId, const std::vector<uint64_t>& userIds);
+
+private:
+    enum class After { Retry, ResetSession, Fatal, AuthFailed };
+
+    void Run();
+    After Session(const std::string& url);
+    void SetState(State s) { state_ = s; }
+    void SetError(const std::string& e);
+    bool Sleep(int ms);  // false if stopping
+
+    std::thread thread_;
+    std::atomic<bool> stop_{false};
+    std::atomic<State> state_{State::Idle};
+
+    std::string token_;
+    std::string sessionId_, resumeUrl_;
+    int64_t seq_ = -1;
+    bool reachedReady_ = false;
+
+    mutable std::mutex mu_;
+    std::deque<Event> in_;
+    std::deque<std::string> out_;
+    std::string error_;
+};

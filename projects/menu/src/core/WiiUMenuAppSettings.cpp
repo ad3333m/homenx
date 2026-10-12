@@ -461,11 +461,11 @@ void WiiUMenuApp::createSettings() {
         const auto order = sidebarOrder();
         // Names by button id (SidebarManager::kButton*).
         m_settings->setSidebarOrderState(std::vector<int>(order.begin(), order.end()), {
-            "Sphaira", i18n.tr("sidebar.mii_editor", "Mii Editor"),
+            "Sphaira", i18n.tr("sidebar.discord", "Discord"),
             i18n.tr("sidebar.controllers", "Controllers"), i18n.tr("sidebar.sleep", "Sleep"),
             i18n.tr("sidebar.theme_shop", "Theme Shop"), i18n.tr("sidebar.settings", "Settings"),
             i18n.tr("sidebar.eshop", "Nintendo eShop"), i18n.tr("sidebar.news", "News"),
-            i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.friends", "Friends"),
+            i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.social", "Social"),
         });
     }
     m_settings->onSidebarOrderChange([this](std::vector<int> order) {
@@ -785,6 +785,52 @@ void WiiUMenuApp::openQuickSettings() {
                                       m_consoleBatteryCharging);
     m_quickSettings->show();
     focusManager().setFocus(m_quickSettings.get());
+    if (m_cursor) m_cursor->setVisible(false);
+    m_audio.playSfx(Sfx::ModalShow);
+}
+
+// HomeNX: Discord panel, slides in from the left like Quick Settings from the right.
+void WiiUMenuApp::openDiscordPanel() {
+    if (m_editMode || (m_dialog && m_dialog->isActive()) ||
+        (m_userSelect && m_userSelect->isActive()) ||
+        (m_quickSettings && m_quickSettings->isActive()))
+        return;
+    if (!m_discordPanel) {
+        m_discordPanel = std::make_shared<DiscordPanel>();
+        m_discordPanel->setFont(&m_fontNormal);
+        m_discordPanel->setSmallFont(&m_fontSmall);
+        m_discordPanel->setTheme(&m_theme);
+        m_discordPanel->setService(&m_discord);
+        DiscordPanel::Callbacks cb;
+        cb.onClosed = [this]() {
+            m_audio.playSfx(Sfx::ModalHide);
+            nxui::Widget* target = m_dialogReturnFocus;
+            if (!isCurrentFocusableWidget(target) && m_grid)
+                target = m_grid->focusManager().current();
+            if (isCurrentFocusableWidget(target)) {
+                focusManager().setFocus(target);
+                if (m_cursor) {
+                    m_cursor->moveTo(target->focusRect().expanded(4.f), 0.f);
+                    m_cursor->setVisible(true);
+                }
+            }
+            m_dialogReturnFocus = nullptr;
+        };
+        cb.onReply = [this](Snowflake channelId, const std::string& name) {
+            auto& i18n = nxui::I18n::instance();
+            requestTextEntry(i18n.tr("discord.reply_to", "Message") + " " + name, std::string(),
+                             std::string(), 2000, false,
+                             [this, channelId](const std::string& text) { m_discord.send(channelId, text); });
+        };
+        cb.onNavigate = [this]() { m_audio.playSfx(Sfx::Navigate); };
+        cb.onActivate = [this]() { m_audio.playSfx(Sfx::Activate); };
+        m_discordPanel->setCallbacks(std::move(cb));
+        if (m_overlayLayer) m_overlayLayer->addChild(m_discordPanel);
+    }
+    if (m_discordPanel->isActive()) return;
+    m_dialogReturnFocus = focusManager().current();
+    m_discordPanel->show();
+    focusManager().setFocus(m_discordPanel.get());
     if (m_cursor) m_cursor->setVisible(false);
     m_audio.playSfx(Sfx::ModalShow);
 }
@@ -1405,6 +1451,17 @@ void WiiUMenuApp::openFriends() {
     AccountUid uid = activeProfileUid();
     std::vector<ListDetailScreen::Entry> entries;
 
+    // HomeNX: Social. The Mii Editor lives here now (its sidebar button became Discord).
+    {
+        ListDetailScreen::Entry mii;
+        mii.listName = i18n.tr("sidebar.mii_editor", "Mii Editor");
+        mii.title = mii.listName;
+        mii.body = i18n.tr("social.mii_body", "Your Miis: see them, make a new one or edit one.");
+        mii.actionHint = i18n.tr("social.mii_open", "Press A to open");
+        mii.onActivate = [this]() { openMiis(); };
+        entries.push_back(std::move(mii));
+    }
+
     // Adding friends and friend requests are Nintendo's online screens; they
     // need the console to reach Nintendo's servers.
     auto systemScreen = [this](AppletLauncher::FriendScreen which) {
@@ -1492,7 +1549,7 @@ void WiiUMenuApp::openFriends() {
         }
     }
     const auto& right = m_sidebar.rightButtons();
-    showDetailScreen(std::move(entries), i18n.tr("sidebar.friends", "Friends"), std::string(),
+    showDetailScreen(std::move(entries), i18n.tr("sidebar.social", "Social"), std::string(),
                      right.size() > 2 ? right[2].get() : nullptr);
 }
 

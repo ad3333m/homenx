@@ -180,6 +180,8 @@ target("SwitchU")
     add_includedirs("projects/common/include", {public = false})
     add_includedirs("projects/menu/src", {public = false})
     add_files("projects/menu/src/**.cpp")
+    -- HomeNX Discord panel: SwitchCord's client code uses yyjson (C) and mbedtls.
+    add_files("projects/menu/src/third_party/yyjson.c")
     -- HomeNX: Settings > HomeNX updates the frontend with the Toggle's updater.
     add_files("projects/manager/src/ReleaseUpdater.cpp")
     add_includedirs("projects/manager/src", {public = false})
@@ -199,7 +201,7 @@ target("SwitchU")
         add_packages("deko3d", {links = is_mode("debug") and "deko3dd" or "deko3d"})
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
-    add_syslinks("nx")
+    add_syslinks("mbedtls", "mbedx509", "mbedcrypto", "nx")
 
     if is_mode("release") then
         add_cxflags("-O3", "-ffast-math", {force = true})

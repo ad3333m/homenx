@@ -141,12 +141,19 @@ jobs:
           # HomeNX Toggle reads this to know which frontend build is installed.
           echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out
-          cd dist/frontend && zip -r "$GITHUB_WORKSPACE/out/HomeNX-frontend.zip" atmosphere switch
+          # HomeNX-full.zip: everything, for a fresh install. HomeNX-frontend.zip is
+          # what the on-console updaters download: the same minus the parts that
+          # never change between builds (menu music, eSpeak voices, the pinned
+          # Sphaira), 13 MB instead of 50 MB. An existing install keeps those.
+          cd dist/frontend && zip -r "$GITHUB_WORKSPACE/out/HomeNX-full.zip" atmosphere switch
+          zip -r "$GITHUB_WORKSPACE/out/HomeNX-frontend.zip" atmosphere switch             -x 'switch/SwitchU/sounds/*' 'switch/SwitchU/espeak-ng-data/*' 'switch/SwitchU/bin/sphaira.nro'
 
       - uses: actions/upload-artifact@v4
         with:
           name: HomeNX-frontend
-          path: out/HomeNX-frontend.zip
+          path: |
+            out/HomeNX-frontend.zip
+            out/HomeNX-full.zip
 
       - name: Publish release "latest"
         env:
@@ -166,5 +173,6 @@ jobs:
           NEXT=$(asset_id HomeNX-frontend-next.zip)
           if [ -n "$OLD" ]; then gh api -X DELETE "repos/$R/releases/assets/$OLD"; fi
           gh api -X PATCH "repos/$R/releases/assets/$NEXT" -f name=HomeNX-frontend.zip >/dev/null
+          gh release upload latest out/HomeNX-full.zip -R "$R" --clobber
           # Title last: HomeNX Toggle treats "HomeNX build N" as "zip N is ready".
           gh release edit latest -R "$GITHUB_REPOSITORY" --title "HomeNX build $HOMENX_BUILD"

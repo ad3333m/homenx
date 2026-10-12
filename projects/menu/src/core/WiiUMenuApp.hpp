@@ -2,6 +2,8 @@
 #include <nxui/Activity.hpp>
 #include <nxui/Application.hpp>
 #include <nxui/core/GpuDevice.hpp>
+#include "social/DiscordService.hpp"
+#include "widgets/DiscordPanel.hpp"
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
 #include <nxui/core/I18n.hpp>
@@ -361,6 +363,7 @@ private:
     void createSettings();
     void createQuickSettings();
     void openQuickSettings();
+    void openDiscordPanel();
     void persistMusicPlaybackState(bool updateEnabledFlag = false);
     void resumeMenuMusicAfterReturn();
     // Console sleep: the daemon announces the sleep before the system goes
@@ -471,6 +474,9 @@ private:
     std::shared_ptr<QuickSettingsOverlay> m_quickSettings;
     std::shared_ptr<ContextMenu>       m_contextMenu;
     std::shared_ptr<ProgressDialog>    m_progressDialog;
+    // HomeNX: the Discord panel (left side) and its connection.
+    DiscordService                     m_discord;
+    std::shared_ptr<DiscordPanel>      m_discordPanel;
     std::shared_ptr<SettingsScreen>    m_settings;
     std::shared_ptr<ThemeShopScreen>   m_themeShop;
     std::shared_ptr<GameOptionsScreen> m_gameOptions;

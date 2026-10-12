@@ -175,11 +175,28 @@ struct DownloadContext {
     Sha256Context sha{};
     std::atomic<float>* progress = nullptr;
     std::uint64_t received = 0;
+    std::uint64_t total = 0;       // whole asset, so progress spans resumed attempts
+    std::uint64_t resumeFrom = 0;  // bytes this attempt asked the server to skip
+    CURL* curl = nullptr;
+    bool checkedResume = false;
 };
 
 size_t writeDownload(char* data, size_t size, size_t count, void* user) {
     const size_t bytes = size * count;
     auto* context = static_cast<DownloadContext*>(user);
+    if (!context->checkedResume) {
+        // HomeNX: a resumed attempt only continues if the server honoured the
+        // range (206). Otherwise the body starts at byte 0: start the file over.
+        context->checkedResume = true;
+        long code = 0;
+        curl_easy_getinfo(context->curl, CURLINFO_RESPONSE_CODE, &code);
+        if (context->resumeFrom > 0 && code != 206) {
+            context->file = std::freopen(kArchivePartPath, "wb", context->file);
+            sha256ContextCreate(&context->sha);
+            context->received = 0;
+            context->resumeFrom = 0;
+        }
+    }
     if (context->received + bytes > kMaxArchiveBytes)
         return 0;
     if (!context->file || std::fwrite(data, 1, bytes, context->file) != bytes)
@@ -191,10 +208,13 @@ size_t writeDownload(char* data, size_t size, size_t count, void* user) {
 
 int updateDownloadProgress(void* user, curl_off_t total, curl_off_t current,
                            curl_off_t, curl_off_t) {
-    auto* progress = static_cast<std::atomic<float>*>(user);
-    if (total > 0)
-        progress->store(std::clamp(static_cast<float>(current) / static_cast<float>(total),
-                                   0.f, 1.f));
+    auto* context = static_cast<DownloadContext*>(user);
+    const double whole = context->total > 0
+        ? static_cast<double>(context->total)
+        : static_cast<double>(context->resumeFrom) + static_cast<double>(total);
+    if (whole > 0)
+        context->progress->store(std::clamp(
+            static_cast<float>((static_cast<double>(context->resumeFrom) + current) / whole), 0.f, 1.f));
     return 0;
 }
 
@@ -215,45 +235,63 @@ std::string downloadLocked(const ReleaseInfo& release, std::atomic<float>& progr
     std::filesystem::remove(kArchivePartPath, ec);
 
     // HomeNX: a cut-off download ("Transferred a partial file", a stall, a
-    // dropped connection) is retried from scratch up to 3 times.
+    // dropped connection, a timeout) continues where it stopped (HTTP range)
+    // instead of starting over, up to 8 attempts.
     DownloadContext context;
+    context.progress = &progress;
+    context.total = release.downloadSize;
+    sha256ContextCreate(&context.sha);
     CURLcode rc = CURLE_OK;
     long status = 0;
-    for (int attempt = 1; attempt <= 3; ++attempt) {
-        context = DownloadContext{};
-        context.file = std::fopen(kArchivePartPath, "wb");
+    for (int attempt = 1; attempt <= 8; ++attempt) {
+        const bool resume = context.received > 0
+            && (release.downloadSize == 0 || context.received < release.downloadSize);
+        if (!resume) {
+            context.received = 0;
+            sha256ContextCreate(&context.sha);
+        }
+        context.file = std::fopen(kArchivePartPath, resume ? "ab" : "wb");
         if (!context.file)
             throw std::runtime_error("Unable to create the update archive on the SD card");
-        sha256ContextCreate(&context.sha);
+        context.resumeFrom = resume ? context.received : 0;
+        context.checkedResume = false;
         CURL* curl = curl_easy_init();
         if (!curl) {
             std::fclose(context.file);
             throw std::runtime_error("curl_easy_init failed");
         }
-        context.progress = &progress;
+        context.curl = curl;
         configureCurl(curl, release.downloadUrl);
         // Big file on Switch Wi-Fi: no overall time limit, give up only on a stall.
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 512L);
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
+        if (resume)
+            curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, static_cast<curl_off_t>(context.received));
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeDownload);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, updateDownloadProgress);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &context);
         rc = curl_easy_perform(curl);
         status = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
         curl_easy_cleanup(curl);
+        context.curl = nullptr;
         std::fclose(context.file);
         context.file = nullptr;
         const bool complete = rc == CURLE_OK && status >= 200 && status < 300
             && (release.downloadSize == 0 || context.received == release.downloadSize);
         if (complete) break;
-        switchu::FileLog::log("[updater] download attempt %d failed rc=%d status=%ld got=%lu",
+        switchu::FileLog::log("[updater] download attempt %d stopped rc=%d status=%ld got=%lu; %s",
                               attempt, static_cast<int>(rc), status,
-                              static_cast<unsigned long>(context.received));
-        if (status >= 400 && status != 429 && status < 500) break; // e.g. 404: retrying won't help
+                              static_cast<unsigned long>(context.received),
+                              context.received > 0 ? "resuming" : "retrying");
+        if (status == 416)
+            context.received = 0; // range no longer valid: start over
+        else if (status >= 400 && status != 429 && status < 500)
+            break; // e.g. 404: retrying won't help
+        svcSleepThread(static_cast<s64>(attempt) * 1'000'000'000LL);
     }
     if (rc != CURLE_OK || status < 200 || status >= 300) {
         std::filesystem::remove(kArchivePartPath, ec);
