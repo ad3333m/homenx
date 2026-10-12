@@ -140,17 +140,14 @@ void AppletLauncher::reboot() {
     switchu::menu::smi_cmd::reboot();
 }
 
-bool AppletLauncher::requestLaunch(uint64_t titleId, AccountUid uid) {
+void AppletLauncher::launchApplication(uint64_t titleId, AccountUid uid) {
     DebugLog::log("[launcher] tid=%016lX", titleId);
-    const Result rc = switchu::menu::smi_cmd::launchApplication(titleId, uid);
-    if (R_FAILED(rc))
+    Result rc = switchu::menu::smi_cmd::launchApplication(titleId, uid);
+    if (R_FAILED(rc)) {
         DebugLog::log("[launcher] FAIL: 0x%X", rc);
-    else
-        DebugLog::log("[launcher] command sent; the daemon starts it while the menu closes");
-    return R_SUCCEEDED(rc);
-}
-
-void AppletLauncher::closeForLaunch() {
+        return;
+    }
+    DebugLog::log("[launcher] command sent, closing menu");
     if (m_cb.requestExit) m_cb.requestExit();
 }
 
@@ -659,15 +656,12 @@ void AppletLauncher::launchUserCreator()       {}
 void AppletLauncher::enterSleep()              {}
 void AppletLauncher::shutdown()                {}
 void AppletLauncher::reboot()                  {}
-bool AppletLauncher::requestLaunch(uint64_t titleId, AccountUid) {
+void AppletLauncher::launchApplication(uint64_t titleId, AccountUid) {
     // The system launches it after HomeNX exits. It can't carry a user, so
     // titles that need one get the system's own picker if it wants one.
     Result rc = appletRequestLaunchApplication(titleId, nullptr);
     DebugLog::log("[launcher] request launch %016lX rc=0x%X", titleId, rc);
-    return R_SUCCEEDED(rc);
-}
-void AppletLauncher::closeForLaunch() {
-    if (m_cb.requestExit) m_cb.requestExit();
+    if (R_SUCCEEDED(rc) && m_cb.requestExit) m_cb.requestExit();
 }
 void AppletLauncher::resumeApplication()       {}
 void AppletLauncher::terminateApplication()    {}

@@ -249,9 +249,6 @@ static smi::OperationOutcome g_lastOperationFailure{};
 static bool g_foregroundAppletActive = false;
 static bool g_pendingForegroundAppletHome = false;
 static bool g_pendingHomeMenuLaunch = false;
-// HomeNX: a game started in the background while the menu closes; it gets the
-// screen as soon as the menu has exited.
-static bool g_launchForegroundPending = false;
 static const char* g_pendingHomeMenuSource = nullptr;
 static uint64_t g_pendingHomeMenuStartedAt = 0;
 static uint8_t g_lastBatteryPercent = 0xFF;
@@ -1431,24 +1428,6 @@ static void handleMenuCommand() {
     switch (msg) {
     case smi::SystemMessage::LaunchApplication: {
         auto args = reader.pop<smi::LaunchAppArgs>();
-        // HomeNX: start the game now, while the menu is still closing, instead of
-        // after it has fully shut down. It loads in the background and only gets
-        // the screen once the menu is gone, so it can't fight the menu applet for
-        // the foreground (which is what froze games' own pop-ups upstream).
-        if (daemon::menu_la::hasHolder() && !g_foregroundAppletActive && g_actionQueue.empty()
-            && !daemon::app::isRunning()) {
-            AccountUid uid{};
-            std::memcpy(&uid, args.user_uid, sizeof(uid));
-            result = daemon::app::launch(args.title_id, uid, false);
-            if (R_SUCCEEDED(result)) {
-                g_launchForegroundPending = true;
-                recordOperationResult(requestId, msg, result, args.title_id);
-                switchu::FileLog::log("[smi] launch 0x%016lX started early; foreground when the menu exits",
-                                      args.title_id);
-                break;
-            }
-            switchu::FileLog::log("[smi] early launch 0x%016lX FAIL 0x%X; queueing", args.title_id, result);
-        }
         daemon::SystemAction action{};
         action.type = daemon::SystemActionType::LaunchApplication;
         action.requestId = requestId;
@@ -1947,15 +1926,7 @@ static void mainLoop() {
         switchu::FileLog::log("[main] menu exited (reason=%d runtime=%lums)",
             (int)daemon::menu_la::exitReason(),
             static_cast<unsigned long>(runtimeNs / 1'000'000ULL));
-        if (g_launchForegroundPending) {
-            g_launchForegroundPending = false;
-            const Result fgRc = daemon::app::resume();
-            switchu::FileLog::log("[main] early-launched game takes the screen rc=0x%X", fgRc);
-            if (R_FAILED(fgRc))
-                daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
-            g_menuFastExitCount = 0; // a launch, not a crash loop
-            didWork = true;
-        } else if (runtimeNs < 1'000'000'000ULL)
+        if (runtimeNs < 1'000'000'000ULL)
             ++g_menuFastExitCount;
         else
             g_menuFastExitCount = 0;
@@ -1972,7 +1943,6 @@ static void mainLoop() {
 
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
-        g_launchForegroundPending = false;
         // Homebrew that dies within seconds never really started (bad host
         // title or loader refused the hbl code): open it over the Album instead.
         const bool homebrewDiedEarly = g_homebrewHostTitleId != 0 &&

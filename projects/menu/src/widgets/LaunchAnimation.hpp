@@ -1,40 +1,29 @@
 #pragma once
 #include <nxui/widgets/Widget.hpp>
+#include <nxui/widgets/GlassPanel.hpp>
 #include <nxui/core/Animation.hpp>
-#include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
 #include <switch/services/acc.h>
 #include <algorithm>
-#include <cstdint>
 #include <functional>
-#include <string>
 
 
 using LaunchCallback = std::function<void(uint64_t titleId, AccountUid uid)>;
 
-// HomeNX launch card (our own; replaced SwitchU's zoom). The pressed icon rises
-// to the centre over a darkening HOME, the game's name fades in under it and a
-// shimmer runs while the game starts; then everything fades to black.
-//
-// onLaunch then onDone fire at the end, on a black screen; the daemon starts the
-// game while the menu closes.
 class LaunchAnimation : public nxui::Widget {
 public:
     LaunchAnimation() = default;
 
-    void setFont(nxui::Font* font) { m_font = font; }
-
+    // Cold launch: zoom to center, hold, fade, then black, then launch.
     void start(const nxui::Rect& from, const nxui::Texture* tex, float cornerRadius,
                const nxui::Color& panelColor, const nxui::Color& borderColor,
-               uint64_t titleId, AccountUid uid, std::string title,
+               uint64_t titleId, AccountUid uid,
                LaunchCallback onLaunch = {}, nxui::VoidCallback onDone = {});
 
     // Resume an already-open title: brief fade to black, then onDone.
     void startResume(nxui::VoidCallback onDone);
 
     bool isPlaying() const { return m_playing; }
-    // The card's backdrop is fully black from here on: HOME underneath needn't be drawn.
-    bool coversScreen() const { return m_playing && !m_resume && m_timer >= kRiseDur; }
     void stop() { m_playing = false; m_tex = nullptr; m_resume = false; }
 
     float musicFadeProgress() const { // between 0 and 1, where 0 is the initial state
@@ -51,22 +40,18 @@ private:
     bool  m_playing  = false;
     bool  m_resume   = false;
     float m_timer    = 0.f;
-    std::uint64_t m_startTick = 0;
 
-    static constexpr float kRiseDur   = 0.45f; // icon to the centre
-    static constexpr float kTitleIn   = 0.30f; // name fades in from here...
-    static constexpr float kTitleDur  = 0.35f; // ...over this long
-    static constexpr float kCardUntil = 0.90f; // card fully shown until here
-    static constexpr float kOutDur    = 0.30f; // then fades to black
-    static constexpr float kTotalDur  = kCardUntil + kOutDur;
-    // The launch goes out once the screen is black. Starting the game while the
-    // card played froze it: the game's start-up threads and GPU work starved
-    // the card, and the system can put the game's logo up as soon as it starts.
-    static constexpr float kLaunchAt  = kTotalDur;
-    static constexpr float kMusicFadeDur = kTotalDur;
-    static constexpr float kCardSize  = 196.f;
+    static constexpr float kZoomDur   = 0.45f;
+    static constexpr float kHoldDur   = 0.35f;
+    static constexpr float kFadeDur   = 0.25f;
+    static constexpr float kBlackDur  = 0.30f;
+    static constexpr float kBlackHold = 0.10f;
+    static constexpr float kPostLaunchBlackHold = 0.15f;
+    static constexpr float kTotalDur  = kZoomDur + kHoldDur + kFadeDur
+                                      + kBlackDur + kBlackHold;
+    static constexpr float kMusicFadeDur = kZoomDur + kHoldDur + kFadeDur + kBlackDur;
 
-    // Resume: soft blackout only.
+    // Resume: soft blackout only — no zoom or icon flare.
     static constexpr float kResumeFadeDur = 0.16f;
     static constexpr float kResumeHoldDur = 0.06f;
     static constexpr float kResumeTotalDur = kResumeFadeDur + kResumeHoldDur;
@@ -75,8 +60,6 @@ private:
     nxui::Rect     m_target;
     float    m_cornerRadius = 24.f;
     const nxui::Texture* m_tex = nullptr;
-    nxui::Font* m_font = nullptr;
-    std::string m_title;
     nxui::Color   m_panelColor;
     nxui::Color   m_borderColor;
     uint64_t m_titleId = 0;
@@ -85,4 +68,5 @@ private:
     nxui::VoidCallback m_onDone;
     bool    m_launched = false;
     bool    m_doneCalled = false;
+    bool    m_postLaunchHold = false;
 };

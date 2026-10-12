@@ -235,14 +235,6 @@ private:
     void fadeOutThen(std::function<void()> fn);
     void waitLeaveFrameWrite();
     bool loaderReadyOrExplain();
-    bool  m_readbackPrepared = false;   // capture buffers allocated (see onUpdate)
-    // Launch card hand-off (finishLaunch).
-    int  m_launchFinishFrames = 0;
-    bool m_launchCovering = false;
-    std::uint64_t m_launchTitleId = 0;
-    std::string m_launchTitleName;
-    AccountUid m_launchUid{};
-    float m_readbackPrepDelay = 1.5f;
     std::future<void> m_leaveFrameWrite; // background save of the return frame
     void scheduleLeaveCapture(std::function<void()> afterCapture,
                               std::uint64_t previewSuspendedTitleId = 0);
@@ -260,8 +252,6 @@ private:
     void updateLeaveSplashHandoff(float dt);
     bool leaveSplashActive() const;
     void confirmCloseSuspendedThen(std::function<void()> go);
-    void finishLaunch();
-    void drawReturnVeil(nxui::Renderer& ren, float t);
     void renameFolder(std::uint32_t folderId);
     void showFolderContextMenu(std::uint32_t folderId);
     bool saveFoldersOrReport(const char* operation);
@@ -725,8 +715,6 @@ private:
     enum class LeaveSplashPhase { None, Hold, Fade };
     LeaveSplashPhase m_leaveSplashPhase = LeaveSplashPhase::None;
     float m_leaveSplashHoldRemaining = 0.f;
-    float m_leaveSplashWaited = 0.f;
-    std::uint64_t m_leaveSplashStartTick = 0;
     // Settings > HomeNX > Return timing (system ticks; 0 = not reached).
     std::uint64_t m_tFirstFrame = 0, m_tResources = 0, m_tGrid = 0, m_tReady = 0, m_tMusic = 0;
     float m_leaveSplashFade = 0.f;
@@ -734,9 +722,7 @@ private:
     bool m_leaveMotionFrozen = false;
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
-    static constexpr float kLeaveSplashMaxWait = 1.0f; // never block HOME longer than this
-    static constexpr float kLeaveSplashFadeDur = 0.55f; // HomeNX: dissolve into the live menu while the icon wave plays
-    static constexpr float kReturnIntroDur = 0.3f; // HOME eases in before the menu loads
+    static constexpr float kLeaveSplashFadeDur = 0.25f;
 
     bool  m_audioInitPending = false;
     bool  m_audioHeldLogged  = false;
