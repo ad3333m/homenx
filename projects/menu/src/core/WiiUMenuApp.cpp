@@ -495,6 +495,7 @@ void WiiUMenuApp::saveCustomNames() const {
 }
 
 void WiiUMenuApp::leaveThen(std::function<void()> fn) {
+    m_discord.beginShutdown(); // closes during the fade (reopening the panel restarts it)
     scheduleLeaveCapture([this, fn = std::move(fn)]() mutable {
         fadeOutThen([this, fn = std::move(fn)]() {
             waitLeaveFrameWrite();
@@ -3953,6 +3954,7 @@ void WiiUMenuApp::resumeSuspendedApplication(std::uint64_t titleId,
         return;
     scheduleLeaveCapture([this, titleId, launchTitle]() {
         m_audio.playSfx(Sfx::LaunchGame);
+        m_discord.beginShutdown(); // see startLaunch
         m_launchAnim->startResume([this, titleId, launchTitle]() {
             m_config.noteOpened(titleId);
             m_config.save();
@@ -4024,6 +4026,9 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
         scheduleLeaveCapture([this, frame, texture, radius, base, border,
                               titleId, launchTitle, uid]() {
             m_audio.playSfx(Sfx::LaunchGame);
+            // Discord closes while the card plays, not after it (that held the
+            // last frame on screen while its threads finished).
+            m_discord.beginShutdown();
             // HomeNX: the game loads in the background while the launch card plays;
             // keep the card's frames ahead of the game's loading threads.
             svcSetThreadPriority(CUR_THREAD_HANDLE, 0x24);

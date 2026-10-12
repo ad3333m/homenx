@@ -26,6 +26,7 @@ public:
     ~RemoteAuth();
     void Start();
     void Stop();
+    void RequestStop() { stop_ = true; } // Stop() then only joins
     Snapshot Get() const;
 
 private:

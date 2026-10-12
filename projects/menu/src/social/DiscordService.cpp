@@ -65,7 +65,17 @@ DiscordService::DiscordService() = default;
 
 DiscordService::~DiscordService() { shutdown(); }
 
+void DiscordService::beginShutdown() {
+    if (!m_started || m_stopping) return;
+    m_stopping = true;
+    Http::AbortAll();
+    if (m_auth) m_auth->RequestStop();
+    if (m_gateway) m_gateway->RequestStop();
+    Async::RequestStop();
+}
+
 void DiscordService::shutdown() {
+    m_stopping = false;
     if (!m_started) return;
     // Transfers in flight fail fast instead of holding the menu open.
     Http::AbortAll();
@@ -128,6 +138,7 @@ void DiscordService::saveAccounts() const {
 }
 
 void DiscordService::activate() {
+    if (m_stopping) shutdown(); // stopped for a launch that didn't happen: start again
     if (m_started) return;
     m_started = true;
     Log::Init("sdmc:/config/SwitchU/discord.log");
@@ -137,6 +148,7 @@ void DiscordService::activate() {
         m_error = "No internet connection.";
         return;
     }
+    Http::ResetAbort();
     Async::Start();
     m_store = std::make_unique<Store>();
     loadAccounts();
@@ -188,7 +200,7 @@ void DiscordService::rememberMe() {
 }
 
 void DiscordService::update() {
-    if (!m_started) return;
+    if (!m_started || m_stopping) return;
     Async::Pump();
 
     if (m_auth) {

@@ -24,6 +24,7 @@ public:
     ~Gateway();
     void Start(const std::string& token);
     void Stop();
+    void RequestStop() { stop_ = true; } // Stop() then only joins
     void Send(std::string payload);  // raw JSON, queued until the session is ready
     std::vector<Event> Drain();
 

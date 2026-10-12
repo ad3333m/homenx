@@ -48,6 +48,7 @@ int OnProgress(void*, curl_off_t, curl_off_t, curl_off_t, curl_off_t) { return g
 }  // namespace
 
 void AbortAll() { g_abort = true; }
+void ResetAbort() { g_abort = false; }
 
 void GlobalInit() { curl_global_init(CURL_GLOBAL_DEFAULT); }
 void GlobalCleanup() { curl_global_cleanup(); }

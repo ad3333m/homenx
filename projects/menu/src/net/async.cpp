@@ -8,6 +8,8 @@
 
 #include "net/http.h"
 
+#include <nxui/core/ThreadPool.hpp>
+
 namespace Async {
 namespace {
 
@@ -22,6 +24,7 @@ struct WorkerPool {
         stop = false;
         for (int i = 0; i < n; i++) {
             threads.emplace_back([this] {
+                nxui::moveToWorkerCores(); // HomeNX: keep core 0 for the menu's frames
                 while (true) {
                     std::function<void()> job;
                     {
@@ -36,6 +39,15 @@ struct WorkerPool {
                 Http::ThreadCleanup();
             });
         }
+    }
+
+    void RequestStop() {
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            stop = true;
+            jobs.clear();
+        }
+        cv.notify_all();
     }
 
     void Stop() {
@@ -68,6 +80,11 @@ void Stop() {
     g_images.Stop();
     std::lock_guard<std::mutex> lk(g_mainMu);
     g_main.clear();
+}
+
+void RequestStop() {
+    g_api.RequestStop();
+    g_images.RequestStop();
 }
 
 void Run(Pool pool, std::function<void()> work) {

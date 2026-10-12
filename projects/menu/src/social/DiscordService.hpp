@@ -46,6 +46,9 @@ public:
     void update();
     // Stops every network thread. Must run before the sockets are shut down.
     void shutdown();
+    // Starts stopping without waiting (a game is launching), so shutdown()
+    // at exit only joins threads that are already gone.
+    void beginShutdown();
 
     State state() const { return m_state; }
     std::string error() const { return m_error; }
@@ -97,4 +100,5 @@ private:
     State m_state = State::SignedOut;
     std::string m_error;
     bool m_started = false;
+    bool m_stopping = false;
 };

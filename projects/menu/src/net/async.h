@@ -10,6 +10,9 @@ enum class Pool { Api, Images };
 
 void Start();
 void Stop();
+// Tells the workers to finish (drops queued work) without waiting for them;
+// Stop() then only joins. HomeNX starts this when a game launches.
+void RequestStop();
 void Run(Pool pool, std::function<void()> work);
 // Queues fn to run on the main thread during Pump().
 void Post(std::function<void()> fn);

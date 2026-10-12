@@ -1,5 +1,7 @@
 #include "discord/gateway.h"
 
+#include <nxui/core/ThreadPool.hpp>
+
 #include <chrono>
 #include <cstring>
 
@@ -82,7 +84,10 @@ void Gateway::Start(const std::string& token) {
         error_.clear();
     }
     state_ = State::Connecting;
-    thread_ = std::thread([this] { Run(); });
+    thread_ = std::thread([this] {
+        nxui::moveToWorkerCores(); // HomeNX: keep core 0 for the menu's frames
+        Run();
+    });
 }
 
 void Gateway::Stop() {

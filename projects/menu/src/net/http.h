@@ -32,5 +32,6 @@ void ThreadCleanup();
 void SetInsecure(bool insecure);
 // Makes every transfer in flight fail fast (used when quitting).
 void AbortAll();
+void ResetAbort();
 
 }  // namespace Http

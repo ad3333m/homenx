@@ -1,5 +1,7 @@
 #include "discord/remote_auth.h"
 
+#include <nxui/core/ThreadPool.hpp>
+
 #include <chrono>
 #include <cstring>
 #include <vector>
@@ -92,7 +94,10 @@ void RemoteAuth::Start() {
         snap_ = Snapshot{};
         snap_.phase = Phase::Preparing;
     }
-    thread_ = std::thread([this] { Run(); });
+    thread_ = std::thread([this] {
+        nxui::moveToWorkerCores(); // HomeNX: keep core 0 for the menu's frames
+        Run();
+    });
 }
 
 void RemoteAuth::Stop() {
