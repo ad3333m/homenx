@@ -134,7 +134,7 @@ void configureCurl(CURL* curl, const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 12L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L); // slow Switch Wi-Fi / DNS
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "HomeNX-Toggle/" HOMENX_BUILD);
@@ -146,7 +146,23 @@ size_t appendResponse(char* data, size_t size, size_t count, void* user) {
     return bytes;
 }
 
+std::string getTextOnceLocked(const std::string& url);
+
+// HomeNX: the release check retries too (a slow or flaky connection used to fail
+// it on the first timeout).
 std::string getTextLocked(const std::string& url) {
+    for (int attempt = 1;; ++attempt) {
+        try {
+            return getTextOnceLocked(url);
+        } catch (const std::exception& ex) {
+            if (attempt >= 3) throw;
+            switchu::FileLog::log("[updater] check attempt %d failed: %s", attempt, ex.what());
+            svcSleepThread(static_cast<s64>(attempt) * 2'000'000'000LL);
+        }
+    }
+}
+
+std::string getTextOnceLocked(const std::string& url) {
     ensureNetworkLocked();
     CURL* curl = curl_easy_init();
     if (!curl) throw std::runtime_error("curl_easy_init failed");
@@ -229,21 +245,64 @@ std::string hexDigest(const std::array<std::uint8_t, SHA256_HASH_SIZE>& digest) 
     return out;
 }
 
+// HomeNX: what a partial download in kArchivePartPath belongs to ("<size> <sha256>"),
+// so a later run can continue it instead of starting over.
+constexpr const char* kPartInfoPath = "sdmc:/config/SwitchU/update/SwitchU-update.zip.part.info";
+
+std::string partKey(const ReleaseInfo& release) {
+    return std::to_string(release.downloadSize) + " " + lower(release.sha256);
+}
+
+// Resumes a partial file from an earlier run of the same release: hashes what's
+// already there so the final SHA-256 check still covers the whole archive.
+std::uint64_t adoptPartialDownload(const ReleaseInfo& release, Sha256Context& sha) {
+    std::error_code ec;
+    std::string key;
+    {
+        std::ifstream info(kPartInfoPath);
+        std::getline(info, key);
+    }
+    const std::uint64_t have = std::filesystem::exists(kArchivePartPath, ec)
+        ? std::filesystem::file_size(kArchivePartPath, ec) : 0;
+    if (release.downloadSize == 0 || release.sha256.empty() || key != partKey(release)
+        || have == 0 || have >= release.downloadSize || ec) {
+        std::filesystem::remove(kArchivePartPath, ec);
+        std::ofstream(kPartInfoPath, std::ios::trunc) << partKey(release) << '\n';
+        return 0;
+    }
+    std::FILE* in = std::fopen(kArchivePartPath, "rb");
+    if (!in) return 0;
+    std::vector<char> buffer(64 * 1024);
+    std::uint64_t hashed = 0;
+    for (size_t n; (n = std::fread(buffer.data(), 1, buffer.size(), in)) > 0;) {
+        sha256ContextUpdate(&sha, buffer.data(), n);
+        hashed += n;
+    }
+    std::fclose(in);
+    switchu::FileLog::log("[updater] continuing an earlier download at %lu of %lu bytes",
+                          static_cast<unsigned long>(hashed),
+                          static_cast<unsigned long>(release.downloadSize));
+    return hashed;
+}
+
 std::string downloadLocked(const ReleaseInfo& release, std::atomic<float>& progress) {
     std::filesystem::create_directories(kWorkRoot);
     std::error_code ec;
-    std::filesystem::remove(kArchivePartPath, ec);
 
-    // HomeNX: a cut-off download ("Transferred a partial file", a stall, a
-    // dropped connection, a timeout) continues where it stopped (HTTP range)
-    // instead of starting over, up to 8 attempts.
+    // HomeNX: never give up while data is still arriving. A cut-off download (a
+    // stall, a dropped connection, a timeout, the app closed) continues where it
+    // stopped with an HTTP range, also across runs (see adoptPartialDownload).
+    // It only stops after 5 attempts in a row that receive nothing.
     DownloadContext context;
     context.progress = &progress;
     context.total = release.downloadSize;
     sha256ContextCreate(&context.sha);
+    context.received = adoptPartialDownload(release, context.sha);
     CURLcode rc = CURLE_OK;
     long status = 0;
-    for (int attempt = 1; attempt <= 8; ++attempt) {
+    int idleAttempts = 0;
+    for (int attempt = 1; idleAttempts < 5; ++attempt) {
+        const std::uint64_t before = context.received;
         const bool resume = context.received > 0
             && (release.downloadSize == 0 || context.received < release.downloadSize);
         if (!resume) {
@@ -262,10 +321,10 @@ std::string downloadLocked(const ReleaseInfo& release, std::atomic<float>& progr
         }
         context.curl = curl;
         configureCurl(curl, release.downloadUrl);
-        // Big file on Switch Wi-Fi: no overall time limit, give up only on a stall.
+        // No overall time limit; only a full minute with no data counts as a stall.
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
-        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 512L);
-        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
         if (resume)
             curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, static_cast<curl_off_t>(context.received));
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeDownload);
@@ -283,21 +342,23 @@ std::string downloadLocked(const ReleaseInfo& release, std::atomic<float>& progr
         const bool complete = rc == CURLE_OK && status >= 200 && status < 300
             && (release.downloadSize == 0 || context.received == release.downloadSize);
         if (complete) break;
-        switchu::FileLog::log("[updater] download attempt %d stopped rc=%d status=%ld got=%lu; %s",
+        idleAttempts = context.received > before ? 0 : idleAttempts + 1;
+        switchu::FileLog::log("[updater] download attempt %d stopped rc=%d status=%ld got=%lu/%lu",
                               attempt, static_cast<int>(rc), status,
                               static_cast<unsigned long>(context.received),
-                              context.received > 0 ? "resuming" : "retrying");
+                              static_cast<unsigned long>(release.downloadSize));
         if (status == 416)
             context.received = 0; // range no longer valid: start over
         else if (status >= 400 && status != 429 && status < 500)
             break; // e.g. 404: retrying won't help
-        svcSleepThread(static_cast<s64>(attempt) * 1'000'000'000LL);
+        svcSleepThread(static_cast<s64>(std::min(idleAttempts + 1, 5)) * 1'000'000'000LL);
     }
     if (rc != CURLE_OK || status < 200 || status >= 300) {
-        std::filesystem::remove(kArchivePartPath, ec);
+        // Keep the partial file: the next "Check for updates" continues it.
         if (rc != CURLE_OK)
-            throw std::runtime_error(std::string("Update download failed: ")
-                                     + curl_easy_strerror(rc) + " (after retries)");
+            throw std::runtime_error(std::string("Update download stopped: ")
+                                     + curl_easy_strerror(rc)
+                                     + ". Try again: it continues where it stopped.");
         throw std::runtime_error("Update download returned HTTP " + std::to_string(status));
     }
     if (context.received == 0 || context.received > kMaxArchiveBytes) {
@@ -305,16 +366,17 @@ std::string downloadLocked(const ReleaseInfo& release, std::atomic<float>& progr
         throw std::runtime_error("Downloaded archive size is invalid");
     }
     if (release.downloadSize != 0 && context.received != release.downloadSize) {
-        std::filesystem::remove(kArchivePartPath, ec);
-        throw std::runtime_error("Downloaded archive is incomplete");
+        throw std::runtime_error("The download isn't complete yet. Try again: it continues where it stopped.");
     }
     std::array<std::uint8_t, SHA256_HASH_SIZE> digest{};
     sha256ContextGetHash(&context.sha, digest.data());
     const std::string actualDigest = hexDigest(digest);
     if (!release.sha256.empty() && lower(release.sha256) != actualDigest) {
         std::filesystem::remove(kArchivePartPath, ec);
+        std::filesystem::remove(kPartInfoPath, ec);
         throw std::runtime_error("Downloaded archive SHA-256 does not match GitHub");
     }
+    std::filesystem::remove(kPartInfoPath, ec);
     std::filesystem::remove(kArchivePath, ec);
     std::filesystem::rename(kArchivePartPath, kArchivePath, ec);
     if (ec)
