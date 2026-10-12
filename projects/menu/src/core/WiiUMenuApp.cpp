@@ -841,7 +841,7 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
             m_tReady = armGetSystemTick();
             if (m_grid && m_openFolderId == 0) {
                 IconAppearOptions wave;
-                wave.stagger = 0.45f;
+                wave.stagger = 0.35f;
                 wave.fromScale = 0.75f;
                 wave.fromOpacity = 0.2f;
                 m_grid->startAppearAnimation(wave);
@@ -5153,6 +5153,14 @@ std::vector<std::string> WiiUMenuApp::scanAvailablePresets() {
 
 #ifdef SWITCHU_MENU
 void WiiUMenuApp::refreshAppList() {
+    // HomeNX: a launch is under way and the menu is about to close. Starting a
+    // game updates its "last played" record, and the daemon reports that as an
+    // app-list change; refreshing here stopped the launch card and flashed HOME
+    // back on screen just before the game. The next menu start reads the list anyway.
+    if ((m_launchAnim && m_launchAnim->isPlaying()) || m_launchFinishFrames > 0) {
+        DebugLog::log("[refresh] skipped: launching");
+        return;
+    }
     DebugLog::log("[refresh] starting async app list fetch");
 
     if (m_editMode)
