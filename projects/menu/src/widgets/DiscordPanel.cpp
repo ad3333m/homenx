@@ -105,7 +105,7 @@ void DiscordPanel::bindInput() {
     addDirectionAction(nxui::FocusDirection::DOWN, [this]() { move(+1); });
     addDirectionAction(nxui::FocusDirection::LEFT, [] {});
     addDirectionAction(nxui::FocusDirection::RIGHT, [] {});
-    addAction(static_cast<uint64_t>(nxui::Button::A), [this]() { activate(); });
+    addAction(static_cast<uint64_t>(nxui::Button::A), [this]() { activateRow(); });
     addAction(static_cast<uint64_t>(nxui::Button::B), [this]() { back(); });
     addAction(static_cast<uint64_t>(nxui::Button::X), [this]() {
         if (m_view == View::Chat && m_chat && m_cb.onReply) m_cb.onReply(m_chat, m_chatName);
@@ -146,7 +146,7 @@ void DiscordPanel::move(int dir) {
     }
 }
 
-void DiscordPanel::activate() {
+void DiscordPanel::activateRow() {
     if (!m_service || m_view != View::Home || m_sel < 0 || m_sel >= (int)m_rows.size()) return;
     const Row& r = m_rows[(size_t)m_sel];
     if (m_cb.onActivate) m_cb.onActivate();

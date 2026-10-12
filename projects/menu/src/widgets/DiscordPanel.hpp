@@ -50,7 +50,7 @@ private:
     void bindInput();
     void rebuildRows();
     void move(int dir);
-    void activate();
+    void activateRow();
     void back();
     bool selectable(const Row& r) const { return r.kind == Row::Dm || r.kind == Row::Action; }
     nxui::Rect panelRect() const;
