@@ -179,7 +179,8 @@ inline Result launch(smi::MenuStartMode mode, const smi::SystemStatus& status) {
     return startPrepared(mode, status);
 }
 
-inline Result terminate(uint64_t timeoutNs = 15'000'000'000ULL) {
+// HomeNX: terminate() with a chosen wait for the menu to exit on its own.
+inline Result terminateWithin(uint64_t timeoutNs) {
     if (!g_holderCreated)
         return cleanupHolder();
     switchu::FileLog::log("[menu_la] terminate begin holderActive=%d",
@@ -196,6 +197,8 @@ inline Result terminate(uint64_t timeoutNs = 15'000'000'000ULL) {
     switchu::FileLog::log("[menu_la] terminate done reason=%d", (int)g_lastExitReason);
     return cleanupRc;
 }
+
+inline Result terminate() { return terminateWithin(15'000'000'000ULL); }
 
 inline bool checkFinished() {
     if (!g_active) return false;

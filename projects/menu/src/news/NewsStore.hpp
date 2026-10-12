@@ -21,3 +21,8 @@ struct NewsArticle {
 
 // Newest first (oldest last). On failure returns empty and sets rc.
 std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles = 40);
+
+// Asks the console to download news now, on its own thread. The real HOME menu
+// does this; without it the articles saved on the console stay the old ones.
+// At most once per minIntervalSec (remembered on the SD card).
+void requestNewsUpdate(int minIntervalSec = 600);

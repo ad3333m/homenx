@@ -3,6 +3,7 @@
 #include "widgets/GlossyIcon.hpp"
 #include "widgets/FolderPalette.hpp"
 #include "themeshop/ThemeHttp.hpp"
+#include "news/NewsStore.hpp"
 #include <nxui/core/Animation.hpp>
 #include <nxui/core/I18n.hpp>
 #include "DebugLog.hpp"
@@ -1032,6 +1033,7 @@ bool WiiUMenuApp::onCreate() {
     switchu::menu::smi_cmd::menuReady();
 #endif
 
+    if (!fastReturn) requestNewsUpdate(); // fresh news by the time News is opened
     DebugLog::log("[init] DONE total=%lums fastReturn=%d",
                   initElapsedMs(), fastReturn ? 1 : 0);
     return true;

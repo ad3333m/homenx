@@ -902,7 +902,7 @@ static void forceMenuGone(const char* why) {
     switchu::FileLog::logCommit("[menu] still open %lums after asking to close (%s); closing it",
         static_cast<unsigned long>(g_menuExitExpectedAt
             ? armTicksToNs(armGetSystemTick() - g_menuExitExpectedAt) / 1'000'000ULL : 0), why);
-    daemon::menu_la::terminate(1'000'000'000ULL);
+    daemon::menu_la::terminateWithin(1'000'000'000ULL);
     g_menuExitExpectedAt = 0;
     if (g_launchForegroundPending) {
         g_launchForegroundPending = false;

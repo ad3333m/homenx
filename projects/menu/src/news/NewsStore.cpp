@@ -1,13 +1,20 @@
 #include "NewsStore.hpp"
 #include "core/DebugLog.hpp"
 #include <nlohmann/json.hpp>
+#include <nxui/core/ThreadPool.hpp>
 #include <algorithm>
+#include <ctime>
+#include <fstream>
+#include <set>
+#include <thread>
 
 // Uses libnx's news:* wrapper (services/news.h). Article files are msgpack
 // (subject.text, body.text, topic_name, images as bin).
 namespace {
 
-constexpr u32 kMaxRecords = 64;
+// Enough to always include the newest: the list can come back unsorted, and
+// with only the first 64 of a long history the newest articles were left out.
+constexpr u32 kMaxRecords = 300;
 constexpr u64 kMaxArticleBytes = 8u * 1024u * 1024u;
 
 Result getList(NewsDatabaseService& db, NewsRecord* records, u32& count) {
@@ -105,6 +112,9 @@ std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles) {
         rc = getList(db, records, count);
         newsDatabaseClose(&db);
         count = std::min(count, kMaxRecords);
+        std::sort(records, records + count, [](const NewsRecord& a, const NewsRecord& b) {
+            return a.received_at > b.received_at;
+        });
         for (u32 i = 0; i < count && (int)articles.size() < maxArticles; ++i) {
             std::vector<u8> bytes;
             Result r = readArticle(records[i], bytes);
@@ -126,4 +136,39 @@ std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles) {
                      [](const NewsArticle& a, const NewsArticle& b) { return a.publishedAt > b.publishedAt; });
     DebugLog::log("[news] loaded %d articles rc=0x%X", (int)articles.size(), rc);
     return articles;
+}
+
+void requestNewsUpdate(int minIntervalSec) {
+    constexpr const char* kStamp = "sdmc:/config/SwitchU/news_requested.txt";
+    const long long now = static_cast<long long>(std::time(nullptr));
+    long long last = 0;
+    {
+        std::ifstream in(kStamp);
+        in >> last;
+    }
+    if (now >= last && now - last < minIntervalSec) return;
+    std::ofstream(kStamp, std::ios::trunc) << now;
+    std::thread([] {
+        nxui::moveToWorkerCores();
+        if (R_FAILED(newsInitialize(NewsServiceType_Administrator))) return;
+        // Every topic the console has news for (plus Nintendo's main one).
+        std::set<std::string> topics{"nx_news"};
+        NewsDatabaseService db;
+        if (R_SUCCEEDED(newsCreateNewsDatabaseService(&db))) {
+            std::vector<NewsRecord> records(kMaxRecords);
+            u32 count = 0;
+            if (R_SUCCEEDED(getList(db, records.data(), count)))
+                for (u32 i = 0; i < std::min(count, kMaxRecords); ++i) {
+                    const NewsTopicName& t = records[i].topic_id;
+                    std::string name(t.name, std::find(t.name, t.name + sizeof(t.name), '\0'));
+                    if (!name.empty()) topics.insert(name);
+                }
+            newsDatabaseClose(&db);
+        }
+        for (const std::string& t : topics) {
+            const Result rc = newsRequestImmediateReception(t.c_str());
+            DebugLog::log("[news] request reception '%s' rc=0x%X", t.c_str(), rc);
+        }
+        newsExit();
+    }).detach();
 }

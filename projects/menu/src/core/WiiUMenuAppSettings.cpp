@@ -1392,9 +1392,16 @@ void WiiUMenuApp::markNewsRead(const std::string& id) {
 
 void WiiUMenuApp::openNews() {
     auto& i18n = nxui::I18n::instance();
-    // ponytail: news is read once per session on the UI thread (a second or
-    // two for ~40 articles); move to the thread pool if it ever feels slow.
+    // The console downloads news only when asked (the real HOME menu asks).
+    // What arrives shows the next time News opens.
+    requestNewsUpdate(120);
+    // ponytail: news is read on the UI thread (a second or two for ~40
+    // articles), again once a minute has passed; move to the thread pool if
+    // it ever feels slow.
+    if (m_newsLoaded && armTicksToNs(armGetSystemTick() - m_newsLoadedAt) > 60'000'000'000ULL)
+        m_newsLoaded = false;
     if (!m_newsLoaded) {
+        m_newsLoadedAt = armGetSystemTick();
         Result rc = 0;
         std::vector<NewsArticle> raw = loadNewsArticles(rc);
         const std::set<std::string> newsRead = readNewsReadList();
