@@ -533,14 +533,20 @@ static bool rebuildAppCatalog(const char* reason, bool* outChanged = nullptr) {
     }
 
     const s32 prevCount = g_lastRecordCount;
+    // HomeNX: compare the set of titles, not their order. ns keeps records in
+    // last-played order, so every game you played moved one to the front and
+    // the menu did a full grid reload ~2 s after each return to HOME (a freeze).
+    // HOME keeps its own icon order, so only installs/removals matter here.
     bool changed = prevCount != count;
     if (!changed) {
-        for (s32 i = 0; i < count; ++i) {
-            if (g_lastRecordTids[i] != records[i].id) {
-                changed = true;
-                break;
-            }
-        }
+        std::vector<uint64_t> before(g_lastRecordTids, g_lastRecordTids + prevCount);
+        std::vector<uint64_t> now;
+        now.reserve(count);
+        for (s32 i = 0; i < count; ++i)
+            now.push_back(records[i].id);
+        std::sort(before.begin(), before.end());
+        std::sort(now.begin(), now.end());
+        changed = before != now;
     }
     g_lastRecordCount = count;
     for (s32 i = 0; i < count; ++i) {

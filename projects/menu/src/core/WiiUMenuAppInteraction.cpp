@@ -1932,7 +1932,8 @@ void WiiUMenuApp::handleSystemAction(SysAction a) {
                     returnFocusId = static_cast<GlossyIcon*>(focused)->titleId();
             }
             refreshRecentActivityDuration();
-            if (!m_widgetStore.save())
+            // HomeNX: no SD commits here (closing a game used to stall on three).
+            if (!m_widgetStore.save(false))
                 DebugLog::log("[widgets] recent activity duration could not be saved");
             // Keep an already-open folder — closing+refocus was reopening it and
             // stacking FolderBackdrop dims on every HOME-from-title return.
