@@ -1,0 +1,65 @@
+name: Symbolize menu crash
+
+# One-off: rebuild build 39's menu exactly as CI did and name the addresses
+# from the Atmosphere crash screen (offsets from "Backtrace - Start Address").
+on:
+  push:
+    branches: [symbolize]
+
+env:
+  HOMENX_BUILD: 39
+
+jobs:
+  symbolize:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64
+    steps:
+      - name: Get current week as cache key
+        id: cache_key
+        run: echo "key=$(date +'%W')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install curl gcc g++ zip unzip zstd cmake python3
+      - name: Set xmake env
+        run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: branch@dev
+          actions-cache-folder: .xmake-cache-W${{ steps.cache_key.outputs.key }}
+      - name: Update xmake repository
+        run: xmake repo -u --root
+      - name: Bundle Sphaira
+        run: |
+          mkdir -p romfs/bin
+          curl -fsSL -o /tmp/sphaira.zip https://github.com/ITotalJustice/sphaira/releases/download/1.0.8/sphaira.zip
+          unzip -p /tmp/sphaira.zip switch/sphaira/sphaira.nro > romfs/bin/sphaira.nro
+      - name: Configure frontend
+        run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root
+      - name: Build
+        run: |
+          xmake build -vD --root HomeNX-Loader
+          mkdir -p projects/menu/src/generated
+          python3 tools/embed_loader.py build/cross/aarch64/release/HomeNX-Loader.nro projects/menu/src/generated/loader_nro.inc
+          xmake build -vD --root SwitchU
+      - name: Symbolize
+        run: |
+          find build -type f \( -name 'SwitchU' -o -name 'SwitchU.elf' -o -name '*.nso' \) | xargs ls -la
+          ELF=$(find build -type f \( -name 'SwitchU.elf' -o -name 'SwitchU' \) | head -1)
+          A2L=/opt/devkitpro/devkitA64/bin/aarch64-none-elf-addr2line
+          NM=/opt/devkitpro/devkitA64/bin/aarch64-none-elf-nm
+          echo "== PC / LR"
+          $A2L -e "$ELF" -f -C -i -p 0xAE1B30 0xAE1B1C
+          echo "== backtrace (return address - 4)"
+          for a in 0x4B1024 0x4CD388 0x4B921C 0x4B3DF0 0x4CCDB4 0x4B0658 0x26B1D8 0x242714 0x24429C 0x99A13C 0xA1F8D0 0x9CD7FC; do
+            printf '%s: ' "$a"; $A2L -e "$ELF" -f -C -i -p $(printf '0x%X' $((a - 4)))
+          done
+          echo "== X0 0xE382D0"
+          $NM -C -n -S "$ELF" | awk '{ if (strtonum("0x"$1) <= 0xE382D0) last=$0; else { print last; exit } }'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: menu-elf-39
+          path: build/cross/aarch64/release/
