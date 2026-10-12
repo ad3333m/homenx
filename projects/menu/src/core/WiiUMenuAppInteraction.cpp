@@ -1214,6 +1214,8 @@ void WiiUMenuApp::closeActiveOverlays(bool closeFolders) {
         m_quickSettings->hide();
     if (m_discordPanel && m_discordPanel->isActive())
         m_discordPanel->hide();
+    if (m_social && m_social->isActive())
+        m_social->hide();
     if (m_textEntry && m_textEntry->isActive())
         m_textEntry->hide(false);
     if (m_settings && m_settings->isActive())
@@ -1250,6 +1252,7 @@ nxui::Widget* WiiUMenuApp::focusRoot() {
     if (m_contextMenu && m_contextMenu->isActive()) return m_contextMenu.get();
     if (m_quickSettings && m_quickSettings->isActive()) return m_quickSettings.get();
     if (m_discordPanel && m_discordPanel->isActive()) return m_discordPanel.get();
+    if (m_social && m_social->isActive()) return m_social.get();
     if (m_userSelect && m_userSelect->isActive()) return m_userSelect.get();
     if (m_steamGridDbPicker && m_steamGridDbPicker->isActive())
         return m_steamGridDbPicker.get();
@@ -1966,7 +1969,8 @@ void WiiUMenuApp::updateCursor() {
     // The Discord panel is a full-screen focus target: a ring around it turns
     // the whole screen blue.
     if ((m_contextMenu && m_contextMenu->isActive()) ||
-        (m_discordPanel && m_discordPanel->isOpen())) {
+        (m_discordPanel && m_discordPanel->isOpen()) ||
+        (m_social && m_social->isOpen())) {
         if (m_cursor) m_cursor->setVisible(false);
         return;
     }

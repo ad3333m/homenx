@@ -4,6 +4,7 @@
 #include <nxui/core/GpuDevice.hpp>
 #include "social/DiscordService.hpp"
 #include "widgets/DiscordPanel.hpp"
+#include "widgets/SocialScreen.hpp"
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
 #include <nxui/core/I18n.hpp>
@@ -477,6 +478,7 @@ private:
     // HomeNX: the Discord panel (left side) and its connection.
     DiscordService                     m_discord;
     std::shared_ptr<DiscordPanel>      m_discordPanel;
+    std::shared_ptr<SocialScreen>      m_social;
     std::shared_ptr<SettingsScreen>    m_settings;
     std::shared_ptr<ThemeShopScreen>   m_themeShop;
     std::shared_ptr<GameOptionsScreen> m_gameOptions;

@@ -76,6 +76,10 @@ public:
     std::string qrStatus() const;   // what the phone did so far
 
     std::vector<Dm> dms(size_t max = 30) const;
+    // For the Social screen's Discord tile.
+    bool started() const { return m_started && !m_stopping; }
+    int friendsOnline() const;
+    int unreadDms() const;
 
     // Messages of one DM (loads the newest page the first time).
     void openChannel(Snowflake channelId);

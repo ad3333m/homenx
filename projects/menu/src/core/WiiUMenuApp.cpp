@@ -627,7 +627,8 @@ bool WiiUMenuApp::hasActiveLeaveCaptureOverlay() const {
         || (m_controllerTest && m_controllerTest->isActive())
         || (m_profileCarousel && m_profileCarousel->isActive())
         || (m_steamGridDbPicker && m_steamGridDbPicker->isActive())
-        || (m_discordPanel && m_discordPanel->isActive());
+        || (m_discordPanel && m_discordPanel->isActive())
+        || (m_social && m_social->isActive());
 }
 
 void WiiUMenuApp::pollDeferredLeaveCapture() {
@@ -6141,13 +6142,16 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_profileCarousel && m_profileCarousel->isActive())
         && !(m_userSelect && m_userSelect->isActive())
         && !(m_progressDialog && m_progressDialog->isActive())
-        && !(m_discordPanel && m_discordPanel->isActive()))
+        && !(m_discordPanel && m_discordPanel->isActive())
+        && !(m_social && m_social->isActive()))
     {
         handleTouch();
     }
     // HomeNX: the Discord panel takes taps and drags; a tap beside it closes it.
     if (m_discordPanel && m_discordPanel->isActive() && !(m_textEntry && m_textEntry->isActive()))
         m_discordPanel->handleTouch(app().input());
+    else if (m_social && m_social->isActive() && !(m_textEntry && m_textEntry->isActive()))
+        m_social->handleTouch(app().input());
 
     bool dialogActiveNow = (m_dialog && m_dialog->isActive());
     const bool textEntryActive = m_textEntry && m_textEntry->isActive();

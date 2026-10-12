@@ -427,6 +427,22 @@ std::vector<DiscordService::Dm> DiscordService::dms(size_t max) const {
     return out;
 }
 
+int DiscordService::friendsOnline() const {
+    if (!m_store) return 0;
+    int n = 0;
+    for (const auto& [id, status] : m_store->presence)
+        if (id != m_store->me.id && (status == "online" || status == "idle" || status == "dnd")) ++n;
+    return n;
+}
+
+int DiscordService::unreadDms() const {
+    if (!m_store) return 0;
+    int n = 0;
+    for (Snowflake id : m_store->dms)
+        if (m_store->ChannelUnread(id) || m_store->ChannelMentions(id) > 0) ++n;
+    return n;
+}
+
 void DiscordService::openChannel(Snowflake channelId) {
     if (!m_store || !channelId) return;
     ChannelMessages& cm = m_store->Messages(channelId);

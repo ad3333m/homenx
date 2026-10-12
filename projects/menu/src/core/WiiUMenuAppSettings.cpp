@@ -8,6 +8,7 @@
 #include "homebrew/HomebrewStore.hpp"
 #include "mii/MiiStore.hpp"
 #include <cstdio>
+#include <cstring>
 #include <thread>
 #include <ctime>
 
@@ -826,7 +827,18 @@ void WiiUMenuApp::openDiscordPanel() {
         cb.onNavigate = [this]() { m_audio.playSfx(Sfx::Navigate); };
         cb.onActivate = [this]() { m_audio.playSfx(Sfx::Activate); };
         m_discordPanel->setCallbacks(std::move(cb));
-        if (m_overlayLayer) m_overlayLayer->addChild(m_discordPanel);
+        if (m_overlayLayer) {
+            m_overlayLayer->addChild(m_discordPanel);
+            // Dialogs, the launch card and the pointer stay above it.
+            for (const auto& overlay : {std::static_pointer_cast<nxui::Widget>(m_dialog),
+                                       std::static_pointer_cast<nxui::Widget>(m_progressDialog),
+                                       std::static_pointer_cast<nxui::Widget>(m_launchAnim),
+                                       std::static_pointer_cast<nxui::Widget>(m_pointerCursor)}) {
+                if (!overlay) continue;
+                m_overlayLayer->removeChild(overlay.get());
+                m_overlayLayer->addChild(overlay);
+            }
+        }
     }
     if (m_discordPanel->isActive()) return;
     m_dialogReturnFocus = focusManager().current();
@@ -1454,111 +1466,86 @@ void WiiUMenuApp::openNews() {
                      left.size() > 2 ? left[2].get() : nullptr);
 }
 
+// HomeNX Social: your profile, quick buttons and your friends (SocialScreen).
 void WiiUMenuApp::openFriends() {
-    auto& i18n = nxui::I18n::instance();
-    AccountUid uid = activeProfileUid();
-    std::vector<ListDetailScreen::Entry> entries;
-
-    // HomeNX: Social. The Mii Editor lives here now (its sidebar button became Discord).
-    {
-        ListDetailScreen::Entry mii;
-        mii.listName = i18n.tr("sidebar.mii_editor", "Mii Editor");
-        mii.title = mii.listName;
-        mii.body = i18n.tr("social.mii_body", "Your Miis: see them, make a new one or edit one.");
-        mii.actionHint = i18n.tr("social.mii_open", "Press A to open");
-        mii.onActivate = [this]() { openMiis(); };
-        entries.push_back(std::move(mii));
-    }
-
-    // Adding friends and friend requests are Nintendo's online screens; they
-    // need the console to reach Nintendo's servers.
-    auto systemScreen = [this](AppletLauncher::FriendScreen which) {
-        return [this, which]() {
+    if (m_editMode || (m_dialog && m_dialog->isActive()) ||
+        (m_quickSettings && m_quickSettings->isActive()) ||
+        (m_discordPanel && m_discordPanel->isActive()))
+        return;
+    if (!m_social) {
+        m_social = std::make_shared<SocialScreen>();
+        m_social->setFonts(&m_fontNormal, &m_fontSmall);
+        m_social->setGpu(&app().gpu(), &app().renderer());
+        m_social->setTheme(&m_theme);
+        m_social->setIconDir(std::string(SD_ASSETS) + "/icons");
+        m_social->setDiscord(&m_discord);
+        // Adding friends and friend requests are Nintendo's online screens.
+        auto systemScreen = [this](AppletLauncher::FriendScreen which) {
+            return [this, which]() {
 #ifdef SWITCHU_MENU
-            // Frontend: the daemon opens it; close this screen so leaving isn't held up.
-            if (m_detail) m_detail->hide();
-            leaveThen([this, which] { m_launcher.openFriendScreen(which, activeProfileUid()); });
+                // Frontend: the daemon opens it; close this screen so leaving isn't held up.
+                if (m_social) m_social->hide();
+                leaveThen([this, which] { m_launcher.openFriendScreen(which, activeProfileUid()); });
 #else
-            runSystemApplet(false, [this, which] {
-                return m_launcher.openFriendScreen(which, activeProfileUid());
-            });
+                runSystemApplet(false, [this, which] {
+                    return m_launcher.openFriendScreen(which, activeProfileUid());
+                });
 #endif
+            };
         };
-    };
-    const std::string online = i18n.tr("friends.needs_online",
-                                       "This uses Nintendo's servers, so the console must be able to go online.");
-    ListDetailScreen::Entry add;
-    add.listName = "+ " + i18n.tr("friends.add", "Add Friend");
-    add.title = i18n.tr("friends.add", "Add Friend");
-    add.body = i18n.tr("friends.add_body",
-                       "Search by friend code, send requests, or look up users you've played with.")
-             + "\n" + online;
-    add.actionHint = i18n.tr("friends.open_hint", "Press A to open");
-    add.onActivate = systemScreen(AppletLauncher::FriendScreen::AddFriend);
-    entries.push_back(add);
-
-    ListDetailScreen::Entry played = add;
-    played.listName = i18n.tr("friends.played_with", "Users You've Played With");
-    played.title = played.listName;
-    played.body = i18n.tr("friends.played_with_body",
-                          "Opens Add Friend, where \"Search for Users You've Played With\" lists them.")
-                + "\n" + online;
-    entries.push_back(played);
-
-    ListDetailScreen::Entry requests = add;
-    requests.listName = i18n.tr("friends.requests", "Friend Requests");
-    requests.title = requests.listName;
-    requests.body = i18n.tr("friends.requests_body", "Friend requests you've received.") + "\n" + online;
-    requests.onActivate = systemScreen(AppletLauncher::FriendScreen::Requests);
-    entries.push_back(requests);
-
-    if (!accountUidIsValid(&uid)) {
-        ListDetailScreen::Entry none;
-        none.listName = i18n.tr("sidebar.friends", "Friends");
-        none.title = none.listName;
-        none.body = i18n.tr("friends.no_profile", "Choose a profile with the profile button first.");
-        entries.push_back(none);
-    } else {
-        Result rc = 0;
-        std::string diag;
-        std::vector<FriendEntry> friends = loadFriends(uid, rc, diag);
-        app().gpu().waitIdle();
-        for (auto& f : friends) {
-            ListDetailScreen::Entry e;
-            const char* status = f.status == 2 ? "Playing online" : f.status == 1 ? "Online" : "Offline";
-            e.listName = (f.status != 0 ? "● " : "") + f.nickname;
-            e.title = f.nickname;
-            e.kicker = i18n.tr(f.status == 2 ? "friends.playing" : f.status == 1 ? "friends.online" : "friends.offline", status);
-            std::string body;
-            if (f.status == 0 && f.lastOnline > 0) {
-                const time_t t = static_cast<time_t>(f.lastOnline);
-                char when[64];
-                std::strftime(when, sizeof(when), "%d %b %Y, %H:%M", std::localtime(&t));
-                body += i18n.tr("friends.last_online", "Last online") + ": " + when + "\n";
+        SocialScreen::Callbacks cb;
+        cb.onClosed = [this]() {
+            m_audio.playSfx(Sfx::ModalHide);
+            nxui::Widget* target = m_dialogReturnFocus;
+            if (!isCurrentFocusableWidget(target) && m_grid)
+                target = m_grid->focusManager().current();
+            if (isCurrentFocusableWidget(target)) {
+                m_suppressNextNavigateSfx = true;
+                focusManager().setFocus(target);
             }
-            if (f.favourite) body += i18n.tr("friends.best_friend", "Best friend") + "\n";
-            e.body = body;
-            if (!f.avatar.empty()) {
-                auto tex = std::make_shared<nxui::Texture>();
-                if (tex->loadFromMemory(app().gpu(), app().renderer(), f.avatar.data(), f.avatar.size(), 256))
-                    e.image = std::move(tex);
+            m_dialogReturnFocus = nullptr;
+        };
+        cb.onMiiEditor = [this]() {
+            if (m_social) m_social->hide();
+            openMiis();
+        };
+        cb.onAddFriend = systemScreen(AppletLauncher::FriendScreen::AddFriend);
+        cb.onRequests = systemScreen(AppletLauncher::FriendScreen::Requests);
+        cb.onDiscord = [this]() {
+            if (m_social) m_social->hide();
+            openDiscordPanel();
+        };
+        cb.onNavigate = [this]() { m_audio.playSfx(Sfx::Navigate); };
+        cb.onActivate = [this]() { m_audio.playSfx(Sfx::Activate); };
+        m_social->setCallbacks(std::move(cb));
+        if (m_overlayLayer) {
+            m_overlayLayer->addChild(m_social);
+            // Dialogs, the launch card and the pointer stay above it.
+            for (const auto& overlay : {std::static_pointer_cast<nxui::Widget>(m_dialog),
+                                       std::static_pointer_cast<nxui::Widget>(m_progressDialog),
+                                       std::static_pointer_cast<nxui::Widget>(m_launchAnim),
+                                       std::static_pointer_cast<nxui::Widget>(m_pointerCursor)}) {
+                if (!overlay) continue;
+                m_overlayLayer->removeChild(overlay.get());
+                m_overlayLayer->addChild(overlay);
             }
-            e.roundImage = true;
-            entries.push_back(std::move(e));
-        }
-        if (friends.empty()) {
-            ListDetailScreen::Entry none;
-            none.listName = i18n.tr("friends.none_list", "No friends found");
-            none.title = none.listName;
-            none.body = i18n.tr("friends.none_body",
-                                "The console didn't return any friends for this profile. If it does have "
-                                "friends, send this line to whoever is building HomeNX:") + "\n" + diag;
-            entries.push_back(none);
         }
     }
-    const auto& right = m_sidebar.rightButtons();
-    showDetailScreen(std::move(entries), i18n.tr("sidebar.social", "Social"), std::string(),
-                     right.size() > 2 ? right[2].get() : nullptr);
+    if (m_social->isActive()) return;
+
+    const AccountUid uid = activeProfileUid();
+    std::string name;
+    std::shared_ptr<nxui::Texture> avatar;
+    for (const auto& prof : m_profiles)
+        if (std::memcmp(&prof.uid, &uid, sizeof(uid)) == 0) {
+            name = prof.nickname;
+            avatar = prof.avatar;
+        }
+    m_dialogReturnFocus = focusManager().current();
+    m_social->show(uid, name, avatar);
+    focusManager().setFocus(m_social.get());
+    if (m_cursor) m_cursor->setVisible(false);
+    m_audio.playSfx(Sfx::ModalShow);
 }
 
 // Settings > HomeNX > Custom button app: every .nro on the SD card.
