@@ -68,7 +68,7 @@ private:
 
     void bindInput();
     void move(int dx, int dy);
-    void activate();
+    void activateItem();
     void startLoad();
     nxui::Rect panelRect() const;
     nxui::Rect listRect() const;

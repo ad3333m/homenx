@@ -148,7 +148,7 @@ void SocialScreen::bindInput() {
     addDirectionAction(nxui::FocusDirection::DOWN, [this]() { move(0, +1); });
     addDirectionAction(nxui::FocusDirection::LEFT, [this]() { move(-1, 0); });
     addDirectionAction(nxui::FocusDirection::RIGHT, [this]() { move(+1, 0); });
-    addAction(static_cast<uint64_t>(nxui::Button::A), [this]() { activate(); });
+    addAction(static_cast<uint64_t>(nxui::Button::A), [this]() { activateItem(); });
     addAction(static_cast<uint64_t>(nxui::Button::B), [this]() { hide(); });
 }
 
@@ -198,7 +198,7 @@ void SocialScreen::move(int dx, int dy) {
     }
 }
 
-void SocialScreen::activate() {
+void SocialScreen::activateItem() {
     if (m_zone != Zone::Tiles) return;
     if (m_cb.onActivate) m_cb.onActivate();
     switch (m_tile) {
@@ -604,7 +604,7 @@ void SocialScreen::handleTouch(const nxui::Input& in) {
         if (inside(tileRect(i), tx, ty)) {
             m_zone = Zone::Tiles;
             m_tile = i;
-            activate();
+            activateItem();
             return;
         }
     if (inside(list, tx, ty)) {
