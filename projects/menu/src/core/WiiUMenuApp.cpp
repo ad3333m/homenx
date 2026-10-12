@@ -398,7 +398,26 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
     if (LeaveFrameCache::load(m_leaveSession, image) && image.valid()
         && m_leaveSplashTex.loadFromPixels(app().gpu(), ren,
                                            image.rgba.data(), image.width, image.height)) {
-        ren.drawTexture(&m_leaveSplashTex, {0.f, 0.f, 1280.f, 720.f});
+        // HomeNX: HOME eases in (fade from black + a slight zoom settling to 1:1)
+        // instead of snapping in. These frames are presented here, before the
+        // menu starts loading, because nothing can animate while it loads.
+        auto& gpu = app().gpu();
+        const std::uint64_t introStart = armGetSystemTick();
+        for (;;) {
+            const float t = std::min(1.f, armTicksToNs(armGetSystemTick() - introStart) / 1e9f
+                                              / kReturnIntroDur);
+            const float e = nxui::Easing::outCubic(t);
+            const float scale = 1.05f - 0.05f * e;
+            const float w = 1280.f * scale, h = 720.f * scale;
+            ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 1.f));
+            ren.drawTexture(&m_leaveSplashTex, {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h},
+                            nxui::Color::white().withAlpha(e));
+            if (t >= 1.f) break; // Application presents this last (1:1) frame
+            ren.endFrame();
+            gpu.endFrame();
+            gpu.beginFrame();
+            ren.beginFrame();
+        }
         m_leaveSplashDrawn = true;
         m_leaveSplashPhase = LeaveSplashPhase::Hold;
         m_leaveSplashHoldRemaining = kLeaveSplashHoldDur;
@@ -411,7 +430,7 @@ bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
         return true;
     }
 
-    // No cached frame: still avoid pure black while onCreate runs.
+    // No cached frame ΓÇö still avoid pure black while onCreate runs.
     ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.07f, 0.12f, 0.18f, 1.f));
     m_leaveSplashDrawn = true;
     m_leaveSplashPhase = LeaveSplashPhase::None;
@@ -605,7 +624,8 @@ void WiiUMenuApp::setSuspendedIconVisuals(std::uint64_t titleId) {
 
 void WiiUMenuApp::previewLeaveCaptureTitle(std::uint64_t titleId) {
     m_leaveCaptureFocusTitleId = titleId;
-    setSuspendedIconVisuals(titleId);
+    // HomeNX: no green "playing" outline painted just for the capture: it showed
+    // as a one-frame flicker on the icon you pressed. The live menu shows it on return.
     if (titleId == 0 || !m_grid)
         return;
 
@@ -655,25 +675,43 @@ LeaveFrameSession WiiUMenuApp::captureLeaveSession() const {
 }
 
 bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
-    std::vector<std::uint8_t> rgba;
+    waitLeaveFrameWrite();
     int width = 0;
     int height = 0;
+#ifdef NXUI_BACKEND_DEKO3D
+    // HomeNX: only the GPU copy happens on this frame. Reading the 3.6 MB of
+    // pixels and writing them to the SD card run on a worker, so pressing a game
+    // or a button no longer hitches.
+    (void)ren;
+    // The device's reusable readback block: valid until the next capture, and
+    // waitLeaveFrameWrite() above makes sure the previous save is done with it.
+    const std::uint8_t* pixels = app().gpu().readFramebufferPixels(width, height);
+    if (!pixels) {
+        DebugLog::log("[leave] framebuffer download failed");
+        m_leaveCaptureFocusTitleId = 0;
+        return false;
+    }
+#else
+    std::vector<std::uint8_t> rgba;
     if (!ren.downloadFramebufferRgba(rgba, width, height, false)) {
         DebugLog::log("[leave] framebuffer download failed");
         m_leaveCaptureFocusTitleId = 0;
         return false;
     }
+    auto shared = std::make_shared<std::vector<std::uint8_t>>(std::move(rgba));
+    const auto* pixels = shared->data();
+#endif
 
     const LeaveFrameSession session = captureLeaveSession();
     m_leaveCaptureFocusTitleId = 0;
-    // HomeNX: the 3.6 MB SD write used to stall launches. Write it on a thread
-    // while the launch animation / fade plays; waitLeaveFrameWrite() joins it
-    // right before the menu actually leaves.
-    waitLeaveFrameWrite();
     m_leaveFrameWrite = std::async(std::launch::async,
-        [session, rgba = std::move(rgba), width, height]() {
-            nxui::moveToWorkerCores();
-            if (!LeaveFrameCache::save(session, rgba.data(), width, height))
+        [session, pixels, width, height
+#ifndef NXUI_BACKEND_DEKO3D
+         , shared
+#endif
+        ]() {
+            nxui::moveToWorkerCores(); // off the render core, so it finishes during the animation
+            if (!LeaveFrameCache::save(session, pixels, width, height))
                 DebugLog::log("[leave] cache write failed");
             else
                 DebugLog::log("[leave] saved %dx%d page=%d folder=%u focus=%016lX",
@@ -739,6 +777,18 @@ void WiiUMenuApp::restoreLeaveSession() {
                   session.page, static_cast<unsigned long>(session.focusTitleId));
 }
 
+// HomeNX return transition. While the menu loads (its main thread is busy, so
+// nothing can animate) the saved HOME picture shows slightly dimmed:
+// "on the way", not "frozen". Once the live menu is ready, t runs 1 -> 0 and the
+// picture brightens and settles into it at full frame rate.
+void WiiUMenuApp::drawReturnVeil(nxui::Renderer& ren, float t) {
+    // Drawn 1:1 and undimmed (zoom looked blurry, the dim looked dark).
+    const float e = t * t * (3.f - 2.f * t); // smoothstep
+    ren.drawTexture(&m_leaveSplashTex, {0.f, 0.f, 1280.f, 720.f},
+                    nxui::Color::white().withAlpha(e));
+
+}
+
 bool WiiUMenuApp::leaveSplashActive() const {
     return m_leaveSplashPhase != LeaveSplashPhase::None;
 }
@@ -775,8 +825,27 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
 
     if (m_leaveSplashPhase == LeaveSplashPhase::Hold) {
         m_leaveSplashHoldRemaining -= dt;
-        if (m_leaveSplashHoldRemaining <= 0.f) {
-            m_tReady = armGetSystemTick(); // Settings > HomeNX > Return timing
+        // Real time: dt is clamped on long frames, which stretched the cap.
+        if (m_leaveSplashStartTick == 0) m_leaveSplashStartTick = armGetSystemTick();
+        m_leaveSplashWaited = armTicksToNs(armGetSystemTick() - m_leaveSplashStartTick) / 1e9f;
+        // HomeNX return animation: as soon as the menu exists and its deferred
+        // uploads (one heavy frame) are done, dissolve the picture into it with an
+        // icon wave instead of holding a frozen picture until every icon loaded.
+        // Icons keep streaming in (burst) during the wave; music fades in on its own.
+        const bool sceneReady = m_deferredInitialAssetFrames == 0;
+        const bool userWants = m_leaveSplashWaited > 0.1f && app().input().hasUserActivity();
+        if ((m_leaveSplashHoldRemaining <= 0.f && sceneReady)
+            || userWants || m_leaveSplashWaited >= kLeaveSplashMaxWait) {
+            DebugLog::log("[leave] scene %s after %.2fs", sceneReady ? "ready"
+                          : userWants ? "skipped by input" : "timeout", m_leaveSplashWaited);
+            m_tReady = armGetSystemTick();
+            if (m_grid && m_openFolderId == 0) {
+                IconAppearOptions wave;
+                wave.stagger = 0.45f;
+                wave.fromScale = 0.75f;
+                wave.fromOpacity = 0.2f;
+                m_grid->startAppearAnimation(wave);
+            }
             m_leaveSplashHoldRemaining = 0.f;
             m_leaveSplashPhase = LeaveSplashPhase::Fade;
             DebugLog::log("[leave] splash crossfade begin");
@@ -3868,6 +3937,25 @@ void WiiUMenuApp::resumeSuspendedApplication(std::uint64_t titleId,
     }, titleId);
 }
 
+// HomeNX launch, after the card: the screen is black by now, so the launch
+// request, the saves and the wait for the return-picture write can't freeze a
+// visible frame (they used to run before the black frame was presented).
+void WiiUMenuApp::finishLaunch() {
+    if (!m_launcher.requestLaunch(m_launchTitleId, m_launchUid)) { // refused: back to HOME
+        svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
+        m_launchAnim->stop();
+        resumeMenuMusicAfterReturn();
+        return;
+    }
+    m_config.noteOpened(m_launchTitleId);
+    m_config.save();
+    m_widgetStore.recordLaunch(m_launchTitleId, m_launchTitleName,
+                               static_cast<std::int64_t>(std::time(nullptr)));
+    m_widgetStore.save(false);
+    waitLeaveFrameWrite();
+    m_launcher.closeForLaunch();
+}
+
 void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
                                       std::uint64_t titleId,
                                       const std::string& launchTitle) {
@@ -3908,15 +3996,18 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
         scheduleLeaveCapture([this, frame, texture, radius, base, border,
                               titleId, launchTitle, uid]() {
             m_audio.playSfx(Sfx::LaunchGame);
-            m_launchAnim->start(frame, texture, radius, base, border, titleId, uid,
-                [this, launchTitle](std::uint64_t id, AccountUid selectedUid) {
-                    m_config.noteOpened(id);
-                    m_config.save();
-                    m_widgetStore.recordLaunch(id, launchTitle,
-                        static_cast<std::int64_t>(std::time(nullptr)));
-                    m_widgetStore.save(false);
-                    waitLeaveFrameWrite();
-                    m_launcher.launchApplication(id, selectedUid);
+            // HomeNX: the game loads in the background while the launch card plays;
+            // keep the card's frames ahead of the game's loading threads.
+            svcSetThreadPriority(CUR_THREAD_HANDLE, 0x24);
+            m_launchAnim->start(frame, texture, radius, base, border, titleId, uid, launchTitle,
+                {},
+                // End of the card: wait until black is actually on screen, then
+                // launch, save and close (see finishLaunch / onUpdate).
+                [this, titleId, launchTitle, uid]() {
+                    m_launchTitleId = titleId;
+                    m_launchTitleName = launchTitle;
+                    m_launchUid = uid;
+                    m_launchFinishFrames = 2;
                 });
         }, titleId);
     };
@@ -4329,6 +4420,7 @@ void WiiUMenuApp::buildGrid() {
     m_pageIndicator->setBlurEnabled(false);
 
     m_launchAnim = std::make_shared<LaunchAnimation>();
+    m_launchAnim->setFont(&m_fontNormal);
 
     m_folderZoom = std::make_shared<FolderZoom>();
     m_folderZoom->setRect({0, 0, 1280, 720});
@@ -5228,6 +5320,25 @@ void WiiUMenuApp::finalizeRefresh() {
 #endif
 
 void WiiUMenuApp::onUpdate(float dt) {
+    // HomeNX launch card: once it covers the screen, stop drawing HOME under it
+    // (that was what made the card stutter); finish the launch on black frames.
+    {
+        const bool cover = m_launchAnim && m_launchAnim->coversScreen();
+        if (cover != m_launchCovering) {
+            m_launchCovering = cover;
+            if (m_bgLayer) m_bgLayer->setVisible(!cover);
+            if (m_contentLayer) m_contentLayer->setVisible(!cover);
+        }
+        if (m_launchFinishFrames > 0 && --m_launchFinishFrames == 0)
+            finishLaunch();
+    }
+#ifdef NXUI_BACKEND_DEKO3D
+    // HomeNX: once HOME has settled, allocate the capture buffers, so pressing a
+    // game later doesn't stall on ~7 MB of GPU allocation.
+    if (!m_readbackPrepared && !leaveSplashActive() && m_deferredInitialAssetFrames == 0
+        && !(m_launchAnim && m_launchAnim->isPlaying()) && (m_readbackPrepDelay -= dt) <= 0.f)
+        m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
+#endif
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
@@ -7087,13 +7198,8 @@ void WiiUMenuApp::onRender(nxui::Renderer& ren) {
         DebugLog::log("[first-frame] fast HOME return rendered in %lums", elapsedMs);
         m_fastReturnStartupTick = 0;
     }
-    if (leaveSplashActive() && m_leaveSplashTex.valid()) {
-        const float alpha = (m_leaveSplashPhase == LeaveSplashPhase::Hold)
-            ? 1.f
-            : m_leaveSplashFade;
-        ren.drawTexture(&m_leaveSplashTex, {0.f, 0.f, 1280.f, 720.f},
-                        nxui::Color::white().withAlpha(alpha));
-    }
+    if (leaveSplashActive() && m_leaveSplashTex.valid())
+        drawReturnVeil(ren, m_leaveSplashPhase == LeaveSplashPhase::Hold ? 1.f : m_leaveSplashFade);
     if (m_returnFadeTimer > 0.f) {
         float alpha = m_returnFadeTimer / kReturnFadeInDur;
         ren.drawRect({0, 0, 1280, 720}, nxui::Color(0, 0, 0, alpha));

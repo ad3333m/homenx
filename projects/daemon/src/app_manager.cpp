@@ -215,7 +215,7 @@ Result ApplicationSession::stopCurrent(std::uint64_t gracefulTimeoutNs,
     return 0;
 }
 
-Result ApplicationSession::launch(std::uint64_t titleId, AccountUid uid) {
+Result ApplicationSession::launch(std::uint64_t titleId, AccountUid uid, bool takeForeground) {
     if (appletApplicationActive(&m_application)) {
         const Result stopRc = stopCurrent(kGracefulExitTimeoutNs, "replace-before-launch");
         if (R_FAILED(stopRc))
@@ -286,6 +286,13 @@ Result ApplicationSession::launch(std::uint64_t titleId, AccountUid uid) {
     if (R_FAILED(rc))
         return failTransition(rc, "start", false);
     m_state = SessionState::Started;
+    if (!takeForeground) {
+        // HomeNX: loads while the menu closes; resume() hands it the screen.
+        m_lastResult = 0;
+        switchu::FileLog::log("[app] session=%lu started in background title=0x%016lX",
+                              static_cast<unsigned long>(m_sessionId), titleId);
+        return 0;
+    }
 
     rc = appletApplicationRequestForApplicationToGetForeground(&m_application);
     if (R_FAILED(rc))
@@ -390,7 +397,9 @@ bool hasForeground() { return session().hasForeground(); }
 std::uint64_t suspendedTitleId() { return session().suspendedTitleId(); }
 SessionSnapshot snapshot() { return session().snapshot(); }
 Event* stateChangedEvent() { return session().stateChangedEvent(); }
-Result launch(std::uint64_t titleId, AccountUid uid) { return session().launch(titleId, uid); }
+Result launch(std::uint64_t titleId, AccountUid uid, bool takeForeground) {
+    return session().launch(titleId, uid, takeForeground);
+}
 Result resume() { return session().resume(); }
 Result terminate() { return session().terminate(); }
 Result kill() { return session().kill(); }

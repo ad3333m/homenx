@@ -48,7 +48,10 @@ public:
     void shutdown();
     void reboot();
 
-    void launchApplication(uint64_t titleId, AccountUid uid);
+    // Ask for the launch without closing the menu (the launch card keeps playing
+    // while the game loads); closeForLaunch() then exits. false = not sent.
+    bool requestLaunch(uint64_t titleId, AccountUid uid);
+    void closeForLaunch();
     void resumeApplication();
     void terminateApplication();
 
