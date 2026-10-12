@@ -14,6 +14,7 @@
 #include <switch.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -213,9 +214,9 @@ static switchu::smi::SystemStatus readSystemStatus() {
     if (R_SUCCEEDED(appletPopInData(&stor))) {
         s64 sz = 0;
         appletStorageGetSize(&stor, &sz);
-        if (sz >= (s64)sizeof(switchu::smi::SystemStatus)) {
-            appletStorageRead(&stor, 0, &status, sizeof(status));
-        }
+        // An older daemon (right after an update, before a restart) sends less.
+        if (sz >= 56)
+            appletStorageRead(&stor, 0, &status, std::min<size_t>((size_t)sz, sizeof(status)));
         appletStorageClose(&stor);
     }
     return status;

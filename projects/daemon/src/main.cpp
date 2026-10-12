@@ -257,10 +257,15 @@ static uint64_t g_pendingHomeMenuStartedAt = 0;
 // HomeNX: when the menu asked for something that only happens once it has
 // closed (a game, an applet), and it hasn't closed yet. See forceMenuGone().
 static uint64_t g_menuExitExpectedAt = 0;
+// HomeNX: HOME timings handed to the menu (Settings > HomeNX > Return timing).
+static uint64_t g_homePressTick = 0;
+static uint64_t g_homeForegroundTick = 0;
 static uint8_t g_lastBatteryPercent = 0xFF;
 static PsmChargerType g_lastChargerType = (PsmChargerType)0xFF;
 
 static bool shouldDeferViewPolling() {
+    // HomeNX: nothing slow on this thread while HOME is being opened.
+    if (g_pendingHomeMenuLaunch) return true;
     return daemon::app::isRunning() &&
            daemon::app::hasForeground() &&
            !daemon::menu_la::isActive() &&
@@ -588,6 +593,9 @@ static smi::SystemStatus buildSystemStatus() {
     st.suspended_app_id = daemon::app::suspendedTitleId();
     st.app_running = daemon::app::isRunning();
     st.last_failure = g_lastOperationFailure;
+    st.home_tick = g_homePressTick;
+    st.foreground_tick = g_homeForegroundTick;
+    st.menu_launch_tick = armGetSystemTick();
     return st;
 }
 
@@ -868,6 +876,8 @@ static Result launchPendingHomeMenu() {
 
     const char* source = g_pendingHomeMenuSource ? g_pendingHomeMenuSource : "home";
     const uint64_t startedAt = g_pendingHomeMenuStartedAt;
+    g_homePressTick = startedAt;
+    g_homeForegroundTick = armGetSystemTick();
     g_pendingHomeMenuLaunch = false;
     g_pendingHomeMenuSource = nullptr;
     g_pendingHomeMenuStartedAt = 0;
@@ -887,6 +897,7 @@ static Result launchPendingHomeMenu() {
         static_cast<unsigned long>(armTicksToNs(launchDoneAt - startedAt) / 1'000'000ULL));
     if (R_SUCCEEDED(rc))
         armCatalogHold(kCatalogHoldAfterHomeNs);
+    g_homePressTick = g_homeForegroundTick = 0;
     logHomeState(source, "after");
     return rc;
 }
@@ -906,8 +917,12 @@ static void forceMenuGone(const char* why) {
     g_menuExitExpectedAt = 0;
     if (g_launchForegroundPending) {
         g_launchForegroundPending = false;
-        const Result fgRc = daemon::app::resume();
-        switchu::FileLog::log("[menu] early-launched game takes the screen rc=0x%X", fgRc);
+        Result fgRc = daemon::app::resume();
+        for (int i = 0; R_FAILED(fgRc) && i < 6 && daemon::app::isRunning(); ++i) {
+            svcSleepThread(40'000'000ULL);
+            fgRc = daemon::app::resume();
+        }
+        switchu::FileLog::logCommit("[menu] early-launched game takes the screen rc=0x%X", fgRc);
         if (R_FAILED(fgRc))
             daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
     }
@@ -1097,9 +1112,9 @@ static bool sendViewFlagsUpdates() {
     return false;
 }
 
-static void handleGeneralChannel() {
+static bool handleGeneralChannel() {
     AppletStorage st;
-    if (R_FAILED(appletPopFromGeneralChannel(&st))) return;
+    if (R_FAILED(appletPopFromGeneralChannel(&st))) return false;
 
     struct SamsHeader {
         u32 magic;
@@ -1114,7 +1129,7 @@ static void handleGeneralChannel() {
         appletStorageRead(&st, 0, &hdr, (size_t)sz < sizeof(hdr) ? (size_t)sz : sizeof(hdr));
     appletStorageClose(&st);
 
-    if (hdr.magic != 0x534D4153) return;
+    if (hdr.magic != 0x534D4153) return true;
 
     switchu::FileLog::log("[sams] msg=%u", hdr.msg);
     switch (hdr.msg) {
@@ -1135,13 +1150,14 @@ static void handleGeneralChannel() {
         startPowerSequence("sams-reboot", smi::SystemMessage::Reboot);
         break;
     }
+    return true;
 }
 
-static void handleAppletMessages() {
+static bool handleAppletMessages() {
     u32 msg = 0;
     Result rc = appletGetMessage(&msg);
     if (R_FAILED(rc))
-        return;
+        return false;
 
     switchu::FileLog::log("[ae] msg=%u", msg);
     switch (msg) {
@@ -1195,6 +1211,7 @@ static void handleAppletMessages() {
         }
         break;
     }
+    return true;
 }
 
 static void pumpForegroundAppletMessages() {
@@ -1463,14 +1480,14 @@ static void pushCommandResult(uint64_t requestId, Result result, const char* com
         "[smi] %s response create FAIL: 0x%X", command, rc);
 }
 
-static void handleMenuCommand() {
-    if (!daemon::menu_la::isActive()) return;
+static bool handleMenuCommand() {
+    if (!daemon::menu_la::isActive()) return false;
 
     AppletStorage st;
-    if (R_FAILED(daemon::menu_la::popStorage(&st))) return;
+    if (R_FAILED(daemon::menu_la::popStorage(&st))) return false;
 
     smi::StorageReader reader(st);
-    if (!reader.valid()) return;
+    if (!reader.valid()) return true;
 
     auto msg = reader.systemMessage();
     const uint64_t requestId = reader.requestId();
@@ -1684,21 +1701,21 @@ static void handleMenuCommand() {
             daemon::menu_la::pushStorage(&respSt);
         else
             switchu::FileLog::log("[smi] GetSystemStatus response create FAIL: 0x%X", respRc);
-        return;
+        return true;
     }
 
     case smi::SystemMessage::SetManualDateTime: {
         auto args = reader.pop<smi::ManualDateTimeArgs>();
         result = setManualDateTime(args);
         pushCommandResult(requestId, result, "SetManualDateTime");
-        return;
+        return true;
     }
 
     case smi::SystemMessage::SetInternetTimeSync: {
         auto args = reader.pop<smi::InternetTimeSyncArgs>();
         result = setInternetTimeSync(args.enabled != 0);
         pushCommandResult(requestId, result, "SetInternetTimeSync");
-        return;
+        return true;
     }
 
     case smi::SystemMessage::MenuReady:
@@ -1714,6 +1731,7 @@ static void handleMenuCommand() {
 
     }
 
+    return true;
 }
 
 static Result relaunchMenuAfterApplet(const char* appletName) {
@@ -1903,10 +1921,17 @@ static bool consumeOneAction() {
     return handleAction(action);
 }
 
+// Every queued request in one go: the menu's commands are dropped with its
+// holder once it has closed, so a launch request still waiting behind another
+// command was lost (HOME came back instead of the game).
+static void drainMenuCommands() {
+    for (int i = 0; i < 32 && handleMenuCommand(); ++i) {}
+}
+
 static void mainLoop() {
-    handleGeneralChannel();
-    handleAppletMessages();
-    handleMenuCommand();
+    for (int i = 0; i < 16 && handleGeneralChannel(); ++i) {}
+    for (int i = 0; i < 16 && handleAppletMessages(); ++i) {}
+    drainMenuCommands();
 
     // SPSM terminates the process asynchronously. Do not schedule catalogue,
     // cache or logging work after the power request has begun.
@@ -1992,6 +2017,7 @@ static void mainLoop() {
     if (g_menuRelaunchCooldown > 0)
         --g_menuRelaunchCooldown;
 
+    drainMenuCommands(); // anything it sent while closing, before its holder goes
     if (daemon::menu_la::checkFinished()) {
         const uint64_t runtimeNs = daemon::menu_la::lastRuntimeNs();
         switchu::FileLog::log("[main] menu exited (reason=%d runtime=%lums)",
@@ -1999,8 +2025,14 @@ static void mainLoop() {
             static_cast<unsigned long>(runtimeNs / 1'000'000ULL));
         if (g_launchForegroundPending) {
             g_launchForegroundPending = false;
-            const Result fgRc = daemon::app::resume();
-            switchu::FileLog::log("[main] early-launched game takes the screen rc=0x%X", fgRc);
+            Result fgRc = daemon::app::resume();
+            // AM can still be taking the screen back from the menu that just
+            // closed; a refusal then used to open HOME instead of the game.
+            for (int i = 0; R_FAILED(fgRc) && i < 6 && daemon::app::isRunning(); ++i) {
+                svcSleepThread(40'000'000ULL);
+                fgRc = daemon::app::resume();
+            }
+            switchu::FileLog::logCommit("[main] early-launched game takes the screen rc=0x%X", fgRc);
             if (R_FAILED(fgRc))
                 daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
             g_menuFastExitCount = 0; // a launch, not a crash loop

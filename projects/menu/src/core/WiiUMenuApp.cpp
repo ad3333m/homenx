@@ -382,6 +382,9 @@ void WiiUMenuApp::setTutorialStartupFade(bool enabled) {
 #ifdef SWITCHU_MENU
 void WiiUMenuApp::setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn) {
     m_launcher.setStartupStatus(status.suspended_app_id, status.app_running);
+    m_homeTick = status.home_tick;
+    m_homeForegroundTick = status.foreground_tick;
+    m_homeLaunchTick = status.menu_launch_tick;
     m_startupFailure = status.last_failure;
     m_fastReturnRequested = fastReturn || status.suspended_app_id != 0;
 }

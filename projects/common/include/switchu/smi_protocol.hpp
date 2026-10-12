@@ -126,8 +126,13 @@ struct SystemStatus {
     bool      app_running;
     uint8_t   _pad[7];
     OperationOutcome last_failure;
+    // HomeNX: when HOME was pressed, when the game let go of the screen and when
+    // the menu was started (system ticks; 0 if this start wasn't from HOME).
+    uint64_t  home_tick;
+    uint64_t  foreground_tick;
+    uint64_t  menu_launch_tick;
 };
-static_assert(sizeof(SystemStatus) == 56);
+static_assert(sizeof(SystemStatus) == 80);
 
 struct AppEntryHeader {
     uint64_t  title_id;

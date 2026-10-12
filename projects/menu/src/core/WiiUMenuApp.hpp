@@ -488,6 +488,8 @@ private:
     switchu::navigation::Route m_detailPrevRoute = switchu::navigation::Route::Home;
     bool m_newsLoaded = false;
     std::uint64_t m_newsLoadedAt = 0;
+    // When HOME was pressed / the game let go / the menu was started (from the daemon).
+    std::uint64_t m_homeTick = 0, m_homeForegroundTick = 0, m_homeLaunchTick = 0;
     std::function<void()> m_fadeThen;
     float m_fade = 0.f;        // 0 clear .. 1 black
     float m_fadeTarget = 0.f;

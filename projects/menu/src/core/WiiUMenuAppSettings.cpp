@@ -1691,11 +1691,19 @@ void WiiUMenuApp::openHomePagesPicker() {
 void WiiUMenuApp::openReturnTimings() {
     if (!m_dialog) return;
     auto& i18n = nxui::I18n::instance();
-    auto secs = [this](std::uint64_t tick) -> std::string {
-        if (tick == 0 || tick < g_homenxStartTick) return "-";
-        return fmt::format("{:.2f} s", armTicksToNs(tick - g_homenxStartTick) / 1e9);
+    // From the HOME press when the daemon passed it, else from the menu's start.
+    const std::uint64_t origin =
+        m_homeTick != 0 && m_homeTick < g_homenxStartTick ? m_homeTick : g_homenxStartTick;
+    auto secs = [origin](std::uint64_t tick) -> std::string {
+        if (tick == 0 || tick < origin) return "-";
+        return fmt::format("{:.2f} s", armTicksToNs(tick - origin) / 1e9);
     };
-    const std::string body =
+    std::string home;
+    if (origin == m_homeTick && m_homeTick != 0)
+        home = i18n.tr("timing.game_paused", "Game let go of the screen") + ": " + secs(m_homeForegroundTick) + "\n" +
+               i18n.tr("timing.menu_started", "Menu started") + ": " + secs(m_homeLaunchTick) + "\n" +
+               i18n.tr("timing.menu_loaded", "Menu loaded") + ": " + secs(g_homenxStartTick) + "\n";
+    const std::string body = home +
         i18n.tr("timing.picture", "Picture on screen") + ": " + secs(m_tFirstFrame) + "\n" +
         i18n.tr("timing.fonts", "Fonts and app list") + ": " + secs(m_tResources) + "\n" +
         i18n.tr("timing.grid", "Menu built") + ": " + secs(m_tGrid) + "\n" +
