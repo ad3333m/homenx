@@ -1,6 +1,8 @@
 #include "widgets/SocialScreen.hpp"
 #include "core/BackgroundThread.hpp"
 #include "launcher/AppListLoader.hpp"
+#include "net/http.h"
+#include "themeshop/ThemeHttp.hpp"
 
 #include <nxui/core/Animation.hpp>
 #include <nxui/core/GpuDevice.hpp>
@@ -140,6 +142,8 @@ void SocialScreen::show(AccountUid uid, std::string name, std::shared_ptr<nxui::
     m_zone = Zone::Tiles;
     m_mode = Mode::Friends;
     m_add = Add::Idle;
+    m_haveCandidate = false;
+    m_deleteArmed = -1;
     m_tile = 0;
     m_sel = 0;
     m_scroll = 0.f;
@@ -183,10 +187,12 @@ void SocialScreen::bindInput() {
     addDirectionAction(nxui::FocusDirection::RIGHT, [this]() { move(+1, 0); });
     addAction(static_cast<uint64_t>(nxui::Button::A), [this]() { activateItem(); });
     addAction(static_cast<uint64_t>(nxui::Button::B), [this]() { back(); });
-    addAction(static_cast<uint64_t>(nxui::Button::X), [this]() { answer(false); });
+    addAction(static_cast<uint64_t>(nxui::Button::X), [this]() { pressX(); });
+    addAction(static_cast<uint64_t>(nxui::Button::Y), [this]() { pressY(); });
 }
 
 int SocialScreen::listCount() const {
+    if (m_mode == Mode::Miis) return 1 + (int)m_miis.size(); // "New Mii", then yours
     return m_mode == Mode::Friends ? 1 + (int)m_friends.size() : (int)m_requests.size();
 }
 
@@ -355,6 +361,33 @@ void SocialScreen::finishJob() {
             m_add = R_SUCCEEDED(j.rc) ? Add::Sent : Add::Failed;
             m_addRc = j.rc;
             break;
+        case JobKind::MiiLoad:
+            m_miis = std::move(j.miis);
+            m_miisRc = j.rc;
+            m_miisLoaded = true;
+            m_sel = std::clamp(m_sel, 0, std::max(0, listCount() - 1));
+            break;
+        case JobKind::MiiRandom:
+            if (R_SUCCEEDED(j.rc)) {
+                m_candidate = std::move(j.mii);
+                m_haveCandidate = true;
+            } else {
+                notice(i18n.tr("mii.random_failed", "Couldn't make a Mii.") + " (" + errorText(j.rc) + ")");
+            }
+            break;
+        case JobKind::MiiAdd:
+        case JobKind::MiiRename:
+        case JobKind::MiiDelete:
+            if (R_SUCCEEDED(j.rc)) {
+                notice(m_jobKind == JobKind::MiiAdd ? i18n.tr("mii.added", "Your new Mii is saved.")
+                       : m_jobKind == JobKind::MiiRename ? i18n.tr("mii.renamed", "Renamed.")
+                                                         : i18n.tr("mii.deleted", "Deleted."));
+                if (m_jobKind == JobKind::MiiAdd) m_haveCandidate = false;
+            } else {
+                notice(i18n.tr("mii.failed", "That didn't work.") + " (" + errorText(j.rc) + ")");
+            }
+            m_miisLoaded = false; // read them again
+            break;
         case JobKind::None:
             break;
     }
@@ -364,12 +397,14 @@ void SocialScreen::finishJob() {
 
 void SocialScreen::startAddFriend() {
     auto& i18n = nxui::I18n::instance();
-    if (!m_cb.onEnterFriendCode) return;
+    if (!m_cb.onEnterText) return;
     if (!accountUidIsValid(&m_uid)) {
         notice(i18n.tr("friends.no_profile", "Choose a profile with the profile button first."));
         return;
     }
-    m_cb.onEnterFriendCode([this](const std::string& typed) {
+    m_cb.onEnterText(i18n.tr("friends.add", "Add Friend"),
+                     i18n.tr("social.code_guide", "Their friend code, like SW-1234-5678-9012"), std::string(), 17,
+                     [this](const std::string& typed) {
         if (typed.empty() || !m_active) return;
         if (m_job) {
             notice(nxui::I18n::instance().tr("social.busy", "Still busy with the last thing. Try again in a moment."));
@@ -481,7 +516,7 @@ void SocialScreen::activateItem() {
     if (m_zone == Zone::Tiles) {
         if (m_cb.onActivate) m_cb.onActivate();
         switch (m_tile) {
-            case 0: if (m_cb.onMiiEditor) m_cb.onMiiEditor(); break;
+            case 0: openMiis(); break;
             case 1: startAddFriend(); break;
             case 2: openRequests(); break;
             case 3: if (m_cb.onDiscord) m_cb.onDiscord(); break;
@@ -492,7 +527,140 @@ void SocialScreen::activateItem() {
         answer(true);
         return;
     }
+    if (m_mode == Mode::Miis) {
+        if (m_zone != Zone::List || m_job || !m_cb.onEnterText) return;
+        auto& i18n = nxui::I18n::instance();
+        if (m_sel == 0 && !m_haveCandidate) { // roll a new one to look at
+            const int gender = m_candidateGender;
+            startMiiJob(JobKind::MiiRandom, [gender](Job& j) { j.rc = buildRandomMii(gender, j.mii); });
+            return;
+        }
+        if (m_sel == 0) { // keep it: name it, then save it
+            m_cb.onEnterText(i18n.tr("mii.name_title", "Name your Mii"),
+                             i18n.tr("mii.name_guide", "Up to 10 letters"), std::string(), 10,
+                             [this](const std::string& name) {
+                if (name.empty() || !m_active || m_job || !m_haveCandidate) return;
+                const MiiCharInfo info = m_candidate.info;
+                startMiiJob(JobKind::MiiAdd, [info, name](Job& j) { j.rc = addMii(info, name); });
+            });
+            return;
+        }
+        if (m_sel - 1 < (int)m_miis.size()) { // rename
+            const MiiEntry mii = m_miis[(size_t)(m_sel - 1)];
+            const int index = m_sel - 1;
+            m_cb.onEnterText(i18n.tr("mii.rename_title", "Rename"), i18n.tr("mii.name_guide", "Up to 10 letters"),
+                             mii.name, 10, [this, mii, index](const std::string& name) {
+                if (name.empty() || !m_active || m_job) return;
+                startMiiJob(JobKind::MiiRename, [mii, index, name](Job& j) { j.rc = renameMii(mii, index, name); });
+            });
+        }
+        return;
+    }
     if (m_zone == Zone::List) move(+1, 0); // into the play history
+}
+
+void SocialScreen::openMiis() {
+    m_mode = Mode::Miis;
+    m_zone = Zone::List;
+    m_sel = 0;
+    m_scroll = 0.f;
+    m_followSel = true;
+    m_haveCandidate = false;
+    m_deleteArmed = -1;
+    m_miisLoaded = false; // read again: they change in the Mii Maker too
+}
+
+void SocialScreen::startMiiJob(JobKind kind, std::function<void(Job&)> work) {
+    if (m_cb.onActivate) m_cb.onActivate();
+    startJob(kind, std::move(work));
+}
+
+// X: decline a request, or in Miis: change the new Mii's gender / delete (twice).
+void SocialScreen::pressX() {
+    if (m_mode != Mode::Miis) {
+        answer(false);
+        return;
+    }
+    if (m_zone != Zone::List || m_job) return;
+    auto& i18n = nxui::I18n::instance();
+    if (m_sel == 0) {
+        if (!m_haveCandidate) return;
+        m_candidateGender = (m_candidateGender + 1) % 3;
+        const int gender = m_candidateGender;
+        startMiiJob(JobKind::MiiRandom, [gender](Job& j) { j.rc = buildRandomMii(gender, j.mii); });
+        return;
+    }
+    if (m_sel - 1 >= (int)m_miis.size()) return;
+    const bool armed = m_deleteArmed == m_sel
+        && armTicksToNs(armGetSystemTick() - m_deleteArmedAt) < 4'000'000'000ULL;
+    if (!armed) {
+        m_deleteArmed = m_sel;
+        m_deleteArmedAt = armGetSystemTick();
+        notice(i18n.tr("mii.delete_again", "Press X again to delete") + " " + m_miis[(size_t)(m_sel - 1)].name + ".");
+        if (m_cb.onNavigate) m_cb.onNavigate();
+        return;
+    }
+    m_deleteArmed = -1;
+    const MiiCharInfo info = m_miis[(size_t)(m_sel - 1)].info;
+    startMiiJob(JobKind::MiiDelete, [info](Job& j) { j.rc = deleteMii(info); });
+}
+
+// Y: another random Mii, or change a Mii's looks in Nintendo's Mii Maker.
+void SocialScreen::pressY() {
+    if (m_mode != Mode::Miis || m_zone != Zone::List || m_job) return;
+    if (m_sel == 0) {
+        if (!m_haveCandidate) return;
+        const int gender = m_candidateGender;
+        startMiiJob(JobKind::MiiRandom, [gender](Job& j) { j.rc = buildRandomMii(gender, j.mii); });
+        return;
+    }
+    if (m_cb.onMiiEditor) m_cb.onMiiEditor();
+}
+
+// Faces for the Miis on show, downloaded a few at a time (Mii Studio).
+void SocialScreen::ensureFaces() {
+    if (m_faceJob) {
+        bool done = false;
+        {
+            std::lock_guard<std::mutex> lk(m_faceJob->mu);
+            done = m_faceJob->done;
+        }
+        if (!done) return;
+        for (auto& png : m_faceJob->pngs)
+            if (!png.second.empty()) m_facePngs[png.first] = std::move(png.second);
+        m_faceJob.reset();
+    }
+    if (m_mode != Mode::Miis) return;
+    std::vector<std::string> urls;
+    if (m_haveCandidate && !m_faceTried.count(m_candidate.faceUrl)) urls.push_back(m_candidate.faceUrl);
+    for (const MiiEntry& m : m_miis)
+        if (urls.size() < 6 && !m_faceTried.count(m.faceUrl)) urls.push_back(m.faceUrl);
+    if (urls.empty() || !themeshop::http::initialize()) return;
+    for (const auto& u : urls) m_faceTried.insert(u);
+    auto job = std::make_shared<FaceJob>();
+    m_faceJob = job;
+    runInBackground([job, urls]() {
+        nxui::moveToWorkerCores();
+        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> pngs;
+        for (const auto& u : urls) {
+            Http::Request req;
+            req.url = u;
+            req.timeoutMs = 10000;
+            req.maxBytes = 1u << 20;
+            const Http::Response res = Http::Perform(req);
+            pngs.emplace_back(u, res.Ok() ? std::vector<std::uint8_t>(res.body.begin(), res.body.end())
+                                          : std::vector<std::uint8_t>());
+        }
+        Http::ThreadCleanup();
+        std::lock_guard<std::mutex> lk(job->mu);
+        job->pngs = std::move(pngs);
+        job->done = true;
+    });
+}
+
+const nxui::Texture* SocialScreen::face(const std::string& url) const {
+    auto it = m_faces.find(url);
+    return it != m_faces.end() && it->second && it->second->valid() ? it->second.get() : nullptr;
 }
 
 void SocialScreen::back() {
@@ -501,6 +669,14 @@ void SocialScreen::back() {
         m_add = Add::Idle;
     } else if (m_zone == Zone::Detail) {
         m_zone = Zone::List;
+    } else if (m_mode == Mode::Miis && m_haveCandidate && m_sel == 0) {
+        m_haveCandidate = false; // not this one
+    } else if (m_mode == Mode::Miis) {
+        m_mode = Mode::Friends;
+        m_zone = Zone::Tiles;
+        m_tile = 0;
+        m_sel = 0;
+        m_scroll = 0.f;
     } else if (m_mode == Mode::Requests) {
         m_mode = Mode::Friends;
         m_zone = Zone::Tiles;
@@ -568,6 +744,9 @@ void SocialScreen::onUpdate(float dt) {
 
     if (m_active) {
         ensureHistory();
+        if (m_mode == Mode::Miis && !m_miisLoaded && !m_job)
+            startJob(JobKind::MiiLoad, [](Job& j) { j.rc = loadMiis(j.miis); });
+        ensureFaces();
         if (m_mode == Mode::Requests && !m_requestsLoaded && !m_job) {
             const AccountUid uid = m_uid;
             startJob(JobKind::Requests, [uid](Job& j) { j.list = loadFriendRequests(uid, j.rc); });
@@ -585,6 +764,14 @@ void SocialScreen::onUpdate(float dt) {
             auto tex = std::make_unique<nxui::Texture>();
             if (tex->loadFromMemory(*m_gpu, *m_ren, f.data.avatar.data(), f.data.avatar.size(), 192))
                 f.avatar = std::move(tex);
+            --budget;
+        }
+        while (budget > 0 && !m_facePngs.empty()) {
+            auto it = m_facePngs.begin();
+            auto tex = std::make_unique<nxui::Texture>();
+            if (tex->loadFromMemory(*m_gpu, *m_ren, it->second.data(), it->second.size(), 256))
+                m_faces[it->first] = std::move(tex);
+            m_facePngs.erase(it);
             --budget;
         }
         while (budget > 0 && !m_iconJpegs.empty()) {
@@ -920,6 +1107,65 @@ void SocialScreen::drawAddFriend(nxui::Renderer& ren, const nxui::Rect& r, float
     drawMessage(ren, r, a, title, body);
 }
 
+// A Mii's face (Mii Studio), or a soft placeholder until it arrives.
+void SocialScreen::drawMii(nxui::Renderer& ren, const MiiEntry* mii, const nxui::Rect& r, float a) {
+    const nxui::Vec2 c{r.x + r.width * 0.5f, r.y + r.height * 0.5f};
+    const nxui::Color bg = mii ? nxui::Color(0.93f, 0.95f, 0.98f, 1.f) : nxui::Color(0.5f, 0.5f, 0.5f, 1.f);
+    ren.drawCircle(c, r.width * 0.5f, bg.withAlpha(0.9f * a), 40);
+    if (const nxui::Texture* t = mii ? face(mii->faceUrl) : nullptr) {
+        ren.drawTexture(t, r.shrunk(r.width * 0.04f), nxui::Color::white().withAlpha(a));
+        return;
+    }
+    // Placeholder: a head and shoulders.
+    const nxui::Color shade(0.62f, 0.66f, 0.74f, a);
+    ren.drawCircle({c.x, c.y - r.height * 0.1f}, r.width * 0.2f, shade, 32);
+    ren.drawCircle({c.x, c.y + r.height * 0.36f}, r.width * 0.3f, shade, 32);
+}
+
+void SocialScreen::drawMiis(nxui::Renderer& ren, const nxui::Rect& r, float a) {
+    auto& i18n = nxui::I18n::instance();
+    const nxui::Color text = m_theme->textPrimary.withAlpha(a);
+    const nxui::Color muted = m_theme->textSecondary.withAlpha(a);
+    const float x = r.x + 30.f, w = r.width - 60.f;
+    if (!m_miisLoaded && m_miis.empty()) {
+        drawMessage(ren, r, a, i18n.tr("social.miis", "Miis"), i18n.tr("mii.loading", "Loading your Miis..."));
+        return;
+    }
+    const MiiEntry* shown = nullptr;
+    std::string title, line;
+    if (m_sel == 0) {
+        if (!m_haveCandidate) {
+            std::string body = i18n.tr("mii.make_body", "Press A for a random Mii. Keep it and name it, or "
+                                                        "press Y for another one.");
+            if (R_FAILED(m_miisRc)) body += "  (" + errorText(m_miisRc) + ")";
+            drawMessage(ren, r, a, i18n.tr("mii.new", "Make a new Mii"), body);
+            return;
+        }
+        shown = &m_candidate;
+        title = i18n.tr("mii.new_one", "A new Mii");
+        line = m_candidateGender == 0 ? i18n.tr("mii.boys", "Boys only")
+             : m_candidateGender == 1 ? i18n.tr("mii.girls", "Girls only") : i18n.tr("mii.anyone", "Boy or girl");
+    } else if (m_sel - 1 < (int)m_miis.size()) {
+        shown = &m_miis[(size_t)(m_sel - 1)];
+        title = shown->name.empty() ? i18n.tr("mii.no_name", "No name") : shown->name;
+        line = shown->info.mii_sex == 1 ? i18n.tr("mii.girl", "Girl") : i18n.tr("mii.boy", "Boy");
+    }
+    const nxui::Rect big{r.x + (r.width - 230.f) * 0.5f, r.y + 28.f, 230.f, 230.f};
+    drawMii(ren, shown, big, a);
+    float y = big.y + big.height + 22.f;
+    const std::string t = fit(m_font, title, w, 1.1f);
+    ren.drawText(t, {r.x + (r.width - m_font->measure(t).x * 1.1f) * 0.5f, y}, m_font, text, 1.1f);
+    y += 46.f;
+    ren.drawText(line, {r.x + (r.width - m_smallFont->measure(line).x * 0.8f) * 0.5f, y}, m_smallFont, muted, 0.8f);
+    if (m_job && (m_jobKind == JobKind::MiiAdd || m_jobKind == JobKind::MiiRename
+                  || m_jobKind == JobKind::MiiDelete || m_jobKind == JobKind::MiiRandom)) {
+        const std::string busy = i18n.tr("mii.working", "One moment...");
+        ren.drawText(busy, {r.x + (r.width - m_smallFont->measure(busy).x * 0.8f) * 0.5f, y + 34.f}, m_smallFont,
+                     m_theme->cursorNormal.withAlpha(a), 0.8f);
+    }
+    (void)x;
+}
+
 void SocialScreen::drawDetail(nxui::Renderer& ren, const nxui::Rect& r, float a) {
     auto& i18n = nxui::I18n::instance();
     const nxui::Color text = m_theme->textPrimary.withAlpha(a);
@@ -933,6 +1179,10 @@ void SocialScreen::drawDetail(nxui::Renderer& ren, const nxui::Rect& r, float a)
         drawRequests(ren, r, a);
         return;
     }
+    if (m_mode == Mode::Miis) {
+        drawMiis(ren, r, a);
+        return;
+    }
     if (m_zone != Zone::Tiles) {
         drawPerson(ren, r, a);
         return;
@@ -943,8 +1193,9 @@ void SocialScreen::drawDetail(nxui::Renderer& ren, const nxui::Rect& r, float a)
     std::string title, body, hint = i18n.tr("social.press_a", "Press A to open");
     switch (m_tile) {
         case 0:
-            title = i18n.tr("sidebar.mii_editor", "Mii Editor");
-            body = i18n.tr("social.mii_body", "Make new Miis, change the ones you have, and see every Mii on this console.");
+            title = i18n.tr("social.miis", "Miis");
+            body = i18n.tr("social.miis_body", "Make new Miis, name them and delete them, right here. Their looks "
+                                               "can still be changed in Nintendo's Mii Maker (Y).");
             break;
         case 1:
             title = i18n.tr("friends.add", "Add Friend");
@@ -1023,11 +1274,12 @@ void SocialScreen::onRender(nxui::Renderer& ren) {
     };
     for (int i = 0; i < kTiles; ++i) {
         const nxui::Rect t = tileRect(i);
-        const bool sel = (m_zone == Zone::Tiles || (i == 2 && m_mode == Mode::Requests)) && m_tile == i && m_active;
+        const bool sel = (m_zone == Zone::Tiles || (i == 2 && m_mode == Mode::Requests)
+                          || (i == 0 && m_mode == Mode::Miis)) && m_tile == i && m_active;
         ren.drawRoundedRect(t, sel ? accent.withAlpha(0.16f * a) : m_theme->textPrimary.withAlpha(0.06f * a), 20.f);
         if (sel) ren.drawRoundedRectOutline(t, accent.withAlpha(0.9f * a), 20.f, 2.5f);
         drawTileIcon(ren, i, {t.x + (t.width - 50.f) * 0.5f, t.y + 12.f, 50.f, 50.f}, a);
-        static const char* const kKeys[kTiles][2] = {{"social.tile_mii", "Mii Editor"}, {"social.tile_add", "Add Friend"},
+        static const char* const kKeys[kTiles][2] = {{"social.tile_miis", "Miis"}, {"social.tile_add", "Add Friend"},
                                                      {"social.tile_requests", "Requests"}, {"social.tile_discord", "Discord"}};
         const std::string label = fit(m_smallFont, i18n.tr(kKeys[i][0], kKeys[i][1]), t.width - 10.f, 0.7f);
         ren.drawText(label, {t.x + (t.width - m_smallFont->measure(label).x * 0.7f) * 0.5f, t.y + 72.f},
@@ -1046,7 +1298,10 @@ void SocialScreen::onRender(nxui::Renderer& ren) {
     const nxui::Rect list = listRect();
     const int n = listCount();
     std::string head;
-    if (m_mode == Mode::Requests) {
+    if (m_mode == Mode::Miis) {
+        head = i18n.tr("social.miis", "Miis");
+        if (!m_miis.empty()) head += "  " + std::to_string(m_miis.size());
+    } else if (m_mode == Mode::Requests) {
         head = i18n.tr("friends.requests", "Friend Requests");
         if (!m_requests.empty()) head += "  " + std::to_string(m_requests.size());
     } else {
@@ -1077,6 +1332,21 @@ void SocialScreen::onRender(nxui::Renderer& ren) {
         }
         const nxui::Rect av{row.x + 10.f, row.y + (row.height - 46.f) * 0.5f, 46.f, 46.f};
         const float tx = av.x + av.width + 14.f;
+        if (m_mode == Mode::Miis) {
+            const float tw = row.x + row.width - tx - 12.f;
+            if (i == 0) {
+                ren.drawCircle({av.x + av.width * 0.5f, av.y + av.height * 0.5f}, av.width * 0.5f, kOnline.withAlpha(a), 32);
+                const nxui::Vec2 c{av.x + av.width * 0.5f, av.y + av.height * 0.5f};
+                ren.drawRect({c.x - 12.f, c.y - 2.5f, 24.f, 5.f}, nxui::Color(1.f, 1.f, 1.f, a));
+                ren.drawRect({c.x - 2.5f, c.y - 12.f, 5.f, 24.f}, nxui::Color(1.f, 1.f, 1.f, a));
+                ren.drawText(fit(m_font, i18n.tr("mii.new", "Make a new Mii"), tw, 0.8f), {tx, row.y + 18.f}, m_font, text, 0.8f);
+            } else {
+                const MiiEntry& m = m_miis[(size_t)(i - 1)];
+                drawMii(ren, &m, av, a);
+                ren.drawText(fit(m_font, m.name, tw, 0.8f), {tx, row.y + 18.f}, m_font, text, 0.8f);
+            }
+            continue;
+        }
         if (m_mode == Mode::Requests) {
             const FriendRequestEntry& q = m_requests[(size_t)i];
             const std::string name = q.nickname.empty() ? i18n.tr("social.someone", "Someone") : q.nickname;
@@ -1156,6 +1426,10 @@ void SocialScreen::onRender(nxui::Renderer& ren) {
         hints = i18n.tr("social.hint_ok", "A  OK");
     } else if (m_add != Add::Idle) {
         hints.clear();
+    } else if (m_mode == Mode::Miis) {
+        hints = m_sel == 0 ? (m_haveCandidate ? i18n.tr("mii.hint_new", "A  Keep     Y  Another     X  Boy / Girl     B  Back")
+                                              : i18n.tr("mii.hint_make", "A  Make one     B  Back"))
+                           : i18n.tr("mii.hint_mii", "A  Rename     X  Delete     Y  Mii Maker     B  Back");
     } else if (m_mode == Mode::Requests) {
         hints = m_requests.empty() ? i18n.tr("social.hint_back", "B  Back")
                                    : i18n.tr("social.hint_requests", "A  Accept     X  Decline     B  Back");

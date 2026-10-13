@@ -1,6 +1,7 @@
 #pragma once
 #include "friends/FriendStore.hpp"
 #include "social/DiscordService.hpp"
+#include "social/MiiStore.hpp"
 
 #include <nxui/Theme.hpp>
 #include <nxui/core/Font.hpp>
@@ -12,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -29,8 +31,9 @@ public:
         std::function<void()> onClosed;
         std::function<void()> onMiiEditor;
         std::function<void()> onDiscord;
-        // Asks for a friend code with HomeNX's keyboard and passes on what was typed.
-        std::function<void(std::function<void(const std::string&)>)> onEnterFriendCode;
+        // HomeNX's keyboard: title, hint, starting text, max length, then what was typed.
+        std::function<void(const std::string&, const std::string&, const std::string&, int,
+                           std::function<void(const std::string&)>)> onEnterText;
         std::function<void()> onNavigate; // sounds
         std::function<void()> onActivate;
     };
@@ -92,10 +95,18 @@ private:
         std::vector<FriendRequestEntry> list;
         std::uint64_t networkId = 0;
         std::string name;
+        std::vector<MiiEntry> miis;
+        MiiEntry mii;
     };
-    enum class JobKind { None, Requests, Accept, Reject, Lookup, Send };
+    enum class JobKind { None, Requests, Accept, Reject, Lookup, Send,
+                         MiiLoad, MiiRandom, MiiAdd, MiiRename, MiiDelete };
+    struct FaceJob { // Mii faces from Mii Studio, a few at a time
+        std::mutex mu;
+        bool done = false;
+        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> pngs;
+    };
     enum class Zone { Tiles, List, Detail };
-    enum class Mode { Friends, Requests };
+    enum class Mode { Friends, Requests, Miis };
     enum class Add { Idle, Looking, Found, Sending, Sent, Failed };
 
     void bindInput();
@@ -103,6 +114,14 @@ private:
     void activateItem();
     void back();
     void answer(bool accept);
+    void pressX();
+    void pressY();
+    void openMiis();
+    void startMiiJob(JobKind kind, std::function<void(Job&)> work);
+    void ensureFaces();
+    const nxui::Texture* face(const std::string& url) const;
+    void drawMii(nxui::Renderer& ren, const MiiEntry* mii, const nxui::Rect& r, float a);
+    void drawMiis(nxui::Renderer& ren, const nxui::Rect& r, float a);
     void startLoad();
     void startJob(JobKind kind, std::function<void(Job&)> work);
     void finishJob();
@@ -186,6 +205,19 @@ private:
     std::string m_addName;
     std::string m_addCode;
     Result m_addRc = 0;
+
+    std::vector<MiiEntry> m_miis;
+    bool m_miisLoaded = false;
+    Result m_miisRc = 0;
+    MiiEntry m_candidate;          // a random new Mii being looked at
+    bool m_haveCandidate = false;
+    int m_candidateGender = 2;     // 0 male, 1 female, 2 either
+    int m_deleteArmed = -1;        // X once arms delete for this row, X again deletes
+    std::uint64_t m_deleteArmedAt = 0;
+    std::map<std::string, std::unique_ptr<nxui::Texture>> m_faces;
+    std::map<std::string, std::vector<std::uint8_t>> m_facePngs; // waiting to be uploaded
+    std::set<std::string> m_faceTried;
+    std::shared_ptr<FaceJob> m_faceJob;
 
     std::string m_notice;
     std::uint64_t m_noticeAt = 0;

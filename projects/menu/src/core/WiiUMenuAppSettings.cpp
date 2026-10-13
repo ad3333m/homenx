@@ -1497,12 +1497,10 @@ void WiiUMenuApp::openFriends() {
             if (m_social) m_social->hide();
             openMiis();
         };
-        // HomeNX's own keyboard; Social does the lookup and the request itself.
-        cb.onEnterFriendCode = [this](std::function<void(const std::string&)> done) {
-            auto& i18n = nxui::I18n::instance();
-            requestTextEntry(i18n.tr("friends.add", "Add Friend"),
-                             i18n.tr("social.code_guide", "Their friend code, like SW-1234-5678-9012"),
-                             std::string(), 17, false, std::move(done));
+        // HomeNX's own keyboard (friend codes, Mii names); Social does the rest itself.
+        cb.onEnterText = [this](const std::string& title, const std::string& guide, const std::string& initial,
+                                int maxLength, std::function<void(const std::string&)> done) {
+            requestTextEntry(title, guide, initial, maxLength, false, std::move(done));
         };
         cb.onDiscord = [this]() {
             if (m_social) m_social->hide();
