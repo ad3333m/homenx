@@ -1094,6 +1094,11 @@ void WiiUMenuApp::onDestroy() {
             DebugLog::log("[shutdown] audio task failed: unknown exception");
         }
     }
+    // HomeNX: stop the sound thread before anything else is torn down. It
+    // reads the current song from the SD card; closing other things first
+    // (the speech engine's files, the SD card) crashed it while HOME was
+    // closing for a sidebar button.
+    m_audio.shutdown();
     if (m_themePackageTransferFuture.valid()) {
         try {
             m_themePackageTransferFuture.get();
@@ -1131,7 +1136,6 @@ void WiiUMenuApp::onDestroy() {
     if (m_layoutDirty)
         saveMenuLayout();
     m_accessibility.shutdown();
-    m_audio.shutdown();
 }
 
 void WiiUMenuApp::loadResources() {

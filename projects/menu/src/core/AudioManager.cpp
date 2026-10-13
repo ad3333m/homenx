@@ -209,6 +209,7 @@ void AudioManager::shutdown() {
 
     Mix_HookMusicFinished(nullptr);
     s_instance.store(nullptr);
+    m_trackEnded.store(false);
     Mix_HaltMusic();
     Mix_HaltChannel(-1);
     Mix_CloseAudio();
@@ -498,17 +499,14 @@ std::string AudioManager::currentDisplayTitle() const {
 
 std::atomic<AudioManager*> AudioManager::s_instance{nullptr};
 
+// Runs on SDL's audio thread, inside the mixer: SDL_mixer must not be called
+// from here (starting the next song here, and opening its file, could leave the
+// mixer reading a closed file). Just note it; update() starts the next song.
 void AudioManager::onTrackFinished() {
     AudioManager* inst = s_instance.load();
     if (!inst || inst->m_suppressFinishedHook)
         return;
-    if (inst->m_repeat == MusicRepeatMode::One) {
-        std::lock_guard<std::mutex> lk(inst->m_trackMutex);
-        inst->m_positionSeconds = 0.f;
-        inst->playCurrentInternal(true);
-        return;
-    }
-    inst->nextTrack();
+    inst->m_trackEnded.store(true);
 }
 
 void AudioManager::rebuildShuffleOrder(bool keepCurrent) {
@@ -707,6 +705,15 @@ void AudioManager::setRepeatMode(MusicRepeatMode mode) {
 }
 
 void AudioManager::update(float dt) {
+    if (m_trackEnded.exchange(false) && m_initialized) {
+        if (m_repeat == MusicRepeatMode::One) {
+            std::lock_guard<std::mutex> lk(m_trackMutex);
+            m_positionSeconds = 0.f;
+            playCurrentInternal(true);
+        } else {
+            nextTrack();
+        }
+    }
     if (m_restoreFadeIn && dt > 0.f) {
         // Soft fade-in after mute-until-seek restore (HOME AppletReturn).
         m_musicFade = std::min(1.f, m_musicFade + dt / 0.45f);

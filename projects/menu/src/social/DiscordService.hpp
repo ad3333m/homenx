@@ -29,7 +29,20 @@ public:
         bool unread = false;
         int mentions = 0;
     };
+    struct Server {
+        Snowflake id = 0;
+        std::string name, iconUrl, initials;
+        bool unread = false;
+        int mentions = 0;
+    };
+    struct ChannelRow {
+        Snowflake id = 0;
+        std::string name;
+        bool category = false, voice = false, unread = false;
+        int mentions = 0;
+    };
     struct Line {
+        uint32_t color = 0; // the author's role colour in a server, 0 = default
         Snowflake authorId = 0;
         std::string author, avatarUrl, text, time;
         int64_t ms = 0;
@@ -76,6 +89,10 @@ public:
     std::string qrStatus() const;   // what the phone did so far
 
     std::vector<Dm> dms(size_t max = 30) const;
+    int dmMentions() const;
+    // Servers in your sidebar order, and a server's text channels by category.
+    std::vector<Server> servers() const;
+    std::vector<ChannelRow> channels(Snowflake guildId) const;
     // For the Social screen's Discord tile.
     bool started() const { return m_started && !m_stopping; }
     int friendsOnline() const;

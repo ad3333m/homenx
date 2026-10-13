@@ -67,17 +67,110 @@ def friends():
     return im
 
 
+# Discord's logo (the "Clyde" mark) as Simple Icons publishes it (CC0 path data,
+# 24x24 viewBox). Discord's trademark; used to label the Discord panel.
+DISCORD_PATH = ("M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z")
+
+
+def svg_subpaths(d):
+    """Flattens an SVG path (M L H V C S Q A Z; arcs as straight lines, they're
+    only tiny corner roundings here) into lists of points."""
+    import re
+    num_re = re.compile(r"\s*,?\s*(-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)")
+    pos = 0
+    out, cur = [], []
+    x = y = sx = sy = 0.0
+    lc = None  # last cubic control point
+    cmd = None
+
+    def num():
+        nonlocal pos
+        m = num_re.match(d, pos)
+        pos = m.end()
+        return float(m.group(1))
+
+    def flag():  # arc flags are single digits, often packed together ("00")
+        nonlocal pos
+        while d[pos] in " ,":
+            pos += 1
+        pos += 1
+        return d[pos - 1] == "1"
+
+    def cubic(p0, p1, p2, p3):
+        for k in range(1, 17):
+            t = k / 16
+            a = (1 - t) ** 3; b = 3 * (1 - t) ** 2 * t; c = 3 * (1 - t) * t * t; e = t ** 3
+            cur.append((a * p0[0] + b * p1[0] + c * p2[0] + e * p3[0], a * p0[1] + b * p1[1] + c * p2[1] + e * p3[1]))
+
+    while True:
+        while pos < len(d) and d[pos] in " ,":
+            pos += 1
+        if pos >= len(d):
+            break
+        if d[pos].isalpha():
+            cmd = d[pos]; pos += 1
+            if cmd in "Zz":
+                if cur: out.append(cur)
+                cur = []; x, y = sx, sy; lc = None
+                continue
+        rel = cmd.islower(); C = cmd.upper()
+        ox, oy = (x, y) if rel else (0.0, 0.0)
+        if C == "M":
+            if cur: out.append(cur)
+            x, y = ox + num(), oy + num(); sx, sy = x, y; cur = [(x, y)]
+            cmd = "l" if rel else "L"; lc = None
+        elif C == "L":
+            x, y = ox + num(), oy + num(); cur.append((x, y)); lc = None
+        elif C == "H":
+            x = ox + num(); cur.append((x, y)); lc = None
+        elif C == "V":
+            y = oy + num(); cur.append((x, y)); lc = None
+        elif C == "C":
+            p1 = (ox + num(), oy + num()); p2 = (ox + num(), oy + num()); p3 = (ox + num(), oy + num())
+            cubic((x, y), p1, p2, p3); lc = p2; x, y = p3
+        elif C == "S":
+            p1 = (2 * x - lc[0], 2 * y - lc[1]) if lc else (x, y)
+            p2 = (ox + num(), oy + num()); p3 = (ox + num(), oy + num())
+            cubic((x, y), p1, p2, p3); lc = p2; x, y = p3
+        elif C == "Q":
+            q = (ox + num(), oy + num()); p3 = (ox + num(), oy + num())
+            cubic((x, y), (x + 2 / 3 * (q[0] - x), y + 2 / 3 * (q[1] - y)),
+                  (p3[0] + 2 / 3 * (q[0] - p3[0]), p3[1] + 2 / 3 * (q[1] - p3[1])), p3)
+            lc = None; x, y = p3
+        elif C == "A":
+            num(); num(); num(); flag(); flag()  # radii, rotation, flags
+            x, y = ox + num(), oy + num(); cur.append((x, y)); lc = None
+    if cur: out.append(cur)
+    return out
+
+
+def discord_mark(size_px, colour=(255, 255, 255, 255)):
+    """The logo filled (even-odd: the eyes are holes) on a transparent square."""
+    from PIL import ImageChops
+    mask = Image.new("L", (size_px, size_px), 0)
+    k = size_px / 24.0
+    for sub in svg_subpaths(DISCORD_PATH):
+        m = Image.new("L", (size_px, size_px), 0)
+        ImageDraw.Draw(m).polygon([(px * k, py * k) for px, py in sub], fill=255)
+        mask = ImageChops.logical_xor(mask.convert("1"), m.convert("1")).convert("L")
+    im = Image.new("RGBA", (size_px, size_px), colour)
+    im.putalpha(mask)
+    return im
+
+
 def discord():
-    # blurple tile with a white controller-shaped face and two eyes (HomeNX Discord panel)
+    # Discord's app icon: the white logo on a blurple squircle.
     im = canvas(); d = ImageDraw.Draw(im)
-    blurple = (88, 101, 242)
-    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(110), fill=blurple)
-    # face: a wide rounded body with two lower "grips"
-    d.rounded_rectangle([p(118), p(150), p(394), p(330)], radius=p(80), fill="white")
-    d.ellipse([p(104), p(250), p(214), p(370)], fill="white")
-    d.ellipse([p(298), p(250), p(408), p(370)], fill="white")
-    d.ellipse([p(186), p(222), p(236), p(282)], fill=blurple)
-    d.ellipse([p(276), p(222), p(326), p(282)], fill=blurple)
+    d.rounded_rectangle([p(40), p(40), p(472), p(472)], radius=p(120), fill=(88, 101, 242))
+    mark = discord_mark(p(300))
+    im.alpha_composite(mark, (p(106), p(110)))
+    return im
+
+
+def discord_white():
+    # Just the white logo, for drawing on the panel's own backgrounds.
+    im = canvas()
+    im.alpha_composite(discord_mark(p(440)), (p(36), p(36)))
     return im
 
 
@@ -128,7 +221,7 @@ def toggle_icon():
 
 
 if __name__ == "__main__":
-    for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord)]:
+    for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()
     toggle_icon()

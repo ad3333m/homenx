@@ -427,6 +427,63 @@ std::vector<DiscordService::Dm> DiscordService::dms(size_t max) const {
     return out;
 }
 
+int DiscordService::dmMentions() const {
+    return m_store ? m_store->DmMentions() : 0;
+}
+
+std::vector<DiscordService::Server> DiscordService::servers() const {
+    std::vector<Server> out;
+    if (!m_store) return out;
+    std::vector<Snowflake> seen;
+    auto add = [&](Snowflake id) {
+        if (std::find(seen.begin(), seen.end(), id) != seen.end()) return;
+        const Guild* g = m_store->FindGuild(id);
+        if (!g || g->unavailable) return;
+        seen.push_back(id);
+        Server s;
+        s.id = id;
+        s.name = g->name;
+        s.iconUrl = g->IconUrl(64);
+        s.initials = g->Initials();
+        s.unread = m_store->GuildUnread(id) && !m_store->GuildMuted(id);
+        s.mentions = m_store->GuildMentions(id);
+        out.push_back(std::move(s));
+    };
+    for (const GuildFolder& f : m_store->folders)
+        for (Snowflake id : f.guildIds) add(id);
+    std::vector<const Guild*> rest; // not in a folder yet: by name
+    for (const auto& [id, g] : m_store->guilds)
+        if (std::find(seen.begin(), seen.end(), id) == seen.end()) rest.push_back(&g);
+    std::sort(rest.begin(), rest.end(), [](const Guild* a, const Guild* b) { return Str::Lower(a->name) < Str::Lower(b->name); });
+    for (const Guild* g : rest) add(g->id);
+    return out;
+}
+
+std::vector<DiscordService::ChannelRow> DiscordService::channels(Snowflake guildId) const {
+    std::vector<ChannelRow> out;
+    if (!m_store) return out;
+    for (const Store::Row& r : m_store->ChannelList(guildId)) {
+        const Channel* c = m_store->FindChannel(r.id);
+        if (!c) continue;
+        ChannelRow row;
+        row.id = r.id;
+        row.name = c->name;
+        row.category = r.category;
+        if (!r.category) {
+            if (!c->HasMessages()) continue; // forums and directories
+            row.voice = c->IsVoice();
+            row.unread = m_store->ChannelUnread(r.id) && !m_store->ChannelMuted(*c);
+            row.mentions = m_store->ChannelMentions(r.id);
+        }
+        out.push_back(std::move(row));
+    }
+    // A category with nothing left under it isn't shown.
+    std::vector<ChannelRow> tidy;
+    for (size_t i = 0; i < out.size(); ++i)
+        if (!out[i].category || (i + 1 < out.size() && !out[i + 1].category)) tidy.push_back(std::move(out[i]));
+    return tidy;
+}
+
 int DiscordService::friendsOnline() const {
     if (!m_store) return 0;
     int n = 0;
@@ -445,14 +502,24 @@ int DiscordService::unreadDms() const {
 
 void DiscordService::openChannel(Snowflake channelId) {
     if (!m_store || !channelId) return;
+    const Channel* ch = m_store->FindChannel(channelId);
+    const Snowflake guildId = ch ? ch->guildId : 0;
+    // A server channel only sends live messages once it's subscribed to.
+    if (guildId && m_gateway) m_gateway->Subscribe(guildId, channelId);
     ChannelMessages& cm = m_store->Messages(channelId);
     if (cm.loaded || cm.loading) return;
     cm.loading = true;
     Store* store = m_store.get();
-    Api::FetchMessages(channelId, 0, 40, [store, channelId](bool ok, std::vector<Message> msgs, const std::string&) {
+    Api::FetchMessages(channelId, 0, 40, [this, store, channelId, guildId](bool ok, std::vector<Message> msgs, const std::string&) {
+        if (store != m_store.get()) return; // signed into another account meanwhile
         ChannelMessages& c = store->Messages(channelId);
         c.loading = false;
         if (!ok) { c.error = true; return; }
+        // Server nicknames and role colours for the authors on this page.
+        if (guildId && m_gateway) {
+            const std::vector<Snowflake> unknown = store->UnknownMembers(guildId, msgs);
+            if (!unknown.empty()) m_gateway->RequestMembers(guildId, unknown);
+        }
         store->AddHistory(channelId, std::move(msgs), false, 40);
         const auto& list = store->Messages(channelId).list;
         if (!list.empty()) {
@@ -509,6 +576,7 @@ std::vector<DiscordService::Line> DiscordService::lines(Snowflake channelId, siz
         if (text.empty() && !m.embeds.empty()) text = "[embed]";
         if (text.empty() && !m.stickers.empty()) text = "[sticker]";
         Line l;
+        l.color = m_store->AuthorColor(m);
         l.authorId = m.author.id;
         l.author = m_store->AuthorName(m);
         l.avatarUrl = m.author.AvatarUrl(64);

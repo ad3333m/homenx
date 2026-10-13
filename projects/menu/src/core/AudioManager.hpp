@@ -140,6 +140,8 @@ private:
     MusicRepeatMode m_repeat = MusicRepeatMode::All;
     bool  m_initialized = false;
     bool  m_suppressFinishedHook = false;
+    // Set on the audio thread when a song ends; the next one starts in update().
+    std::atomic<bool> m_trackEnded{false};
 
     std::mutex m_sfxMutex;
     std::unordered_map<int, Mix_Chunk*> m_sfx;
