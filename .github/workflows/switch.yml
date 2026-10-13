@@ -125,6 +125,12 @@ jobs:
           python3 tools/embed_loader.py build/cross/aarch64/release/HomeNX-Loader.nro projects/menu/src/generated/loader_nro.inc
           xmake build -vD --root
 
+      - name: Build the Discord overlay (Tesla/Ultrahand .ovl)
+        run: |
+          dkp-pacman -S --needed --noconfirm switch-curl switch-zlib switch-mbedtls || true
+          make -C projects/overlay -j"$(nproc)"
+          test -s projects/overlay/homenx-discord.ovl
+
       - name: Package install layout
         run: |
           xmake install -o dist/frontend --root
@@ -134,6 +140,8 @@ jobs:
           mkdir -p dist/frontend/switch/SwitchU/bin
           cp build/cross/aarch64/release/HomeNX-Loader.nro dist/frontend/switch/SwitchU/bin/homenx-loader.nro
           cp romfs/bin/sphaira.nro dist/frontend/switch/SwitchU/bin/sphaira.nro
+          # The menu copies it to switch/.overlays/ (the updaters only write HomeNX's folders).
+          cp projects/overlay/homenx-discord.ovl dist/frontend/switch/SwitchU/bin/homenx-discord.ovl
           # The Toggle ships inside HomeNX's folder and the menu copies it into
           # switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
           mv dist/frontend/switch/HomeNX-Toggle/HomeNX-Toggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro

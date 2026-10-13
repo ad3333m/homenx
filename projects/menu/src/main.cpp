@@ -247,7 +247,7 @@ int main(int argc, char* argv[]) {
     if (startMode == switchu::smi::MenuStartMode::StartupBoot) {
         switchu::manager::ReleaseUpdater::applyPending();
         AppletLauncher::installLoader();
-        AppletLauncher::installToggle();
+        AppletLauncher::installBundledApps();
         AppletLauncher::prepareHbl();
     }
 

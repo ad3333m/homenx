@@ -28,7 +28,7 @@ public:
     static const std::string& loaderError(); // why installLoader() failed
     // Frontend: copies the HomeNX Toggle shipped in switch/SwitchU/bin/ to
     // switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
-    static void installToggle();
+    static void installBundledApps(); // the Toggle and the Discord overlay
     // Frontend: unpacks Atmosphere's sdmc:/atmosphere/hbl.nsp into
     // switch/SwitchU/bin/hbl/ (main + main.npdm) for application-mode homebrew.
     static bool prepareHbl();
