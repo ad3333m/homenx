@@ -63,6 +63,18 @@ private:
         int tone = 0; // 0 normal, 1 sending, 2 failed
         uint32_t color = 0; // the author's role colour, 0 = default
         float height = 0.f;
+        std::vector<std::string> emojis; // pictures for the U+F0000+i marks in `lines`
+        std::vector<DiscordService::Line::Media> media;
+        bool bigEmoji = false; // only emoji: drawn large, like Discord
+    };
+    // A downloaded picture: a still image, or a GIF's frames in one texture.
+    struct Picture {
+        nxui::Texture tex;
+        std::vector<nxui::Rect> frames; // where each frame is in tex; empty = all of it
+        std::vector<int> delays;        // ms per frame
+        int totalMs = 0;
+        uint64_t start = 0;
+        std::size_t bytes = 0;
     };
 
     void bindInput();
@@ -138,6 +150,19 @@ private:
     nxui::Rect m_backRect{}, m_inputRect{};
     float m_touchScrollStart = 0.f;
     bool m_touchDragging = false;
+
+    const Picture* picture(const std::string& url, const std::string& fallback, bool animated, int maxW, int maxH);
+    void drawPicture(nxui::Renderer& ren, const Picture& pic, const nxui::Rect& r, float a, float radius);
+    float richWidth(nxui::Font* font, const std::string& s, float scale, float emoji) const;
+    std::vector<std::string> wrapRich(nxui::Font* font, const std::string& text, float maxW, float scale,
+                                      int maxLines, float emoji) const;
+    void drawRich(nxui::Renderer& ren, const std::string& s, float x, float y, nxui::Font* font,
+                  const nxui::Color& color, float scale, const std::vector<std::string>& emojis, float emoji);
+
+    // Images, GIFs and emoji by URL (nullptr while loading or after a failure).
+    std::unordered_map<std::string, std::unique_ptr<Picture>> m_pictures;
+    std::vector<std::string> m_pictureOrder; // oldest first, for dropping when over budget
+    std::size_t m_pictureBytes = 0;
 
     // Profile pictures by URL (nullptr while loading or after a failure).
     std::unordered_map<std::string, std::unique_ptr<nxui::Texture>> m_avatars;

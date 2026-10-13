@@ -14,6 +14,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -530,7 +532,129 @@ void DiscordService::openChannel(Snowflake channelId) {
 }
 
 // Mentions, channels and custom emoji as Discord shows them: @name, #channel, :emoji:.
-std::string DiscordService::plainText(const std::string& s) const {
+namespace {
+
+constexpr std::uint32_t kEmojiMark = 0xF0000; // + index into Line::emojis
+
+void mark(std::string& out, std::vector<std::string>* emojis, std::string url) {
+    if (!emojis || emojis->size() >= 0xFFFD) return;
+    Str::AppendCp(out, kEmojiMark + static_cast<std::uint32_t>(emojis->size()));
+    emojis->push_back(std::move(url));
+}
+
+bool emojiStart(std::uint32_t c) {
+    return (c >= 0x1F000 && c <= 0x1FAFF) || (c >= 0x2600 && c <= 0x27BF) || (c >= 0x2B05 && c <= 0x2B55)
+        || c == 0x203C || c == 0x2049 || (c >= 0x2194 && c <= 0x21AA) || c == 0x231A || c == 0x231B
+        || c == 0x2328 || c == 0x23CF || (c >= 0x23E9 && c <= 0x23FA) || c == 0x24C2 || c == 0x25AA
+        || c == 0x25AB || c == 0x25B6 || c == 0x25C0 || (c >= 0x25FB && c <= 0x25FE) || c == 0x2934
+        || c == 0x2935 || c == 0x3030 || c == 0x303D || c == 0x3297 || c == 0x3299;
+}
+
+// Unicode emoji (with skin tones, ZWJ families, flags, keycaps) become pictures:
+// Twemoji, the set Discord itself draws, named by their codepoints.
+std::string markEmoji(const std::string& text, std::vector<std::string>* emojis) {
+    std::vector<std::uint32_t> cps;
+    for (const char* p = text.data(), *end = p + text.size(); p < end;) cps.push_back(Str::NextCp(p, end));
+    std::string out;
+    for (size_t i = 0; i < cps.size();) {
+        const std::uint32_t c = cps[i];
+        const bool keycap = ((c >= '0' && c <= '9') || c == '#' || c == '*') && i + 1 < cps.size()
+            && (cps[i + 1] == 0x20E3 || (cps[i + 1] == 0xFE0F && i + 2 < cps.size() && cps[i + 2] == 0x20E3));
+        const bool marked = (c == 0xA9 || c == 0xAE || c == 0x2122) && i + 1 < cps.size() && cps[i + 1] == 0xFE0F;
+        if (!emojiStart(c) && !keycap && !marked) {
+            Str::AppendCp(out, c);
+            ++i;
+            continue;
+        }
+        std::vector<std::uint32_t> seq{c};
+        size_t j = i + 1;
+        if (c >= 0x1F1E6 && c <= 0x1F1FF && j < cps.size() && cps[j] >= 0x1F1E6 && cps[j] <= 0x1F1FF)
+            seq.push_back(cps[j++]); // a flag: two regional letters
+        for (;;) {
+            if (j < cps.size() && (cps[j] == 0xFE0F || cps[j] == 0x20E3 || (cps[j] >= 0x1F3FB && cps[j] <= 0x1F3FF)
+                                   || (cps[j] >= 0xE0020 && cps[j] <= 0xE007F))) {
+                seq.push_back(cps[j++]);
+            } else if (j + 1 < cps.size() && cps[j] == 0x200D) {
+                seq.push_back(cps[j++]);
+                seq.push_back(cps[j++]);
+            } else {
+                break;
+            }
+        }
+        const bool zwj = std::find(seq.begin(), seq.end(), 0x200D) != seq.end();
+        std::string name;
+        for (std::uint32_t cp : seq) {
+            if (cp == 0xFE0F && !zwj) continue; // Twemoji's file naming
+            char hex[12];
+            std::snprintf(hex, sizeof(hex), "%s%x", name.empty() ? "" : "-", cp);
+            name += hex;
+        }
+        mark(out, emojis, "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/72x72/" + name + ".png");
+        i = j;
+    }
+    return out;
+}
+
+// Markdown Discord would style: the markers go, the words stay.
+std::string stripMarkdown(const std::string& s) {
+    std::string out;
+    size_t i = 0;
+    while (i < s.size()) {
+        if (i == 0 || s[i - 1] == '\n') { // headings, small text and quotes at line starts
+            for (const char* prefix : {"### ", "## ", "# ", "-# ", "> "})
+                if (s.compare(i, std::strlen(prefix), prefix) == 0) {
+                    i += std::strlen(prefix);
+                    break;
+                }
+        }
+        if (i + 1 < s.size() && ((s[i] == '*' && s[i + 1] == '*') || (s[i] == '_' && s[i + 1] == '_')
+                                 || (s[i] == '~' && s[i + 1] == '~') || (s[i] == '|' && s[i + 1] == '|'))) {
+            i += 2;
+            continue;
+        }
+        if (s[i] == '`') {
+            ++i;
+            continue;
+        }
+        out += s[i++];
+    }
+    return out;
+}
+
+// Tenor and Giphy "GIFs" are MP4s; both also serve a real GIF.
+std::string gifOf(const Embed& e) {
+    const std::string& v = !e.videoUrl.empty() ? e.videoUrl : e.thumbOrig;
+    if (v.find("giphy.com") != std::string::npos) {
+        const size_t dot = v.rfind(".mp4");
+        if (dot != std::string::npos) return v.substr(0, dot) + ".gif";
+    }
+    const size_t host = v.find("media.tenor.com/");
+    if (host != std::string::npos) { // .../<id><5-letter format>/<name>.<ext>; AAAAC is the GIF
+        const size_t slash = v.find('/', host + 16);
+        const size_t dot = v.rfind('.');
+        if (slash != std::string::npos && slash >= host + 21 && dot != std::string::npos && dot > slash)
+            return v.substr(0, slash - 5) + "AAAAC" + v.substr(slash, dot - slash) + ".gif";
+    }
+    return {};
+}
+
+// Discord's media proxy resizes (and turns WebP into PNG) for us.
+std::string sized(const std::string& url, int w, int h) {
+    if (url.empty()) return url;
+    int tw = w, th = h;
+    if (tw > 0 && th > 0) {
+        const float s = std::min(1.f, std::min(400.f / tw, 300.f / th));
+        tw = std::max(1, static_cast<int>(tw * s));
+        th = std::max(1, static_cast<int>(th * s));
+    }
+    std::string out = url + (url.find('?') == std::string::npos ? "?" : "&") + "format=png";
+    if (tw > 0 && th > 0) out += "&width=" + std::to_string(tw) + "&height=" + std::to_string(th);
+    return out;
+}
+
+} // namespace
+
+std::string DiscordService::plainText(const std::string& s, std::vector<std::string>* emojis) const {
     std::string out;
     out.reserve(s.size());
     for (size_t i = 0; i < s.size();) {
@@ -550,6 +674,15 @@ std::string DiscordService::plainText(const std::string& s) const {
             rep = "#" + m_store->ChannelName(Str::ParseU64(tag.substr(1)));
         } else if (tag.rfind(":", 0) == 0 || tag.rfind("a:", 0) == 0) {
             const size_t a = tag.find(':'), b = tag.find(':', a + 1);
+            if (b != std::string::npos && emojis) { // a server's own emoji: its picture
+                const bool animated = tag[0] == 'a';
+                const std::string id = tag.substr(b + 1);
+                std::string pic;
+                mark(pic, emojis, "https://cdn.discordapp.com/emojis/" + id + (animated ? ".gif" : ".png") + "?size=48");
+                out += pic;
+                i = close + 1;
+                continue;
+            }
             if (b != std::string::npos) rep = tag.substr(a, b - a + 1);
         }
         if (rep.empty()) {
@@ -571,11 +704,63 @@ std::vector<DiscordService::Line> DiscordService::lines(Snowflake channelId, siz
     const size_t start = list.size() > max ? list.size() - max : 0;
     for (size_t i = start; i < list.size(); ++i) {
         const Message& m = list[i];
-        std::string text = m.IsSystem() ? m.systemText : plainText(m.content);
-        if (!m.attachments.empty()) text += (text.empty() ? "" : " ") + std::string("[attachment]");
-        if (text.empty() && !m.embeds.empty()) text = "[embed]";
-        if (text.empty() && !m.stickers.empty()) text = "[sticker]";
         Line l;
+        std::string text = m.IsSystem() ? m.systemText : stripMarkdown(plainText(m.content, &l.emojis));
+        text = markEmoji(text, &l.emojis);
+        for (const Attachment& a : m.attachments) {
+            if (a.IsImage() && !a.Spoiler() && l.media.size() < 2) {
+                Line::Media md;
+                md.w = a.width;
+                md.h = a.height;
+                md.animated = Str::EndsWith(Str::Lower(a.filename), ".gif") || a.contentType == "image/gif";
+                md.fallback = sized(a.proxyUrl.empty() ? a.url : a.proxyUrl, a.width, a.height);
+                md.url = md.animated ? a.url : md.fallback;
+                l.media.push_back(std::move(md));
+            } else {
+                text += (text.empty() ? "" : " ") + std::string("[file] ") + a.filename;
+            }
+        }
+        for (const Embed& e : m.embeds) {
+            if (l.media.size() >= 2) break;
+            Line::Media md;
+            if (e.type == "gifv") {
+                md.w = e.thumbW;
+                md.h = e.thumbH;
+                md.fallback = sized(!e.thumbUrl.empty() ? e.thumbUrl : e.imageUrl, md.w, md.h);
+                const std::string gif = gifOf(e);
+                md.animated = !gif.empty();
+                md.url = md.animated ? gif : md.fallback;
+                // A message that's only the GIF's link shows just the GIF, like Discord.
+                const std::string only = Str::Trim(m.content);
+                if (only.rfind("http", 0) == 0 && only.find(' ') == std::string::npos) text.clear();
+            } else if (!e.imageUrl.empty() || (e.type == "image" && !e.thumbUrl.empty())) {
+                md.w = e.imageUrl.empty() ? e.thumbW : e.imageW;
+                md.h = e.imageUrl.empty() ? e.thumbH : e.imageH;
+                const std::string& orig = e.imageOrig.empty() ? e.thumbOrig : e.imageOrig;
+                md.fallback = sized(e.imageUrl.empty() ? e.thumbUrl : e.imageUrl, md.w, md.h);
+                md.animated = Str::EndsWith(Str::Lower(orig), ".gif");
+                md.url = md.animated ? orig : md.fallback;
+                if (e.type == "image" && Str::Trim(m.content) == e.url) text.clear();
+            } else {
+                if (text.empty() && !e.title.empty()) text = e.title;
+                continue;
+            }
+            if (!md.url.empty()) l.media.push_back(std::move(md));
+        }
+        for (const StickerItem& st : m.stickers) {
+            if (st.format == 3 || l.media.size() >= 2) { // Lottie stickers aren't pictures
+                text += (text.empty() ? "" : " ") + std::string("[sticker] ") + st.name;
+                continue;
+            }
+            Line::Media md;
+            md.w = md.h = 160;
+            md.animated = st.format == 4;
+            md.fallback = "https://media.discordapp.net/stickers/" + Str::Id(st.id) + ".png?size=160";
+            md.url = md.animated ? "https://media.discordapp.net/stickers/" + Str::Id(st.id) + ".gif?size=160"
+                                 : md.fallback;
+            l.media.push_back(std::move(md));
+        }
+        if (text.empty() && l.media.empty() && !m.embeds.empty()) text = "[embed]";
         l.color = m_store->AuthorColor(m);
         l.authorId = m.author.id;
         l.author = m_store->AuthorName(m);

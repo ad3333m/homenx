@@ -1,4 +1,6 @@
 #include "widgets/DiscordPanel.hpp"
+#include <nxui/third_party/stb/stb_image.h>
+#include <switch.h>
 
 #include "net/async.h"
 #include "net/http.h"
@@ -99,6 +101,144 @@ std::vector<std::string> wrap(nxui::Font* font, const std::string& text, float m
 
 bool inside(const nxui::Rect& r, float x, float y) {
     return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
+}
+
+constexpr uint32_t kMarkFirst = 0xF0000; // emoji pictures (DiscordService::Line::emojis)
+constexpr uint32_t kMarkLast = 0xFFFFD;
+constexpr std::size_t kPictureBudget = 24u << 20; // decoded images + GIFs on the GPU
+
+// Fancy Unicode letters (bold, script, double-struck, fullwidth, circled...) as
+// plain ones when no font has them; 0 if it isn't one.
+uint32_t plainLetter(uint32_t cp) {
+    if (cp >= 0x1D400 && cp <= 0x1D6A3) {
+        const uint32_t o = (cp - 0x1D400) % 52;
+        return o < 26 ? 'A' + o : 'a' + (o - 26);
+    }
+    if (cp >= 0x1D7CE && cp <= 0x1D7FF) return '0' + (cp - 0x1D7CE) % 10;
+    if (cp >= 0xFF01 && cp <= 0xFF5E) return cp - 0xFF01 + 0x21;
+    if (cp >= 0x24B6 && cp <= 0x24CF) return 'A' + (cp - 0x24B6);
+    if (cp >= 0x24D0 && cp <= 0x24E9) return 'a' + (cp - 0x24D0);
+    if (cp >= 0x1F130 && cp <= 0x1F149) return 'A' + (cp - 0x1F130);
+    if (cp >= 0x1F150 && cp <= 0x1F169) return 'A' + (cp - 0x1F150);
+    if (cp >= 0x1F170 && cp <= 0x1F189) return 'A' + (cp - 0x1F170);
+    return 0;
+}
+
+struct Decoded {
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    std::vector<nxui::Rect> frames;
+    std::vector<int> delays;
+};
+
+// A GIF's size and frame count from its blocks, without decoding it.
+bool gifInfo(const std::string& d, int& w, int& h, int& frames) {
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(d.data());
+    const size_t n = d.size();
+    if (n < 13 || d.compare(0, 3, "GIF") != 0) return false;
+    w = p[6] | (p[7] << 8);
+    h = p[8] | (p[9] << 8);
+    frames = 0;
+    size_t i = 13;
+    if (p[10] & 0x80) i += 3u << ((p[10] & 7) + 1);
+    while (i < n) {
+        const uint8_t b = p[i++];
+        if (b == 0x3B) break;
+        if (b == 0x21) { // extension: label, then sub-blocks
+            ++i;
+            while (i < n && p[i]) i += p[i] + 1u;
+            ++i;
+        } else if (b == 0x2C) { // image: descriptor, colour table, LZW data
+            if (i + 9 > n) break;
+            const uint8_t flags = p[i + 8];
+            i += 9;
+            if (flags & 0x80) i += 3u << ((flags & 7) + 1);
+            ++i;
+            while (i < n && p[i]) i += p[i] + 1u;
+            ++i;
+            ++frames;
+        } else {
+            break;
+        }
+    }
+    return frames > 0 && w > 0 && h > 0;
+}
+
+// Area-average downscale (only ever shrinks).
+void resizeInto(const uint8_t* src, int sw, int sh, int sstride, uint8_t* dst, int dw, int dh, int dstride) {
+    for (int y = 0; y < dh; ++y) {
+        const int y0 = y * sh / dh, y1 = std::max(y0 + 1, (y + 1) * sh / dh);
+        for (int x = 0; x < dw; ++x) {
+            const int x0 = x * sw / dw, x1 = std::max(x0 + 1, (x + 1) * sw / dw);
+            unsigned sum[4] = {0, 0, 0, 0};
+            unsigned n = 0;
+            for (int yy = y0; yy < y1; ++yy)
+                for (int xx = x0; xx < x1; ++xx) {
+                    const uint8_t* px = src + (size_t)yy * sstride + (size_t)xx * 4;
+                    sum[0] += px[0]; sum[1] += px[1]; sum[2] += px[2]; sum[3] += px[3];
+                    ++n;
+                }
+            uint8_t* o = dst + (size_t)y * dstride + (size_t)x * 4;
+            for (int c = 0; c < 4; ++c) o[c] = static_cast<uint8_t>(sum[c] / n);
+        }
+    }
+}
+
+// A still picture fitted into maxW x maxH, or a GIF's frames (up to 30, spread
+// over the whole animation) side by side in one texture of at most 1024x1024.
+// GIFs too big to decode in memory show their first frame.
+bool decodePicture(const std::string& body, bool animated, int maxW, int maxH, Decoded& out) {
+    const auto* data = reinterpret_cast<const stbi_uc*>(body.data());
+    const int len = static_cast<int>(body.size());
+    int gw = 0, gh = 0, count = 0;
+    if (animated && gifInfo(body, gw, gh, count) && count > 1
+        && static_cast<uint64_t>(gw) * gh * 4u * count <= (32ull << 20)) {
+        int* delays = nullptr;
+        int w = 0, h = 0, z = 0, comp = 0;
+        stbi_uc* frames = stbi_load_gif_from_memory(data, len, &delays, &w, &h, &z, &comp, 4);
+        if (frames && z > 0 && w > 0 && h > 0) {
+            const float sc = std::min(1.f, std::min((float)maxW / w, (float)maxH / h));
+            const int fw = std::max(1, (int)(w * sc)), fh = std::max(1, (int)(h * sc));
+            const int cols = std::max(1, std::min(z, 1024 / fw));
+            const int keep = std::max(1, std::min({z, 30, cols * std::max(1, 1024 / fh)}));
+            const int rows = (keep + cols - 1) / cols;
+            out.w = std::min(cols, keep) * fw;
+            out.h = rows * fh;
+            out.rgba.assign((size_t)out.w * out.h * 4, 0);
+            for (int k = 0; k < keep; ++k) {
+                const int first = k * z / keep, next = std::max(first + 1, (k + 1) * z / keep);
+                int ms = 0;
+                for (int f = first; f < next && f < z; ++f) ms += delays && delays[f] > 10 ? delays[f] : 100;
+                const int cx = (k % cols) * fw, cy = (k / cols) * fh;
+                resizeInto(frames + (size_t)first * w * h * 4, w, h, w * 4,
+                           out.rgba.data() + ((size_t)cy * out.w + cx) * 4, fw, fh, out.w * 4);
+                out.frames.push_back({(float)cx, (float)cy, (float)fw, (float)fh});
+                out.delays.push_back(ms);
+            }
+            stbi_image_free(frames);
+            if (delays) stbi_image_free(delays);
+            return true;
+        }
+        if (frames) stbi_image_free(frames);
+        if (delays) stbi_image_free(delays);
+    }
+    int w = 0, h = 0, comp = 0;
+    stbi_uc* px = stbi_load_from_memory(data, len, &w, &h, &comp, 4);
+    if (!px) return false;
+    const float sc = std::min(1.f, std::min((float)maxW / w, (float)maxH / h));
+    out.w = std::max(1, (int)(w * sc));
+    out.h = std::max(1, (int)(h * sc));
+    out.rgba.resize((size_t)out.w * out.h * 4);
+    resizeInto(px, w, h, w * 4, out.rgba.data(), out.w, out.h, out.w * 4);
+    stbi_image_free(px);
+    return true;
+}
+
+// How big a picture is drawn in the chat: Discord's own size, fitted to 300x220.
+nxui::Vec2 mediaSize(const DiscordService::Line::Media& m) {
+    const float w = m.w > 0 ? (float)m.w : 220.f, h = m.h > 0 ? (float)m.h : 160.f;
+    const float sc = std::min(1.f, std::min(300.f / w, 220.f / h));
+    return {std::max(24.f, w * sc), std::max(24.f, h * sc)};
 }
 
 }  // namespace
@@ -305,12 +445,23 @@ std::string DiscordPanel::clean(const std::string& text) const {
     const char* p = text.data();
     const char* end = p + text.size();
     while (p < end) {
-        const uint32_t cp = Str::NextCp(p, end);
+        uint32_t cp = Str::NextCp(p, end);
+        if (cp >= kMarkFirst && cp <= kMarkLast) { // an emoji picture
+            Str::AppendCp(out, cp);
+            continue;
+        }
         bool ok = cp == ' ';
         if (!ok && cp >= 0x20 && cp != 0xFFFD) {
             auto it = m_glyphs.find(cp);
             if (it == m_glyphs.end()) it = m_glyphs.emplace(cp, m_font->hasGlyph(cp)).first;
             ok = it->second;
+            if (!ok) { // no font has it: a fancy letter reads as the plain one
+                const uint32_t plain = plainLetter(cp);
+                if (plain) {
+                    cp = plain;
+                    ok = true;
+                }
+            }
         }
         if (!ok) continue;
         if (cp == ' ' && (out.empty() || out.back() == ' ')) continue; // no gaps left behind
@@ -458,10 +609,22 @@ void DiscordPanel::rebuildChat() {
         it.color = l.color;
         it.avatarUrl = l.avatarUrl;
         it.time = l.time;
-        it.lines = wrap(m_font, clean(l.text), kChatTextW, 0.66f, 12);
-        if (it.lines.empty()) it.lines.push_back(std::string());
+        const std::string body = clean(l.text);
+        it.emojis = l.emojis;
+        it.media = l.media;
+        // Only emoji (up to 27): big, like Discord.
+        bool onlyEmoji = !l.emojis.empty() && l.emojis.size() <= 27;
+        for (const char* p = body.data(), *end = p + body.size(); onlyEmoji && p < end;) {
+            const uint32_t cp = Str::NextCp(p, end);
+            if (cp != ' ' && (cp < kMarkFirst || cp > kMarkLast)) onlyEmoji = false;
+        }
+        it.bigEmoji = onlyEmoji;
+        it.lines = wrapRich(m_font, body, kChatTextW, 0.66f, 12, onlyEmoji ? 40.f : 20.f);
+        if (it.lines.empty() && it.media.empty()) it.lines.push_back(std::string());
         it.tone = l.failed ? 2 : l.pending ? 1 : 0;
-        it.height = (it.header ? 40.f : 2.f) + it.lines.size() * 21.f + 2.f;
+        float mediaH = 0.f;
+        for (const auto& md : it.media) mediaH += mediaSize(md).y + 8.f;
+        it.height = (it.header ? 40.f : 2.f) + it.lines.size() * (onlyEmoji ? 46.f : 21.f) + mediaH + 2.f;
         prevAuthor = l.authorId;
         prevMs = l.ms;
         m_chatItems.push_back(std::move(it));
@@ -515,6 +678,156 @@ const nxui::Texture* DiscordPanel::avatar(const std::string& url) {
         });
     });
     return nullptr;
+}
+
+// Images, GIFs and emoji: downloaded and decoded on the image workers (a GIF's
+// frames packed into one texture), uploaded here. Oldest go when over budget.
+const DiscordPanel::Picture* DiscordPanel::picture(const std::string& url, const std::string& fallback,
+                                                   bool animated, int maxW, int maxH) {
+    if (url.empty() || !m_gpu || !m_ren) return nullptr;
+    auto it = m_pictures.find(url);
+    if (it != m_pictures.end()) return it->second.get();
+    while (m_pictureOrder.size() > 300 || (m_pictureBytes > kPictureBudget && !m_pictureOrder.empty())) {
+        auto old = m_pictures.find(m_pictureOrder.front());
+        if (old != m_pictures.end()) {
+            if (old->second) m_pictureBytes -= std::min(m_pictureBytes, old->second->bytes);
+            m_pictures.erase(old);
+        }
+        m_pictureOrder.erase(m_pictureOrder.begin());
+    }
+    m_pictures.emplace(url, nullptr);
+    m_pictureOrder.push_back(url);
+    std::weak_ptr<bool> alive = m_alive;
+    Async::Run(Async::Pool::Images, [this, url, fallback, animated, maxW, maxH, alive]() {
+        auto d = std::make_shared<Decoded>();
+        for (const std::string& u : {url, fallback}) {
+            if (u.empty()) continue;
+            Http::Request req;
+            req.url = u;
+            req.timeoutMs = 20000;
+            req.maxBytes = 8u << 20;
+            Http::Response res = Http::Perform(req);
+            if (res.Ok() && decodePicture(res.body, animated && u == url, maxW, maxH, *d)) break;
+            *d = Decoded{};
+        }
+        Async::Post([this, url, d, alive]() {
+            if (alive.expired() || d->rgba.empty()) return;
+            auto slot = m_pictures.find(url);
+            if (slot == m_pictures.end()) return; // dropped meanwhile
+            const std::size_t bytes = d->rgba.size();
+            if (m_gpu->imageMemoryAvailable() < bytes + (16u << 20)) return; // leave room for HOME
+            auto pic = std::make_unique<Picture>();
+            if (!pic->tex.loadFromPixels(*m_gpu, *m_ren, d->rgba.data(), d->w, d->h)) return;
+            pic->frames = std::move(d->frames);
+            pic->delays = std::move(d->delays);
+            for (int ms : pic->delays) pic->totalMs += ms;
+            pic->start = armGetSystemTick();
+            pic->bytes = bytes;
+            m_pictureBytes += bytes;
+            slot->second = std::move(pic);
+        });
+    });
+    return nullptr;
+}
+
+void DiscordPanel::drawPicture(nxui::Renderer& ren, const Picture& pic, const nxui::Rect& r, float a, float radius) {
+    const nxui::Color tint = nxui::Color::white().withAlpha(a);
+    if (pic.frames.empty() || pic.totalMs <= 0) {
+        ren.drawTextureRounded(&pic.tex, r, radius, tint);
+        return;
+    }
+    int t = static_cast<int>(armTicksToNs(armGetSystemTick() - pic.start) / 1'000'000ULL % (uint64_t)pic.totalMs);
+    size_t f = 0;
+    while (f + 1 < pic.frames.size() && t >= pic.delays[f]) t -= pic.delays[f++];
+    ren.drawTextureSubRounded(&pic.tex, pic.frames[f], r, radius, tint);
+}
+
+// Text with emoji marks: the words measured by the font, each emoji a square.
+float DiscordPanel::richWidth(nxui::Font* font, const std::string& s, float scale, float emoji) const {
+    float w = 0.f;
+    std::string seg;
+    for (const char* p = s.data(), *end = p + s.size(); p < end;) {
+        const char* start = p;
+        const uint32_t cp = Str::NextCp(p, end);
+        if (cp >= kMarkFirst && cp <= kMarkLast) {
+            if (!seg.empty()) w += font->measure(seg).x * scale;
+            seg.clear();
+            w += emoji + 2.f;
+        } else {
+            seg.append(start, p);
+        }
+    }
+    if (!seg.empty()) w += font->measure(seg).x * scale;
+    return w;
+}
+
+std::vector<std::string> DiscordPanel::wrapRich(nxui::Font* font, const std::string& text, float maxW, float scale,
+                                                int maxLines, float emoji) const {
+    std::vector<std::string> lines;
+    if (!font) return lines;
+    auto fitRich = [&](std::string t) {
+        if (richWidth(font, t, scale, emoji) <= maxW) return t;
+        while (!t.empty()) {
+            while (!t.empty()) {
+                const unsigned char c = static_cast<unsigned char>(t.back());
+                t.pop_back();
+                if ((c & 0xC0) != 0x80) break;
+            }
+            if (richWidth(font, t + "...", scale, emoji) <= maxW) return t + "...";
+        }
+        return std::string("...");
+    };
+    std::string line;
+    size_t i = 0;
+    while (i <= text.size()) {
+        const size_t sp = text.find(' ', i);
+        const std::string word = text.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
+        const std::string candidate = line.empty() ? word : line + " " + word;
+        if (richWidth(font, candidate, scale, emoji) <= maxW || line.empty()) {
+            line = candidate;
+        } else {
+            lines.push_back(fitRich(line));
+            line = word;
+            if ((int)lines.size() == maxLines - 1) {
+                lines.push_back(fitRich(text.substr(i)));
+                return lines;
+            }
+        }
+        if (sp == std::string::npos) break;
+        i = sp + 1;
+    }
+    if (!line.empty()) lines.push_back(fitRich(line));
+    return lines;
+}
+
+void DiscordPanel::drawRich(nxui::Renderer& ren, const std::string& s, float x, float y, nxui::Font* font,
+                            const nxui::Color& color, float scale, const std::vector<std::string>& emojis,
+                            float emoji) {
+    std::string seg;
+    auto flush = [&]() {
+        if (seg.empty()) return;
+        ren.drawText(seg, {x, y + (emoji > 30.f ? 12.f : 0.f)}, font, color, scale);
+        x += font->measure(seg).x * scale;
+        seg.clear();
+    };
+    for (const char* p = s.data(), *end = p + s.size(); p < end;) {
+        const char* start = p;
+        const uint32_t cp = Str::NextCp(p, end);
+        if (cp < kMarkFirst || cp > kMarkLast) {
+            seg.append(start, p);
+            continue;
+        }
+        flush();
+        const size_t idx = cp - kMarkFirst;
+        if (idx < emojis.size()) {
+            const std::string& url = emojis[idx];
+            const bool animated = url.find(".gif") != std::string::npos;
+            if (const Picture* pic = picture(url, std::string(), animated, 72, 72))
+                drawPicture(ren, *pic, {x + 1.f, y - (emoji > 30.f ? 2.f : 1.f), emoji, emoji}, color.a, 0.f);
+        }
+        x += emoji + 2.f;
+    }
+    flush();
 }
 
 void DiscordPanel::drawAvatar(nxui::Renderer& ren, const std::string& url, const std::string& name,
@@ -974,8 +1287,17 @@ void DiscordPanel::drawChat(nxui::Renderer& ren, const nxui::Rect& area, float a
         }
         const nxui::Color col = it->tone == 2 ? red(a) : it->tone == 1 ? textMuted(a) : textNormal(a);
         for (const auto& line : it->lines) {
-            ren.drawText(line, {area.x + kChatTextX, ly}, m_font, col, 0.66f);
-            ly += 21.f;
+            drawRich(ren, line, area.x + kChatTextX, ly, m_font, col, 0.66f, it->emojis, it->bigEmoji ? 40.f : 20.f);
+            ly += it->bigEmoji ? 46.f : 21.f;
+        }
+        for (const auto& md : it->media) {
+            const nxui::Vec2 sz = mediaSize(md);
+            const nxui::Rect box{area.x + kChatTextX, ly + 4.f, sz.x, sz.y};
+            if (const Picture* pic = picture(md.url, md.fallback, md.animated, 300, 220))
+                drawPicture(ren, *pic, box, a, 8.f);
+            else
+                ren.drawRoundedRect(box, bgInput(a), 8.f);
+            ly += sz.y + 8.f;
         }
     }
     ren.popClipRect();

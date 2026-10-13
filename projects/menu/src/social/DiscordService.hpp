@@ -49,6 +49,15 @@ public:
         bool mine = false;
         bool pending = false;
         bool failed = false;
+        // Emoji are U+F0000 + i in `text`; emojis[i] is the picture for it.
+        std::vector<std::string> emojis;
+        struct Media {
+            std::string url;      // tried first (the animated GIF when there is one)
+            std::string fallback; // a still picture if that fails
+            int w = 0, h = 0;
+            bool animated = false;
+        };
+        std::vector<Media> media; // images and GIFs under the text
     };
 
     DiscordService();
@@ -109,7 +118,7 @@ private:
     void loadAccounts();
     void saveAccounts() const;
     void rememberMe();
-    std::string plainText(const std::string& content) const;
+    std::string plainText(const std::string& content, std::vector<std::string>* emojis = nullptr) const;
 
     std::unique_ptr<Store> m_store;
     std::unique_ptr<Gateway> m_gateway;

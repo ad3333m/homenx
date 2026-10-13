@@ -6,6 +6,8 @@
 #include <string>
 #include <unordered_map>
 #include <list>
+#include <utility>
+#include <vector>
 
 namespace nxui {
 
@@ -41,9 +43,22 @@ public:
     int ptSize() const { return m_ptSize; }
     std::uint64_t revision() const { return m_revision; }
 
+    // Fonts every Font falls back to for characters it doesn't have (the
+    // console's Japanese/Chinese/Korean/symbol fonts). The data must stay valid.
+    static void addFallback(const void* data, std::size_t size);
+
 private:
     // Render full string to texture (cache by string)
     Texture* getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& text);
+    // The font for a character: this one, else a fallback that has it, else null.
+    TTF_Font* fontFor(std::uint32_t cp) const;
+    // True (and the text in pieces, one font each) when this font lacks some of it.
+    bool runs(const std::string& text, std::vector<std::pair<TTF_Font*, std::string>>& out) const;
+    SDL_Surface* renderRuns(const std::vector<std::pair<TTF_Font*, std::string>>& pieces) const;
+
+    struct FallbackData { const void* data; std::size_t size; };
+    static std::vector<FallbackData>& fallbackData();
+    mutable std::vector<TTF_Font*> m_fallbacks; // the fallbacks at this size, opened on first need
 
     TTF_Font* m_font = nullptr;
     int       m_ptSize = 0;

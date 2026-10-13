@@ -1163,6 +1163,19 @@ void WiiUMenuApp::onDestroy() {
 }
 
 void WiiUMenuApp::loadResources() {
+    // HomeNX: the console's own fonts for what DejaVu Sans doesn't have (Japanese,
+    // Chinese, Korean, Nintendo symbols), so names and messages show in full.
+    static bool fallbacksAdded = false;
+    if (!fallbacksAdded && R_SUCCEEDED(plInitialize(PlServiceType_User))) {
+        fallbacksAdded = true;
+        for (PlSharedFontType type : {PlSharedFontType_Standard, PlSharedFontType_ChineseSimplified,
+                                      PlSharedFontType_ExtChineseSimplified, PlSharedFontType_ChineseTraditional,
+                                      PlSharedFontType_KO, PlSharedFontType_NintendoExt}) {
+            PlFontData font{};
+            if (R_SUCCEEDED(plGetSharedFontByType(&font, type)))
+                nxui::Font::addFallback(font.address, font.size);
+        }
+    }
     DebugLog::log("[init] loadResources: regular font");
     std::string fontPath = std::string(SD_ASSETS) + "/fonts/DejaVuSans.ttf";
     if (m_fontNormal.load(app().gpu(), app().renderer(), fontPath, 24))
