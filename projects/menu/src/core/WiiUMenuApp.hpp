@@ -208,6 +208,11 @@ private:
     void openHomeNXSettings();
     void openCustomButtonAppPicker();
     void openCustomButtonIconPicker();
+    void openNextendoAppPicker();
+    void activateNextendo();
+    // A list of every .nro in sdmc:/switch; `choose` gets the picked path.
+    void openNroPicker(const std::string& title, const std::string& current, std::string noneLabel,
+                       std::function<void(const std::string&)> choose);
     void openHomePagesPicker();
     void openReturnTimings();
     void openNews();
@@ -262,7 +267,8 @@ private:
     void setLeaveMotionFrozen(bool frozen);
     void updateLeaveSplashHandoff(float dt);
     bool leaveSplashActive() const;
-    void confirmCloseSuspendedThen(std::function<void()> go);
+    // applicationMode: always as an application (Nextendo), whatever the applet-mode flag says.
+    void confirmCloseSuspendedThen(std::function<void()> go, bool applicationMode = false);
     void finishLaunch();
     void drawReturnVeil(nxui::Renderer& ren, float t);
     void renameFolder(std::uint32_t folderId);
@@ -493,6 +499,8 @@ private:
     std::function<void()> m_fadeThen;
     float m_fade = 0.f;        // 0 clear .. 1 black
     float m_fadeTarget = 0.f;
+    std::uint64_t m_prevPresentTick = 0;  // HomeNX: press timing (menu.log "[press]")
+    std::uint64_t m_pressTraceUntil = 0;
     bool m_fadeHeld = false;   // one fully black frame presented before running
     float m_fadeRecover = 0.f; // frontend: fade back in if the launch never left
     bool m_fadeOwnsMusic = false;

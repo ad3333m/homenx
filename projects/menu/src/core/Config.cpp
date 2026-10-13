@@ -81,6 +81,7 @@ bool AppConfig::load() {
     readJsonOpt(j, "homenxSidebarOrder", sidebarOrder);
     readJsonOpt(j, "homenxCustomButtonPath", customButtonPath);
     readJsonOpt(j, "homenxCustomButtonIcon", customButtonIcon);
+    readJsonOpt(j, "homenxNextendoPath", nextendoPath);
     readJsonOpt(j, "pageTransitionMode", pageTransitionMode);
     readJsonOpt(j, "uiLanguageOverride", uiLanguageOverride);
     readJsonOpt(j, "soundPreset", soundPreset);
@@ -205,6 +206,7 @@ bool AppConfig::save() const {
     j["homenxSidebarOrder"] = sidebarOrder;
     j["homenxCustomButtonPath"] = customButtonPath;
     j["homenxCustomButtonIcon"] = customButtonIcon;
+    j["homenxNextendoPath"] = nextendoPath;
     j["pageTransitionMode"] = std::clamp(pageTransitionMode, 0, 1);
     j["uiLanguageOverride"] = uiLanguageOverride;
     j["soundPreset"] = soundPreset;

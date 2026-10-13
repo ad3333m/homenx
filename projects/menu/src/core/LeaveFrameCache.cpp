@@ -1,5 +1,6 @@
 #include "LeaveFrameCache.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -69,12 +70,21 @@ bool save(const LeaveFrameSession& session,
     const std::string tmpPath = std::string(kPath) + ".tmp";
 
     {
-        std::ofstream out(tmpPath, std::ios::binary | std::ios::trunc);
+        // HomeNX: 64 KB at a time. HOME has one SD card session, so a single
+        // 3.6 MB write held the music and the launch sound off the card for
+        // ~100 ms right after pressing a game: the "little lag spike".
+        std::FILE* out = std::fopen(tmpPath.c_str(), "wb");
         if (!out)
             return false;
-        out.write(reinterpret_cast<const char*>(&header), sizeof(header));
-        out.write(reinterpret_cast<const char*>(rgba), static_cast<std::streamsize>(bytes));
-        if (!out)
+        std::setvbuf(out, nullptr, _IONBF, 0);
+        bool ok = std::fwrite(&header, sizeof(header), 1, out) == 1;
+        constexpr std::size_t kChunk = 64 * 1024;
+        for (std::size_t off = 0; ok && off < bytes; off += kChunk) {
+            const std::size_t n = std::min(kChunk, bytes - off);
+            ok = std::fwrite(rgba + off, 1, n, out) == n;
+        }
+        ok = std::fclose(out) == 0 && ok;
+        if (!ok)
             return false;
     }
 

@@ -174,14 +174,78 @@ def discord_white():
     return im
 
 
+COMFORTAA = "tools/fonts/Comfortaa.ttf"  # OFL (Google Fonts), close to Sphaira's wordmark
+
+
 def sphaira():
-    # Sphaira's own icon (tools/sphaira-icon.jpg, from ITotalJustice/sphaira) cropped to a circle
+    # Sphaira's icon redrawn sharp (its own icon.jpg is 256 px and blurry): navy disc,
+    # a green-to-blue planet rising at the bottom, "sphaira" in a rounded face.
     im = canvas()
-    logo = Image.open("tools/sphaira-icon.jpg").convert("RGBA").resize((p(420), p(420)), Image.LANCZOS)
-    mask = Image.new("L", logo.size, 0)
-    ImageDraw.Draw(mask).ellipse([0, 0, logo.size[0] - 1, logo.size[1] - 1], fill=255)
-    im.paste(logo, (p(46), p(46)), mask)
-    ImageDraw.Draw(im).ellipse([p(46), p(46), p(466), p(466)], outline=(120, 220, 200), width=p(10))
+    c0, c1 = p(46), p(466)
+    size = c1 - c0
+    disc = Image.new("RGBA", (size, size), (20, 49, 67, 255))
+    d = ImageDraw.Draw(disc)
+    # The planet: a huge circle whose top shows, coloured left green -> right blue.
+    grad = Image.new("RGBA", (size, size))
+    gd = ImageDraw.Draw(grad)
+    for x in range(size):
+        t = x / (size - 1)
+        gd.line([x, 0, x, size], fill=(int(62 - 2 * t), int(229 - 60 * t), int(113 + 120 * t), 255))
+    planet = Image.new("L", (size, size), 0)
+    r = size * 1.35
+    cx, top = size * 0.5, size * 0.67
+    ImageDraw.Draw(planet).ellipse([cx - r, top, cx + r, top + 2 * r], fill=255)
+    # A soft glow over the horizon, then the planet itself.
+    glow = planet.filter(ImageFilter.GaussianBlur(size * 0.06)).point(lambda v: int(v * 0.7))
+    disc.paste(grad, (0, 0), glow)
+    disc.paste(grad, (0, 0), planet)
+    f = ImageFont.truetype(COMFORTAA, int(size * 0.215))
+    f.set_variation_by_axes([700])
+    d = ImageDraw.Draw(disc)
+    d.text((size * 0.5, size * 0.46), "sphaira", font=f, fill="white", anchor="mm",
+           stroke_width=int(size * 0.007), stroke_fill="white")
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size - 1, size - 1], fill=255)
+    im.paste(disc, (c0, c0), mask)
+    ImageDraw.Draw(im).ellipse([c0, c0, c1, c1], outline=(120, 220, 200), width=p(10))
+    return im
+
+
+def nextendo():
+    # Nextendo (prelude.nro): rainbow ring, dark disc, red X, blue signal arcs.
+    import colorsys
+    im = canvas()
+    c, R = p(256), p(232)
+    ring = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    rd = ImageDraw.Draw(ring)
+    for a in range(360):  # hue runs clockwise from red at the top
+        r, g, b = colorsys.hsv_to_rgb(a / 360.0, 0.95, 1.0)
+        rd.pieslice([c - R, c - R, c + R, c + R], a - 90, a - 89 + 1.5, fill=(int(r * 255), int(g * 255), int(b * 255), 255))
+    mask = Image.new("L", (N, N), 0)
+    md = ImageDraw.Draw(mask)
+    md.ellipse([c - R, c - R, c + R, c + R], fill=255)
+    inner = p(200)
+    md.ellipse([c - inner, c - inner, c + inner, c + inner], fill=0)
+    im.paste(ring, (0, 0), mask)
+    d = ImageDraw.Draw(im)
+    d.ellipse([c - inner, c - inner, c + inner, c + inner], fill=(225, 20, 40))      # red rim
+    disc = p(186)
+    d.ellipse([c - disc, c - disc, c + disc, c + disc], fill=(43, 34, 38))
+    # The X, with round ends.
+    w, h = p(44), p(82)
+    red = (229, 24, 44)
+    xc, yc = c - p(10), c + p(16)
+    for (x0, y0, x1, y1) in [(-1, -1, 1, 1), (1, -1, -1, 1)]:
+        a0 = (xc + x0 * h, yc + y0 * h)
+        a1 = (xc + x1 * h, yc + y1 * h)
+        d.line([a0, a1], fill=red, width=w)
+        for (x, y) in (a0, a1):
+            d.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=red)
+    # Two signal arcs at the top right.
+    blue = (30, 144, 232)
+    ox, oy = xc + h, yc - h  # from the tip of the X's upper-right arm
+    for rr in (p(54), p(92)):
+        d.arc([ox - rr, oy - rr, ox + rr, oy + rr], -88, -2, fill=blue, width=p(15))
     return im
 
 
@@ -221,7 +285,9 @@ def toggle_icon():
 
 
 if __name__ == "__main__":
-    for name, fn in [("sphaira", sphaira), ("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
+    save(sphaira(), "romfs/icons/sphaira.png", 512)  # sharp at the launch card's size too
+    save(nextendo(), "romfs/icons/nextendo.png")
+    for name, fn in [("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()
     toggle_icon()

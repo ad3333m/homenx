@@ -25,6 +25,7 @@ struct AppConfig {
     std::vector<int> sidebarOrder;     // HomeNX: button ids, left column then right (empty = default)
     std::string customButtonPath;      // HomeNX: .nro the custom sidebar button launches
     std::string customButtonIcon;      // HomeNX: image for it; empty = the .nro's own icon
+    std::string nextendoPath = "sdmc:/switch/prelude.nro"; // HomeNX: what the Nextendo button opens
     // 0 = pages slide sideways, 1 = pages swap instantly.
     int pageTransitionMode = 0;
     std::string uiLanguageOverride = "auto";

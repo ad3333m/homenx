@@ -1233,7 +1233,18 @@ static uint64_t g_homebrewLaunchedAt = 0;
 // the Album (applet-mode hbloader) path, which is known to work.
 static constexpr const char* kHomebrewAppletFlag = "sdmc:/switch/SwitchU/homebrew_applet_mode";
 
+// The menu sets this for homebrew that must run as an application (Nextendo):
+// if that fails, back to HOME, never the Album (applet mode).
+static constexpr const char* kApplicationOnlyFlag = "sdmc:/config/SwitchU/homebrew_application_only";
+
 static void fallBackToAlbum(const char* why) {
+    if (std::FILE* only = std::fopen(kApplicationOnlyFlag, "r")) {
+        std::fclose(only);
+        std::remove(kApplicationOnlyFlag);
+        switchu::FileLog::log("[homebrew] application mode failed (%s); application only, back to HOME", why);
+        daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
+        return;
+    }
     switchu::FileLog::log("[homebrew] application mode failed (%s); using Album", why);
     if (FILE* f = std::fopen(kHomebrewAppletFlag, "w")) {
         std::fputs(why, f);

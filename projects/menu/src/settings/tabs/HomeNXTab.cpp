@@ -50,6 +50,17 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     }
     {
         SettingItem it;
+        it.label = i18n.tr("settings.homenx.nextendo_app", "Nextendo app");
+        it.buttonLabel = i18n.tr("button.choose", "Choose");
+        it.description = i18n.tr("settings.homenx.nextendo_app_desc",
+            "The .nro the Nextendo sidebar button opens (sdmc:/switch/prelude.nro to start with). "
+            "It always runs as an application. Put the button in a spot below.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_nextendoAppCb) screen.m_nextendoAppCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
         it.label = i18n.tr("settings.homenx.pages", "Home pages");
         it.buttonLabel = i18n.tr("button.choose", "Choose");
         it.description = i18n.tr("settings.homenx.pages_desc",
@@ -82,17 +93,19 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
             auto& order = screen.m_sidebarOrder;
             const int previous = order[(std::size_t)slot];
             const auto other = std::find(order.begin(), order.end(), self.intVal);
-            if (other == order.end() || other - order.begin() == slot) return;
-            const int otherSlot = static_cast<int>(other - order.begin());
-            *other = previous;
+            if (other != order.end() && other - order.begin() == slot) return;
+            if (other != order.end()) { // it was in another spot: they swap
+                const int otherSlot = static_cast<int>(other - order.begin());
+                *other = previous;
+                // Show the swap on the other row too (edit it in place; rebuilding
+                // the tab here would destroy this callback while it runs).
+                const std::string otherLabel = slotLabel(otherSlot);
+                for (auto& tab : screen.m_tabs)
+                    for (auto& row : tab.items)
+                        if (row.type == ItemType::Selector && row.label == otherLabel)
+                            row.intVal = previous;
+            } // else it wasn't on the sidebar (Nextendo): it replaces this spot's button
             order[(std::size_t)slot] = self.intVal;
-            // Show the swap on the other row too (edit it in place; rebuilding
-            // the tab here would destroy this callback while it runs).
-            const std::string otherLabel = slotLabel(otherSlot);
-            for (auto& tab : screen.m_tabs)
-                for (auto& row : tab.items)
-                    if (row.type == ItemType::Selector && row.label == otherLabel)
-                        row.intVal = previous;
             if (screen.m_sidebarOrderCb) screen.m_sidebarOrderCb(order);
         };
         t.items.push_back(std::move(it));

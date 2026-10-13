@@ -7,7 +7,7 @@
 
 namespace {
 
-constexpr int kSidebarIconCount = 10;
+constexpr int kSidebarIconCount = SidebarManager::kButtonCount;
 constexpr int kSidebarRows = 5;
 constexpr float kSidebarButtonSize = 70.f;
 constexpr float kSidebarColumnGap = 16.f;
@@ -75,7 +75,7 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         return raw;
     };
 
-    // HomeNX: ten buttons identified by their icon slot (kButton*). `order`
+    // HomeNX: buttons identified by their icon slot (kButton*). `order` places ten;
     // lists them top-to-bottom, left column first, then the right column.
     struct Def { int id; const char* key; const char* fallback; std::function<void()> action; };
     const Def defs[kSidebarIconCount] = {
@@ -89,9 +89,10 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         {kButtonNews, "sidebar.news", "News", actions.onNews},
         {kButtonCustom, "sidebar.custom", "Empty", actions.onCustom},
         {kButtonFriends, "sidebar.social", "Social", actions.onFriends},
+        {kButtonNextendo, "sidebar.nextendo", "Nextendo", actions.onNextendo},
     };
     m_byId.fill(nullptr);
-    for (int slot = 0; slot < kSidebarIconCount; ++slot) {
+    for (int slot = 0; slot < kSlotCount; ++slot) {
         const Def& d = defs[order[(std::size_t)slot]];
         auto btn = makeBtn(&m_icons[(std::size_t)d.id], d.key, d.fallback, d.action);
         m_byId[(std::size_t)d.id] = btn.get();
@@ -272,6 +273,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     static const char* iconFiles[] = {
         "sphaira.png", "discord.png", "controller.png", "power.png", "themes.png", "settings.png",
         "eshop.png", "news.png", nullptr /* custom: setCustomButton */, "friends.png",
+        "nextendo.png",
     };
     if ((int)m_icons.size() != kSidebarIconCount)
         m_icons.resize(kSidebarIconCount);

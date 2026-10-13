@@ -467,6 +467,7 @@ void WiiUMenuApp::createSettings() {
             i18n.tr("sidebar.theme_shop", "Theme Shop"), i18n.tr("sidebar.settings", "Settings"),
             i18n.tr("sidebar.eshop", "Nintendo eShop"), i18n.tr("sidebar.news", "News"),
             i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.social", "Social"),
+            "Nextendo",
         });
     }
     m_settings->onSidebarOrderChange([this](std::vector<int> order) {
@@ -475,6 +476,7 @@ void WiiUMenuApp::createSettings() {
     });
     m_settings->onCustomButtonApp([this]() { openCustomButtonAppPicker(); });
     m_settings->onCustomButtonIcon([this]() { openCustomButtonIconPicker(); });
+    m_settings->onNextendoApp([this]() { openNextendoAppPicker(); });
     m_settings->onHomePages([this]() { openHomePagesPicker(); });
     m_settings->onReturnTimings([this]() { openReturnTimings(); });
     m_settings->setGlassEffectsState(m_config.glassEffects);
@@ -1546,6 +1548,27 @@ void WiiUMenuApp::openFriends() {
 // Settings > HomeNX > Custom button app: every .nro on the SD card.
 void WiiUMenuApp::openCustomButtonAppPicker() {
     auto& i18n = nxui::I18n::instance();
+    openNroPicker(i18n.tr("custom.app_title", "Custom button app"), m_config.customButtonPath,
+                  i18n.tr("custom.none", "Nothing (empty button)"), [this](const std::string& path) {
+        m_config.customButtonPath = path;
+        m_config.customButtonIcon.clear(); // default to the new app's own icon
+        m_config.save();
+        applyCustomButton();
+    });
+}
+
+// Settings > HomeNX > Nextendo app.
+void WiiUMenuApp::openNextendoAppPicker() {
+    openNroPicker(nxui::I18n::instance().tr("settings.homenx.nextendo_app", "Nextendo app"),
+                  m_config.nextendoPath, std::string(), [this](const std::string& path) {
+        m_config.nextendoPath = path;
+        m_config.save();
+    });
+}
+
+void WiiUMenuApp::openNroPicker(const std::string& title, const std::string& current,
+                                std::string noneLabel, std::function<void(const std::string&)> pick) {
+    auto& i18n = nxui::I18n::instance();
     std::string self;
 #ifndef SWITCHU_MENU
     extern int __system_argc;      // libnx's parsed argv; [0] is our .nro path
@@ -1558,24 +1581,23 @@ void WiiUMenuApp::openCustomButtonAppPicker() {
         m_homebrewApps = scanHomebrew(self, false);
         m_homebrewScanned = true;
     }
-    auto choose = [this](const std::string& path) {
-        m_config.customButtonPath = path;
-        m_config.customButtonIcon.clear(); // default to the new app's own icon
-        m_config.save();
-        applyCustomButton();
+    auto choose = [this, pick = std::move(pick)](const std::string& path) {
+        pick(path);
         m_audio.playSfx(Sfx::ConfirmPositive);
         if (m_detail) m_detail->hide();
     };
     std::vector<ListDetailScreen::Entry> entries;
-    ListDetailScreen::Entry none;
-    none.listName = i18n.tr("custom.none", "Nothing (empty button)");
-    none.title = none.listName;
-    none.actionHint = i18n.tr("custom.choose_hint", "Press A to choose");
-    none.onActivate = [choose]() { choose(std::string()); };
-    entries.push_back(none);
+    if (!noneLabel.empty()) {
+        ListDetailScreen::Entry none;
+        none.listName = noneLabel;
+        none.title = none.listName;
+        none.actionHint = i18n.tr("custom.choose_hint", "Press A to choose");
+        none.onActivate = [choose]() { choose(std::string()); };
+        entries.push_back(none);
+    }
     for (const auto& a : m_homebrewApps) {
         ListDetailScreen::Entry e;
-        e.listName = (a.path == m_config.customButtonPath ? "\u2713 " : "") + a.name;
+        e.listName = (a.path == current ? "\u2713 " : "") + a.name;
         e.title = a.name;
         e.kicker = a.author;
         e.body = (a.version.empty() ? std::string()
@@ -1593,8 +1615,7 @@ void WiiUMenuApp::openCustomButtonAppPicker() {
         e.onActivate = [choose, path = a.path]() { choose(path); };
         entries.push_back(std::move(e));
     }
-    showDetailScreen(std::move(entries), i18n.tr("custom.app_title", "Custom button app"),
-                     std::string(), m_settings ? m_settings.get() : nullptr);
+    showDetailScreen(std::move(entries), title, std::string(), m_settings ? m_settings.get() : nullptr);
 }
 
 // Settings > HomeNX > Custom button icon: the app's own icon, or any picture

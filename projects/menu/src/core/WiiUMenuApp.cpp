@@ -512,12 +512,12 @@ void WiiUMenuApp::leaveThen(std::function<void()> fn) {
 // (installed as sdmc:/hbmenu.nro). Say so instead of landing in hbmenu.
 // Homebrew as an application borrows a game, and only one application can run:
 // a suspended game gets closed. Ask first, like launching another game does.
-void WiiUMenuApp::confirmCloseSuspendedThen(std::function<void()> go) {
+void WiiUMenuApp::confirmCloseSuspendedThen(std::function<void()> go, bool applicationMode) {
 #ifdef SWITCHU_MENU
     std::error_code ec;
     const std::uint64_t running = m_launcher.suspendedTitleId();
     if (running != 0 && m_dialog
-        && !std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec)) {
+        && (applicationMode || !std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec))) {
         auto& i18n = nxui::I18n::instance();
         std::string title = i18n.tr("game.this_software", "the software that's open");
         for (const AppEntry& app : m_allApps)
@@ -526,7 +526,7 @@ void WiiUMenuApp::confirmCloseSuspendedThen(std::function<void()> go) {
         m_dialog->show(i18n.tr("game.close_title", "Close game"),
                        i18n.tr("game.close_prefix", "Close") + std::string(" ") + title
                            + i18n.tr("homebrew.close_suffix",
-                                     "?\nSphaira runs as an application, so it has to close first. "
+                                     "?\nThis runs as an application, so the game has to close first. "
                                      "Unsaved progress will be lost."),
                        {{i18n.tr("button.cancel", "Cancel"), [] {}, true},
                         {i18n.tr("button.close", "Close"), [go]() { go(); }, true}},
@@ -762,11 +762,21 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
 }
 
 void WiiUMenuApp::onAfterPresent(nxui::Renderer& ren) {
+    // HomeNX: frame times for 1.5 s after pressing a game, so a hitch shows in menu.log.
+    const std::uint64_t now = armGetSystemTick();
+    const unsigned frameMs = m_prevPresentTick
+        ? static_cast<unsigned>(armTicksToNs(now - m_prevPresentTick) / 1'000'000ULL) : 0;
+    m_prevPresentTick = now;
+    if (now < m_pressTraceUntil && frameMs >= 24)
+        DebugLog::log("[press] slow frame %ums", frameMs);
+
     if (!m_leaveCapturePending)
         return;
 
     m_leaveCapturePending = false;
+    const std::uint64_t t0 = armGetSystemTick();
     saveLeaveFrame(ren);
+    const std::uint64_t t1 = armGetSystemTick();
     // HomeNX: the "suspended" badge was drawn only for the saved return frame
     // (so coming back from the game shows it at once). Take it off the live
     // menu again until the game is really running.
@@ -776,6 +786,11 @@ void WiiUMenuApp::onAfterPresent(nxui::Renderer& ren) {
         m_leaveCaptureAfter = {};
         after();
     }
+    const std::uint64_t t2 = armGetSystemTick();
+    DebugLog::log("[press] capture frame %ums, readback %uus, start %uus", frameMs,
+                  static_cast<unsigned>(armTicksToNs(t1 - t0) / 1000ULL),
+                  static_cast<unsigned>(armTicksToNs(t2 - t1) / 1000ULL));
+    m_pressTraceUntil = t2 + armNsToTicks(1'500'000'000ULL);
 }
 
 void WiiUMenuApp::restoreLeaveSession() {
@@ -1394,6 +1409,63 @@ void WiiUMenuApp::activateCustomButton() {
     confirmCloseSuspendedThen([this, path] {
         leaveThen([this, path] { m_launcher.launchNro(path, homebrewHostTitleId(), activeProfileUid()); });
     });
+#else
+    m_audio.playSfx(Sfx::LaunchGame);
+    fadeOutThen([this, path] { m_launcher.launchNro(path); });
+#endif
+}
+
+// The Nextendo button: its .nro (Settings > HomeNX > Nextendo app), always as an
+// application, never the Album.
+void WiiUMenuApp::activateNextendo() {
+    auto& i18n = nxui::I18n::instance();
+    const std::string path = m_config.nextendoPath;
+    std::error_code ec;
+    auto explain = [this, &i18n](const std::string& title, const std::string& body) {
+        if (!m_dialog) return;
+        m_audio.playSfx(Sfx::ModalShow);
+        m_dialog->show(title, body,
+                       {{i18n.tr("custom.setup", "Set up"), [this]() { openHomeNXSettings(); }, true},
+                        {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
+                       0, {});
+        focusManager().setFocus(m_dialog.get());
+    };
+    if (path.empty() || !std::filesystem::exists(path, ec)) {
+        explain(i18n.tr("nextendo.missing_title", "Nextendo isn't there"),
+                i18n.tr("nextendo.missing_body", "HomeNX looked for") + " " + path + ". "
+                    + i18n.tr("nextendo.choose", "Choose its .nro in Settings > HomeNX > Nextendo app."));
+        return;
+    }
+#ifdef SWITCHU_MENU
+    if (!loaderReadyOrExplain()) return;
+    const std::uint64_t host = homebrewHostTitleId();
+    if (host == 0) {
+        explain(i18n.tr("nextendo.no_host_title", "Nextendo needs a game"),
+                i18n.tr("nextendo.no_host_body",
+                        "It runs as an application, which borrows an installed game to run in. "
+                        "Install any game, then try again."));
+        return;
+    }
+    if (!std::filesystem::exists("sdmc:/switch/SwitchU/bin/hbl/main", ec)) {
+        explain(i18n.tr("nextendo.no_hbl_title", "Application mode isn't set up"),
+                i18n.tr("nextendo.no_hbl_body",
+                        "It needs Atmosphere's hbl.nsp in sdmc:/atmosphere/. Restart the console after "
+                        "putting it back."));
+        return;
+    }
+    confirmCloseSuspendedThen([this, path, host] {
+        leaveThen([this, path, host] {
+            if (m_launcher.launchNro(path, host, activeProfileUid(), /*applicationOnly=*/true)) return;
+            DebugLog::log("[nextendo] application mode didn't start");
+            m_fadeTarget = 0.f; // stay in HOME
+            if (!m_dialog) return;
+            auto& tr = nxui::I18n::instance();
+            m_dialog->show(tr.tr("nextendo.failed_title", "Nextendo didn't start"),
+                           tr.tr("nextendo.failed_body", "It only runs as an application, and that didn't start."),
+                           {{tr.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+            focusManager().setFocus(m_dialog.get());
+        });
+    }, /*applicationMode=*/true);
 #else
     m_audio.playSfx(Sfx::LaunchGame);
     fadeOutThen([this, path] { m_launcher.launchNro(path); });
@@ -4666,6 +4738,7 @@ void WiiUMenuApp::buildGrid() {
     // Controllers opens Settings > Controllers (Change Grip/Order, Find, ...).
     sidebarActions.onMiiEditor = [this]() { openDiscordPanel(); }; // the Mii Editor is in Social now
     sidebarActions.onCustom = [this]() { activateCustomButton(); };
+    sidebarActions.onNextendo = [this]() { activateNextendo(); };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
     sidebarActions.onControllers = [this]() {

@@ -33,7 +33,9 @@ public:
     // switch/SwitchU/bin/hbl/ (main + main.npdm) for application-mode homebrew.
     static bool prepareHbl();
     // Hands the process to an .nro through hbloader (.nro build only).
-    bool launchNro(const std::string& path, uint64_t hostTitleId = 0, AccountUid uid = {});
+    // applicationOnly: never the Album (applet mode); false if that's not possible.
+    bool launchNro(const std::string& path, uint64_t hostTitleId = 0, AccountUid uid = {},
+                   bool applicationOnly = false);
     Result createMii();
     enum class FriendScreen { AddFriend, Requests };
     Result openFriendScreen(FriendScreen screen, AccountUid uid);

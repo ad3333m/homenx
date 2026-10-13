@@ -442,23 +442,39 @@ bool AppletLauncher::prepareHbl() {
 }
 
 // Application mode when we can borrow a game; the Album (applet) otherwise.
-static void startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid uid,
-                          const AppletLauncher::Callbacks& cb) {
+// applicationOnly (Nextendo): never the Album; false if it can't start that way.
+static bool startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid uid,
+                          const AppletLauncher::Callbacks& cb, bool applicationOnly = false) {
     std::error_code ec;
     // A fresh session: the Loader ends the process when it's started again in the
     // one it recorded here (the homebrew was closed). See projects/loader.
     std::filesystem::remove("sdmc:/config/SwitchU/hbl_chained.txt", ec);
+    // Tells the daemon not to fall back to the Album if this launch fails.
+    constexpr const char* kApplicationOnly = "sdmc:/config/SwitchU/homebrew_application_only";
+    if (applicationOnly) {
+        if (FILE* f = std::fopen(kApplicationOnly, "w")) std::fclose(f);
+    } else {
+        std::filesystem::remove(kApplicationOnly, ec);
+    }
     // The daemon drops this flag once application mode fails on this console.
-    const bool appletOnly = std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec);
+    const bool appletOnly = !applicationOnly
+        && std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec);
     if (!appletOnly && hostTitleId != 0 && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {
         const Result rc = switchu::menu::smi_cmd::launchHomebrewApp(uid, hostTitleId);
         DebugLog::log("[launcher] homebrew as application via %016lX rc=0x%X", hostTitleId, rc);
         if (R_SUCCEEDED(rc)) {
             if (cb.requestExit) cb.requestExit();
-            return;
+            return true;
         }
     }
+    if (applicationOnly) {
+        std::filesystem::remove(kApplicationOnly, ec);
+        DebugLog::log("[launcher] application mode unavailable (host=%016lX); not using the Album",
+                      static_cast<unsigned long>(hostTitleId));
+        return false;
+    }
     self.launchAlbum();
+    return true;
 }
 
 bool AppletLauncher::launchSphaira(uint64_t hostTitleId, AccountUid uid) {
@@ -468,11 +484,11 @@ bool AppletLauncher::launchSphaira(uint64_t hostTitleId, AccountUid uid) {
     return true;
 }
 
-bool AppletLauncher::launchNro(const std::string& path, uint64_t hostTitleId, AccountUid uid) {
+bool AppletLauncher::launchNro(const std::string& path, uint64_t hostTitleId, AccountUid uid,
+                               bool applicationOnly) {
     if (!installLoader()) return false;
     writeLine(kLoaderNext, path);
-    startHomebrew(*this, hostTitleId, uid, m_cb);
-    return true;
+    return startHomebrew(*this, hostTitleId, uid, m_cb, applicationOnly);
 }
 
 Result AppletLauncher::createMii() { launchMiiEditor(); return 0; }
@@ -569,7 +585,7 @@ void AppletLauncher::launchAlbum()     { logRc("album", albumLaShowAllAlbumFiles
 
 // Hand the process to Sphaira through hbloader, so it keeps HomeNX's mode
 // (application mode when HomeNX was started over a game).
-bool AppletLauncher::launchNro(const std::string& path, uint64_t, AccountUid) {
+bool AppletLauncher::launchNro(const std::string& path, uint64_t, AccountUid, bool) {
     std::string args = "\"" + path + "\"";
     Result rc = envSetNextLoad(path.c_str(), args.c_str());
     logRc(path.c_str(), rc);

@@ -15,13 +15,16 @@
 
 class SidebarManager {
 public:
-    // Button ids = icon slots. The order setting is a permutation of these.
+    // Button ids = icon slots. The order setting puts ten of them in the ten spots.
     enum : int {
         kButtonSphaira = 0, kButtonMii = 1, kButtonControllers = 2, kButtonSleep = 3,
         kButtonThemeShop = 4, kButtonSettings = 5, kButtonEshop = 6, kButtonNews = 7,
-        kButtonCustom = 8, kButtonFriends = 9, kButtonCount = 10,
+        kButtonCustom = 8, kButtonFriends = 9,
+        kButtonNextendo = 10, // opens Nextendo (prelude.nro); placed from Settings
+        kButtonCount = 11,
+        kSlotCount = 10,
     };
-    using Order = std::array<int, kButtonCount>; // left column top-down, then right
+    using Order = std::array<int, kSlotCount>; // left column top-down, then right
     static constexpr Order kDefaultOrder = {
         kButtonSphaira, kButtonMii, kButtonNews, kButtonCustom, kButtonSettings,
         kButtonEshop, kButtonControllers, kButtonFriends, kButtonThemeShop, kButtonSleep,
@@ -38,6 +41,7 @@ public:
         std::function<void()> onNews;
         std::function<void()> onCustom; // the button you set up in Settings > HomeNX
         std::function<void()> onFriends;
+        std::function<void()> onNextendo;
     };
 
     void build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
