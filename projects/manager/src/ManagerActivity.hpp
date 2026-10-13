@@ -10,6 +10,7 @@
 #include <nxui/Activity.hpp>
 #include <nxui/Theme.hpp>
 #include <nxui/core/Font.hpp>
+#include <nxui/core/Texture.hpp>
 #include <nxui/widgets/GlassPanel.hpp>
 #include <nxui/widgets/Label.hpp>
 
@@ -62,9 +63,15 @@ private:
     InstallationSnapshot m_snapshot;
     InstallationState m_runtimeState = InstallationState::Missing;
 
-    std::shared_ptr<nxui::Widget> m_backdrop;
-    std::shared_ptr<nxui::GlassPanel> m_panel;
-    std::shared_ptr<nxui::GlassPanel> m_statusBadge;
+    std::shared_ptr<nxui::Widget> m_backdrop; // animated background
+    std::shared_ptr<nxui::GlassPanel> m_heroCard;   // the on/off state and its button
+    std::shared_ptr<nxui::GlassPanel> m_updateCard;
+    std::shared_ptr<nxui::GlassPanel> m_infoCard;
+    std::shared_ptr<nxui::Widget> m_decor;    // power ring, icons, version pill
+    std::shared_ptr<nxui::Label> m_updateInfoLabel;
+    nxui::Texture m_appIcon;
+    nxui::Color m_stateColor{0.55f, 0.6f, 0.68f, 1.f}; // green on, slate off, amber unknown
+    void drawDecor(nxui::Renderer& r);
     std::shared_ptr<nxui::Label> m_titleLabel;
     std::shared_ptr<nxui::Label> m_subtitleLabel;
     std::shared_ptr<nxui::Label> m_statusLabel;

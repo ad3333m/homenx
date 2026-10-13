@@ -317,6 +317,7 @@ target("SwitchU-Manager")
         os.mkdir(i18n_dir)
         os.cp(path.join(os.projectdir(), "romfs/fonts/DejaVuSans.ttf"), font_dir)
         os.cp(path.join(os.projectdir(), "projects/manager/romfs/i18n/*.json"), i18n_dir)
+        os.cp(path.join(os.projectdir(), "projects/manager/icon.jpg"), romfs_dir) -- header icon
     end)
 
     set_values("switch.name",    "HomeNX-Toggle")

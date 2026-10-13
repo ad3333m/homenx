@@ -11,24 +11,62 @@
 #include <switch.h>
 
 #include <algorithm>
+#include <cmath>
+#include <functional>
 #include <chrono>
 #include <cstdio>
 
 namespace switchu::manager {
 namespace {
 
-class ManagerBackdrop final : public nxui::Widget {
-protected:
-    void onRender(nxui::Renderer& renderer) override {
-        renderer.drawGradientRect(rect(),
-            nxui::Color(0.045f, 0.055f, 0.095f, 1.f),
-            nxui::Color(0.085f, 0.12f, 0.20f, 1.f));
-        renderer.drawCircle({1110.f, 92.f}, 210.f,
-                            nxui::Color(0.18f, 0.48f, 1.f, 0.10f), 64);
-        renderer.drawCircle({118.f, 650.f}, 250.f,
-                            nxui::Color(0.18f, 0.82f, 0.68f, 0.065f), 64);
+// A widget that just runs a draw function (backgrounds, icons, rings).
+class Painter final : public nxui::Widget {
+public:
+    explicit Painter(std::function<void(nxui::Renderer&)> fn) : m_fn(std::move(fn)) {
+        setRect({0.f, 0.f, 1280.f, 720.f});
     }
+protected:
+    void onRender(nxui::Renderer& renderer) override { if (m_fn) m_fn(renderer); }
+private:
+    std::function<void(nxui::Renderer&)> m_fn;
 };
+
+float seconds() {
+    return static_cast<float>(armTicksToNs(armGetSystemTick()) / 1'000'000ULL) / 1000.f;
+}
+
+// Deep navy with slow drifting glows: soft circles in a few alpha layers.
+void drawBackdrop(nxui::Renderer& r) {
+    r.drawGradientRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.035f, 0.045f, 0.085f, 1.f),
+                       nxui::Color(0.06f, 0.09f, 0.17f, 1.f));
+    const float t = seconds();
+    struct Blob { float x, y, r, sx, sy, phase; nxui::Color c; };
+    const Blob blobs[] = {
+        {1080.f, 120.f, 260.f, 60.f, 40.f, 0.f, {0.20f, 0.45f, 1.f, 1.f}},
+        {180.f, 620.f, 300.f, 70.f, 30.f, 2.1f, {0.15f, 0.85f, 0.70f, 1.f}},
+        {700.f, 760.f, 240.f, 90.f, 20.f, 4.2f, {0.55f, 0.35f, 1.f, 1.f}},
+    };
+    for (const Blob& b : blobs) {
+        const nxui::Vec2 c{b.x + std::sin(t * 0.13f + b.phase) * b.sx, b.y + std::cos(t * 0.11f + b.phase) * b.sy};
+        for (int i = 0; i < 5; ++i)
+            r.drawCircle(c, b.r * (1.f - i * 0.16f), b.c.withAlpha(0.022f), 64);
+    }
+}
+
+// An arc drawn as short thick segments with round ends (angles in degrees, 0 = up, clockwise).
+void drawArc(nxui::Renderer& r, nxui::Vec2 c, float radius, float from, float to, float width,
+             const nxui::Color& color) {
+    const int steps = std::max(8, static_cast<int>(std::abs(to - from) / 4.f));
+    auto at = [&](float deg) {
+        const float a = (deg - 90.f) * 3.14159265f / 180.f;
+        return nxui::Vec2{c.x + std::cos(a) * radius, c.y + std::sin(a) * radius};
+    };
+    for (int i = 0; i < steps; ++i)
+        r.drawLine(at(from + (to - from) * i / steps), at(from + (to - from) * (i + 1) / steps), color, width);
+    const nxui::Vec2 a = at(from), b = at(to);
+    r.drawCircle(a, width * 0.5f, color, 16);
+    r.drawCircle(b, width * 0.5f, color, 16);
+}
 
 std::string tr(const char* key, const char* fallback) {
     return nxui::I18n::instance().tr(key, fallback);
@@ -75,53 +113,56 @@ bool ManagerActivity::onCreate() {
         return false;
     }
 
-    m_backdrop = std::make_shared<ManagerBackdrop>();
-    m_backdrop->setRect({0.f, 0.f, 1280.f, 720.f});
+    m_backdrop = std::make_shared<Painter>(drawBackdrop);
     rootBox().addChild(m_backdrop);
+    m_appIcon.loadFromFile(app().gpu(), renderer, "romfs:/icon.jpg", 256);
 
-    m_panel = std::make_shared<nxui::GlassPanel>();
-    m_panel->setRect({220.f, 52.f, 840.f, 616.f});
-    m_panel->setCornerRadius(32.f);
-    m_panel->setBaseColor(m_theme.panelBase.withAlpha(0.96f));
-    m_panel->setBorderColor(m_theme.panelBorder.withAlpha(0.52f));
-    m_panel->setHighlightColor(m_theme.panelHighlight.withAlpha(0.13f));
-    m_panel->setBorderWidth(1.5f);
-    m_panel->setLiquidGlassEnabled(true);
-    m_panel->setPanelOpacity(0.98f);
-    rootBox().addChild(m_panel);
+    // Three glass cards: the on/off state (left), updates and how it works (right).
+    auto card = [this](const nxui::Rect& r) {
+        auto panel = std::make_shared<nxui::GlassPanel>();
+        panel->setRect(r);
+        panel->setCornerRadius(30.f);
+        panel->setBaseColor(m_theme.panelBase.withAlpha(0.9f));
+        panel->setBorderColor(m_theme.panelBorder.withAlpha(0.5f));
+        panel->setHighlightColor(m_theme.panelHighlight.withAlpha(0.12f));
+        panel->setBorderWidth(1.5f);
+        panel->setLiquidGlassEnabled(true);
+        panel->setPanelOpacity(0.96f);
+        rootBox().addChild(panel);
+        return panel;
+    };
+    m_heroCard = card({72.f, 150.f, 540.f, 478.f});
+    m_updateCard = card({644.f, 150.f, 564.f, 232.f});
+    m_infoCard = card({644.f, 400.f, 564.f, 228.f});
+
+    m_decor = std::make_shared<Painter>([this](nxui::Renderer& r) { drawDecor(r); });
+    rootBox().addChild(m_decor);
 
     m_titleLabel = std::make_shared<nxui::Label>(tr("manager.title", "HomeNX Toggle"));
     m_titleLabel->setFont(&m_titleFont);
     m_titleLabel->setTextColor(m_theme.textPrimary);
-    m_titleLabel->setHAlign(nxui::Label::HAlign::Center);
+    m_titleLabel->setHAlign(nxui::Label::HAlign::Left);
     m_titleLabel->setVAlign(nxui::Label::VAlign::Center);
-    m_titleLabel->setRect({270.f, 84.f, 740.f, 52.f});
+    m_titleLabel->setRect({156.f, 50.f, 640.f, 44.f});
     rootBox().addChild(m_titleLabel);
 
     m_subtitleLabel = std::make_shared<nxui::Label>(
-        tr("manager.subtitle", "Manage the HOME menu used on the next boot.")
-        + std::string("  •  ") + ReleaseUpdater::installedVersion());
+        tr("manager.subtitle2", "Switch between HomeNX and Nintendo's HOME menu, and keep HomeNX up to date."));
     m_subtitleLabel->setFont(&m_smallFont);
     m_subtitleLabel->setScale(0.86f);
     m_subtitleLabel->setTextColor(m_theme.textSecondary);
-    m_subtitleLabel->setHAlign(nxui::Label::HAlign::Center);
+    m_subtitleLabel->setHAlign(nxui::Label::HAlign::Left);
     m_subtitleLabel->setVAlign(nxui::Label::VAlign::Center);
-    m_subtitleLabel->setRect({300.f, 140.f, 680.f, 34.f});
+    m_subtitleLabel->setRect({158.f, 92.f, 760.f, 28.f});
     rootBox().addChild(m_subtitleLabel);
 
-    m_statusBadge = std::make_shared<nxui::GlassPanel>();
-    m_statusBadge->setRect({390.f, 202.f, 500.f, 74.f});
-    m_statusBadge->setCornerRadius(24.f);
-    m_statusBadge->setBorderWidth(1.4f);
-    m_statusBadge->setLiquidGlassEnabled(true);
-    rootBox().addChild(m_statusBadge);
-
+    // Under the power ring: the state, what it means, and any warning.
     m_statusLabel = std::make_shared<nxui::Label>();
-    m_statusLabel->setFont(&m_bodyFont);
-    m_statusLabel->setScale(0.96f);
+    m_statusLabel->setFont(&m_titleFont);
+    m_statusLabel->setScale(0.86f);
     m_statusLabel->setHAlign(nxui::Label::HAlign::Center);
     m_statusLabel->setVAlign(nxui::Label::VAlign::Center);
-    m_statusLabel->setRect({414.f, 214.f, 452.f, 50.f});
+    m_statusLabel->setRect({92.f, 404.f, 500.f, 40.f});
     rootBox().addChild(m_statusLabel);
 
     m_detailLabel = std::make_shared<nxui::Label>();
@@ -132,28 +173,39 @@ bool ManagerActivity::onCreate() {
     m_detailLabel->setTextColor(m_theme.textSecondary);
     m_detailLabel->setHAlign(nxui::Label::HAlign::Center);
     m_detailLabel->setVAlign(nxui::Label::VAlign::Center);
-    m_detailLabel->setRect({310.f, 298.f, 660.f, 90.f});
+    m_detailLabel->setRect({112.f, 446.f, 460.f, 50.f});
     rootBox().addChild(m_detailLabel);
 
     m_noticeLabel = std::make_shared<nxui::Label>();
     m_noticeLabel->setFont(&m_smallFont);
-    m_noticeLabel->setScale(0.86f);
+    m_noticeLabel->setScale(0.82f);
     m_noticeLabel->setMultiline(true);
     m_noticeLabel->setTextColor(nxui::Color(1.f, 0.78f, 0.26f, 1.f));
     m_noticeLabel->setHAlign(nxui::Label::HAlign::Center);
     m_noticeLabel->setVAlign(nxui::Label::VAlign::Center);
-    m_noticeLabel->setRect({310.f, 392.f, 660.f, 52.f});
+    m_noticeLabel->setRect({112.f, 496.f, 460.f, 34.f});
     rootBox().addChild(m_noticeLabel);
 
-    m_toggleButton = createButton({440.f, 454.f, 400.f, 58.f}, "", [this]() {
+    // Updates card: what's installed / available, under its title.
+    m_updateInfoLabel = std::make_shared<nxui::Label>();
+    m_updateInfoLabel->setFont(&m_smallFont);
+    m_updateInfoLabel->setScale(0.86f);
+    m_updateInfoLabel->setMultiline(true);
+    m_updateInfoLabel->setTextColor(m_theme.textSecondary);
+    m_updateInfoLabel->setHAlign(nxui::Label::HAlign::Left);
+    m_updateInfoLabel->setVAlign(nxui::Label::VAlign::Top);
+    m_updateInfoLabel->setRect({752.f, 222.f, 430.f, 56.f});
+    rootBox().addChild(m_updateInfoLabel);
+
+    m_toggleButton = createButton({142.f, 544.f, 400.f, 62.f}, "", [this]() {
         requestToggle();
     });
-    m_updateButton = createButton({440.f, 526.f, 400.f, 58.f}, "", [this]() {
+    m_updateButton = createButton({676.f, 300.f, 500.f, 58.f}, "", [this]() {
         requestUpdate();
     });
-    m_rebootButton = createButton({310.f, 486.f, 318.f, 64.f},
+    m_rebootButton = createButton({100.f, 544.f, 236.f, 62.f},
         tr("manager.reboot_now", "Restart now"), [this]() { requestReboot(); });
-    m_laterButton = createButton({652.f, 486.f, 318.f, 64.f},
+    m_laterButton = createButton({348.f, 544.f, 236.f, 62.f},
         tr("manager.later", "Later"), [this]() { app().requestExit(); });
 
     m_helpLabel = std::make_shared<nxui::Label>();
@@ -162,7 +214,7 @@ bool ManagerActivity::onCreate() {
     m_helpLabel->setTextColor(m_theme.textSecondary.withAlpha(0.82f));
     m_helpLabel->setHAlign(nxui::Label::HAlign::Center);
     m_helpLabel->setVAlign(nxui::Label::VAlign::Center);
-    m_helpLabel->setRect({300.f, 608.f, 680.f, 36.f});
+    m_helpLabel->setRect({300.f, 652.f, 680.f, 36.f});
     rootBox().addChild(m_helpLabel);
 
     m_cursor = std::make_shared<SelectionCursor>();
@@ -237,22 +289,18 @@ void ManagerActivity::refreshPresentation() {
     const bool configuredEnabled = m_snapshot.state == InstallationState::Enabled;
 
     if (m_runtimeState == InstallationState::Enabled) {
-        m_statusLabel->setText(tr("manager.status_enabled", "HomeNX enabled"));
-        m_statusLabel->setTextColor(nxui::Color(0.42f, 1.f, 0.72f, 1.f));
-        m_statusBadge->setBaseColor(nxui::Color(0.08f, 0.34f, 0.25f, 0.88f));
-        m_statusBadge->setBorderColor(nxui::Color(0.35f, 1.f, 0.68f, 0.46f));
+        m_statusLabel->setText(tr("manager.status_on", "HomeNX is on"));
+        m_stateColor = nxui::Color(0.30f, 0.90f, 0.55f, 1.f);
+        m_statusLabel->setTextColor(m_stateColor);
     } else if (m_runtimeState == InstallationState::Disabled) {
-        m_statusLabel->setText(tr("manager.status_disabled", "HomeNX disabled"));
+        m_statusLabel->setText(tr("manager.status_off", "HomeNX is off"));
+        m_stateColor = nxui::Color(0.55f, 0.6f, 0.68f, 1.f);
         m_statusLabel->setTextColor(m_theme.textPrimary);
-        m_statusBadge->setBaseColor(nxui::Color(0.19f, 0.21f, 0.27f, 0.92f));
-        m_statusBadge->setBorderColor(m_theme.panelBorder.withAlpha(0.48f));
     } else {
         m_statusLabel->setText(tr("manager.status_unknown", "HomeNX state unavailable"));
-        m_statusLabel->setTextColor(nxui::Color(1.f, 0.68f, 0.34f, 1.f));
-        m_statusBadge->setBaseColor(nxui::Color(0.34f, 0.19f, 0.08f, 0.88f));
-        m_statusBadge->setBorderColor(nxui::Color(1.f, 0.62f, 0.22f, 0.48f));
+        m_stateColor = nxui::Color(1.f, 0.68f, 0.34f, 1.f);
+        m_statusLabel->setTextColor(m_stateColor);
     }
-    m_statusBadge->setHighlightColor(m_theme.panelHighlight.withAlpha(0.10f));
 
     const bool updaterBusy = m_updateState == UpdateUiState::Checking
         || m_updateState == UpdateUiState::Installing;
@@ -334,6 +382,14 @@ void ManagerActivity::refreshPresentation() {
             break;
     }
     m_updateButton.label->setText(updateText);
+    std::string info = tr("manager.installed", "Installed") + std::string(": ") + ReleaseUpdater::installedVersion();
+    if (m_updateState == UpdateUiState::Available)
+        info += "\n" + tr("manager.new_version", "New") + std::string(": ") + m_latestRelease.version;
+    else if (m_updateState == UpdateUiState::UpToDate)
+        info += "\n" + tr("manager.newest", "That's the newest one.");
+    else if (m_updateState == UpdateUiState::Error)
+        info += "\n" + tr("manager.update_check_failed", "Update check failed. You can retry.");
+    m_updateInfoLabel->setText(info);
     m_updateButton.button->setAccessibilityLabel(updateText);
 
     setButtonVisible(m_toggleButton, !m_restartRequired,
@@ -710,6 +766,66 @@ void ManagerActivity::onUpdate(float dt) {
 }
 
 void ManagerActivity::onRender(nxui::Renderer&) {
+}
+
+// What the widgets don't draw: the app icon and version pill, the power ring
+// in the state's colour, the update icon and the "how it works" list.
+void ManagerActivity::drawDecor(nxui::Renderer& r) {
+    const float t = seconds();
+    const nxui::Color text = m_theme.textPrimary;
+    const nxui::Color muted = m_theme.textSecondary;
+
+    if (m_appIcon.valid())
+        r.drawTextureRounded(&m_appIcon, {72.f, 44.f, 70.f, 70.f}, 18.f);
+    const std::string version = ReleaseUpdater::installedVersion();
+    const float vw = m_smallFont.measure(version).x * 0.8f + 40.f;
+    const nxui::Rect pill{1208.f - vw, 60.f, vw, 38.f};
+    r.drawRoundedRect(pill, text.withAlpha(0.08f), 19.f);
+    r.drawRoundedRectOutline(pill, m_theme.panelBorder.withAlpha(0.6f), 19.f, 1.2f);
+    r.drawCircle({pill.x + 18.f, pill.y + 19.f}, 5.f, m_stateColor, 16);
+    r.drawText(version, {pill.x + 30.f, pill.y + 8.f}, &m_smallFont, text, 0.8f);
+
+    // The power ring: it glows and breathes while HomeNX is on.
+    const nxui::Vec2 c{342.f, 292.f};
+    const bool on = m_runtimeState == InstallationState::Enabled;
+    const float pulse = on ? 0.5f + 0.5f * std::sin(t * 2.2f) : 0.f;
+    for (int i = 0; i < 6; ++i)
+        r.drawCircle(c, 100.f + i * 8.f + pulse * 5.f,
+                     m_stateColor.withAlpha((on ? 0.055f : 0.025f) * (6 - i) / 6.f), 64);
+    r.drawCircle(c, 96.f, m_stateColor.withAlpha(on ? 0.95f : 0.5f), 64);
+    r.drawCircle(c, 86.f, nxui::Color(0.06f, 0.08f, 0.13f, 1.f), 64);
+    r.drawCircle(c, 86.f, m_stateColor.withAlpha(0.08f), 64);
+    const nxui::Color glyph = m_stateColor.withAlpha(on ? 1.f : 0.75f);
+    drawArc(r, c, 40.f, 35.f, 325.f, 10.f, glyph);
+    r.drawLine({c.x, c.y - 52.f}, {c.x, c.y - 8.f}, glyph, 10.f);
+    r.drawCircle({c.x, c.y - 52.f}, 5.f, glyph, 16);
+    r.drawCircle({c.x, c.y - 8.f}, 5.f, glyph, 16);
+
+    // Updates: a round download icon, with a red dot when there's a new build.
+    const nxui::Vec2 u{706.f, 206.f};
+    const nxui::Color blue(0.3f, 0.62f, 1.f, 1.f);
+    r.drawCircle(u, 30.f, blue.withAlpha(0.2f), 40);
+    r.drawLine({u.x, u.y - 15.f}, {u.x, u.y + 6.f}, blue, 5.f);
+    r.drawTriangle({u.x - 11.f, u.y}, {u.x + 11.f, u.y}, {u.x, u.y + 13.f}, blue);
+    r.drawLine({u.x - 14.f, u.y + 19.f}, {u.x + 14.f, u.y + 19.f}, blue, 4.f);
+    if (m_updateState == UpdateUiState::Available)
+        r.drawCircle({u.x + 22.f, u.y - 22.f}, 7.f, nxui::Color(0.95f, 0.3f, 0.32f, 1.f), 20);
+    r.drawText(tr("manager.updates", "Updates"), {752.f, 178.f}, &m_bodyFont, text, 1.f);
+
+    r.drawText(tr("manager.how", "How it works"), {676.f, 422.f}, &m_bodyFont, text, 1.f);
+    struct Line { nxui::Color dot; const char* key; const char* fallback; };
+    const Line lines[] = {
+        {{0.30f, 0.90f, 0.55f, 1.f}, "manager.how_on", "On: HomeNX is your HOME menu."},
+        {{0.55f, 0.60f, 0.68f, 1.f}, "manager.how_off", "Off: Nintendo's HOME menu comes back."},
+        {{1.00f, 0.72f, 0.30f, 1.f}, "manager.how_restart", "Either way, it changes after a restart."},
+        {{0.30f, 0.62f, 1.00f, 1.f}, "manager.how_update", "Updates come from GitHub and install here."},
+    };
+    float y = 470.f;
+    for (const Line& l : lines) {
+        r.drawCircle({688.f, y + 11.f}, 6.f, l.dot, 16);
+        r.drawText(tr(l.key, l.fallback), {706.f, y}, &m_smallFont, muted, 0.86f);
+        y += 36.f;
+    }
 }
 
 nxui::Widget* ManagerActivity::focusRoot() {
