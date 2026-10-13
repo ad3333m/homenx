@@ -302,18 +302,26 @@ void AppletLauncher::installBundledApps() {
             && std::filesystem::file_size(app.target, ec) == std::filesystem::file_size(app.source, ec))
             continue;
         std::filesystem::create_directories(app.dir, ec);
-        std::filesystem::copy_file(app.source, app.target, std::filesystem::copy_options::overwrite_existing, ec);
+        // Copied under another name, then renamed: nothing (Ultrahand's overlay
+        // scan) ever sees a half-written file.
+        const std::string tmp = std::string(app.target) + ".tmp";
+        std::filesystem::copy_file(app.source, tmp, std::filesystem::copy_options::overwrite_existing, ec);
+        if (!ec) {
+            std::filesystem::remove(app.target, ec);
+            std::filesystem::rename(tmp, app.target, ec);
+        }
         DebugLog::log("[launcher] installed %s ec=%d", app.target, ec.value());
     }
 
-    // L+ZL opens the overlay from any game: Ultrahand's per-overlay combo. Set
-    // once, so a combo he changes in Ultrahand later is left alone.
+    // Ultrahand settings for the overlay, in sdmc:/config/ultrahand/overlays.ini:
+    // - key_combo=L+ZL, once (a combo he changes in Ultrahand later is left alone);
+    // - force_support=true: it's built with the new libnx (MOD0 "LNY2"), but an
+    //   Ultrahand that looked at it while this copy was being written keeps
+    //   calling it "Incompatible on AMS v1.10+".
     constexpr const char* kComboDone = "sdmc:/config/SwitchU/discord_overlay_combo.txt";
     constexpr const char* kIni = "sdmc:/config/ultrahand/overlays.ini";
     std::error_code ec;
-    if (!std::filesystem::exists("sdmc:/switch/.overlays/homenx-discord.ovl", ec)
-        || std::filesystem::exists(kComboDone, ec))
-        return;
+    if (!std::filesystem::exists("sdmc:/switch/.overlays/homenx-discord.ovl", ec)) return;
     std::string ini;
     if (FILE* f = std::fopen(kIni, "rb")) {
         char buf[4096];
@@ -321,37 +329,47 @@ void AppletLauncher::installBundledApps() {
         while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) ini.append(buf, n);
         std::fclose(f);
     }
+    const std::string original = ini;
     const std::string section = "[homenx-discord.ovl]";
-    const size_t at = ini.find(section);
-    if (at == std::string::npos) {
+    if (ini.find(section) == std::string::npos) {
         if (!ini.empty() && ini.back() != '\n') ini += '\n';
-        ini += section + "\nkey_combo=L+ZL\n";
-    } else {
-        const size_t lineEnd = ini.find('\n', at);
+        ini += section + "\n";
+    }
+    // The value of `key` in our section: npos if it isn't there.
+    auto valueAt = [&](const std::string& key) {
+        const size_t at = ini.find(section);
         const size_t next = ini.find("\n[", at + section.size());
-        const size_t key = ini.find("\nkey_combo=", at);
-        const bool hasCombo = key != std::string::npos && (next == std::string::npos || key < next)
-            && key + 11 < ini.size() && ini[key + 11] != '\n' && ini[key + 11] != '\r';
-        if (hasCombo) {
-            std::FILE* done = std::fopen(kComboDone, "wb");
-            if (done) std::fclose(done);
-            return;
+        const size_t k = ini.find("\n" + key + "=", at);
+        return k != std::string::npos && (next == std::string::npos || k < next) ? k + key.size() + 2
+                                                                                  : std::string::npos;
+    };
+    auto setKey = [&](const std::string& key, const std::string& value) {
+        const size_t v = valueAt(key);
+        if (v != std::string::npos) {
+            const size_t end = ini.find_first_of("\r\n", v);
+            ini.replace(v, (end == std::string::npos ? ini.size() : end) - v, value);
+        } else {
+            const size_t lineEnd = ini.find('\n', ini.find(section));
+            ini.insert(lineEnd == std::string::npos ? ini.size() : lineEnd + 1, key + "=" + value + "\n");
         }
-        if (key != std::string::npos && (next == std::string::npos || key < next))
-            ini.insert(key + 11, "L+ZL"); // "key_combo=" was there but empty
-        else
-            ini.insert(lineEnd == std::string::npos ? ini.size() : lineEnd + 1, "key_combo=L+ZL\n");
+    };
+    if (!std::filesystem::exists(kComboDone, ec)) {
+        const size_t v = valueAt("key_combo");
+        if (v == std::string::npos || v >= ini.size() || ini[v] == '\n' || ini[v] == '\r')
+            setKey("key_combo", "L+ZL");
     }
-    std::filesystem::create_directories("sdmc:/config/ultrahand", ec);
-    if (FILE* f = std::fopen(kIni, "wb")) {
-        const bool ok = std::fwrite(ini.data(), 1, ini.size(), f) == ini.size();
-        std::fclose(f);
-        if (ok) {
-            std::FILE* done = std::fopen(kComboDone, "wb");
-            if (done) std::fclose(done);
+    setKey("force_support", "true");
+    bool ok = ini == original;
+    if (!ok) {
+        std::filesystem::create_directories("sdmc:/config/ultrahand", ec);
+        if (FILE* f = std::fopen(kIni, "wb")) {
+            ok = std::fwrite(ini.data(), 1, ini.size(), f) == ini.size();
+            std::fclose(f);
         }
-        DebugLog::log("[launcher] Ultrahand combo L+ZL for the Discord overlay ok=%d", ok ? 1 : 0);
+        DebugLog::log("[launcher] Ultrahand settings for the Discord overlay ok=%d", ok ? 1 : 0);
     }
+    if (ok && !std::filesystem::exists(kComboDone, ec))
+        if (std::FILE* done = std::fopen(kComboDone, "wb")) std::fclose(done);
 }
 
 namespace {
