@@ -1,0 +1,78 @@
+name: Symbolize menu crash
+
+# One-off: rebuild build 39's menu exactly as CI did and name the addresses
+# from the Atmosphere crash screen (offsets from "Backtrace - Start Address").
+on:
+  push:
+    branches: [symbolize46]
+
+env:
+  HOMENX_BUILD: 46
+
+jobs:
+  symbolize:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64
+    steps:
+      - name: Get current week as cache key
+        id: cache_key
+        run: echo "key=$(date +'%W')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install curl gcc g++ zip unzip zstd cmake python3
+      - name: Set xmake env
+        run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: branch@dev
+          actions-cache-folder: .xmake-cache-W${{ steps.cache_key.outputs.key }}
+      - name: Update xmake repository
+        run: xmake repo -u --root
+      - name: Bundle Sphaira
+        run: |
+          mkdir -p romfs/bin
+          curl -fsSL -o /tmp/sphaira.zip https://github.com/ITotalJustice/sphaira/releases/download/1.0.8/sphaira.zip
+          unzip -p /tmp/sphaira.zip switch/sphaira/sphaira.nro > romfs/bin/sphaira.nro
+      - name: Configure frontend
+        run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root --ldflags="-Wl,-Map=/tmp/menu.map"
+      - name: Build
+        run: |
+          xmake build -vD --root HomeNX-Loader
+          mkdir -p projects/menu/src/generated
+          python3 tools/embed_loader.py build/cross/aarch64/release/HomeNX-Loader.nro projects/menu/src/generated/loader_nro.inc
+          xmake build -vD --root SwitchU
+      - name: Symbolize
+        run: |
+          ls -la /tmp/menu.map
+          cat > /tmp/sym.py <<'PY'
+          import bisect, re, subprocess, sys
+          entries = []
+          for line in open('/tmp/menu.map', errors='replace'):
+              m = re.match(r'^\s*(\S+)?\s+0x([0-9a-f]{8,16})\s+0x([0-9a-f]+)\s+(\S+)', line)
+              if m:
+                  entries.append((int(m.group(2), 16), (m.group(1) or '') + ' ' + m.group(4)))
+                  continue
+              m = re.match(r'^\s+0x([0-9a-f]{8,16})\s+(\S.*)$', line)
+              if m and not m.group(2).startswith('0x'):
+                  entries.append((int(m.group(1), 16), m.group(2).strip()))
+          entries = sorted(e for e in entries if e[0] > 0)
+          keys = [e[0] for e in entries]
+          names = {'PC': 0xAF95AC, 'LR': 0xAF9594}
+          bt = [0xAE4F98, 0xAF076C, 0xACA6E8, 0x553884, 0x4AD5E4, 0x42BF08, 0x42C06C, 0x42ADA4, 0x53F098, 0x559954, 0x55DE6C, 0xA362BC, 0x9E351C]
+          todo = list(names.items()) + [('BT%02d' % i, a - 4) for i, a in enumerate(bt)] + [('X1', 0x10512D0)]
+          for label, addr in todo:
+              i = bisect.bisect_right(keys, addr) - 1
+              near = [entries[j] for j in range(max(0, i - 2), i + 1)]
+              desc = ' | '.join('%x %s' % (a, n) for a, n in near)
+              out = subprocess.run(['c++filt'], input=desc, capture_output=True, text=True).stdout.strip()
+              print('%-5s %x: %s' % (label, addr, out))
+          PY
+          python3 /tmp/sym.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: menu-elf-46
+          path: build/cross/aarch64/release/
