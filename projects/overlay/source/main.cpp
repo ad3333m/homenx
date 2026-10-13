@@ -8,6 +8,8 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later (built with libtesla, GPL-2.0)
 
+#include <bit> // libtesla uses std::bit_cast without including it
+
 #define TESLA_INIT_IMPL
 #include <tesla.hpp>
 
