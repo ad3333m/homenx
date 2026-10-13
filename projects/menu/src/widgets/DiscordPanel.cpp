@@ -12,6 +12,7 @@
 #include <nxui/core/Renderer.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace {
@@ -25,6 +26,8 @@ constexpr float kTopH = 56.f;     // title bar
 constexpr float kMeH = 64.f;      // your account, at the bottom
 constexpr float kInputH = 60.f;   // the message bar in a chat
 constexpr float kWelcomeH = 176.f;
+constexpr float kRailW = 72.f;    // the server bar
+constexpr float kRailIcon = 48.f;
 constexpr float kChatTextX = 62.f;
 constexpr float kChatTextW = kPanelW - kChatTextX - 20.f;
 
@@ -132,11 +135,29 @@ void DiscordPanel::hide() {
 
 void DiscordPanel::bindInput() {
     clearActions();
-    addDirectionAction(nxui::FocusDirection::UP, [this]() { move(-1); });
-    addDirectionAction(nxui::FocusDirection::DOWN, [this]() { move(+1); });
-    addDirectionAction(nxui::FocusDirection::LEFT, [] {});
-    addDirectionAction(nxui::FocusDirection::RIGHT, [] {});
-    addAction(static_cast<uint64_t>(nxui::Button::A), [this]() { activateRow(); });
+    addDirectionAction(nxui::FocusDirection::UP, [this]() { listFocused() ? move(-1) : moveRail(-1); });
+    addDirectionAction(nxui::FocusDirection::DOWN, [this]() { listFocused() ? move(+1) : moveRail(+1); });
+    // Left/Right: between the server bar and the list.
+    addDirectionAction(nxui::FocusDirection::LEFT, [this] {
+        if (railShown() && m_column == 1) {
+            m_column = 0;
+            if (m_cb.onNavigate) m_cb.onNavigate();
+        }
+    });
+    addDirectionAction(nxui::FocusDirection::RIGHT, [this] {
+        if (railShown() && m_column == 0) {
+            m_column = 1;
+            if (m_cb.onNavigate) m_cb.onNavigate();
+        }
+    });
+    addAction(static_cast<uint64_t>(nxui::Button::A), [this]() {
+        if (!listFocused()) { // A on a server goes into its channels
+            m_column = 1;
+            if (m_cb.onNavigate) m_cb.onNavigate();
+            return;
+        }
+        activateRow();
+    });
     addAction(static_cast<uint64_t>(nxui::Button::B), [this]() { back(); });
     addAction(static_cast<uint64_t>(nxui::Button::X), [this]() {
         if (m_view == View::Chat && m_chat && m_cb.onReply) m_cb.onReply(m_chat, m_chatName);
@@ -154,6 +175,26 @@ void DiscordPanel::openAccounts() {
     m_followSel = true;
     m_builtVersion = ~0ull;
     if (m_cb.onActivate) m_cb.onActivate();
+}
+
+bool DiscordPanel::railShown() const {
+    if (!m_service || m_view != View::Home) return false;
+    const auto st = m_service->state();
+    return st == DiscordService::State::Ready || st == DiscordService::State::Connecting;
+}
+
+void DiscordPanel::moveRail(int dir) {
+    int cur = 0;
+    for (size_t i = 0; i < m_servers.size(); ++i)
+        if (m_servers[i].id == m_guild) cur = (int)i + 1;
+    const int next = std::clamp(cur + dir, 0, (int)m_servers.size());
+    if (next == cur) return;
+    m_guild = next == 0 ? 0 : m_servers[(size_t)next - 1].id;
+    m_sel = -1;
+    m_scroll = 0.f;
+    m_followSel = true;
+    m_builtVersion = ~0ull;
+    if (m_cb.onNavigate) m_cb.onNavigate();
 }
 
 void DiscordPanel::back() {
@@ -210,11 +251,13 @@ void DiscordPanel::activateRow() {
     if (m_cb.onActivate) m_cb.onActivate();
     switch (r.kind) {
         case Row::Dm:
+        case Row::Channel:
             m_view = View::Chat;
             m_chat = r.channelId;
             m_chatName = r.text;
-            m_chatAvatar = r.avatarUrl;
-            m_chatStatus = r.status;
+            m_chatIsChannel = r.kind == Row::Channel;
+            m_chatAvatar = m_chatIsChannel ? std::string() : r.avatarUrl;
+            m_chatStatus = m_chatIsChannel ? std::string() : r.status;
             m_chatScroll = 0.f;
             m_chatBuiltFor = 0;
             m_service->openChannel(r.channelId);
@@ -244,7 +287,8 @@ void DiscordPanel::activateRow() {
 
 std::string DiscordPanel::rowKey(const Row& r) const {
     switch (r.kind) {
-        case Row::Dm: return "c" + std::to_string(r.channelId);
+        case Row::Dm:
+        case Row::Channel: return "c" + std::to_string(r.channelId);
         case Row::Account: return "a" + r.accountId;
         case Row::Button: return "b" + std::to_string(r.action);
         case Row::Me: return "me";
@@ -282,14 +326,23 @@ void DiscordPanel::rebuildRows() {
     using S = DiscordService::State;
     const S st = m_service->state();
     const uint64_t version = m_service->version();
-    if ((int)st == m_builtState && version == m_builtVersion && m_view == m_builtView) return;
+    if ((int)st == m_builtState && version == m_builtVersion && m_view == m_builtView && m_guild == m_builtGuild)
+        return;
     m_builtState = (int)st;
     m_builtVersion = version;
     m_builtView = m_view;
+    if (st == S::Ready) {
+        m_servers = m_service->servers();
+        if (m_guild && std::none_of(m_servers.begin(), m_servers.end(),
+                                    [this](const auto& s) { return s.id == m_guild; }))
+            m_guild = 0; // left that server
+    }
+    m_builtGuild = m_guild;
+    if (!railShown()) m_column = 1;
 
     const std::string keep = (m_sel >= 0 && m_sel < (int)m_rows.size()) ? rowKey(m_rows[(size_t)m_sel]) : std::string();
     m_rows.clear();
-    const float textW = kPanelW - 32.f;
+    const float textW = (railShown() ? kPanelW - kRailW : kPanelW) - 32.f;
     auto info = [&](Row::Kind kind, const std::string& text) {
         Row r;
         r.kind = kind;
@@ -338,6 +391,22 @@ void DiscordPanel::rebuildRows() {
     } else {
         if (st == S::Connecting) {
             info(Row::Info, i18n.tr("discord.connecting", "Connecting..."));
+        } else if (m_guild != 0) {
+            // A server: its channels under their categories.
+            for (const auto& c : m_service->channels(m_guild)) {
+                Row r;
+                r.kind = c.category ? Row::Category : Row::Channel;
+                r.text = clean(c.name);
+                if (c.category)
+                    for (char& ch : r.text) ch = (char)std::toupper((unsigned char)ch);
+                r.channelId = c.id;
+                r.voice = c.voice;
+                r.unread = c.unread;
+                r.mentions = c.mentions;
+                m_rows.push_back(std::move(r));
+            }
+            if (m_rows.empty())
+                info(Row::Info, i18n.tr("discord.no_channels", "There are no channels here you can read."));
         } else {
             for (const auto& d : m_service->dms(40)) {
                 Row r;
@@ -386,6 +455,7 @@ void DiscordPanel::rebuildChat() {
         // shares one avatar and name.
         it.header = l.authorId != prevAuthor || l.ms - prevMs > 7 * 60 * 1000;
         it.author = clean(l.author);
+        it.color = l.color;
         it.avatarUrl = l.avatarUrl;
         it.time = l.time;
         it.lines = wrap(m_font, clean(l.text), kChatTextW, 0.66f, 12);
@@ -526,6 +596,8 @@ float DiscordPanel::rowHeight(const Row& r) const {
         case Row::Dm: return 50.f;
         case Row::Account: return 58.f;
         case Row::Button: return 54.f;
+        case Row::Channel: return 40.f;
+        case Row::Category: return 36.f;
         case Row::Info:
         case Row::Error: return 22.f * r.lines.size() + 14.f;
         default: return 0.f; // Me is drawn at the bottom
@@ -538,14 +610,17 @@ void DiscordPanel::drawTopBar(nxui::Renderer& ren, const nxui::Rect& p, float a)
     const S st = m_service ? m_service->state() : S::Failed;
     const bool qr = st == S::QrLogin;
     const bool withBack = qr || m_view != View::Home;
-    m_backRect = withBack ? nxui::Rect{p.x, p.y, 64.f, kTopH} : nxui::Rect{};
+    // With the server bar the title sits over the list column.
+    const float bx = railShown() ? p.x + kRailW : p.x;
+    const float bw = railShown() ? kPanelW - kRailW : kPanelW;
+    m_backRect = withBack ? nxui::Rect{bx, p.y, 64.f, kTopH} : nxui::Rect{};
 
-    float tx = p.x + 18.f;
+    float tx = bx + 18.f;
     if (withBack) {
-        const float cx = p.x + 26.f, cy = p.y + kTopH * 0.5f;
+        const float cx = bx + 26.f, cy = p.y + kTopH * 0.5f;
         ren.drawLine({cx + 4.f, cy - 8.f}, {cx - 4.f, cy}, textMuted(a), 2.5f);
         ren.drawLine({cx - 4.f, cy}, {cx + 4.f, cy + 8.f}, textMuted(a), 2.5f);
-        tx = p.x + 46.f;
+        tx = bx + 46.f;
     }
 
     std::string title, hint;
@@ -553,33 +628,111 @@ void DiscordPanel::drawTopBar(nxui::Renderer& ren, const nxui::Rect& p, float a)
         title = i18n.tr("discord.qr_title", "Log in with QR Code");
         hint = i18n.tr("discord.hint_cancel", "B  Cancel");
     } else if (m_view == View::Chat) {
-        drawAvatar(ren, m_chatAvatar, m_chatName, tx, p.y + 14.f, 28.f, a);
-        if (!m_chatStatus.empty())
-            drawStatus(ren, m_chatStatus, tx + 23.f, p.y + 37.f, 4.5f, bgPrimary(a), a);
-        tx += 38.f;
+        if (m_chatIsChannel) { // a server channel: "# name"
+            ren.drawText("#", {tx + 4.f, p.y + 14.f}, m_font, textMuted(a), 0.9f);
+            tx += 26.f;
+        } else {
+            drawAvatar(ren, m_chatAvatar, m_chatName, tx, p.y + 14.f, 28.f, a);
+            if (!m_chatStatus.empty())
+                drawStatus(ren, m_chatStatus, tx + 23.f, p.y + 37.f, 4.5f, bgPrimary(a), a);
+            tx += 38.f;
+        }
         title = m_chatName;
         hint = i18n.tr("discord.hint_reply", "X  Reply");
     } else if (m_view == View::Accounts) {
         title = i18n.tr("discord.accounts_title", "Switch Accounts");
         hint = i18n.tr("discord.hint_back", "B  Back");
+    } else if (railShown()) {
+        title = i18n.tr("discord.dms", "Direct Messages");
+        for (const auto& sv : m_servers)
+            if (sv.id == m_guild) title = clean(sv.name);
+        hint = i18n.tr("discord.hint_home", "Y  Accounts");
     } else {
         if (m_logo.valid())
             ren.drawTexture(&m_logo, {tx, p.y + 14.f, 28.f, 28.f}, nxui::Color::white().withAlpha(a));
         else
             ren.drawCircle({tx + 14.f, p.y + 28.f}, 14.f, blurple(a), 28);
         tx += 40.f;
-        const bool in = st == S::Ready || st == S::Connecting;
-        title = in ? i18n.tr("discord.dms", "Direct Messages") : std::string("Discord");
-        hint = in ? i18n.tr("discord.hint_home", "Y  Accounts") : i18n.tr("discord.hint_close", "B  Close");
+        title = "Discord";
+        hint = i18n.tr("discord.hint_close", "B  Close");
     }
     const float hintW = m_smallFont->measure(hint).x * 0.72f;
-    ren.drawText(hint, {p.x + kPanelW - 18.f - hintW, p.y + 19.f}, m_smallFont, textMuted(a), 0.72f);
-    ren.drawText(fit(m_font, title, p.x + kPanelW - 30.f - hintW - tx, 0.78f), {tx, p.y + 16.f}, m_font,
+    ren.drawText(hint, {bx + bw - 18.f - hintW, p.y + 19.f}, m_smallFont, textMuted(a), 0.72f);
+    ren.drawText(fit(m_font, title, bx + bw - 30.f - hintW - tx, 0.78f), {tx, p.y + 16.f}, m_font,
                  textHeader(a), 0.78f);
     // Discord's header edge: a dark line and a soft shadow.
-    ren.drawRect({p.x, p.y + kTopH - 1.f, kPanelW, 1.f}, rgb(31, 32, 35, a));
-    ren.drawGradientRect({p.x, p.y + kTopH, kPanelW, 5.f}, nxui::Color(0.f, 0.f, 0.f, 0.22f * a),
+    ren.drawRect({bx, p.y + kTopH - 1.f, bw, 1.f}, rgb(31, 32, 35, a));
+    ren.drawGradientRect({bx, p.y + kTopH, bw, 5.f}, nxui::Color(0.f, 0.f, 0.f, 0.22f * a),
                          nxui::Color(0.f, 0.f, 0.f, 0.f));
+}
+
+// Discord's server bar: DMs (the logo) on top, a divider, then your servers.
+// The open one has a tall white pill and a rounded-square icon; unread ones a
+// short pill; mentions a red count.
+void DiscordPanel::drawRail(nxui::Renderer& ren, const nxui::Rect& area, float a) {
+    m_railHits.clear();
+    auto itemY = [](int i) { return 12.f + i * 56.f + (i >= 1 ? 10.f : 0.f); };
+    int sel = 0;
+    for (size_t i = 0; i < m_servers.size(); ++i)
+        if (m_servers[i].id == m_guild) sel = (int)i + 1;
+    // Keep the open server in view.
+    const float total = itemY((int)m_servers.size()) + kRailIcon + 12.f;
+    const float selY = itemY(sel);
+    if (selY - m_railScroll < 8.f) m_railScroll = selY - 8.f;
+    if (selY + kRailIcon - m_railScroll > area.height - 8.f) m_railScroll = selY + kRailIcon - area.height + 8.f;
+    m_railScroll = std::clamp(m_railScroll, 0.f, std::max(0.f, total - area.height));
+
+    ren.pushClipRect(area);
+    const float x = area.x + (kRailW - kRailIcon) * 0.5f;
+    for (int i = 0; i <= (int)m_servers.size(); ++i) {
+        const float y = area.y + itemY(i) - m_railScroll;
+        if (y + kRailIcon < area.y || y > area.y + area.height) continue;
+        const nxui::Rect icon{x, y, kRailIcon, kRailIcon};
+        m_railHits.push_back({i, icon});
+        const bool open = i == sel;
+        const float radius = open ? 16.f : kRailIcon * 0.5f;
+        bool unread = false;
+        int mentions = 0;
+        if (i == 0) {
+            mentions = m_service ? m_service->dmMentions() : 0;
+            ren.drawRoundedRect(icon, open ? blurple(a) : bgPrimary(a), radius);
+            if (m_mark.valid())
+                ren.drawTexture(&m_mark, {x + 10.f, y + 10.f, kRailIcon - 20.f, kRailIcon - 20.f},
+                                nxui::Color::white().withAlpha(a));
+        } else {
+            const auto& sv = m_servers[(size_t)i - 1];
+            unread = sv.unread;
+            mentions = sv.mentions;
+            if (const nxui::Texture* t = avatar(sv.iconUrl); t && t->valid()) {
+                ren.drawTextureRounded(t, icon, radius, nxui::Color::white().withAlpha(a));
+            } else {
+                ren.drawRoundedRect(icon, open ? blurple(a) : bgPrimary(a), radius);
+                const std::string ini = fit(m_smallFont, clean(sv.initials), kRailIcon - 6.f, 0.74f);
+                const nxui::Vec2 m = m_smallFont->measure(ini);
+                ren.drawText(ini, {x + (kRailIcon - m.x * 0.74f) * 0.5f, y + (kRailIcon - m.y * 0.74f) * 0.5f},
+                             m_smallFont, textHeader(a), 0.74f);
+            }
+        }
+        if (open || unread) { // the white pill at the edge
+            const float ph = open ? 40.f : 8.f;
+            ren.drawRoundedRect({area.x, y + (kRailIcon - ph) * 0.5f, 4.f, ph}, nxui::Color(1.f, 1.f, 1.f, a), 2.f);
+        }
+        if (mentions > 0) {
+            const std::string n = mentions > 99 ? "99+" : std::to_string(mentions);
+            const float nw = m_smallFont->measure(n).x * 0.62f;
+            const float bw = std::max(18.f, nw + 10.f);
+            const nxui::Rect badge{x + kRailIcon - bw + 4.f, y + kRailIcon - 14.f, bw, 18.f};
+            ren.drawRoundedRect({badge.x - 3.f, badge.y - 3.f, badge.width + 6.f, badge.height + 6.f}, bgTertiary(a), 12.f);
+            ren.drawRoundedRect(badge, red(a), 9.f);
+            ren.drawText(n, {badge.x + (bw - nw) * 0.5f, badge.y + 1.f}, m_smallFont, nxui::Color(1.f, 1.f, 1.f, a), 0.62f);
+        }
+        if (open && m_column == 0) // the controller is on the bar: ring the open server
+            ren.drawRoundedRectOutline({icon.x - 4.f, icon.y - 4.f, icon.width + 8.f, icon.height + 8.f},
+                                       nxui::Color(1.f, 1.f, 1.f, 0.9f * a), radius + 4.f, 2.5f);
+        if (i == 0) // the divider under DMs
+            ren.drawRect({area.x + (kRailW - 32.f) * 0.5f, y + kRailIcon + 4.f, 32.f, 2.f}, rgb(53, 54, 60, a));
+    }
+    ren.popClipRect();
 }
 
 void DiscordPanel::drawRows(nxui::Renderer& ren, const nxui::Rect& area, float a) {
@@ -629,7 +782,7 @@ void DiscordPanel::drawRows(nxui::Renderer& ren, const nxui::Rect& area, float a
         const nxui::Rect row{x, y, w, h};
         y += h;
         if (row.y + h < clip.y || row.y > clip.y + clip.height) continue;
-        const bool sel = i == m_sel;
+        const bool sel = i == m_sel && listFocused();
         if (selectable(r)) m_hits.push_back({i, row});
 
         if (r.kind == Row::Info || r.kind == Row::Error) {
@@ -637,6 +790,36 @@ void DiscordPanel::drawRows(nxui::Renderer& ren, const nxui::Rect& area, float a
             for (const auto& line : r.lines) {
                 ren.drawText(line, {x + 8.f, ly}, m_smallFont, r.kind == Row::Error ? red(a) : textMuted(a), 0.78f);
                 ly += 22.f;
+            }
+            continue;
+        }
+        if (r.kind == Row::Category) { // a server's category: small caps-style label
+            ren.drawText(fit(m_smallFont, r.text, w - 16.f, 0.66f), {x + 6.f, row.y + 14.f}, m_smallFont,
+                         textMuted(a), 0.66f);
+            continue;
+        }
+        if (r.kind == Row::Channel) {
+            if (sel) ren.drawRoundedRect({x, row.y + 2.f, w, h - 4.f}, bgSelected(a), 6.f);
+            const float cy = row.y + h * 0.5f;
+            const nxui::Color ic = (sel || r.unread) ? textHeader(a) : textMuted(a);
+            if (r.voice) { // a speaker for voice channels (their text chat opens)
+                ren.drawRect({x + 11.f, cy - 4.f, 5.f, 8.f}, ic);
+                ren.drawTriangle({x + 16.f, cy - 4.f}, {x + 23.f, cy - 10.f}, {x + 23.f, cy + 10.f}, ic);
+                ren.drawTriangle({x + 16.f, cy - 4.f}, {x + 23.f, cy + 10.f}, {x + 16.f, cy + 4.f}, ic);
+            } else {
+                ren.drawText("#", {x + 11.f, cy - 12.f}, m_font, ic, 0.78f);
+            }
+            const float tw = w - 44.f - (r.mentions > 0 ? 36.f : 0.f);
+            ren.drawText(fit(m_font, r.text, tw, 0.7f), {x + 34.f, cy - 11.f}, m_font, ic, 0.7f);
+            if (r.mentions > 0) {
+                const std::string n = r.mentions > 99 ? "99+" : std::to_string(r.mentions);
+                const float nw = m_smallFont->measure(n).x * 0.7f;
+                const float bw = std::max(20.f, nw + 12.f);
+                ren.drawRoundedRect({x + w - 10.f - bw, cy - 10.f, bw, 20.f}, red(a), 10.f);
+                ren.drawText(n, {x + w - 10.f - bw + (bw - nw) * 0.5f, cy - 8.f}, m_smallFont,
+                             nxui::Color(1.f, 1.f, 1.f, a), 0.7f);
+            } else if (r.unread) {
+                ren.drawRoundedRect({area.x, cy - 4.f, 4.f, 8.f}, nxui::Color(1.f, 1.f, 1.f, a), 2.f);
             }
             continue;
         }
@@ -712,7 +895,7 @@ void DiscordPanel::drawMe(nxui::Renderer& ren, const nxui::Rect& area, float a) 
     int meIndex = -1;
     for (int i = 0; i < (int)m_rows.size(); ++i)
         if (m_rows[(size_t)i].kind == Row::Me) meIndex = i;
-    const bool sel = meIndex >= 0 && meIndex == m_sel;
+    const bool sel = meIndex >= 0 && meIndex == m_sel && listFocused();
     const nxui::Rect inner{area.x + 8.f, area.y + 7.f, area.width - 16.f, area.height - 14.f};
     if (meIndex >= 0) m_hits.push_back({meIndex, inner});
     if (sel) ren.drawRoundedRect(inner, bgSelected(a), 6.f);
@@ -747,12 +930,22 @@ void DiscordPanel::drawChat(nxui::Renderer& ren, const nxui::Rect& area, float a
 
     if (m_chatItems.empty()) {
         // The start of a conversation, as Discord shows it.
-        drawAvatar(ren, m_chatAvatar, m_chatName, area.x + 18.f, area.y + 22.f, 72.f, a);
-        ren.drawText(fit(m_font, m_chatName, kPanelW - 40.f, 1.0f), {area.x + 18.f, area.y + 106.f}, m_font,
+        std::string heading = m_chatName, start;
+        if (m_chatIsChannel) {
+            ren.drawCircle({area.x + 54.f, area.y + 58.f}, 36.f, bgInput(a), 40);
+            ren.drawText("#", {area.x + 40.f, area.y + 34.f}, m_font, textHeader(a), 1.5f);
+            heading = i18n.tr("discord.channel_welcome", "Welcome to") + " #" + m_chatName + "!";
+            start = i18n.tr("discord.channel_start", "This is the start of the") + " #" + m_chatName + " "
+                  + i18n.tr("discord.channel_word", "channel.");
+        } else {
+            drawAvatar(ren, m_chatAvatar, m_chatName, area.x + 18.f, area.y + 22.f, 72.f, a);
+            start = i18n.tr("discord.dm_start", "This is the beginning of your direct message history with") + " "
+                  + m_chatName + ".";
+        }
+        ren.drawText(fit(m_font, heading, kPanelW - 40.f, 1.0f), {area.x + 18.f, area.y + 106.f}, m_font,
                      textHeader(a), 1.0f);
         const bool loading = m_service && m_service->loading(m_chat);
-        const std::string body = loading ? i18n.tr("discord.loading", "Loading...")
-            : i18n.tr("discord.dm_start", "This is the beginning of your direct message history with") + " " + m_chatName + ".";
+        const std::string body = loading ? i18n.tr("discord.loading", "Loading...") : start;
         float ly = area.y + 144.f;
         for (const auto& line : wrap(m_smallFont, body, kPanelW - 40.f, 0.78f, 3)) {
             ren.drawText(line, {area.x + 18.f, ly}, m_smallFont, textMuted(a), 0.78f);
@@ -770,7 +963,11 @@ void DiscordPanel::drawChat(nxui::Renderer& ren, const nxui::Rect& area, float a
         if (it->header) {
             drawAvatar(ren, it->avatarUrl, it->author, area.x + 14.f, y + 10.f, 36.f, a);
             const std::string name = fit(m_font, it->author, kChatTextW - 110.f, 0.7f);
-            ren.drawText(name, {area.x + kChatTextX, y + 8.f}, m_font, textHeader(a), 0.7f);
+            // Role colour in servers, like Discord.
+            const nxui::Color nameCol = it->color ? rgb((int)((it->color >> 16) & 0xFF), (int)((it->color >> 8) & 0xFF),
+                                                        (int)(it->color & 0xFF), a)
+                                                  : textHeader(a);
+            ren.drawText(name, {area.x + kChatTextX, y + 8.f}, m_font, nameCol, 0.7f);
             const float nw = m_font->measure(name).x * 0.7f;
             ren.drawText(it->time, {area.x + kChatTextX + nw + 8.f, y + 12.f}, m_smallFont, textMuted(a), 0.62f);
             ly = y + 34.f;
@@ -786,7 +983,7 @@ void DiscordPanel::drawChat(nxui::Renderer& ren, const nxui::Rect& area, float a
     // The message bar: X (or a tap) opens the keyboard.
     m_inputRect = {area.x + 12.f, area.y + area.height + 8.f, kPanelW - 24.f, kInputH - 20.f};
     ren.drawRoundedRect(m_inputRect, bgInput(a), 8.f);
-    const std::string hint = i18n.tr("discord.message", "Message") + " @" + m_chatName;
+    const std::string hint = i18n.tr("discord.message", "Message") + (m_chatIsChannel ? " #" : " @") + m_chatName;
     ren.drawText(fit(m_smallFont, hint, m_inputRect.width - 64.f, 0.76f), {m_inputRect.x + 16.f, m_inputRect.y + 10.f},
                  m_smallFont, textMuted(a), 0.76f);
     const nxui::Rect key{m_inputRect.x + m_inputRect.width - 36.f, m_inputRect.y + 8.f, 24.f, 24.f};
@@ -826,6 +1023,13 @@ void DiscordPanel::onRender(nxui::Renderer& ren) {
         m_logoTried = true;
         m_logo.loadFromFile(*m_gpu, *m_ren, m_logoPath, 96);
     }
+    if (!m_markTried && m_gpu && m_ren && !m_logoPath.empty()) {
+        m_markTried = true; // the white logo next to discord.png
+        std::string mark = m_logoPath;
+        const size_t dot = mark.rfind(".png");
+        if (dot != std::string::npos) mark.insert(dot, "_mark");
+        m_mark.loadFromFile(*m_gpu, *m_ren, mark, 96);
+    }
     const float a = m_anim;
     m_hits.clear();
     m_inputRect = {};
@@ -842,8 +1046,12 @@ void DiscordPanel::onRender(nxui::Renderer& ren) {
         drawQrView(ren, body, a);
     } else if (m_view == View::Chat) {
         drawChat(ren, {body.x, body.y, body.width, body.height - kInputH}, a);
-    } else if (m_view == View::Home && (st == S::Ready || st == S::Connecting)) {
-        drawRows(ren, {body.x, body.y, body.width, body.height - kMeH}, a);
+    } else if (railShown()) {
+        // The server bar down the left, the DMs or channels beside it.
+        ren.drawRoundedRect({p.x, p.y, kRailW + 16.f, kPanelH - kMeH}, bgTertiary(a), 14.f);
+        ren.drawRect({p.x + kRailW, p.y, 16.f, kPanelH - kMeH}, bgSecondary(a));
+        drawRail(ren, {p.x, p.y, kRailW, kPanelH - kMeH}, a);
+        drawRows(ren, {p.x + kRailW, body.y, kPanelW - kRailW, body.height - kMeH}, a);
         drawMe(ren, {p.x, p.y + kPanelH - kMeH, kPanelW, kMeH}, a);
     } else {
         drawRows(ren, body, a);
@@ -883,9 +1091,24 @@ void DiscordPanel::handleTouch(const nxui::Input& in) {
         if (m_chat && m_cb.onReply) m_cb.onReply(m_chat, m_chatName);
         return;
     }
+    if (railShown())
+        for (const auto& [i, r] : m_railHits)
+            if (inside(r, tx, ty)) { // a tap on a server opens its channels
+                const Snowflake guild = i == 0 ? 0 : m_servers[(size_t)i - 1].id;
+                if (guild != m_guild) {
+                    m_guild = guild;
+                    m_sel = -1;
+                    m_scroll = 0.f;
+                    m_builtVersion = ~0ull;
+                }
+                m_column = 1;
+                if (m_cb.onNavigate) m_cb.onNavigate();
+                return;
+            }
     for (const auto& [i, r] : m_hits)
         if (inside(r, tx, ty)) {
             m_sel = i;
+            m_column = 1;
             activateRow();
             return;
         }

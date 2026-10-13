@@ -14,9 +14,10 @@
 namespace nxui { class GpuDevice; class Input; class Renderer; }
 
 // HomeNX Discord panel, in Discord's own dark grey look: slides in from the left
-// like Quick Settings does from the right. Your DMs with profile pictures and
-// status dots, a chat view, and your account at the bottom (Y, or A on it,
-// switches accounts). Signed out it offers the QR sign-in.
+// like Quick Settings does from the right. A server bar on the left (DMs first,
+// then your servers), your DMs with profile pictures and status dots or a
+// server's channels, a chat view, and your account at the bottom (Y, or A on
+// it, switches accounts). Signed out it offers the QR sign-in.
 class DiscordPanel : public nxui::Widget {
 public:
     struct Callbacks {
@@ -47,11 +48,11 @@ protected:
 private:
     enum class View { Home, Chat, Accounts };
     struct Row {
-        enum Kind { Dm, Account, Button, Info, Error, Me } kind = Info;
+        enum Kind { Dm, Account, Button, Info, Error, Me, Channel, Category } kind = Info;
         std::string text, detail, avatarUrl, status, accountId;
         std::vector<std::string> lines; // Info / Error, wrapped
         Snowflake channelId = 0;
-        bool unread = false, current = false, primary = false, danger = false;
+        bool unread = false, current = false, primary = false, danger = false, voice = false;
         int mentions = 0;
         int action = 0; // Button: see activateRow()
     };
@@ -60,6 +61,7 @@ private:
         std::string author, avatarUrl, time;
         std::vector<std::string> lines;
         int tone = 0; // 0 normal, 1 sending, 2 failed
+        uint32_t color = 0; // the author's role colour, 0 = default
         float height = 0.f;
     };
 
@@ -71,8 +73,14 @@ private:
     void back();
     void openAccounts();
     bool selectable(const Row& r) const {
-        return r.kind == Row::Dm || r.kind == Row::Account || r.kind == Row::Button || r.kind == Row::Me;
+        return r.kind == Row::Dm || r.kind == Row::Account || r.kind == Row::Button || r.kind == Row::Me
+            || r.kind == Row::Channel;
     }
+    // The server bar shows on the home view once signed in.
+    bool railShown() const;
+    bool listFocused() const { return !railShown() || m_column == 1; }
+    void moveRail(int dir);
+    void drawRail(nxui::Renderer& ren, const nxui::Rect& area, float a);
     std::string rowKey(const Row& r) const;
     nxui::Rect panelRect() const;
     std::string clean(const std::string& text) const; // drops letters the font can't draw
@@ -109,6 +117,17 @@ private:
     View m_builtView = View::Home;
     Snowflake m_chat = 0;
     std::string m_chatName, m_chatAvatar, m_chatStatus;
+    bool m_chatIsChannel = false; // a server channel ("#name") rather than a DM
+
+    // The server bar: 0 = Direct Messages, else a server's id.
+    std::vector<DiscordService::Server> m_servers;
+    Snowflake m_guild = 0;
+    Snowflake m_builtGuild = ~0ull;
+    int m_column = 1; // 0 = the server bar, 1 = the list
+    float m_railScroll = 0.f;
+    std::vector<std::pair<int, nxui::Rect>> m_railHits; // index 0 = DMs, i = m_servers[i - 1]
+    nxui::Texture m_mark; // Discord's logo in white
+    bool m_markTried = false;
     std::vector<ChatItem> m_chatItems;
     uint64_t m_chatVersion = ~0ull;
     Snowflake m_chatBuiltFor = 0;
