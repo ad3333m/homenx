@@ -184,8 +184,11 @@ bool GpuDevice::prepareFramebufferReadback() {
     if (!m_dev) return false;
     if (!m_readStaging) {
         const uint32_t bytes = static_cast<uint32_t>(FB_WIDTH) * static_cast<uint32_t>(FB_HEIGHT) * 4u;
+        // CPU-cached: the 3.6 MB is read back by the CPU (and written to the SD
+        // card) after every capture. Read from uncached memory that took ~5 s,
+        // and launching a game or a sidebar app waited for it.
         m_readStaging = dk::MemBlockMaker{m_dev, (bytes + kGpuAlign - 1) & ~(kGpuAlign - 1)}
-            .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
+            .setFlags(DkMemBlockFlags_CpuCached | DkMemBlockFlags_GpuCached)
             .create();
     }
     if (!m_readImageReady) {
@@ -211,6 +214,9 @@ bool GpuDevice::prepareFramebufferReadback() {
 const uint8_t* GpuDevice::readFramebufferPixels(int& outW, int& outH) {
     if (!prepareFramebufferReadback() || !copyFramebuffer(m_readStaging, outW, outH, false))
         return nullptr;
+    // The GPU wrote behind the CPU's cache: drop any stale lines before reading.
+    armDCacheFlush(m_readStaging.getCpuAddr(),
+                   static_cast<size_t>(outW) * static_cast<size_t>(outH) * 4u);
     return static_cast<const uint8_t*>(m_readStaging.getCpuAddr());
 }
 
