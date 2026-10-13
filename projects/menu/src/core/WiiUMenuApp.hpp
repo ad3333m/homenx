@@ -490,6 +490,8 @@ private:
     std::uint64_t m_newsLoadedAt = 0;
     // When HOME was pressed / the game let go / the menu was started (from the daemon).
     std::uint64_t m_homeTick = 0, m_homeForegroundTick = 0, m_homeLaunchTick = 0;
+    bool m_openDiscordOnStart = false; // started by L+ZL in a game
+    bool m_discordFromGame = false;    // ...so closing the panel goes back to the game
     std::function<void()> m_fadeThen;
     float m_fade = 0.f;        // 0 clear .. 1 black
     float m_fadeTarget = 0.f;

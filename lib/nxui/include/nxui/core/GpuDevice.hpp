@@ -89,6 +89,11 @@ public:
     /// Allocate that block (and the blit target) ahead of time, so the first
     /// capture (a press on a game) doesn't stall on ~7 MB of GPU allocation.
     bool prepareFramebufferReadback();
+    /// The same capture without waiting for the GPU (no hitch on the render
+    /// thread): begin...() queues the copy of the frame just presented, and
+    /// finish...() (any thread) waits for it and returns the pixels.
+    bool beginFramebufferReadback();
+    const uint8_t* finishFramebufferReadback(int& outW, int& outH);
 #endif
 
     int  width()  const { return FB_WIDTH; }
@@ -212,6 +217,10 @@ private:
     dk::UniqueMemBlock m_readImageMem;  // uncompressed full-res blit target
     dk::Image          m_readImage;
     bool               m_readImageReady = false;
+    dk::UniqueMemBlock m_readCmdMem;    // beginFramebufferReadback()'s own commands
+    dk::UniqueCmdBuf   m_readCmdbuf;
+    dk::Fence          m_readFence{};
+    bool               m_readInFlight = false;
     GpuPool    m_offPool;
     bool       m_offscreenReady = false;
 

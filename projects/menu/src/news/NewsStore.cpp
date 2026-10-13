@@ -1,4 +1,5 @@
 #include "NewsStore.hpp"
+#include "core/BackgroundThread.hpp"
 #include "core/DebugLog.hpp"
 #include <nlohmann/json.hpp>
 #include <nxui/core/ThreadPool.hpp>
@@ -148,7 +149,7 @@ void requestNewsUpdate(int minIntervalSec) {
     }
     if (now >= last && now - last < minIntervalSec) return;
     std::ofstream(kStamp, std::ios::trunc) << now;
-    std::thread([] {
+    runInBackground([] {
         nxui::moveToWorkerCores();
         if (R_FAILED(newsInitialize(NewsServiceType_Administrator))) return;
         // Every topic the console has news for (plus Nintendo's main one).
@@ -170,5 +171,5 @@ void requestNewsUpdate(int minIntervalSec) {
             DebugLog::log("[news] request reception '%s' rc=0x%X", t.c_str(), rc);
         }
         newsExit();
-    }).detach();
+    });
 }

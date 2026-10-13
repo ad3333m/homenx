@@ -383,6 +383,7 @@ void WiiUMenuApp::setTutorialStartupFade(bool enabled) {
 void WiiUMenuApp::setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn) {
     m_launcher.setStartupStatus(status.suspended_app_id, status.app_running);
     m_homeTick = status.home_tick;
+    m_openDiscordOnStart = (status.start_flags & switchu::smi::kStartOpenDiscord) != 0;
     m_homeForegroundTick = status.foreground_tick;
     m_homeLaunchTick = status.menu_launch_tick;
     m_startupFailure = status.last_failure;
@@ -710,18 +711,17 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
     int width = 0;
     int height = 0;
 #ifdef NXUI_BACKEND_DEKO3D
-    // HomeNX: only the GPU copy happens on this frame. Reading the 3.6 MB of
-    // pixels and writing them to the SD card run on a worker, so pressing a game
-    // or a button no longer hitches.
+    // HomeNX: this frame only queues the GPU copy (no wait, so pressing a game
+    // doesn't hitch); the worker waits for it, then writes the SD card.
     (void)ren;
-    // The device's reusable readback block: valid until the next capture, and
-    // waitLeaveFrameWrite() above makes sure the previous save is done with it.
-    const std::uint8_t* pixels = app().gpu().readFramebufferPixels(width, height);
-    if (!pixels) {
+    if (!app().gpu().beginFramebufferReadback()) {
         DebugLog::log("[leave] framebuffer download failed");
         m_leaveCaptureFocusTitleId = 0;
         return false;
     }
+    nxui::GpuDevice* gpu = &app().gpu();
+    (void)width;
+    (void)height;
 #else
     std::vector<std::uint8_t> rgba;
     if (!ren.downloadFramebufferRgba(rgba, width, height, false)) {
@@ -736,12 +736,22 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
     const LeaveFrameSession session = captureLeaveSession();
     m_leaveCaptureFocusTitleId = 0;
     m_leaveFrameWrite = std::async(std::launch::async,
-        [session, pixels, width, height
-#ifndef NXUI_BACKEND_DEKO3D
-         , shared
+        [session,
+#ifdef NXUI_BACKEND_DEKO3D
+         gpu
+#else
+         pixels, width, height, shared
 #endif
-        ]() {
+        ]() mutable {
             nxui::moveToWorkerCores(); // off the render core, so it finishes during the animation
+#ifdef NXUI_BACKEND_DEKO3D
+            int width = 0, height = 0;
+            const std::uint8_t* pixels = gpu->finishFramebufferReadback(width, height);
+            if (!pixels) {
+                DebugLog::log("[leave] framebuffer download failed");
+                return;
+            }
+#endif
             if (!LeaveFrameCache::save(session, pixels, width, height))
                 DebugLog::log("[leave] cache write failed");
             else
@@ -5392,6 +5402,14 @@ void WiiUMenuApp::onUpdate(float dt) {
         m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
 #endif
     m_discord.update(); // HomeNX Discord panel (idle until it has been opened)
+#ifdef SWITCHU_MENU
+    // L+ZL (or holding HOME) in a game: straight into the Discord panel.
+    if (m_openDiscordOnStart && !leaveSplashActive() && m_deferredInitialAssetFrames == 0) {
+        m_openDiscordOnStart = false;
+        openDiscordPanel();
+        m_discordFromGame = m_discordPanel && m_discordPanel->isOpen();
+    }
+#endif
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
@@ -5777,19 +5795,29 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         --m_deferredInitialAssetFrames;
         if (m_deferredInitialAssetFrames == 0) {
             DebugLog::log("[init] deferred initial icon/sidebar uploads start");
+            // Each step timed: going back to HOME waits for this block.
+            auto ms = [](std::uint64_t since) {
+                return static_cast<unsigned>(armTicksToNs(armGetSystemTick() - since) / 1'000'000ULL);
+            };
+            std::uint64_t t0 = armGetSystemTick();
             if (m_deferredStaticTextures) {
                 m_deferredStaticTextures = false;
                 loadStaticTextures();
             }
+            const unsigned staticMs = ms(t0);
+            t0 = armGetSystemTick();
             if (m_grid) {
                 m_iconStreamer.onPageChanged(m_grid->currentPage(), m_grid->iconsPerPage(),
                                              app().gpu(), app().renderer(),
                                              m_grid->allIcons());
             }
+            const unsigned iconsMs = ms(t0);
+            t0 = armGetSystemTick();
             m_sidebar.reloadAssets(app().gpu(), app().renderer(), SD_ASSETS,
                                    resolveThemeAssetPath(m_effectivePreset,
                                                          m_effectivePreset.icons.basePath));
-            DebugLog::log("[init] deferred initial icon/sidebar uploads done");
+            DebugLog::log("[init] deferred initial icon/sidebar uploads done static=%ums icons=%ums sidebar=%ums",
+                          staticMs, iconsMs, ms(t0));
         }
     }
 

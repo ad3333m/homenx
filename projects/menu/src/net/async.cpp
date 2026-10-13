@@ -12,6 +12,8 @@
 
 #include <nxui/core/ThreadPool.hpp>
 
+#include "core/BackgroundThread.hpp"
+
 namespace Async {
 namespace {
 
@@ -62,7 +64,7 @@ struct WorkerPool {
         const bool done = live <= 0;
         for (auto& t : threads) {
             if (done) t.join();
-            else t.detach(); // finishes its request on its own
+            else abandonThread(t); // finishes its request on its own (libnx can't detach)
         }
         threads.clear();
         return done;

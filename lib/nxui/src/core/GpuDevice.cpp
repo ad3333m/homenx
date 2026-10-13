@@ -220,6 +220,56 @@ const uint8_t* GpuDevice::readFramebufferPixels(int& outW, int& outH) {
     return static_cast<const uint8_t*>(m_readStaging.getCpuAddr());
 }
 
+bool GpuDevice::beginFramebufferReadback() {
+    if (m_slot < 0 || !m_queue || !prepareFramebufferReadback())
+        return false;
+    if (m_readInFlight) { // the previous one (long done in practice)
+        m_readFence.wait();
+        m_readInFlight = false;
+    }
+    if (!m_readCmdbuf) {
+        // Its own command memory: the shared upload buffer is rewritten by the
+        // next texture upload while this copy may still be queued.
+        m_readCmdMem = dk::MemBlockMaker{m_dev, 0x4000}
+            .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
+            .create();
+        if (!m_readCmdMem)
+            return false;
+        m_readCmdbuf = dk::CmdBufMaker{m_dev}.create();
+    }
+    m_readCmdbuf.clear();
+    m_readCmdbuf.addMemory(m_readCmdMem, 0, 0x4000);
+
+    // Queued after the frame that was just presented and before the next one,
+    // so it copies exactly what is on screen. Same steps as copyFramebuffer().
+    const DkImageRect rect{0, 0, 0, static_cast<uint32_t>(FB_WIDTH), static_cast<uint32_t>(FB_HEIGHT), 1};
+    dk::ImageView srcView{m_fbImages[m_slot]};
+    dk::ImageView dstView{m_readImage};
+    m_readCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
+    m_readCmdbuf.blitImage(srcView, rect, dstView, rect, 0);
+    m_readCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
+    m_readCmdbuf.copyImageToBuffer(dstView, rect, DkCopyBuf{m_readStaging.getGpuAddr(), 0, 0});
+    const uint32_t threedNop = 0x80000040u;
+    m_readCmdbuf.replayCmds({threedNop});
+    m_readCmdbuf.barrier(DkBarrier_None, DkInvalidateFlags_L2Cache);
+    m_readCmdbuf.signalFence(m_readFence, true);
+    m_queue.submitCommands(m_readCmdbuf.finishList());
+    m_queue.flush();
+    m_readInFlight = true;
+    return true;
+}
+
+const uint8_t* GpuDevice::finishFramebufferReadback(int& outW, int& outH) {
+    if (!m_readInFlight)
+        return nullptr;
+    m_readFence.wait();
+    m_readInFlight = false;
+    outW = FB_WIDTH;
+    outH = FB_HEIGHT;
+    armDCacheFlush(m_readStaging.getCpuAddr(), static_cast<size_t>(FB_WIDTH) * FB_HEIGHT * 4u);
+    return static_cast<const uint8_t*>(m_readStaging.getCpuAddr());
+}
+
 bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& outH,
                                 bool halfRes) {
     if (m_slot < 0 || !m_queue)

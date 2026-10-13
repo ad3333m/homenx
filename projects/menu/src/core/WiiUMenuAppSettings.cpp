@@ -817,6 +817,18 @@ void WiiUMenuApp::openDiscordPanel() {
                 }
             }
             m_dialogReturnFocus = nullptr;
+#ifdef SWITCHU_MENU
+            if (m_discordFromGame) { // opened over a game with L+ZL: closing goes back to it
+                m_discordFromGame = false;
+                const std::uint64_t tid = m_launcher.suspendedTitleId();
+                if (tid != 0) {
+                    std::string title;
+                    for (const AppEntry& app : m_allApps)
+                        if (app.titleId == tid) title = app.title;
+                    resumeSuspendedApplication(tid, title);
+                }
+            }
+#endif
         };
         cb.onReply = [this](Snowflake channelId, const std::string& name) {
             auto& i18n = nxui::I18n::instance();

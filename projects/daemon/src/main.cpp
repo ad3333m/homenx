@@ -259,6 +259,9 @@ static uint64_t g_pendingHomeMenuStartedAt = 0;
 static uint64_t g_menuExitExpectedAt = 0;
 // HomeNX: HOME timings handed to the menu (Settings > HomeNX > Return timing).
 static uint64_t g_homePressTick = 0;
+// HomeNX: the HOME being opened is for the Discord panel (L+ZL / held HOME).
+static bool g_homeForDiscord = false;
+static std::atomic<bool> g_discordComboPressed{false};
 static uint64_t g_homeForegroundTick = 0;
 static uint8_t g_lastBatteryPercent = 0xFF;
 static PsmChargerType g_lastChargerType = (PsmChargerType)0xFF;
@@ -593,6 +596,7 @@ static smi::SystemStatus buildSystemStatus() {
     st.suspended_app_id = daemon::app::suspendedTitleId();
     st.app_running = daemon::app::isRunning();
     st.last_failure = g_lastOperationFailure;
+    st.start_flags = g_homeForDiscord ? smi::kStartOpenDiscord : 0;
     st.home_tick = g_homePressTick;
     st.foreground_tick = g_homeForegroundTick;
     st.menu_launch_tick = armGetSystemTick();
@@ -898,9 +902,99 @@ static Result launchPendingHomeMenu() {
     if (R_SUCCEEDED(rc))
         armCatalogHold(kCatalogHoldAfterHomeNs);
     g_homePressTick = g_homeForegroundTick = 0;
+    g_homeForDiscord = false;
     logHomeState(source, "after");
     return rc;
 }
+
+// HomeNX: L+ZL in a game opens the Discord panel. The game owns the controller,
+// so this reads HID's shared memory for "no applet" (ARUID 0), which HID keeps
+// filled, the way overlay sysmodules read buttons in games. Any failure just
+// leaves the shortcut off (holding HOME still works).
+namespace lzl {
+Service g_srv{}, g_res{};
+SharedMemory g_shm{};
+Thread g_thread{};
+std::atomic<bool> g_run{false};
+
+Result cmdAruid0(u32 cmd) {
+    const u64 aruid = 0;
+    return serviceDispatchIn(&g_srv, cmd, aruid, .in_send_pid = true);
+}
+
+bool open() {
+    if (R_FAILED(smGetService(&g_srv, "hid"))) return false;
+    const u64 aruid = 0;
+    Result rc = serviceDispatchIn(&g_srv, 0 /* CreateAppletResource */, aruid, .in_send_pid = true,
+                                  .out_num_objects = 1, .out_objects = &g_res);
+    Handle h = INVALID_HANDLE;
+    if (R_SUCCEEDED(rc))
+        rc = serviceDispatch(&g_res, 0 /* GetSharedMemoryHandle */,
+                             .out_handle_attrs = {SfOutHandleAttr_HipcCopy}, .out_handles = &h);
+    if (R_SUCCEEDED(rc)) {
+        shmemLoadRemote(&g_shm, h, 0x40000, Perm_R);
+        rc = shmemMap(&g_shm);
+    }
+    if (R_FAILED(rc)) {
+        switchu::FileLog::log("[lzl] HID shared memory unavailable rc=0x%X", rc);
+        serviceClose(&g_res);
+        serviceClose(&g_srv);
+        return false;
+    }
+    // Make sure "no applet" receives controller input at all.
+    const struct { u32 style; u32 pad; u64 aruid; } styles{0x3F /* full key, handheld, joy-con */, 0, 0};
+    serviceDispatchIn(&g_srv, 100 /* SetSupportedNpadStyleSet */, styles, .in_send_pid = true);
+    static const u32 ids[] = {0, 1, 2, 3, 4, 5, 6, 7, 0x20};
+    serviceDispatchIn(&g_srv, 102 /* SetSupportedNpadIdType */, aruid, .in_send_pid = true,
+                      .buffer_attrs = {SfBufferAttr_HipcPointer | SfBufferAttr_In},
+                      .buffers = {{ids, sizeof(ids)}});
+    const struct { u32 revision; u32 pad; u64 aruid; } act{5, 0, 0};
+    if (R_FAILED(serviceDispatchIn(&g_srv, 109 /* ActivateNpadWithRevision */, act, .in_send_pid = true)))
+        cmdAruid0(103 /* ActivateNpad */);
+    return true;
+}
+
+u64 heldButtons() {
+    const auto* shm = static_cast<const volatile HidSharedMemory*>(shmemGetAddr(&g_shm));
+    u64 held = 0;
+    for (int i = 0; i < 10; ++i) {
+        const volatile HidNpadInternalState& st = shm->npad.entries[i].internal_state;
+        const volatile HidNpadCommonLifo* lifos[] = {&st.full_key_lifo, &st.handheld_lifo, &st.joy_dual_lifo,
+                                                     &st.joy_left_lifo, &st.joy_right_lifo};
+        for (const volatile HidNpadCommonLifo* lifo : lifos) {
+            const u64 tail = lifo->header.tail;
+            if (tail < 17) held |= lifo->storage[tail].state.buttons;
+        }
+    }
+    return held;
+}
+
+void watch(void*) {
+    constexpr u64 kCombo = HidNpadButton_L | HidNpadButton_ZL;
+    bool was = true; // only a new press counts, not a combo held at start
+    while (g_run.load()) {
+        const bool now = (heldButtons() & kCombo) == kCombo;
+        if (now && !was) {
+            g_discordComboPressed.store(true);
+            ueventSignal(&g_mainWakeEvent);
+        }
+        was = now;
+        svcSleepThread(50'000'000ULL);
+    }
+}
+
+void start() {
+    if (!open()) return;
+    g_run.store(true);
+    if (R_FAILED(threadCreate(&g_thread, watch, nullptr, nullptr, 0x4000, 0x3F, -2))
+        || R_FAILED(threadStart(&g_thread))) {
+        g_run.store(false);
+        switchu::FileLog::log("[lzl] watcher thread failed");
+        return;
+    }
+    switchu::FileLog::log("[lzl] L+ZL watcher running");
+}
+} // namespace lzl
 
 static bool menuExitExpected() {
     return daemon::menu_la::hasHolder() && (g_launchForegroundPending || !g_actionQueue.empty());
@@ -1175,6 +1269,14 @@ static bool handleAppletMessages() {
 
         case 20:
         openMenuFromHome("ae");
+        break;
+
+        case 21: // HOME held: the Discord panel (same as L+ZL)
+        if (appMayOwnScreen() && !daemon::menu_la::isActive() && !g_foregroundAppletActive
+            && !g_pendingHomeMenuLaunch) {
+            g_homeForDiscord = true;
+            openMenuFromHome("hold");
+        }
         break;
 
         case 22:
@@ -2050,6 +2152,15 @@ static void mainLoop() {
         didWork = true;
     }
 
+    if (g_discordComboPressed.exchange(false)) {
+        if (appMayOwnScreen() && !daemon::menu_la::isActive() && !g_foregroundAppletActive
+            && !g_pendingHomeMenuLaunch) {
+            switchu::FileLog::log("[lzl] L+ZL in a game: opening Discord");
+            g_homeForDiscord = true;
+            openMenuFromHome("lzl");
+            didWork = true;
+        }
+    }
     // HomeNX: HOME presses are ignored while a handoff is pending; if the
     // ChangeIntoForeground that finishes it never comes, open HOME anyway.
     if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0
@@ -2449,6 +2560,8 @@ int main(int argc, char* argv[]) {
     rc = startEventManager();
     if (R_FAILED(rc))
         switchu::FileLog::log("[daemon] event manager failed: 0x%X (non-fatal)", rc);
+
+    lzl::start();
 
     switchu::FileLog::log("[daemon] launching menu...");
     rc = daemon::menu_la::launch(smi::MenuStartMode::StartupBoot, buildSystemStatus());

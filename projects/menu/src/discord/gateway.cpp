@@ -2,6 +2,8 @@
 
 #include <nxui/core/ThreadPool.hpp>
 
+#include "core/BackgroundThread.hpp"
+
 #include <chrono>
 #include <cstring>
 
@@ -97,7 +99,7 @@ bool Gateway::StopFor(int timeoutMs) {
     for (int t = 0; t < timeoutMs && !done_; t += 5) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     if (!thread_.joinable()) return true;
     if (!done_) {
-        thread_.detach();
+        abandonThread(thread_); // libnx can't detach
         return false;
     }
     thread_.join();

@@ -1,4 +1,5 @@
 #include "widgets/SocialScreen.hpp"
+#include "core/BackgroundThread.hpp"
 
 #include <nxui/core/Animation.hpp>
 #include <nxui/core/GpuDevice.hpp>
@@ -157,7 +158,7 @@ void SocialScreen::startLoad() {
     auto job = std::make_shared<Loaded>();
     m_loading = job;
     const AccountUid uid = m_uid;
-    std::thread([job, uid]() {
+    runInBackground([job, uid]() {
         nxui::moveToWorkerCores();
         Result rc = 0;
         std::string diag;
@@ -167,7 +168,7 @@ void SocialScreen::startLoad() {
         job->rc = rc;
         job->diag = std::move(diag);
         job->done = true;
-    }).detach();
+    });
 }
 
 void SocialScreen::move(int dx, int dy) {
