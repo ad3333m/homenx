@@ -9,25 +9,28 @@
 
 #include <atomic>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace nxui { class GpuDevice; class Input; class Renderer; }
 
-// HomeNX Social: your profile, quick buttons (Mii Editor, Add Friend, Friend
-// Requests, Discord) and your Nintendo friends with their profile pictures,
-// online dots and when they were last online. The friend list loads on its own
-// thread, so the screen opens straight away.
+// HomeNX Social: you and your Nintendo friends (profile pictures, online dots,
+// last online), everyone's play history (games, hours, launches), friend
+// requests and adding friends by friend code, all in HomeNX's own screens.
+// Everything that talks to the system runs on its own thread, so the screen
+// opens straight away.
 class SocialScreen : public nxui::Widget {
 public:
     struct Callbacks {
         std::function<void()> onClosed;
         std::function<void()> onMiiEditor;
-        std::function<void()> onAddFriend;
-        std::function<void()> onRequests;
         std::function<void()> onDiscord;
+        // Asks for a friend code with HomeNX's keyboard and passes on what was typed.
+        std::function<void(std::function<void(const std::string&)>)> onEnterFriendCode;
         std::function<void()> onNavigate; // sounds
         std::function<void()> onActivate;
     };
@@ -39,8 +42,10 @@ public:
     void setIconDir(std::string dir) { m_iconDir = std::move(dir); }
     void setDiscord(const DiscordService* d) { m_discord = d; }
     void setCallbacks(Callbacks cb) { m_cb = std::move(cb); }
+    // The installed games: their names, and whose play history to read for you.
+    void setTitles(std::vector<std::pair<std::uint64_t, std::string>> titles);
 
-    // uid: whose friends; name/avatar: shown as "you" in the corner.
+    // uid: whose friends; name/avatar: shown as "you".
     void show(AccountUid uid, std::string name, std::shared_ptr<nxui::Texture> avatar);
     void hide();
     bool isActive() const { return m_active || m_anim > 0.001f; }
@@ -63,16 +68,57 @@ private:
         std::vector<FriendEntry> list;
         Result rc = 0;
         std::string diag;
+        int requests = -1;
     };
-    enum class Zone { Tiles, Friends };
+    // One person's play history, read on its own thread. Key 0 is you.
+    struct History {
+        std::mutex mu;
+        bool done = false;
+        Result rc = 0;
+        std::string friendCode; // yours only
+        std::vector<PlayRecord> records;
+        std::vector<std::pair<std::uint64_t, std::vector<std::uint8_t>>> icons; // JPEGs
+    };
+    struct HistoryView {
+        bool loaded = false;
+        Result rc = 0;
+        std::vector<PlayRecord> records;
+    };
+    // The requests list, answering one, a friend-code lookup or sending a request.
+    struct Job {
+        std::mutex mu;
+        bool done = false;
+        Result rc = 0;
+        std::vector<FriendRequestEntry> list;
+        std::uint64_t networkId = 0;
+        std::string name;
+    };
+    enum class JobKind { None, Requests, Accept, Reject, Lookup, Send };
+    enum class Zone { Tiles, List, Detail };
+    enum class Mode { Friends, Requests };
+    enum class Add { Idle, Looking, Found, Sending, Sent, Failed };
 
     void bindInput();
     void move(int dx, int dy);
     void activateItem();
+    void back();
+    void answer(bool accept);
     void startLoad();
+    void startJob(JobKind kind, std::function<void(Job&)> work);
+    void finishJob();
+    void startAddFriend();
+    void openRequests();
+    void ensureHistory();
+    std::uint64_t selectedKey(bool& valid) const; // whose history the selection shows
+    int listCount() const;
+    void notice(std::string text);
+    std::string titleName(std::uint64_t id) const;
+    std::string playTime(const PlayRecord& r) const;
+    std::string errorText(Result rc) const;
     nxui::Rect panelRect() const;
     nxui::Rect listRect() const;
     nxui::Rect tileRect(int i) const;
+    nxui::Rect detailRect() const;
     const nxui::Texture* icon(int i);
     std::string statusLine(const FriendEntry& f) const;
     nxui::Color statusColor(const FriendEntry& f, float a) const;
@@ -80,6 +126,12 @@ private:
                     const nxui::Rect& r, float a);
     void drawTileIcon(nxui::Renderer& ren, int i, const nxui::Rect& r, float a);
     void drawDetail(nxui::Renderer& ren, const nxui::Rect& r, float a);
+    void drawPerson(nxui::Renderer& ren, const nxui::Rect& r, float a);
+    void drawHistory(nxui::Renderer& ren, const nxui::Rect& r, float a, const HistoryView* hv, bool mine);
+    void drawRequests(nxui::Renderer& ren, const nxui::Rect& r, float a);
+    void drawAddFriend(nxui::Renderer& ren, const nxui::Rect& r, float a);
+    void drawMessage(nxui::Renderer& ren, const nxui::Rect& r, float a, const std::string& title,
+                     const std::string& body);
 
     nxui::Font* m_font = nullptr;
     nxui::Font* m_smallFont = nullptr;
@@ -89,28 +141,54 @@ private:
     const DiscordService* m_discord = nullptr;
     std::string m_iconDir;
     Callbacks m_cb;
+    std::map<std::uint64_t, std::string> m_titles;
 
     bool m_active = false;
     float m_anim = 0.f;
     Zone m_zone = Zone::Tiles;
+    Mode m_mode = Mode::Friends;
     int m_tile = 0;
-    int m_sel = 0;
+    int m_sel = 0; // Friends mode: 0 is you, 1.. your friends
     float m_scroll = 0.f;
     bool m_followSel = true;
     float m_touchScrollStart = 0.f;
     bool m_touchDragging = false;
+    float m_detailScroll = 0.f;
 
     AccountUid m_uid{};
     std::string m_myName;
     std::shared_ptr<nxui::Texture> m_myAvatar;
+    std::string m_friendCode;
 
     std::shared_ptr<Loaded> m_loading; // the load in flight, if any
     bool m_loaded = false;
     std::uint64_t m_loadedAt = 0;
-    AccountUid m_loadedUid{};
     Result m_rc = 0;
     std::string m_diag;
     std::vector<Friend> m_friends;
+    int m_requestCount = -1;
+
+    std::map<std::uint64_t, HistoryView> m_histories;
+    std::shared_ptr<History> m_historyJob;
+    std::uint64_t m_historyKey = 0;
+    std::map<std::uint64_t, std::unique_ptr<nxui::Texture>> m_titleIcons;
+    std::map<std::uint64_t, std::vector<std::uint8_t>> m_iconJpegs; // waiting to be uploaded
+
+    std::shared_ptr<Job> m_job;
+    JobKind m_jobKind = JobKind::None;
+    std::vector<FriendRequestEntry> m_requests;
+    bool m_requestsLoaded = false;
+    Result m_requestsRc = 0;
+    std::uint64_t m_answering = 0; // request id being accepted or declined
+
+    Add m_add = Add::Idle;
+    std::uint64_t m_addNetworkId = 0;
+    std::string m_addName;
+    std::string m_addCode;
+    Result m_addRc = 0;
+
+    std::string m_notice;
+    std::uint64_t m_noticeAt = 0;
 
     nxui::Texture m_icons[4];
     bool m_iconTried[4] = {};

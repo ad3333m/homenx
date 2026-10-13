@@ -124,8 +124,7 @@ struct SystemStatus {
     uint64_t  suspended_app_id;
     uint8_t   selected_user[16];
     bool      app_running;
-    uint8_t   start_flags; // HomeNX: kStartOpenDiscord
-    uint8_t   _pad[6];
+    uint8_t   _pad[7];
     OperationOutcome last_failure;
     // HomeNX: when HOME was pressed, when the game let go of the screen and when
     // the menu was started (system ticks; 0 if this start wasn't from HOME).
@@ -134,8 +133,6 @@ struct SystemStatus {
     uint64_t  menu_launch_tick;
 };
 static_assert(sizeof(SystemStatus) == 80);
-// HomeNX: L+ZL (or holding HOME) in a game: open HOME with the Discord panel up.
-static constexpr uint8_t kStartOpenDiscord = 1;
 
 struct AppEntryHeader {
     uint64_t  title_id;

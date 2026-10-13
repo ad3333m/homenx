@@ -383,7 +383,6 @@ void WiiUMenuApp::setTutorialStartupFade(bool enabled) {
 void WiiUMenuApp::setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn) {
     m_launcher.setStartupStatus(status.suspended_app_id, status.app_running);
     m_homeTick = status.home_tick;
-    m_openDiscordOnStart = (status.start_flags & switchu::smi::kStartOpenDiscord) != 0;
     m_homeForegroundTick = status.foreground_tick;
     m_homeLaunchTick = status.menu_launch_tick;
     m_startupFailure = status.last_failure;
@@ -5402,14 +5401,6 @@ void WiiUMenuApp::onUpdate(float dt) {
         m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
 #endif
     m_discord.update(); // HomeNX Discord panel (idle until it has been opened)
-#ifdef SWITCHU_MENU
-    // L+ZL (or holding HOME) in a game: straight into the Discord panel.
-    if (m_openDiscordOnStart && !leaveSplashActive() && m_deferredInitialAssetFrames == 0) {
-        m_openDiscordOnStart = false;
-        openDiscordPanel();
-        m_discordFromGame = m_discordPanel && m_discordPanel->isOpen();
-    }
-#endif
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;

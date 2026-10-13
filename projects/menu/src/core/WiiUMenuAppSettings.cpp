@@ -817,18 +817,6 @@ void WiiUMenuApp::openDiscordPanel() {
                 }
             }
             m_dialogReturnFocus = nullptr;
-#ifdef SWITCHU_MENU
-            if (m_discordFromGame) { // opened over a game with L+ZL: closing goes back to it
-                m_discordFromGame = false;
-                const std::uint64_t tid = m_launcher.suspendedTitleId();
-                if (tid != 0) {
-                    std::string title;
-                    for (const AppEntry& app : m_allApps)
-                        if (app.titleId == tid) title = app.title;
-                    resumeSuspendedApplication(tid, title);
-                }
-            }
-#endif
         };
         cb.onReply = [this](Snowflake channelId, const std::string& name) {
             auto& i18n = nxui::I18n::instance();
@@ -1491,20 +1479,6 @@ void WiiUMenuApp::openFriends() {
         m_social->setTheme(&m_theme);
         m_social->setIconDir(std::string(SD_ASSETS) + "/icons");
         m_social->setDiscord(&m_discord);
-        // Adding friends and friend requests are Nintendo's online screens.
-        auto systemScreen = [this](AppletLauncher::FriendScreen which) {
-            return [this, which]() {
-#ifdef SWITCHU_MENU
-                // Frontend: the daemon opens it; close this screen so leaving isn't held up.
-                if (m_social) m_social->hide();
-                leaveThen([this, which] { m_launcher.openFriendScreen(which, activeProfileUid()); });
-#else
-                runSystemApplet(false, [this, which] {
-                    return m_launcher.openFriendScreen(which, activeProfileUid());
-                });
-#endif
-            };
-        };
         SocialScreen::Callbacks cb;
         cb.onClosed = [this]() {
             m_audio.playSfx(Sfx::ModalHide);
@@ -1521,8 +1495,13 @@ void WiiUMenuApp::openFriends() {
             if (m_social) m_social->hide();
             openMiis();
         };
-        cb.onAddFriend = systemScreen(AppletLauncher::FriendScreen::AddFriend);
-        cb.onRequests = systemScreen(AppletLauncher::FriendScreen::Requests);
+        // HomeNX's own keyboard; Social does the lookup and the request itself.
+        cb.onEnterFriendCode = [this](std::function<void(const std::string&)> done) {
+            auto& i18n = nxui::I18n::instance();
+            requestTextEntry(i18n.tr("friends.add", "Add Friend"),
+                             i18n.tr("social.code_guide", "Their friend code, like SW-1234-5678-9012"),
+                             std::string(), 17, false, std::move(done));
+        };
         cb.onDiscord = [this]() {
             if (m_social) m_social->hide();
             openDiscordPanel();
@@ -1553,6 +1532,10 @@ void WiiUMenuApp::openFriends() {
             name = prof.nickname;
             avatar = prof.avatar;
         }
+    std::vector<std::pair<std::uint64_t, std::string>> titles;
+    for (const AppEntry& app : m_allApps)
+        if (app.isApplication() && app.titleId != 0) titles.emplace_back(app.titleId, app.title);
+    m_social->setTitles(std::move(titles));
     m_dialogReturnFocus = focusManager().current();
     m_social->show(uid, name, avatar);
     focusManager().setFocus(m_social.get());
