@@ -945,9 +945,9 @@ bool open() {
     const struct { u32 style; u32 pad; u64 aruid; } styles{0x3F /* full key, handheld, joy-con */, 0, 0};
     serviceDispatchIn(&g_srv, 100 /* SetSupportedNpadStyleSet */, styles, .in_send_pid = true);
     static const u32 ids[] = {0, 1, 2, 3, 4, 5, 6, 7, 0x20};
-    serviceDispatchIn(&g_srv, 102 /* SetSupportedNpadIdType */, aruid, .in_send_pid = true,
+    serviceDispatchIn(&g_srv, 102 /* SetSupportedNpadIdType */, aruid,
                       .buffer_attrs = {SfBufferAttr_HipcPointer | SfBufferAttr_In},
-                      .buffers = {{ids, sizeof(ids)}});
+                      .buffers = {{ids, sizeof(ids)}}, .in_send_pid = true);
     const struct { u32 revision; u32 pad; u64 aruid; } act{5, 0, 0};
     if (R_FAILED(serviceDispatchIn(&g_srv, 109 /* ActivateNpadWithRevision */, act, .in_send_pid = true)))
         cmdAruid0(103 /* ActivateNpad */);
