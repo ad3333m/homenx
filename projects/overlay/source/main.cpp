@@ -36,14 +36,14 @@ constexpr const char* kUserAgent =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 constexpr u64 kCombo = HidNpadButton_L | HidNpadButton_ZL;
 
-const tsl::gfx::Color kText(0xF, 0xF, 0xF, 0xF);
-const tsl::gfx::Color kMuted(0xA, 0xA, 0xB, 0xF);
-const tsl::gfx::Color kBlurple(0x5, 0x6, 0xF, 0xF);
-const tsl::gfx::Color kSelected(0x5, 0x6, 0xF, 0x5);
-const tsl::gfx::Color kAuthor(0xC, 0xC, 0xF, 0xF);
-const tsl::gfx::Color kError(0xF, 0x6, 0x6, 0xF);
-const tsl::gfx::Color kLine(0x5, 0x5, 0x6, 0xF);
-const tsl::gfx::Color kKey(0x3, 0x3, 0x4, 0xF);
+const tsl::Color kText(0xF, 0xF, 0xF, 0xF);
+const tsl::Color kMuted(0xA, 0xA, 0xB, 0xF);
+const tsl::Color kBlurple(0x5, 0x6, 0xF, 0xF);
+const tsl::Color kSelected(0x5, 0x6, 0xF, 0x5);
+const tsl::Color kAuthor(0xC, 0xC, 0xF, 0xF);
+const tsl::Color kError(0xF, 0x6, 0x6, 0xF);
+const tsl::Color kLine(0x5, 0x5, 0x6, 0xF);
+const tsl::Color kKey(0x3, 0x3, 0x4, 0xF);
 
 // ---------------------------------------------------------------- JSON
 
@@ -685,7 +685,7 @@ private:
         else drawList(r, x, top, w, y + h - top, m_guild, m_guildSel, m_guildScroll, m_guildLoaded, m_guildError);
     }
 
-    void drawText(tsl::gfx::Renderer* r, const std::string& text, s32 x, s32 y, s32 w, tsl::gfx::Color c) {
+    void drawText(tsl::gfx::Renderer* r, const std::string& text, s32 x, s32 y, s32 w, tsl::Color c) {
         for (const std::string& line : wrap(r, text, 18, w)) {
             r->drawString(line.c_str(), false, x, y, 18, r->a(c));
             y += 24;

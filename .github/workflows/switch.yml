@@ -96,6 +96,12 @@ jobs:
           apt-get update
           apt-get -y install curl gcc g++ zip unzip zstd cmake python3
 
+      - name: Build the Discord overlay (Tesla/Ultrahand .ovl)
+        run: |
+          dkp-pacman -S --needed --noconfirm switch-curl switch-zlib switch-mbedtls || true
+          make -C projects/overlay -j"$(nproc)"
+          test -s projects/overlay/homenx-discord.ovl
+
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
 
@@ -124,12 +130,6 @@ jobs:
           mkdir -p projects/menu/src/generated
           python3 tools/embed_loader.py build/cross/aarch64/release/HomeNX-Loader.nro projects/menu/src/generated/loader_nro.inc
           xmake build -vD --root
-
-      - name: Build the Discord overlay (Tesla/Ultrahand .ovl)
-        run: |
-          dkp-pacman -S --needed --noconfirm switch-curl switch-zlib switch-mbedtls || true
-          make -C projects/overlay -j"$(nproc)"
-          test -s projects/overlay/homenx-discord.ovl
 
       - name: Package install layout
         run: |
