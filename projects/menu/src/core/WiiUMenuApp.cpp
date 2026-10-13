@@ -5851,7 +5851,9 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         DebugLog::log("[boot] deferred music seek returned");
     }
 
-    if (m_audioInitPending) {
+    // HomeNX: coming back from a game, audio starts after the deferred uploads.
+    // Its SD reads (sound effects, the MP3 seek) made them 1.5 s instead of 0.4.
+    if (m_audioInitPending && m_deferredInitialAssetFrames == 0) {
         if (m_launcher.appHasForeground()) {
             if (!m_audioHeldLogged) {
                 m_audioHeldLogged = true;
