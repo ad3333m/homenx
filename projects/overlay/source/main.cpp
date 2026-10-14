@@ -14,6 +14,10 @@
 #include <tesla.hpp>
 
 #include <curl/curl.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <yyjson.h>
 
 #include <algorithm>
@@ -31,6 +35,7 @@
 
 namespace {
 
+constexpr const char* kHost = "discord.com";
 constexpr const char* kApi = "https://discord.com/api/v9";
 constexpr const char* kUserAgent =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
@@ -157,7 +162,10 @@ class Net {
 public:
     void start(std::string token) {
         m_token = std::move(token);
-        m_thread = std::thread([this] { run(); });
+        // Its own small stack: an overlay has only a few MB in all.
+        m_running = R_SUCCEEDED(threadCreate(&m_thread, [](void* self) { static_cast<Net*>(self)->run(); },
+                                             this, nullptr, 0x40000, 0x2C, -2))
+                    && R_SUCCEEDED(threadStart(&m_thread));
     }
 
     void stop() {
@@ -166,11 +174,21 @@ public:
             m_quit = true;
         }
         m_cv.notify_all();
-        if (m_thread.joinable()) m_thread.join();
+        if (m_running) {
+            threadWaitForExit(&m_thread);
+            threadClose(&m_thread);
+            m_running = false;
+        }
     }
 
     std::shared_ptr<Reply> send(std::string method, std::string path, std::string body = {}) {
         auto reply = std::make_shared<Reply>();
+        if (!m_running) {
+            reply->status = -1;
+            reply->error = "the network thread didn't start";
+            reply->done = true;
+            return reply;
+        }
         {
             std::lock_guard<std::mutex> lk(m_mu);
             m_queue.push_back({std::move(method), std::move(path), std::move(body), reply});
@@ -212,8 +230,39 @@ private:
         if (c) curl_easy_cleanup(c);
     }
 
+    // Discord's address, looked up here (a plain getaddrinfo on this thread) and
+    // handed to curl: curl's own lookup couldn't run in an overlay ("Couldn't
+    // resolve host name" while the console was online).
+    static std::string lookUp(const char* host, std::string& error) {
+        addrinfo hints{};
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        addrinfo* res = nullptr;
+        const int rc = getaddrinfo(host, "443", &hints, &res);
+        if (rc != 0 || !res) {
+            error = std::string("looking up ") + host + " failed: " + gai_strerror(rc) + " " + std::to_string(rc);
+            if (res) freeaddrinfo(res);
+            return {};
+        }
+        char ip[INET_ADDRSTRLEN] = {};
+        inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip));
+        freeaddrinfo(res);
+        return ip;
+    }
+
     void perform(CURL* c, Job& job) {
         curl_easy_reset(c);
+        if (m_ip.empty()) {
+            std::string error;
+            m_ip = lookUp(kHost, error);
+            if (m_ip.empty()) {
+                job.reply->status = -static_cast<long>(CURLE_COULDNT_RESOLVE_HOST);
+                job.reply->error = error;
+                return;
+            }
+        }
+        curl_slist* pinned = curl_slist_append(nullptr, (std::string(kHost) + ":443:" + m_ip).c_str());
+        curl_easy_setopt(c, CURLOPT_RESOLVE, pinned);
         const std::string url = std::string(kApi) + job.path;
         curl_slist* headers = nullptr;
         headers = curl_slist_append(headers, ("Authorization: " + m_token).c_str());
@@ -245,11 +294,15 @@ private:
         if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
         job.reply->status = rc == CURLE_OK ? status : -static_cast<long>(rc);
         if (rc != CURLE_OK) job.reply->error = curl_easy_strerror(rc);
+        if (rc == CURLE_COULDNT_CONNECT || rc == CURLE_OPERATION_TIMEDOUT) m_ip.clear(); // look it up again
         curl_slist_free_all(headers);
+        curl_slist_free_all(pinned);
     }
 
     std::string m_token;
-    std::thread m_thread;
+    std::string m_ip; // Discord's address, once looked up
+    Thread m_thread{};
+    bool m_running = false;
     std::mutex m_mu;
     std::condition_variable m_cv;
     std::deque<Job> m_queue;
