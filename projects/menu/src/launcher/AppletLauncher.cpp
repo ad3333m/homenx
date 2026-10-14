@@ -302,15 +302,32 @@ void AppletLauncher::installBundledApps() {
             && std::filesystem::file_size(app.target, ec) == std::filesystem::file_size(app.source, ec))
             continue;
         std::filesystem::create_directories(app.dir, ec);
-        // Copied under another name, then renamed: nothing (Ultrahand's overlay
-        // scan) ever sees a half-written file.
+        // A plain read/write copy (std::filesystem::copy_file left an empty
+        // file on the console, which nx-ovlloader then failed on: 2347-0004),
+        // under another name and renamed only once it's complete and the
+        // right size, so nothing ever sees a half-written file.
         const std::string tmp = std::string(app.target) + ".tmp";
-        std::filesystem::copy_file(app.source, tmp, std::filesystem::copy_options::overwrite_existing, ec);
-        if (!ec) {
+        bool ok = false;
+        if (FILE* in = std::fopen(app.source, "rb")) {
+            if (FILE* out = std::fopen(tmp.c_str(), "wb")) {
+                std::vector<char> buf(256 * 1024);
+                ok = true;
+                size_t n;
+                while (ok && (n = std::fread(buf.data(), 1, buf.size(), in)) > 0)
+                    ok = std::fwrite(buf.data(), 1, n, out) == n;
+                ok = std::fclose(out) == 0 && ok && !std::ferror(in);
+            }
+            std::fclose(in);
+        }
+        ok = ok && std::filesystem::file_size(tmp, ec) == std::filesystem::file_size(app.source, ec);
+        if (ok) {
             std::filesystem::remove(app.target, ec);
             std::filesystem::rename(tmp, app.target, ec);
+            ok = !ec;
+        } else {
+            std::filesystem::remove(tmp, ec);
         }
-        DebugLog::log("[launcher] installed %s ec=%d", app.target, ec.value());
+        DebugLog::log("[launcher] installed %s ok=%d", app.target, ok ? 1 : 0);
     }
 
     // Ultrahand settings for the overlay, in sdmc:/config/ultrahand/overlays.ini:
