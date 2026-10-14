@@ -230,37 +230,39 @@ private:
         if (c) curl_easy_cleanup(c);
     }
 
-    // Discord's address, looked up here (a plain getaddrinfo on this thread) and
-    // handed to curl: curl's own lookup couldn't run in an overlay ("Couldn't
-    // resolve host name" while the console was online).
-    static std::string lookUp(const char* host, std::string& error) {
-        addrinfo hints{};
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-        addrinfo* res = nullptr;
-        const int rc = getaddrinfo(host, "443", &hints, &res);
-        if (rc != 0 || !res) {
-            error = std::string("looking up ") + host + " failed: " + gai_strerror(rc) + " " + std::to_string(rc);
+    // Where discord.com is. An overlay's own lookup is answered "busy, try
+    // again" by the console, so after a few tries it uses the address HOME saved
+    // (HOME's lookups work), then Discord's long-standing Cloudflare addresses.
+    // Only the address comes from here: TLS still checks it's really discord.com.
+    void findAddresses() {
+        m_ips.clear();
+        m_ipIndex = 0;
+        for (int attempt = 0; attempt < 3 && m_ips.empty(); ++attempt) {
+            if (attempt) svcSleepThread(300'000'000ULL);
+            addrinfo hints{};
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            addrinfo* res = nullptr;
+            if (getaddrinfo(kHost, "443", &hints, &res) == 0 && res) {
+                char ip[INET_ADDRSTRLEN] = {};
+                inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip));
+                m_ips.push_back(ip);
+            }
             if (res) freeaddrinfo(res);
-            return {};
         }
-        char ip[INET_ADDRSTRLEN] = {};
-        inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip));
-        freeaddrinfo(res);
-        return ip;
+        std::string saved = readFile("sdmc:/config/SwitchU/discord_ip.txt");
+        while (!saved.empty() && (saved.back() == '\n' || saved.back() == '\r' || saved.back() == ' ')) saved.pop_back();
+        in_addr check{};
+        if (!saved.empty() && inet_pton(AF_INET, saved.c_str(), &check) == 1) m_ips.push_back(saved);
+        for (const char* ip : {"162.159.128.233", "162.159.135.232", "162.159.136.232",
+                               "162.159.137.232", "162.159.138.232"})
+            m_ips.push_back(ip);
     }
 
     void perform(CURL* c, Job& job) {
         curl_easy_reset(c);
-        if (m_ip.empty()) {
-            std::string error;
-            m_ip = lookUp(kHost, error);
-            if (m_ip.empty()) {
-                job.reply->status = -static_cast<long>(CURLE_COULDNT_RESOLVE_HOST);
-                job.reply->error = error;
-                return;
-            }
-        }
+        if (m_ips.empty()) findAddresses();
+        const std::string& m_ip = m_ips[m_ipIndex % m_ips.size()];
         curl_slist* pinned = curl_slist_append(nullptr, (std::string(kHost) + ":443:" + m_ip).c_str());
         curl_easy_setopt(c, CURLOPT_RESOLVE, pinned);
         const std::string url = std::string(kApi) + job.path;
@@ -294,13 +296,14 @@ private:
         if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
         job.reply->status = rc == CURLE_OK ? status : -static_cast<long>(rc);
         if (rc != CURLE_OK) job.reply->error = curl_easy_strerror(rc);
-        if (rc == CURLE_COULDNT_CONNECT || rc == CURLE_OPERATION_TIMEDOUT) m_ip.clear(); // look it up again
+        if (rc == CURLE_COULDNT_CONNECT || rc == CURLE_OPERATION_TIMEDOUT) ++m_ipIndex; // the next address
         curl_slist_free_all(headers);
         curl_slist_free_all(pinned);
     }
 
     std::string m_token;
-    std::string m_ip; // Discord's address, once looked up
+    std::vector<std::string> m_ips; // discord.com addresses to try, in order
+    size_t m_ipIndex = 0;
     Thread m_thread{};
     bool m_running = false;
     std::mutex m_mu;

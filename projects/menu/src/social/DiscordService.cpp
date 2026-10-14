@@ -11,6 +11,10 @@
 #include "util/strings.h"
 
 #include <switch.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -188,6 +192,22 @@ void DiscordService::activate() {
     }
     Http::ResetAbort();
     Async::Start();
+    // The Discord overlay can't look addresses up itself (the console answers
+    // "busy" in an overlay): HOME saves discord.com's address for it.
+    Async::Run(Async::Pool::Api, [] {
+        addrinfo hints{};
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        addrinfo* res = nullptr;
+        if (getaddrinfo("discord.com", "443", &hints, &res) != 0 || !res) return;
+        char ip[INET_ADDRSTRLEN] = {};
+        inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip));
+        freeaddrinfo(res);
+        if (FILE* f = std::fopen("sdmc:/config/SwitchU/discord_ip.txt", "w")) {
+            std::fputs(ip, f);
+            std::fclose(f);
+        }
+    });
     m_store = std::make_unique<Store>();
     loadAccounts();
     if (m_accounts.empty()) {
