@@ -200,7 +200,7 @@ void DiscordService::activate() {
         hints.ai_socktype = SOCK_STREAM;
         addrinfo* res = nullptr;
         if (getaddrinfo("discord.com", "443", &hints, &res) != 0 || !res) return;
-        char ip[INET_ADDRSTRLEN] = {};
+        char ip[16] = {}; // INET_ADDRSTRLEN (hidden in strict C++ mode)
         inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip));
         freeaddrinfo(res);
         if (FILE* f = std::fopen("sdmc:/config/SwitchU/discord_ip.txt", "w")) {
