@@ -147,7 +147,10 @@ struct Reply {
     std::atomic<bool> done{false};
     long status = 0; // HTTP status, or minus the curl error
     std::string body;
+    std::string error; // curl's own words when it failed
 };
+
+std::string g_startProblem; // set when the network didn't start (shown on the first screen)
 
 // One thread runs the requests in order, so the overlay never waits on Discord.
 class Net {
@@ -222,6 +225,11 @@ private:
         curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 8000L);
         curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, 15000L);
         curl_easy_setopt(c, CURLOPT_ACCEPT_ENCODING, "");
+        // As Ultrahand's own downloads (which work in an overlay): HTTP/1.1,
+        // IPv4 and TLS 1.2. The certificate is still checked: this sends the token.
+        curl_easy_setopt(c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+        curl_easy_setopt(c, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        curl_easy_setopt(c, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
         curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, onBody);
         curl_easy_setopt(c, CURLOPT_WRITEDATA, &job.reply->body);
         curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
@@ -236,6 +244,7 @@ private:
         long status = 0;
         if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
         job.reply->status = rc == CURLE_OK ? status : -static_cast<long>(rc);
+        if (rc != CURLE_OK) job.reply->error = curl_easy_strerror(rc);
         curl_slist_free_all(headers);
     }
 
@@ -252,7 +261,15 @@ Net g_net;
 std::string problem(const Reply& r) {
     if (r.status == 401) return "Discord signed this account out. Sign in again in HomeNX: Social > Discord.";
     if (r.status == 403) return "You can't see this.";
-    if (r.status < 0) return "No connection to Discord. Check the console is online.";
+    if (r.status < 0) {
+        if (!g_startProblem.empty()) return g_startProblem;
+        NifmInternetConnectionStatus net = NifmInternetConnectionStatus_ConnectingUnknown1;
+        u32 strength = 0;
+        if (R_SUCCEEDED(nifmGetInternetConnectionStatus(nullptr, &strength, &net))
+            && net != NifmInternetConnectionStatus_Connected)
+            return "The console isn't online.";
+        return "Couldn't reach Discord: " + r.error + " (" + std::to_string(-r.status) + ").";
+    }
     return "Discord said no (" + std::to_string(r.status) + ").";
 }
 
@@ -835,26 +852,38 @@ public:
     void initServices() override {
         tsl::cfg::extraLaunchCombo = kCombo;
         fsdevMountSdmc();
-        // Small socket buffers: an overlay has a few MB in total.
+        // nifm for the connection state; sockets sized like Ultrahand's
+        // downloader (an overlay has a few MB in total).
+        m_nifm = R_SUCCEEDED(nifmInitialize(NifmServiceType_User));
         static const SocketInitConfig kSockets = {
-            .tcp_tx_buf_size = 0x4000,
-            .tcp_rx_buf_size = 0x8000,
-            .tcp_tx_buf_max_size = 0x10000,
-            .tcp_rx_buf_max_size = 0x20000,
+            .tcp_tx_buf_size = 16 * 1024,
+            .tcp_rx_buf_size = 32 * 1024,
+            .tcp_tx_buf_max_size = 64 * 1024,
+            .tcp_rx_buf_max_size = 128 * 1024,
             .udp_tx_buf_size = 0x2400,
             .udp_rx_buf_size = 0xA500,
             .sb_efficiency = 1,
-            .num_bsd_sessions = 2,
             .bsd_service_type = BsdServiceType_Auto,
         };
-        m_sockets = R_SUCCEEDED(socketInitialize(&kSockets));
-        curl_global_init(CURL_GLOBAL_DEFAULT);
+        const Result sockRc = socketInitialize(&kSockets);
+        m_sockets = R_SUCCEEDED(sockRc);
+        // curl's TLS here is the console's ssl service, opened by curl_global_init.
+        const CURLcode curlRc = curl_global_init(CURL_GLOBAL_DEFAULT);
+        char buf[96];
+        if (!m_sockets) {
+            std::snprintf(buf, sizeof(buf), "The network didn't start (0x%X).", sockRc);
+            g_startProblem = buf;
+        } else if (curlRc != CURLE_OK) {
+            std::snprintf(buf, sizeof(buf), "Secure connections didn't start: %s.", curl_easy_strerror(curlRc));
+            g_startProblem = buf;
+        }
     }
 
     void exitServices() override {
         g_net.stop();
         curl_global_cleanup();
         if (m_sockets) socketExit();
+        if (m_nifm) nifmExit();
         fsdevUnmountAll();
     }
 
@@ -868,6 +897,7 @@ public:
 
 private:
     bool m_sockets = false;
+    bool m_nifm = false;
 };
 
 } // namespace
