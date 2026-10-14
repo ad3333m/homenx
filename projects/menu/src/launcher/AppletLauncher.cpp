@@ -295,12 +295,28 @@ void AppletLauncher::installBundledApps() {
         {"sdmc:/switch/SwitchU/bin/homenx-discord.ovl", "sdmc:/switch/.overlays",
          "sdmc:/switch/.overlays/homenx-discord.ovl"},
     };
+    // Same bytes, not just the same size: .nro/.ovl segments are page-aligned,
+    // so a new build is often exactly as big as the old one (that kept an old
+    // Discord overlay installed).
+    auto sameFile = [](const char* a, const char* b) {
+        FILE* fa = std::fopen(a, "rb");
+        FILE* fb = fa ? std::fopen(b, "rb") : nullptr;
+        bool same = fa && fb;
+        std::vector<char> ba(64 * 1024), bb(64 * 1024);
+        while (same) {
+            const size_t na = std::fread(ba.data(), 1, ba.size(), fa);
+            const size_t nb = std::fread(bb.data(), 1, bb.size(), fb);
+            same = na == nb && std::memcmp(ba.data(), bb.data(), na) == 0;
+            if (na == 0) break;
+        }
+        if (fa) std::fclose(fa);
+        if (fb) std::fclose(fb);
+        return same;
+    };
     for (const auto& app : kApps) {
         std::error_code ec;
         if (!std::filesystem::exists(app.source, ec)) continue;
-        if (std::filesystem::exists(app.target, ec)
-            && std::filesystem::file_size(app.target, ec) == std::filesystem::file_size(app.source, ec))
-            continue;
+        if (sameFile(app.source, app.target)) continue;
         std::filesystem::create_directories(app.dir, ec);
         // A plain read/write copy (std::filesystem::copy_file left an empty
         // file on the console, which nx-ovlloader then failed on: 2347-0004),
