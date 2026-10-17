@@ -1744,14 +1744,14 @@ void WiiUMenuApp::openReturnTimings() {
 void WiiUMenuApp::pairController() {
     auto& i18n = nxui::I18n::instance();
     if (!m_dialog || m_pairing) return;
-    u32 paired = 0;
+    u8 paired = 0;
     Result rc = btmsysInitialize();
     if (R_SUCCEEDED(rc)) {
         btmsysGetPairedGamepadCount(&paired);
         rc = btmsysStartGamepadPairing();
         if (R_FAILED(rc)) btmsysExit();
     }
-    DebugLog::log("[pairing] start rc=0x%X paired=%u", rc, paired);
+    DebugLog::log("[pairing] start rc=0x%X paired=%u", rc, (unsigned)paired);
     m_dialogReturnFocus = focusManager().current();
     if (R_FAILED(rc)) {
         m_dialog->show(i18n.tr("pairing.title", "Pair a controller"),

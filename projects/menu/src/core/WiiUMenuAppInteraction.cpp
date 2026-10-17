@@ -1155,7 +1155,7 @@ void WiiUMenuApp::updateHomeExtras() {
     // Controller pairing: done when the console has one more paired, or after 30 s.
     if (m_pairing && armGetSystemTick() >= m_pairingCheck) {
         m_pairingCheck = armGetSystemTick() + armNsToTicks(400'000'000ULL);
-        u32 count = 0;
+        u8 count = 0;
         const bool paired = R_SUCCEEDED(btmsysGetPairedGamepadCount(&count)) && count > m_pairingCount;
         if (paired || armGetSystemTick() >= m_pairingUntil) {
             stopPairing();
