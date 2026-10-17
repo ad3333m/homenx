@@ -1053,6 +1053,10 @@ private:
             curl_easy_setopt(c, CURLOPT_POST, 1L);
             curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
             curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+        } else if (method != "GET") { // PUT, DELETE: a reaction
+            curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method.c_str());
+            curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
+            curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
         }
         const CURLcode rc = curl_easy_perform(c);
         long status = 0;
@@ -2155,7 +2159,7 @@ private:
             m_msgReq.reset();
         }
         if (m_sendReq && m_sendReq->done) {
-            if (m_sendReq->status == 200) m_lastPoll = 0; // show it straight away
+            if (m_sendReq->status == 200 || m_sendReq->status == 204) m_lastPoll = 0; // show it straight away
             else m_chatNote = "Couldn't send: " + problem(*m_sendReq);
             m_sendReq.reset();
         }
@@ -2205,9 +2209,15 @@ private:
             return true;
         }
         if (m_accountsOpen) return accountsInput(down, dir);
+        if (m_chat && m_picking) return pickInput(down, dir);
         if (m_chat) {
             if (down & HidNpadButton_B) {
                 closeChat();
+                return true;
+            }
+            if ((down & HidNpadButton_ZR) && !m_msgs.empty()) { // pick a message: reply or react
+                m_picking = true;
+                m_pick = (int)m_msgs.size() - 1;
                 return true;
             }
             if (down & (HidNpadButton_A | HidNpadButton_Y)) {
@@ -2640,6 +2650,9 @@ private:
 
     void closeChat() {
         m_chat = false;
+        m_picking = false;
+        m_replyTo.clear();
+        m_reactTo.clear();
         std::lock_guard<std::mutex> lk(g_chatMu);
         g_openChannel.clear();
         g_openGuild.clear();
@@ -2837,7 +2850,10 @@ private:
         if ((down & HidNpadButton_R) && m_typing == Typing::Message) openGifs();
         if (down & HidNpadButton_Plus) submit();
         if (down & HidNpadButton_B) {
-            if (typed().empty()) m_keyboard = false;
+            if (typed().empty()) {
+                m_keyboard = false;
+                m_replyTo.clear(); // no reply after all
+            }
             else popToken(typed());
         }
         return true;
@@ -2872,15 +2888,54 @@ private:
 
     void sendDraft() {
         if (m_draft.empty() || m_sendReq) return;
-        sendContent(m_draft);
+        sendContent(m_draft, m_replyTo);
         m_draft.clear();
+        m_replyTo.clear();
         m_keyboard = false;
         m_emojiOpen = false;
     }
 
-    void sendContent(const std::string& content) {
-        m_sendReq = g_net.api("POST", "/channels/" + m_chatId + "/messages",
-                              "{\"content\":" + jsonString(content) + ",\"tts\":false}");
+    // Picking a message (ZR in a chat): up/down choose, A replies, Y reacts.
+    bool pickInput(u64 down, u64 dir) {
+        if (m_pick >= (int)m_msgs.size()) m_pick = (int)m_msgs.size() - 1;
+        if (down & (HidNpadButton_B | HidNpadButton_ZR) || m_pick < 0) {
+            m_picking = false;
+            return true;
+        }
+        if (dir & HidNpadButton_AnyUp) m_pick = std::max(0, m_pick - 1);
+        if (dir & HidNpadButton_AnyDown) m_pick = std::min((int)m_msgs.size() - 1, m_pick + 1);
+        const Msg& m = m_msgs[(size_t)m_pick];
+        if (down & HidNpadButton_A) {
+            m_picking = false;
+            m_replyTo = m.id;
+            m_replyName = m.author;
+            openKeyboard(Typing::Message);
+        } else if (down & HidNpadButton_Y) {
+            m_picking = false;
+            m_reactTo = m.id;
+            m_replyName = m.author;
+            openKeyboard(Typing::Message);
+            openEmoji();
+        }
+        return true;
+    }
+
+    // Adds a reaction (an emoji as the picker writes it) to a message.
+    void react(const std::string& messageId, const std::string& emoji) {
+        std::string param = emoji;
+        if (param.size() > 2 && param.front() == '<' && param.back() == '>') { // <:name:id> / <a:name:id>
+            param = param.substr(1, param.size() - 2);
+            if (param.rfind("a:", 0) == 0) param.erase(0, 1);
+            if (!param.empty() && param.front() == ':') param.erase(0, 1);
+        }
+        m_sendReq = g_net.api("PUT", "/channels/" + m_chatId + "/messages/" + messageId + "/reactions/"
+                                         + urlEncode(param) + "/@me");
+    }
+
+    void sendContent(const std::string& content, const std::string& replyTo = std::string()) {
+        std::string body = "{\"content\":" + jsonString(content) + ",\"tts\":false";
+        if (!replyTo.empty()) body += ",\"message_reference\":{\"message_id\":" + jsonString(replyTo) + "}";
+        m_sendReq = g_net.api("POST", "/channels/" + m_chatId + "/messages", body + "}");
         m_chatNote.clear();
         m_chatScroll = 0;
     }
@@ -2929,6 +2984,17 @@ private:
         if (dir & HidNpadButton_AnyRight) m_eSel = std::min(count - 1, m_eSel + 1);
         if (dir & HidNpadButton_AnyUp) m_eSel = std::max(0, m_eSel - 10);
         if (dir & HidNpadButton_AnyDown) m_eSel = std::min(count - 1, m_eSel + 10);
+        if ((down & HidNpadButton_A) && m_eSel >= 0 && m_eSel < count && !m_reactTo.empty()) {
+            react(m_reactTo, emojiChoices()[(size_t)m_eSel]->insert);
+            m_reactTo.clear();
+            m_emojiOpen = m_keyboard = false;
+            return true;
+        }
+        if (!m_reactTo.empty() && (down & (HidNpadButton_B | HidNpadButton_L))) { // not reacting after all
+            m_reactTo.clear();
+            m_emojiOpen = m_keyboard = false;
+            return true;
+        }
         if ((down & HidNpadButton_A) && m_eSel >= 0 && m_eSel < count && typed().size() < 1900)
             typed() += emojiChoices()[(size_t)m_eSel]->insert;
         if (down & HidNpadButton_X) typed() += ' ';
@@ -3190,7 +3256,8 @@ private:
         r->drawRect(0, 48, kW, 1, r->a(kRailBg));
 
         const s32 top = 52;
-        const s32 bottom = m_keyboard ? kH - 258 : kH - 74;
+        const bool replying = m_keyboard && (!m_replyTo.empty() || !m_reactTo.empty());
+        const s32 bottom = m_keyboard ? kH - 258 - (replying ? 22 : 0) : kH - 74;
         const s32 tx = 60, tw = kW - tx - 12;
         if (!m_chatLoaded) {
             drawText(r, "Loading...", 16, top + 30, kW - 32, kMuted);
@@ -3207,11 +3274,21 @@ private:
                 }
             s32 total = 0;
             for (const Msg& m : m_msgs) total += messageHeight(m, tw);
+            if (m_picking && m_pick >= 0 && m_pick < (int)m_msgs.size()) { // keep the picked one in view
+                s32 below = 0;
+                for (size_t k = (size_t)m_pick + 1; k < m_msgs.size(); ++k) below += messageHeight(m_msgs[k], tw);
+                const s32 mh = messageHeight(m_msgs[(size_t)m_pick], tw);
+                if (m_chatScroll > below) m_chatScroll = below;
+                if (below + mh > m_chatScroll + (bottom - top)) m_chatScroll = below + mh - (bottom - top);
+            }
             m_chatScroll = std::clamp(m_chatScroll, 0, std::max(0, total - (bottom - top)));
             Scissor clip(r, 0, top, kW, bottom - top);
             s32 cy = bottom + m_chatScroll;
             for (auto it = m_msgs.rbegin(); it != m_msgs.rend(); ++it) {
                 const s32 mh = messageHeight(*it, tw);
+                if (m_picking && (int)(m_msgs.size() - 1 - (it - m_msgs.rbegin())) == m_pick && cy - mh <= bottom
+                    && cy >= top)
+                    roundRect(r, 4, cy - mh, kW - 8, mh, 6, kSelected);
                 cy -= mh;
                 if (cy > bottom) continue;
                 if (cy + mh < top) break;
@@ -3277,10 +3354,12 @@ private:
         // Discord's message box, with the buttons in it.
         const s32 by = kH - 52, bh = 40;
         roundRect(r, 12, by, kW - 24, bh, 8, kInput);
-        const std::string keys = " Write   Emoji   GIF   Back";
+        const std::string keys = m_picking ? "\uE0E0 Reply  \uE0E3 React  \uE0E1 Done"
+                                         : " Write   Emoji   GIF   Back  \uE0E7 Pick";
         const s32 kw = widthOf(r, keys, 13);
         r->drawString(keys.c_str(), false, kW - 24 - kw, by + 25, 13, r->a(kMuted));
         const std::string prompt = !m_chatNote.empty() ? m_chatNote
+                                 : m_picking ? std::string("Choose a message")
                                  : m_sendReq ? "Sending..."
                                  : std::string("Message ") + (m_chatIsChannel ? "#" : "@") + m_chatTitle;
         r->drawString(fit(r, prompt, 15, kW - 64 - kw).c_str(), false, 26, by + 26, 15,
@@ -3325,6 +3404,10 @@ private:
         std::vector<std::string> lines = wrapRich(r, shown, 17, w - 12, 18);
         if (lines.size() > 2) lines.erase(lines.begin(), lines.end() - 2);
         s32 ty = y + 20;
+        if (!m_replyTo.empty() || !m_reactTo.empty()) { // whose message this answers
+            const std::string what = (m_reactTo.empty() ? "Replying to " : "Reacting to ") + m_replyName;
+            r->drawString(fit(r, what, 13, w).c_str(), false, x, y - 8, 13, r->a(kMuted));
+        }
         if (typed().empty())
             r->drawString(m_typing == Typing::GifSearch ? "Search Tenor" : "", false, x + 16, ty, 17, r->a(kChannel));
         for (const std::string& line : lines) {
@@ -3403,6 +3486,9 @@ private:
     std::string m_dmsError, m_channelsError;
     std::shared_ptr<Reply> m_meReq, m_dmReq, m_guildsReq, m_channelsReq, m_msgReq, m_sendReq, m_emojiReq, m_gifReq;
     std::shared_ptr<Reply> m_chatInfoReq;
+    bool m_picking = false;                     // choosing a message (ZR)
+    int m_pick = -1;
+    std::string m_replyTo, m_reactTo, m_replyName; // the message being answered / reacted to
     std::map<std::string, std::string> m_unread; // copy of g_unread
     unsigned m_unreadSeen = ~0u;
     std::string m_noticeLine;

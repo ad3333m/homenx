@@ -1419,6 +1419,25 @@ void WiiUMenuApp::wireGlobalActions() {
             return;
         flipPage(+1);
     });
+    // HomeNX: can't decide? Clicking the right stick moves the cursor to a random game.
+    root.addAction(static_cast<uint64_t>(nxui::Button::RStick), [this]() {
+        if (m_editMode || m_navigator.route() != switchu::navigation::Route::Home || focusRoot() != &rootBox())
+            return;
+        std::vector<std::uint64_t> ids;
+        for (const AppEntry& app : m_allApps)
+            if (app.isApplication() && app.titleId != 0) ids.push_back(app.titleId);
+        if (ids.size() < 2) return;
+        auto* cur = focusManager().current();
+        const std::uint64_t now =
+            cur && cur->tag() == "glossy_icon" ? static_cast<GlossyIcon*>(cur)->titleId() : 0;
+        std::uint64_t pick = now;
+        for (int tries = 0; tries < 8 && pick == now; ++tries) {
+            u32 r = 0;
+            randomGet(&r, sizeof(r));
+            pick = ids[r % ids.size()];
+        }
+        focusTitle(pick);
+    });
     root.addAction(static_cast<uint64_t>(nxui::Button::Y), [this]() {
         if ((m_contextMenu && m_contextMenu->isActive()) ||
             (m_dialog && m_dialog->isActive()) ||
