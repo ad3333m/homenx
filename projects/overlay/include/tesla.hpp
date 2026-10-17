@@ -1,7 +1,8 @@
 // libtesla by WerWolv (GPL-2.0), https://github.com/WerWolv/libtesla at f766e9b607.
 // HomeNX changes: tsl::cfg::extraLaunchCombo (a second show/hide combo, L+ZL for Discord),
 // every CJK font loaded with a per-character choice (Renderer::fontFor, hasGlyph),
-// launchComboCloses and showAllowed (the overlay never shows over HOME), a bounded glyph cache.
+// launchComboCloses and showAllowed (the overlay never shows over HOME), a bounded glyph cache,
+// and drawing while hidden (Overlay::hasHiddenContent / drawHidden / hiddenKeyPress).
 /**
  * Copyright (C) 2020 werwolv
  *
@@ -2948,6 +2949,23 @@ namespace tsl {
         virtual void onHide() {}
 
         /**
+         * @brief HomeNX: while hidden, whether there's something to show anyway
+         *        (a notification). It's drawn without taking the game's input.
+         */
+        virtual bool hasHiddenContent() { return false; }
+
+        /**
+         * @brief HomeNX: draws that something; the frame has been cleared
+         */
+        virtual void drawHidden(gfx::Renderer* renderer) { (void)renderer; }
+
+        /**
+         * @brief HomeNX: a button pressed while hidden; true shows the overlay.
+         *        Called on the input thread.
+         */
+        virtual bool hiddenKeyPress(u64 keysDown) { (void)keysDown; return false; }
+
+        /**
          * @brief Loads the default Gui
          * @note This function should return the initial Gui to load using the \ref Gui::initially<T>(Args.. args) function
          *       e.g `return initially<GuiMain>();`
@@ -3289,6 +3307,19 @@ namespace tsl {
         }
 
         /**
+         * @brief HomeNX: one frame of what's shown while hidden (or an empty one)
+         */
+        void drawHiddenFrame(bool content) {
+            auto& renderer = gfx::Renderer::get();
+
+            gfx::Renderer::setOpacity(1.0F);
+            renderer.startFrame();
+            renderer.clearScreen();
+            if (content) this->drawHidden(&renderer);
+            renderer.endFrame();
+        }
+
+        /**
          * @brief Reset hide and close flags that were previously set by \ref Overlay::close() or \ref Overlay::hide()
          *
          */
@@ -3478,6 +3509,14 @@ namespace tsl {
                     if (hidGetTouchScreenStates(&shData->touchState, 1) == 0)
                         shData->touchState = { 0 };
 
+                    // HomeNX: a button meant for something the overlay shows while hidden.
+                    if (!shData->overlayOpen && shData->keysDown != 0) {
+                        tsl::Overlay* overlay = tsl::Overlay::get();
+                        if (overlay && overlay->hiddenKeyPress(shData->keysDown)
+                            && (!tsl::cfg::showAllowed || tsl::cfg::showAllowed()))
+                            eventFire(&shData->comboEvent);
+                    }
+
                     auto comboHit = [&](u64 combo) {
                         return combo != 0 && (shData->keysHeld & combo) == combo && (shData->keysDown & combo) != 0;
                     };
@@ -3598,7 +3637,16 @@ namespace tsl {
 
         while (shData.running) {
 
-            eventWait(&shData.comboEvent, UINT64_MAX);
+            // HomeNX: hidden, wait for the combo, drawing meanwhile anything the
+            // overlay wants seen (a notification) while the game keeps the input.
+            bool drewHidden = false;
+            while (R_FAILED(eventWait(&shData.comboEvent,
+                                      drewHidden || overlay->hasHiddenContent() ? 50'000'000ULL : 250'000'000ULL))) {
+                const bool want = overlay->hasHiddenContent();
+                if (!want && !drewHidden) continue;
+                overlay->drawHiddenFrame(want);
+                drewHidden = want;
+            }
             eventClear(&shData.comboEvent);
             shData.overlayOpen = true;
 

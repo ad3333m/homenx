@@ -2,8 +2,9 @@
 //
 // A Tesla/Ultrahand overlay. L+ZL (HomeNX adds that combo to Ultrahand's
 // overlays.ini) or B shows and hides it, only over a game: never over HOME.
-// Hidden, it stays loaded, so your "Playing <game>" status stays up. − closes
-// it, and so does Ultrahand's own combo while it's hidden (that opens Ultrahand).
+// Hidden, it stays loaded: your "Playing <game>" status stays up, and a DM or
+// a mention shows as a notification over the game; ZL opens that chat. −
+// closes it, and so does Ultrahand's own combo while it's hidden.
 //
 // It uses the accounts HomeNX's Discord panel signed in with
 // (sdmc:/config/SwitchU/discord.json, then SwitchCord's accounts.json; Y
@@ -1113,6 +1114,33 @@ bool g_subscribe = false; // the screen opened a server channel: subscribe to it
 u64 g_typingUntil = 0;
 std::atomic<bool> g_chatChanged{false};
 
+// A message for you that came while you weren't looking at its chat (a DM, or
+// a mention): shown over the game for a few seconds, and ZL opens that chat.
+struct Notice {
+    std::string channelId, guildId, author, avatar, text;
+    std::vector<std::string> emojis;
+    u64 at = 0; // nowMs() when it came
+};
+constexpr u64 kNoticeMs = 6000;
+std::mutex g_noticeMu;
+Notice g_notice;                    // the latest
+std::atomic<u64> g_noticeAt{0};     // when it came; 0 = nothing to show
+Notice g_openNotice;                // ZL was pressed on this one: the screen opens it
+bool g_openPending = false;
+std::atomic<bool> g_visible{false}; // the overlay is on screen
+std::string g_meId;                 // our user id (under g_chatMu)
+
+bool noticeShowing() {
+    const u64 at = g_noticeAt;
+    return at && nowMs() < at + kNoticeMs;
+}
+
+// HomeNX's HOME menu isn't running (the overlay never shows over it).
+bool awayFromHome() {
+    u64 pid = 0;
+    return R_FAILED(pmdmntGetProcessId(&pid, kHomeMenu));
+}
+
 Presence presenceOf(yyjson_val* p) {
     Presence out{str(p, "status"), {}};
     std::string custom;
@@ -1666,6 +1694,7 @@ private:
                 g_myStatus = m_myStatus;
                 ++g_presenceVersion;
             } else if (t.rfind("MESSAGE_", 0) == 0 || t == "TYPING_START") {
+                if (t == "MESSAGE_CREATE") notify(d);
                 std::lock_guard<std::mutex> lk(g_chatMu);
                 if (str(d, "channel_id") == g_openChannel && !g_openChannel.empty()) {
                     if (t == "TYPING_START") {
@@ -1695,6 +1724,43 @@ private:
             g_presencesLoaded = true;
             ++g_presenceVersion;
         }
+    }
+
+    // A DM or a mention, not from us and not in the chat on screen: a
+    // notification (none while our status is Do Not Disturb, like Discord).
+    void notify(yyjson_val* d) {
+        yyjson_val* author = yyjson_obj_get(d, "author");
+        const std::string authorId = str(author, "id"), channel = str(d, "channel_id"), guild = str(d, "guild_id");
+        std::string me;
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            me = g_meId;
+            if (g_visible && channel == g_openChannel) return; // being read already
+        }
+        if (me.empty() || authorId.empty() || authorId == me || m_myStatus == "dnd") return;
+        bool forMe = guild.empty();
+        size_t i, n;
+        yyjson_val* u;
+        yyjson_arr_foreach(yyjson_obj_get(d, "mentions"), i, n, u)
+            if (str(u, "id") == me) forMe = true;
+        if (!forMe) return;
+        Notice notice;
+        notice.channelId = channel;
+        notice.guildId = guild;
+        std::string name = str(yyjson_obj_get(d, "member"), "nick");
+        if (name.empty()) name = str(author, "global_name");
+        if (name.empty()) name = str(author, "username");
+        notice.author = cleanName(name);
+        notice.avatar = avatarUrl(author);
+        notice.text = messageText(str(d, "content"), d, notice.emojis, nullptr);
+        if (trimmed(notice.text).empty())
+            notice.text = yyjson_arr_size(yyjson_obj_get(d, "attachments")) ? "sent a picture"
+                        : yyjson_arr_size(yyjson_obj_get(d, "sticker_items")) ? "sent a sticker"
+                                                                              : "sent a message";
+        notice.at = nowMs();
+        std::lock_guard<std::mutex> lk(g_noticeMu);
+        g_notice = std::move(notice);
+        g_noticeAt = g_notice.at;
     }
 
     // Every few seconds: the game being played, and Discord told when it changes.
@@ -1912,9 +1978,13 @@ struct GifItem {
     std::string send, preview; // the link sent (Discord shows it as the GIF), and the small GIF
 };
 
+class DiscordGui;
+DiscordGui* g_gui = nullptr; // the one screen, for drawing notifications while hidden
+
 class DiscordGui : public tsl::Gui {
 public:
     DiscordGui(std::vector<Account> accounts, size_t current) : m_accountList(std::move(accounts)), m_current(current) {
+        g_gui = this;
         m_servers.push_back({"", "Direct Messages", "", ""}); // the top of the bar
         if (m_current < m_accountList.size()) {
             m_account = m_accountList[m_current].name;
@@ -1935,6 +2005,55 @@ public:
             if (!e.empty()) m_standardEmoji.push_back({e, twemoji(codepoints(e))});
             if (sp == std::string::npos) break;
             i = sp + 1;
+        }
+    }
+
+    ~DiscordGui() {
+        if (g_gui == this) g_gui = nullptr;
+    }
+
+    // The notification card, over the game (hidden) or over the overlay. It
+    // slides in from the top and back out.
+    void drawNotice(tsl::gfx::Renderer* r) {
+        try {
+            Notice n;
+            {
+                std::lock_guard<std::mutex> lk(g_noticeMu);
+                n = g_notice;
+            }
+            if (!n.at) return;
+            const u64 age = std::min(nowMs() - n.at, kNoticeMs);
+            const float in = std::min(1.f, age / 180.f), out = std::min(1.f, (kNoticeMs - age) / 250.f);
+            const float shown = std::min(in, out);
+            const s32 x = 8, w = kW - 16, h = 74;
+            const s32 y = 10 - static_cast<s32>((1.f - shown * (2.f - shown)) * (h + 14));
+            roundRect(r, x, y, w, h, 12, kRailBg);
+            r->drawRect(x + 2, y + 14, 3, h - 28, r->a(kBlurple));
+            drawRound(r, n.avatar, firstLetter(n.author), x + 14, y + 15, 44);
+            // Where: a group's or a server's name (a DM is just the person).
+            std::string where;
+            if (n.guildId.empty()) {
+                for (const Row& dm : m_dms)
+                    if (dm.id == n.channelId && dm.kind == Row::Dm && dm.userId.empty()) where = dm.title;
+            } else {
+                for (const Server& sv : m_servers)
+                    if (sv.id == n.guildId) where = sv.name;
+            }
+            const s32 tx = x + 70, tw = w - 70 - 12;
+            const std::string keys = "\uE0E6 Open";
+            const s32 kw = widthOf(r, keys, 13);
+            r->drawString(keys.c_str(), false, x + w - 12 - kw, y + 26, 13, r->a(kMuted));
+            const std::string head = where.empty() ? n.author : n.author + "  \u00B7  " + where;
+            r->drawString(fit(r, head, 16, tw - kw - 8).c_str(), false, tx, y + 27, 16, r->a(kWhite));
+            if (n.at != m_noticeLineAt) { // the first line of the message, worked out once
+                const std::vector<std::string> lines = wrapRich(r, n.text, 15, tw, 16);
+                m_noticeLine = lines.empty() ? std::string() : lines.front();
+                if (lines.size() > 1) m_noticeLine += "...";
+                m_noticeLineAt = n.at;
+            }
+            drawRich(r, m_noticeLine, tx, y + 53, 15, kText, n.emojis, 16);
+        } catch (...) {
+            m_pictures.clear();
         }
     }
 
@@ -1977,11 +2096,33 @@ private:
     // ------------------------------------------------------------ replies
 
     void takeReplies() {
+        Notice open; // ZL on a notification while hidden: straight to its chat
+        bool opening = false;
+        {
+            std::lock_guard<std::mutex> lk(g_noticeMu);
+            if (g_openPending) {
+                open = g_openNotice;
+                g_openPending = false;
+                opening = true;
+            }
+        }
+        if (opening) openNotice(open);
+        if (m_chatInfoReq && m_chatInfoReq->done) { // a server channel's name, opened from a notification
+            if (m_chatInfoReq->status == 200) {
+                Json doc(m_chatInfoReq->body);
+                if (m_chat && str(doc.root(), "id") == m_chatId) m_chatTitle = cleanName(str(doc.root(), "name"));
+            }
+            m_chatInfoReq.reset();
+        }
         if (m_meReq && m_meReq->done) {
             if (m_meReq->status == 200) {
                 Json doc(m_meReq->body);
                 yyjson_val* me = doc.root();
                 m_meId = str(me, "id");
+                {
+                    std::lock_guard<std::mutex> lk(g_chatMu);
+                    g_meId = m_meId;
+                }
                 m_meAvatar = avatarUrl(me);
                 const std::string nm = cleanName(str(me, "global_name"));
                 m_account = nm.empty() ? cleanName(str(me, "username")) : nm;
@@ -2035,6 +2176,16 @@ private:
 
     bool input(u64 down, u64 held) {
         const u64 dir = repeat(down, held);
+        if ((down & HidNpadButton_ZL) && !m_keyboard && noticeShowing()) { // open the notification
+            Notice n;
+            {
+                std::lock_guard<std::mutex> lk(g_noticeMu);
+                n = g_notice;
+            }
+            g_noticeAt = 0;
+            openNotice(n);
+            return true;
+        }
         if (m_keyboard) {
             if (m_emojiOpen) return emojiInput(down, dir);
             return keyboardInput(down, dir);
@@ -2433,12 +2584,30 @@ private:
         m_rowSel = firstItem(m_channels);
     }
 
-    void openChat(const Row& row) {
+    // Straight to the chat a notification was about.
+    void openNotice(const Notice& n) {
+        m_accountsOpen = m_gifsOpen = m_keyboard = m_emojiOpen = false;
+        Row row{n.guildId.empty() ? Row::Dm : Row::Channel, n.channelId, n.author, "", "", ""};
+        if (n.guildId.empty()) {
+            if (m_shownServer != 0) openServer(0);
+            for (const Row& dm : m_dms)
+                if (dm.id == n.channelId) row.title = dm.title;
+        } else {
+            row.title.clear(); // its name comes from Discord
+            for (size_t i = 1; i < m_servers.size(); ++i)
+                if (m_servers[i].id == n.guildId && (int)i != m_shownServer) openServer((int)i);
+            m_chatInfoReq = g_net.api("GET", "/channels/" + n.channelId);
+        }
+        m_onBar = false;
+        openChat(row, n.guildId);
+    }
+
+    void openChat(const Row& row, const std::string& guild = std::string()) {
         m_chat = true;
         m_chatId = row.id;
         m_chatTitle = row.title;
         m_chatIsChannel = row.kind == Row::Channel;
-        m_chatGuild = m_chatIsChannel ? m_servers[(size_t)m_shownServer].id : std::string();
+        m_chatGuild = !guild.empty() ? guild : m_chatIsChannel ? m_servers[(size_t)m_shownServer].id : std::string();
         m_msgs.clear();
         m_chatLoaded = false;
         m_chatError.clear();
@@ -2824,6 +2993,7 @@ private:
         else if (m_chat) drawChat(r);
         else drawLists(r);
         if (m_keyboard) drawKeyboard(r, 12, kH - 252, kW - 24);
+        if (noticeShowing()) drawNotice(r);
     }
 
     // Your panel, as at the bottom of Discord's channel list, with the buttons.
@@ -3204,6 +3374,9 @@ private:
     bool m_dmsLoaded = false, m_channelsLoaded = false;
     std::string m_dmsError, m_channelsError;
     std::shared_ptr<Reply> m_meReq, m_dmReq, m_guildsReq, m_channelsReq, m_msgReq, m_sendReq, m_emojiReq, m_gifReq;
+    std::shared_ptr<Reply> m_chatInfoReq;
+    std::string m_noticeLine;
+    u64 m_noticeLineAt = 0;
     std::map<std::string, Held> m_pictures;
 
     unsigned m_presenceSeen = ~0u;
@@ -3272,10 +3445,7 @@ public:
         tsl::cfg::extraLaunchCombo = kCombo;
         tsl::cfg::launchComboCloses = true;
         // Never over HOME (HomeNX's own Discord is there): only while its menu isn't running.
-        tsl::cfg::showAllowed = [] {
-            u64 pid = 0;
-            return R_FAILED(pmdmntGetProcessId(&pid, kHomeMenu));
-        };
+        tsl::cfg::showAllowed = [] { return awayFromHome(); };
         fsdevMountSdmc();
         // nifm for the connection state, pm:info + ns for the game being
         // played, time for when it started and for message times.
@@ -3320,7 +3490,28 @@ public:
         fsdevUnmountAll();
     }
 
-    void onShow() override { tsl::cfg::extraLaunchCombo = kCombo; }
+    void onShow() override {
+        tsl::cfg::extraLaunchCombo = kCombo;
+        g_visible = true;
+    }
+
+    void onHide() override { g_visible = false; }
+
+    // Hidden: a notification shows over the game (not over HOME), and ZL opens it.
+    bool hasHiddenContent() override { return g_gui && noticeShowing() && awayFromHome(); }
+
+    void drawHidden(tsl::gfx::Renderer* renderer) override {
+        if (g_gui) g_gui->drawNotice(renderer);
+    }
+
+    bool hiddenKeyPress(u64 keysDown) override {
+        if (!(keysDown & HidNpadButton_ZL) || !noticeShowing() || !awayFromHome()) return false;
+        std::lock_guard<std::mutex> lk(g_noticeMu);
+        g_openNotice = g_notice;
+        g_openPending = true;
+        g_noticeAt = 0;
+        return true;
+    }
 
     std::unique_ptr<tsl::Gui> loadInitialGui() override {
         if (raiseOverlayMemory()) { // start again with it
