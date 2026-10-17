@@ -129,6 +129,46 @@ SocialScreen::SocialScreen() {
     setVisible(false);
 }
 
+namespace {
+
+// What HomeNX's Mii Maker changes, with how many choices the console allows.
+struct MiiFeature {
+    const char* key;
+    const char* label;
+    u8 MiiCharInfo::*field;
+    int count;
+    int step; // per press
+};
+const MiiFeature kMiiFeatures[] = {
+    {"mii.f.gender", "Boy or girl", &MiiCharInfo::mii_sex, 2, 1},
+    {"mii.f.skin", "Skin colour", &MiiCharInfo::mii_face_color, 10, 1},
+    {"mii.f.face", "Face shape", &MiiCharInfo::mii_face_shape, 12, 1},
+    {"mii.f.makeup", "Make-up", &MiiCharInfo::mii_makeup_style, 12, 1},
+    {"mii.f.wrinkles", "Wrinkles", &MiiCharInfo::mii_wrinkles_style, 12, 1},
+    {"mii.f.hair", "Hairstyle", &MiiCharInfo::mii_hair_style, 132, 1},
+    {"mii.f.hair_colour", "Hair colour", &MiiCharInfo::mii_hair_color, 100, 1},
+    {"mii.f.flip", "Part the other way", &MiiCharInfo::mii_has_hair_flipped, 2, 1},
+    {"mii.f.eyebrows", "Eyebrows", &MiiCharInfo::mii_eyebrow_style, 24, 1},
+    {"mii.f.eyebrow_colour", "Eyebrow colour", &MiiCharInfo::mii_eyebrow_color, 100, 1},
+    {"mii.f.eyes", "Eyes", &MiiCharInfo::mii_eye_style, 60, 1},
+    {"mii.f.eye_colour", "Eye colour", &MiiCharInfo::mii_eye_color, 100, 1},
+    {"mii.f.nose", "Nose", &MiiCharInfo::mii_nose_style, 18, 1},
+    {"mii.f.mouth", "Mouth", &MiiCharInfo::mii_mouth_style, 36, 1},
+    {"mii.f.lip_colour", "Lip colour", &MiiCharInfo::mii_mouth_color, 100, 1},
+    {"mii.f.beard", "Beard", &MiiCharInfo::mii_beard_style, 6, 1},
+    {"mii.f.mustache", "Mustache", &MiiCharInfo::mii_mustache_style, 6, 1},
+    {"mii.f.facial_hair_colour", "Beard colour", &MiiCharInfo::mii_facial_hair_color, 100, 1},
+    {"mii.f.glasses", "Glasses", &MiiCharInfo::mii_glasses_style, 20, 1},
+    {"mii.f.glasses_colour", "Glasses colour", &MiiCharInfo::mii_glasses_color, 100, 1},
+    {"mii.f.mole", "Mole", &MiiCharInfo::mii_has_mole, 2, 1},
+    {"mii.f.height", "Height", &MiiCharInfo::mii_height, 128, 8},
+    {"mii.f.build", "Build", &MiiCharInfo::mii_width, 128, 8},
+    {"mii.f.colour", "Favourite colour", &MiiCharInfo::mii_color, 12, 1},
+};
+constexpr int kMiiFeatureCount = static_cast<int>(sizeof(kMiiFeatures) / sizeof(kMiiFeatures[0]));
+
+} // namespace
+
 void SocialScreen::setTitles(std::vector<std::pair<std::uint64_t, std::string>> titles) {
     m_titles.clear();
     for (auto& t : titles) m_titles[t.first] = std::move(t.second);
@@ -580,46 +620,6 @@ void SocialScreen::activateItem() {
     }
     if (m_zone == Zone::List) move(+1, 0); // into the play history
 }
-
-namespace {
-
-// What HomeNX's Mii Maker changes, with how many choices the console allows.
-struct MiiFeature {
-    const char* key;
-    const char* label;
-    u8 MiiCharInfo::*field;
-    int count;
-    int step; // per press
-};
-const MiiFeature kMiiFeatures[] = {
-    {"mii.f.gender", "Boy or girl", &MiiCharInfo::mii_sex, 2, 1},
-    {"mii.f.skin", "Skin colour", &MiiCharInfo::mii_face_color, 10, 1},
-    {"mii.f.face", "Face shape", &MiiCharInfo::mii_face_shape, 12, 1},
-    {"mii.f.makeup", "Make-up", &MiiCharInfo::mii_makeup_style, 12, 1},
-    {"mii.f.wrinkles", "Wrinkles", &MiiCharInfo::mii_wrinkles_style, 12, 1},
-    {"mii.f.hair", "Hairstyle", &MiiCharInfo::mii_hair_style, 132, 1},
-    {"mii.f.hair_colour", "Hair colour", &MiiCharInfo::mii_hair_color, 100, 1},
-    {"mii.f.flip", "Part the other way", &MiiCharInfo::mii_has_hair_flipped, 2, 1},
-    {"mii.f.eyebrows", "Eyebrows", &MiiCharInfo::mii_eyebrow_style, 24, 1},
-    {"mii.f.eyebrow_colour", "Eyebrow colour", &MiiCharInfo::mii_eyebrow_color, 100, 1},
-    {"mii.f.eyes", "Eyes", &MiiCharInfo::mii_eye_style, 60, 1},
-    {"mii.f.eye_colour", "Eye colour", &MiiCharInfo::mii_eye_color, 100, 1},
-    {"mii.f.nose", "Nose", &MiiCharInfo::mii_nose_style, 18, 1},
-    {"mii.f.mouth", "Mouth", &MiiCharInfo::mii_mouth_style, 36, 1},
-    {"mii.f.lip_colour", "Lip colour", &MiiCharInfo::mii_mouth_color, 100, 1},
-    {"mii.f.beard", "Beard", &MiiCharInfo::mii_beard_style, 6, 1},
-    {"mii.f.mustache", "Mustache", &MiiCharInfo::mii_mustache_style, 6, 1},
-    {"mii.f.facial_hair_colour", "Beard colour", &MiiCharInfo::mii_facial_hair_color, 100, 1},
-    {"mii.f.glasses", "Glasses", &MiiCharInfo::mii_glasses_style, 20, 1},
-    {"mii.f.glasses_colour", "Glasses colour", &MiiCharInfo::mii_glasses_color, 100, 1},
-    {"mii.f.mole", "Mole", &MiiCharInfo::mii_has_mole, 2, 1},
-    {"mii.f.height", "Height", &MiiCharInfo::mii_height, 128, 8},
-    {"mii.f.build", "Build", &MiiCharInfo::mii_width, 128, 8},
-    {"mii.f.colour", "Favourite colour", &MiiCharInfo::mii_color, 12, 1},
-};
-constexpr int kMiiFeatureCount = static_cast<int>(sizeof(kMiiFeatures) / sizeof(kMiiFeatures[0]));
-
-} // namespace
 
 void SocialScreen::showProfilePage() {
     m_mode = Mode::Friends;
