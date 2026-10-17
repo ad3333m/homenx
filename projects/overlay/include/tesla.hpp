@@ -760,6 +760,11 @@ namespace tsl {
              * @return Dimensions of drawn string
              */
             /**
+             * @brief HomeNX: the renderer, for asking about glyphs outside drawing
+             */
+            static Renderer& instance() { return get(); }
+
+            /**
              * @brief HomeNX: whether any of the console's fonts can draw this character
              */
             bool hasGlyph(u32 c) {

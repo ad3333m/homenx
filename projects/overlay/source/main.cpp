@@ -273,7 +273,7 @@ void popToken(std::string& s) {
 // at all (marks typed apart, zero-width characters, scripts with no font) is
 // left out instead of showing as boxes. Emoji marks stay.
 std::string forScreen(const std::string& s) {
-    tsl::gfx::Renderer& r = tsl::gfx::Renderer::get();
+    tsl::gfx::Renderer& r = tsl::gfx::Renderer::instance();
     std::string out;
     out.reserve(s.size());
     for (const char* p = s.data(), *end = p + s.size(); p < end;) {
