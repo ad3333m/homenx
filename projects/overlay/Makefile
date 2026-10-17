@@ -18,7 +18,7 @@ APP_VERSION	:= 1.0.0
 TARGET		:= homenx-discord
 BUILD		:= build
 SOURCES		:= source
-INCLUDES	:= include ../menu/src/third_party
+INCLUDES	:= include ../menu/src/third_party ../../lib/nxui/include/nxui/third_party/stb
 NO_ICON		:= 1
 
 ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
@@ -29,7 +29,7 @@ CXXFLAGS	:= $(CFLAGS) -std=gnu++20
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--gc-sections
 
-LIBS	:=	$(shell $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config --libs --static libcurl) -lnx
+LIBS	:=	$(shell $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config --libs --static libcurl) -lz -lnx
 LIBDIRS	:= $(PORTLIBS) $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))

@@ -1,5 +1,6 @@
 // libtesla by WerWolv (GPL-2.0), https://github.com/WerWolv/libtesla at f766e9b607.
-// HomeNX change: tsl::cfg::extraLaunchCombo, a second show/hide combo (L+ZL for Discord).
+// HomeNX changes: tsl::cfg::extraLaunchCombo (a second show/hide combo, L+ZL for Discord),
+// and every CJK font loaded with a per-character choice (Renderer::fontFor).
 /**
  * Copyright (C) 2020 werwolv
  *
@@ -92,6 +93,7 @@ namespace tsl {
         extern u16 FramebufferHeight;           ///< Height of the framebuffer
         extern u64 launchCombo;                 ///< Overlay activation key combo
         extern u64 extraLaunchCombo;            ///< HomeNX: a second combo that also shows/hides it (0 = none)
+        extern bool launchComboCloses;          ///< HomeNX: while hidden, launchCombo exits back to the menu overlay
 
     }
 
@@ -801,12 +803,7 @@ namespace tsl {
                         /* Cache glyph */
                         glyph = &s_glyphCache.emplace(key, Glyph()).first->second;
 
-                        if (stbtt_FindGlyphIndex(&this->m_extFont, currCharacter))
-                            glyph->currFont = &this->m_extFont;
-                        else if(this->m_hasLocalFont && stbtt_FindGlyphIndex(&this->m_stdFont, currCharacter)==0)
-                            glyph->currFont = &this->m_localFont;
-                        else
-                            glyph->currFont = &this->m_stdFont;
+                        glyph->currFont = this->fontFor(currCharacter);
 
                         glyph->currFontSize = stbtt_ScaleForPixelHeight(glyph->currFont, fontSize);
 
@@ -875,12 +872,7 @@ namespace tsl {
 
                     stbtt_fontinfo *currFont = nullptr;
 
-                    if (stbtt_FindGlyphIndex(&this->m_extFont, currCharacter))
-                        currFont = &this->m_extFont;
-                    else if(this->m_hasLocalFont && stbtt_FindGlyphIndex(&this->m_stdFont, currCharacter)==0)
-                        currFont = &this->m_localFont;
-                    else
-                        currFont = &this->m_stdFont;
+                    currFont = this->fontFor(currCharacter);
 
                     float currFontSize = stbtt_ScaleForPixelHeight(currFont, fontSize);
 
@@ -934,6 +926,18 @@ namespace tsl {
             std::stack<ScissoringConfig> m_scissoringStack;
 
             stbtt_fontinfo m_stdFont, m_localFont, m_extFont;
+            stbtt_fontinfo m_cjkFonts[3]; // HomeNX: Chinese S/T and Korean, always
+            int m_cjkCount = 0;
+
+            // HomeNX: Nintendo's symbols, then the standard font, then any CJK font that has it.
+            stbtt_fontinfo* fontFor(u32 c) {
+                if (stbtt_FindGlyphIndex(&this->m_extFont, c)) return &this->m_extFont;
+                if (stbtt_FindGlyphIndex(&this->m_stdFont, c)) return &this->m_stdFont;
+                if (this->m_hasLocalFont && stbtt_FindGlyphIndex(&this->m_localFont, c)) return &this->m_localFont;
+                for (int i = 0; i < this->m_cjkCount; ++i)
+                    if (stbtt_FindGlyphIndex(&this->m_cjkFonts[i], c)) return &this->m_cjkFonts[i];
+                return &this->m_stdFont;
+            }
             bool m_hasLocalFont = false;
 
             static inline float s_opacity = 1.0F;
@@ -1131,6 +1135,17 @@ namespace tsl {
                         fontBuffer = reinterpret_cast<u8*>(localFontData.address);
                         stbtt_InitFont(&this->m_localFont, fontBuffer, stbtt_GetFontOffsetForIndex(fontBuffer, 0));
                     }
+                }
+
+                // HomeNX: all of the console's CJK fonts, for text in any script.
+                static PlFontData cjkFontData[3];
+                const PlSharedFontType cjkTypes[3] = {PlSharedFontType_ChineseSimplified,
+                                                      PlSharedFontType_ChineseTraditional, PlSharedFontType_KO};
+                for (int i = 0; i < 3; ++i) {
+                    if (R_FAILED(plGetSharedFontByType(&cjkFontData[i], cjkTypes[i]))) continue;
+                    u8* buf = reinterpret_cast<u8*>(cjkFontData[i].address);
+                    if (stbtt_InitFont(&this->m_cjkFonts[this->m_cjkCount], buf, stbtt_GetFontOffsetForIndex(buf, 0)))
+                        ++this->m_cjkCount;
                 }
 
                 // Nintendo's extended font containing a bunch of icons
@@ -3447,6 +3462,11 @@ namespace tsl {
                             tsl::Overlay::get()->hide();
                             shData->overlayOpen = false;
                         }
+                        else if (tsl::cfg::launchComboCloses && !comboHit(tsl::cfg::extraLaunchCombo)) {
+                            // HomeNX: hidden, the menu's own combo goes back to the menu
+                            shData->running = false;
+                            eventFire(&shData->comboEvent);
+                        }
                         else
                             eventFire(&shData->comboEvent);
                     }
@@ -3620,6 +3640,7 @@ namespace tsl::cfg {
     u16 FramebufferHeight = 0;
     u64 launchCombo = HidNpadButton_L | HidNpadButton_Down | HidNpadButton_StickR;
     u64 extraLaunchCombo = 0;
+    bool launchComboCloses = false;
 }
 
 extern "C" {

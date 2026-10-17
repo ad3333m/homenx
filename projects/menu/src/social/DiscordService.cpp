@@ -193,18 +193,26 @@ void DiscordService::activate() {
     Http::ResetAbort();
     Async::Start();
     // The Discord overlay can't look addresses up itself (the console answers
-    // "busy" in an overlay): HOME saves discord.com's address for it.
+    // "busy" in an overlay): HOME saves the addresses it needs, "host address"
+    // a line, in sdmc:/config/SwitchU/discord_hosts.txt.
     Async::Run(Async::Pool::Api, [] {
-        addrinfo hints{};
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-        addrinfo* res = nullptr;
-        if (getaddrinfo("discord.com", "443", &hints, &res) != 0 || !res) return;
-        char ip[16] = {}; // INET_ADDRSTRLEN (hidden in strict C++ mode)
-        inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip));
-        freeaddrinfo(res);
-        if (FILE* f = std::fopen("sdmc:/config/SwitchU/discord_ip.txt", "w")) {
-            std::fputs(ip, f);
+        std::string lines;
+        for (const char* host : {"discord.com", "gateway.discord.gg", "cdn.discordapp.com", "media.discordapp.net",
+                                 "cdn.jsdelivr.net", "media.tenor.com", "media.giphy.com"}) {
+            addrinfo hints{};
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            addrinfo* res = nullptr;
+            if (getaddrinfo(host, "443", &hints, &res) == 0 && res) {
+                char ip[16] = {}; // INET_ADDRSTRLEN (hidden in strict C++ mode)
+                inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof(ip));
+                lines += std::string(host) + " " + ip + "\n";
+            }
+            if (res) freeaddrinfo(res);
+        }
+        if (lines.empty()) return; // offline: keep the last ones
+        if (FILE* f = std::fopen("sdmc:/config/SwitchU/discord_hosts.txt", "w")) {
+            std::fputs(lines.c_str(), f);
             std::fclose(f);
         }
     });
