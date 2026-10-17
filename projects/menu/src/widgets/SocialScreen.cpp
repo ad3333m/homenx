@@ -77,6 +77,9 @@ bool inside(const nxui::Rect& r, float x, float y) {
     return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
 }
 
+}  // namespace
+
+// Shared with the game Information page (declared in FriendStore.hpp).
 std::string ago(std::int64_t when) {
     auto& i18n = nxui::I18n::instance();
     const std::int64_t s = static_cast<std::int64_t>(std::time(nullptr)) - when;
@@ -120,8 +123,6 @@ std::string hoursText(std::uint64_t minutes) {
         std::snprintf(buf, sizeof(buf), "%u h", (unsigned)h);
     return buf;
 }
-
-}  // namespace
 
 SocialScreen::SocialScreen() {
     setRect({0.f, 0.f, 1280.f, 720.f});

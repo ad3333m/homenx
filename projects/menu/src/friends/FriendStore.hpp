@@ -29,6 +29,11 @@ struct PlayRecord {
     bool haveTime = false;
 };
 
+// "3 days ago", "12 Oct 2026, 18:05", "4 h 20 min" (in SocialScreen.cpp).
+std::string ago(std::int64_t when);
+std::string dateOf(std::int64_t when);
+std::string hoursText(std::uint64_t minutes);
+
 // "SW-1234-5678-9012", or empty if the console doesn't know it yet.
 std::string loadFriendCode(AccountUid uid);
 

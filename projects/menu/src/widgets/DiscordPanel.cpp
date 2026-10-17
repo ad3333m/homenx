@@ -1,6 +1,7 @@
 #include "widgets/DiscordPanel.hpp"
 #include <nxui/third_party/stb/stb_image.h>
 #include <switch.h>
+#include <switchu/fancy_text.hpp>
 
 #include "net/async.h"
 #include "net/http.h"
@@ -107,22 +108,8 @@ constexpr uint32_t kMarkFirst = 0xF0000; // emoji pictures (DiscordService::Line
 constexpr uint32_t kMarkLast = 0xFFFFD;
 constexpr std::size_t kPictureBudget = 24u << 20; // decoded images + GIFs on the GPU
 
-// Fancy Unicode letters (bold, script, double-struck, fullwidth, circled...) as
-// plain ones when no font has them; 0 if it isn't one.
-uint32_t plainLetter(uint32_t cp) {
-    if (cp >= 0x1D400 && cp <= 0x1D6A3) {
-        const uint32_t o = (cp - 0x1D400) % 52;
-        return o < 26 ? 'A' + o : 'a' + (o - 26);
-    }
-    if (cp >= 0x1D7CE && cp <= 0x1D7FF) return '0' + (cp - 0x1D7CE) % 10;
-    if (cp >= 0xFF01 && cp <= 0xFF5E) return cp - 0xFF01 + 0x21;
-    if (cp >= 0x24B6 && cp <= 0x24CF) return 'A' + (cp - 0x24B6);
-    if (cp >= 0x24D0 && cp <= 0x24E9) return 'a' + (cp - 0x24D0);
-    if (cp >= 0x1F130 && cp <= 0x1F149) return 'A' + (cp - 0x1F130);
-    if (cp >= 0x1F150 && cp <= 0x1F169) return 'A' + (cp - 0x1F150);
-    if (cp >= 0x1F170 && cp <= 0x1F189) return 'A' + (cp - 0x1F170);
-    return 0;
-}
+// Fancy Unicode letters as plain ones when no font has them: switchu::plainLetter.
+using switchu::plainLetter;
 
 struct Decoded {
     std::vector<uint8_t> rgba;
@@ -450,6 +437,7 @@ std::string DiscordPanel::clean(const std::string& text) const {
             Str::AppendCp(out, cp);
             continue;
         }
+        if (switchu::dropFromScreen(cp)) continue; // marks typed apart, zalgo, zero-width
         bool ok = cp == ' ';
         if (!ok && cp >= 0x20 && cp != 0xFFFD) {
             auto it = m_glyphs.find(cp);

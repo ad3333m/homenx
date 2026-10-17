@@ -21,6 +21,8 @@ public:
         bool hasHeroArt = false;
         bool hasLogoArt = false;
         bool hasIconArt = false;
+        // HomeNX: the player's own record (pdm), empty when they never played it.
+        std::string playTime, timesPlayed, lastPlayed, firstPlayed;
     };
 
     GameOptionsScreen();

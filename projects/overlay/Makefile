@@ -18,7 +18,7 @@ APP_VERSION	:= 1.0.0
 TARGET		:= homenx-discord
 BUILD		:= build
 SOURCES		:= source
-INCLUDES	:= include ../menu/src/third_party ../../lib/nxui/include/nxui/third_party/stb
+INCLUDES	:= include ../menu/src/third_party ../common/include ../../lib/nxui/include/nxui/third_party/stb
 NO_ICON		:= 1
 
 ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE

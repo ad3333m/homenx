@@ -17,9 +17,9 @@
 #include <sys/socket.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
-#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -680,6 +680,76 @@ std::string sized(const std::string& url, int w, int h) {
     return out;
 }
 
+// A Discord emoji or sticker link: how emoji and stickers from other servers
+// are sent (without Nitro, or by "fake Nitro" plugins). Its id, and whether it moves.
+bool discordPicture(const std::string& url, const char* kind, std::string& id, bool& animated) {
+    for (const char* host : {"https://cdn.discordapp.com/", "https://media.discordapp.net/"}) {
+        const std::string prefix = std::string(host) + kind + "/";
+        if (url.compare(0, prefix.size(), prefix) != 0) continue;
+        size_t q = prefix.size();
+        while (q < url.size() && std::isdigit(static_cast<unsigned char>(url[q]))) ++q;
+        if (q == prefix.size() || q - prefix.size() > 20) return false;
+        id = url.substr(prefix.size(), q - prefix.size());
+        animated = url.compare(q, 4, ".gif") == 0 || url.find("animated=true", q) != std::string::npos;
+        return true;
+    }
+    return false;
+}
+
+bool isDiscordPicture(const std::string& url) {
+    std::string id;
+    bool animated = false;
+    return discordPicture(url, "emojis", id, animated) || discordPicture(url, "stickers", id, animated);
+}
+
+// Emoji and sticker links ([name](link), <link> or the bare link) as the
+// picture alone: an emoji mark in the text, a sticker under it. The link, and
+// the id in it, never show.
+std::string pictureLinks(const std::string& s, std::vector<std::string>* emojis,
+                         std::vector<DiscordService::Line::Media>& stickers) {
+    std::string out;
+    auto take = [&](const std::string& url) {
+        std::string id;
+        bool animated = false;
+        if (discordPicture(url, "emojis", id, animated)) {
+            mark(out, emojis, "https://cdn.discordapp.com/emojis/" + id + (animated ? ".gif" : ".png") + "?size=48");
+            return true;
+        }
+        if (!discordPicture(url, "stickers", id, animated)) return false;
+        if (stickers.size() < 2) {
+            DiscordService::Line::Media md;
+            md.w = md.h = 160;
+            md.animated = animated;
+            md.fallback = "https://media.discordapp.net/stickers/" + id + ".png?size=160";
+            md.url = animated ? "https://media.discordapp.net/stickers/" + id + ".gif?size=160" : md.fallback;
+            stickers.push_back(std::move(md));
+        }
+        return true;
+    };
+    for (size_t i = 0; i < s.size();) {
+        if (s[i] == '[') {
+            const size_t mid = s.find("](", i);
+            const size_t close = mid == std::string::npos ? mid : s.find(')', mid + 2);
+            if (close != std::string::npos && mid - i < 80 && take(s.substr(mid + 2, close - mid - 2))) {
+                i = close + 1;
+                continue;
+            }
+        }
+        const bool angled = s.compare(i, 9, "<https://") == 0;
+        if (angled || s.compare(i, 8, "https://") == 0) {
+            size_t end = angled ? s.find('>', i) : s.find_first_of(" \n\t", i);
+            if (end == std::string::npos) end = s.size();
+            const size_t from = i + (angled ? 1 : 0);
+            if (take(s.substr(from, end - from))) {
+                i = angled ? end + 1 : end;
+                continue;
+            }
+        }
+        out += s[i++];
+    }
+    return out;
+}
+
 } // namespace
 
 std::string DiscordService::plainText(const std::string& s, std::vector<std::string>* emojis) const {
@@ -733,8 +803,11 @@ std::vector<DiscordService::Line> DiscordService::lines(Snowflake channelId, siz
     for (size_t i = start; i < list.size(); ++i) {
         const Message& m = list[i];
         Line l;
-        std::string text = m.IsSystem() ? m.systemText : stripMarkdown(plainText(m.content, &l.emojis));
+        std::vector<Line::Media> stickers;
+        std::string text = m.IsSystem() ? m.systemText
+                                        : stripMarkdown(plainText(pictureLinks(m.content, &l.emojis, stickers), &l.emojis));
         text = markEmoji(text, &l.emojis);
+        l.media = std::move(stickers);
         for (const Attachment& a : m.attachments) {
             if (a.IsImage() && !a.Spoiler() && l.media.size() < 2) {
                 Line::Media md;
@@ -750,6 +823,8 @@ std::vector<DiscordService::Line> DiscordService::lines(Snowflake channelId, siz
         }
         for (const Embed& e : m.embeds) {
             if (l.media.size() >= 2) break;
+            if (isDiscordPicture(e.url) || isDiscordPicture(e.imageOrig) || isDiscordPicture(e.thumbOrig))
+                continue; // already shown from its link
             Line::Media md;
             if (e.type == "gifv") {
                 md.w = e.thumbW;

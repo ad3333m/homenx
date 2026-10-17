@@ -1,21 +1,23 @@
 // HomeNX Discord: your Discord DMs and servers on top of a running game.
 //
 // A Tesla/Ultrahand overlay. L+ZL (HomeNX adds that combo to Ultrahand's
-// overlays.ini) or B shows and hides it; hidden, it stays loaded, so your
-// "Playing <game>" status stays up. − closes it, and so does Ultrahand's own
-// combo while it's hidden (that opens Ultrahand again).
+// overlays.ini) or B shows and hides it, only over a game: never over HOME.
+// Hidden, it stays loaded, so your "Playing <game>" status stays up. − closes
+// it, and so does Ultrahand's own combo while it's hidden (that opens Ultrahand).
 //
-// It uses the account HomeNX's Discord panel signed in with
-// (sdmc:/config/SwitchU/discord.json, then SwitchCord's accounts.json):
-// Discord's REST API for DMs, servers, channels and messages (the open chat is
-// read again every few seconds), and a small gateway connection for who's
-// online, what they're doing, and your own game status.
+// It uses the accounts HomeNX's Discord panel signed in with
+// (sdmc:/config/SwitchU/discord.json, then SwitchCord's accounts.json; Y
+// switches between them): Discord's REST API for DMs, servers, channels and
+// messages, and a small gateway connection for who's online, what they're
+// doing, typing, new messages, and your own game status.
 //
 // Looks like Discord: the server bar on the left (icons), DMs with profile
 // pictures and status dots, channels under their categories, and chats with
-// avatars, emoji (Twemoji / server emoji), images and GIFs. Everything is drawn
-// into the overlay's 448x720 RGBA4444 framebuffer, so pictures are decoded small
-// on the network thread and kept within a little over 1 MB.
+// avatars, times, replies, reactions, emoji, images, GIFs and stickers. You
+// can write with emoji, accents and GIFs. Everything is drawn into the
+// overlay's 448x720 RGBA4444 framebuffer: pictures are decoded small and
+// dithered on the network thread, within about 1 MB, because an overlay only
+// has a few MB in all (running out of it ends in std::abort).
 //
 // SPDX-License-Identifier: GPL-2.0-or-later (built with libtesla, GPL-2.0)
 
@@ -36,12 +38,14 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <switchu/fancy_text.hpp>
 #include <yyjson.h>
 #include <zlib.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -58,6 +62,8 @@ namespace {
 
 constexpr const char* kApi = "https://discord.com/api/v9";
 constexpr const char* kGatewayHost = "gateway.discord.gg";
+constexpr const char* kSelfPath = "sdmc:/switch/.overlays/homenx-discord.ovl";
+constexpr const char* kChoicePath = "sdmc:/config/SwitchU/discord_overlay_account.txt";
 constexpr const char* kUserAgent =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 // Discord shows a status's picture only through a Discord application. Its ID
@@ -65,9 +71,13 @@ constexpr const char* kUserAgent =
 // the status still says the game and "Nintendo Switch", with no picture.
 constexpr const char* kGameAppId = "";
 constexpr u64 kCombo = HidNpadButton_L | HidNpadButton_ZL;
-constexpr s32 kW = 448, kH = 720; // the overlay's framebuffer
+constexpr u64 kHomeMenu = 0x010000000000100DULL; // HomeNX's HOME menu
+constexpr s32 kW = 448, kH = 720;               // the overlay's framebuffer
 constexpr s32 kRailW = 64, kPanelH = 52;
-constexpr std::size_t kPictureBudget = 1200u * 1024u; // decoded pictures kept (RGBA4444 bytes)
+// Memory: decoded pictures kept, download sizes, and how big a GIF may animate.
+constexpr std::size_t kPictureBudget = 1000u * 1024u;
+constexpr std::size_t kPictureBody = 1024u * 1024u, kApiBody = 1536u * 1024u;
+constexpr int kGifFrames = 6, kGifPixels = 140000;
 
 // Discord's dark theme, as close as 4 bits a channel get.
 const tsl::Color kBg(0x3, 0x3, 0x3, 0xF);       // #313338 chat, #2B2D31 lists
@@ -80,6 +90,7 @@ const tsl::Color kWhite(0xF, 0xF, 0xF, 0xF);    // #F2F3F5 names, titles
 const tsl::Color kMuted(0x9, 0x9, 0xA, 0xF);    // #949BA4
 const tsl::Color kChannel(0x8, 0x8, 0x9, 0xF);  // #80848E
 const tsl::Color kBlurple(0x5, 0x6, 0xF, 0xF);  // #5865F2
+const tsl::Color kMine(0x3, 0x3, 0x6, 0xF);     // your reactions
 const tsl::Color kError(0xF, 0x6, 0x6, 0xF);
 const tsl::Color kOnline(0x2, 0xA, 0x5, 0xF);   // #23A55A
 const tsl::Color kIdle(0xF, 0xB, 0x3, 0xF);     // #F0B232
@@ -121,6 +132,20 @@ std::string jsonString(const std::string& s) {
         } else out += static_cast<char>(c);
     }
     return out + "\"";
+}
+
+std::string urlEncode(const std::string& s) {
+    std::string out;
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            out += static_cast<char>(c);
+        } else {
+            char b[4];
+            std::snprintf(b, sizeof(b), "%%%02X", c);
+            out += b;
+        }
+    }
+    return out;
 }
 
 // Snowflakes as strings: longer is newer, then by digits.
@@ -179,12 +204,26 @@ void appendCp(std::string& out, uint32_t c) {
     }
 }
 
+std::vector<uint32_t> codepoints(const std::string& s) {
+    std::vector<uint32_t> cps;
+    for (const char* p = s.data(), *end = p + s.size(); p < end;) cps.push_back(nextCp(p, end));
+    return cps;
+}
+
 void popChar(std::string& s) {
     while (!s.empty()) {
         const unsigned char c = static_cast<unsigned char>(s.back());
         s.pop_back();
         if ((c & 0xC0) != 0x80) break;
     }
+}
+
+uint32_t lastCp(const std::string& s) {
+    if (s.empty()) return 0;
+    size_t i = s.size() - 1;
+    while (i > 0 && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) --i;
+    const char* p = s.data() + i;
+    return nextCp(p, s.data() + s.size());
 }
 
 constexpr uint32_t kMarkFirst = 0xF0000; // emoji pictures: U+F0000 + index
@@ -200,27 +239,76 @@ bool emojiStart(uint32_t c) {
         || c == 0x2935 || c == 0x3030 || c == 0x303D || c == 0x3297 || c == 0x3299;
 }
 
-// Fancy Unicode letters (bold, script, double-struck, fullwidth, circled) as plain ones.
-uint32_t plainLetter(uint32_t cp) {
-    if (cp >= 0x1D400 && cp <= 0x1D6A3) {
-        const uint32_t o = (cp - 0x1D400) % 52;
-        return o < 26 ? 'A' + o : 'a' + (o - 26);
-    }
-    if (cp >= 0x1D7CE && cp <= 0x1D7FF) return '0' + (cp - 0x1D7CE) % 10;
-    if (cp >= 0xFF01 && cp <= 0xFF5E) return cp - 0xFF01 + 0x21;
-    if (cp >= 0x24B6 && cp <= 0x24CF) return 'A' + (cp - 0x24B6);
-    if (cp >= 0x24D0 && cp <= 0x24E9) return 'a' + (cp - 0x24D0);
-    return 0;
+bool emojiModifier(uint32_t c) {
+    return c == 0xFE0F || c == 0x20E3 || (c >= 0x1F3FB && c <= 0x1F3FF) || (c >= 0xE0020 && c <= 0xE007F);
 }
 
-// Names: fancy letters made plain, emoji and joiners left out (no pictures in names).
-std::string cleanName(const std::string& s) {
+// Removes the last thing typed: a whole emoji (with its skin tone, family
+// joiners or flag pair) or a whole server emoji tag, not half of one.
+void popToken(std::string& s) {
+    if (!s.empty() && s.back() == '>') {
+        const size_t open = s.rfind('<');
+        if (open != std::string::npos && (s.compare(open, 2, "<:") == 0 || s.compare(open, 3, "<a:") == 0)) {
+            s.erase(open);
+            return;
+        }
+    }
+    for (;;) {
+        uint32_t c;
+        do {
+            c = lastCp(s);
+            popChar(s);
+        } while (emojiModifier(c) && !s.empty());
+        if (c >= 0x1F1E6 && c <= 0x1F1FF) {
+            const uint32_t before = lastCp(s);
+            if (before >= 0x1F1E6 && before <= 0x1F1FF) popChar(s);
+        }
+        if (lastCp(s) != 0x200D) return;
+        popChar(s); // a joiner: the emoji before it goes too
+    }
+}
+
+// Text as the overlay can draw it. Letters no console font has become the
+// plain ones they're styled after (switchu::plainLetter); what can't be drawn
+// at all (marks typed apart, zero-width characters, scripts with no font) is
+// left out instead of showing as boxes. Emoji marks stay.
+std::string forScreen(const std::string& s) {
+    tsl::gfx::Renderer& r = tsl::gfx::Renderer::get();
     std::string out;
+    out.reserve(s.size());
     for (const char* p = s.data(), *end = p + s.size(); p < end;) {
         uint32_t c = nextCp(p, end);
-        if (const uint32_t plain = plainLetter(c)) c = plain;
-        if (emojiStart(c) || c == 0xFE0F || c == 0x200D || (c >= 0x1F3FB && c <= 0x1F3FF) || c < 0x20) continue;
+        if (isMark(c) || c == '\n' || c == ' ') {
+            appendCp(out, c);
+            continue;
+        }
+        if (c < 0x20 || switchu::dropFromScreen(c)) continue;
+        if (!r.hasGlyph(c)) {
+            c = switchu::plainLetter(c);
+            if (!c) continue;
+        }
         appendCp(out, c);
+    }
+    return out;
+}
+
+// Names: no pictures (emoji are left out), fancy letters plain.
+std::string cleanName(const std::string& s) {
+    std::string kept;
+    for (const char* p = s.data(), *end = p + s.size(); p < end;) {
+        const uint32_t c = nextCp(p, end);
+        if ((emojiStart(c) && !switchu::plainLetter(c)) || emojiModifier(c)) continue;
+        appendCp(kept, c);
+    }
+    return trimmed(forScreen(kept));
+}
+
+// Message text with emoji marks taken out (for one-line previews).
+std::string withoutMarks(const std::string& s) {
+    std::string out;
+    for (const char* p = s.data(), *end = p + s.size(); p < end;) {
+        const uint32_t c = nextCp(p, end);
+        if (!isMark(c)) appendCp(out, c == '\n' ? ' ' : c);
     }
     return trimmed(out);
 }
@@ -237,18 +325,124 @@ std::string twemoji(const std::vector<uint32_t>& seq) {
     return "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/72x72/" + name + ".png";
 }
 
+std::string customEmojiUrl(const std::string& id) { return "https://cdn.discordapp.com/emojis/" + id + ".png?size=48"; }
+
 void mark(std::string& out, std::vector<std::string>& emojis, std::string url) {
     if (emojis.size() >= 200) return;
     appendCp(out, kMarkFirst + static_cast<uint32_t>(emojis.size()));
     emojis.push_back(std::move(url));
 }
 
+// Unicode emoji (skin tones, ZWJ families, flags, keycaps) as Twemoji marks,
+// then the text made drawable. Styled squared letters stay letters unless
+// they're written as emoji (with U+FE0F).
+std::string markUnicodeEmoji(const std::string& tags, std::vector<std::string>& emojis) {
+    const std::vector<uint32_t> cps = codepoints(tags);
+    std::string out;
+    for (size_t i = 0; i < cps.size();) {
+        const uint32_t c = cps[i];
+        const bool styledLetter = switchu::plainLetter(c) && !(i + 1 < cps.size() && cps[i + 1] == 0xFE0F);
+        const bool keycap = ((c >= '0' && c <= '9') || c == '#' || c == '*') && i + 1 < cps.size()
+            && (cps[i + 1] == 0x20E3 || (cps[i + 1] == 0xFE0F && i + 2 < cps.size() && cps[i + 2] == 0x20E3));
+        if (styledLetter || (!emojiStart(c) && !keycap)) {
+            appendCp(out, c);
+            ++i;
+            continue;
+        }
+        std::vector<uint32_t> seq{c};
+        size_t j = i + 1;
+        if (c >= 0x1F1E6 && c <= 0x1F1FF && j < cps.size() && cps[j] >= 0x1F1E6 && cps[j] <= 0x1F1FF)
+            seq.push_back(cps[j++]);
+        for (;;) {
+            if (j < cps.size() && emojiModifier(cps[j])) {
+                seq.push_back(cps[j++]);
+            } else if (j + 1 < cps.size() && cps[j] == 0x200D) {
+                seq.push_back(cps[j++]);
+                seq.push_back(cps[j++]);
+            } else {
+                break;
+            }
+        }
+        mark(out, emojis, twemoji(seq));
+        i = j;
+    }
+    return forScreen(out);
+}
+
+struct Media {
+    std::string url, fallback;
+    int w = 0, h = 0;
+    bool animated = false;
+};
+
+// A Discord emoji or sticker link: how emoji and stickers from other servers
+// are sent (without Nitro, or by "fake Nitro" plugins). Its id, and whether it moves.
+bool discordPicture(const std::string& url, const char* kind, std::string& id, bool& animated) {
+    for (const char* host : {"https://cdn.discordapp.com/", "https://media.discordapp.net/"}) {
+        const std::string prefix = std::string(host) + kind + "/";
+        if (url.compare(0, prefix.size(), prefix) != 0) continue;
+        size_t q = prefix.size();
+        while (q < url.size() && std::isdigit(static_cast<unsigned char>(url[q]))) ++q;
+        if (q == prefix.size() || q - prefix.size() > 20) return false;
+        id = url.substr(prefix.size(), q - prefix.size());
+        animated = url.compare(q, 4, ".gif") == 0 || url.find("animated=true", q) != std::string::npos;
+        return true;
+    }
+    return false;
+}
+
+bool isDiscordPicture(const std::string& url) {
+    std::string id;
+    bool animated = false;
+    return discordPicture(url, "emojis", id, animated) || discordPicture(url, "stickers", id, animated);
+}
+
+Media stickerMedia(const std::string& id, bool animated) {
+    Media md;
+    md.w = md.h = 120;
+    md.animated = animated;
+    md.fallback = "https://media.discordapp.net/stickers/" + id + ".png?size=160";
+    md.url = animated ? "https://media.discordapp.net/stickers/" + id + ".gif?size=160" : md.fallback;
+    return md;
+}
+
 // Message text for the chat: mentions, channels and timestamps in words,
-// server emoji and Unicode emoji as picture marks, Markdown markers removed,
-// fancy letters plain.
-std::string messageText(const std::string& s, yyjson_val* msg, std::vector<std::string>& emojis) {
+// server emoji, Unicode emoji and emoji links as picture marks (sticker links
+// go to `stickers`: the link, and the id in it, never show), Markdown markers
+// removed, fancy letters plain.
+std::string messageText(const std::string& s, yyjson_val* msg, std::vector<std::string>& emojis,
+                        std::vector<Media>* stickers) {
     std::string tags;
+    auto pictureLink = [&](const std::string& url) {
+        std::string id;
+        bool animated = false;
+        if (discordPicture(url, "emojis", id, animated)) {
+            mark(tags, emojis, customEmojiUrl(id));
+            return true;
+        }
+        if (!discordPicture(url, "stickers", id, animated)) return false;
+        if (stickers && stickers->size() < 2) stickers->push_back(stickerMedia(id, animated));
+        return true;
+    };
     for (size_t i = 0; i < s.size();) {
+        if (s[i] == '[') { // [name](emoji link), as "fake Nitro" sends them
+            const size_t mid = s.find("](", i);
+            const size_t close = mid == std::string::npos ? mid : s.find(')', mid + 2);
+            if (close != std::string::npos && mid - i < 80 && pictureLink(s.substr(mid + 2, close - mid - 2))) {
+                i = close + 1;
+                continue;
+            }
+        }
+        const bool angled = s.compare(i, 9, "<https://") == 0;
+        if (angled || s.compare(i, 8, "https://") == 0) {
+            size_t end = angled ? s.find('>', i) : s.find_first_of(" \n\t", i);
+            if (end == std::string::npos) end = s.size();
+            const size_t from = i + (angled ? 1 : 0);
+            if (pictureLink(s.substr(from, end - from))) {
+                i = angled ? end + 1 : end;
+                continue;
+            }
+        }
         if (s[i] == '<') {
             const size_t end = s.find('>', i);
             if (end != std::string::npos && end - i < 96) {
@@ -272,7 +466,7 @@ std::string messageText(const std::string& s, yyjson_val* msg, std::vector<std::
                 } else if (tag.rfind(":", 0) == 0 || tag.rfind("a:", 0) == 0) {
                     const size_t a = tag.find(':'), b = tag.find(':', a + 1);
                     if (b != std::string::npos) {
-                        mark(tags, emojis, "https://cdn.discordapp.com/emojis/" + tag.substr(b + 1) + ".png?size=32");
+                        mark(tags, emojis, customEmojiUrl(tag.substr(b + 1)));
                         done = true;
                     }
                 } else if (tag.rfind("t:", 0) == 0) {
@@ -307,46 +501,34 @@ std::string messageText(const std::string& s, yyjson_val* msg, std::vector<std::
         }
         tags += s[i++];
     }
-    // Unicode emoji (skin tones, ZWJ families, flags, keycaps) as Twemoji pictures.
-    std::vector<uint32_t> cps;
-    for (const char* p = tags.data(), *end = p + tags.size(); p < end;) cps.push_back(nextCp(p, end));
-    std::string out;
-    for (size_t i = 0; i < cps.size();) {
-        const uint32_t c = cps[i];
-        const bool keycap = ((c >= '0' && c <= '9') || c == '#' || c == '*') && i + 1 < cps.size()
-            && (cps[i + 1] == 0x20E3 || (cps[i + 1] == 0xFE0F && i + 2 < cps.size() && cps[i + 2] == 0x20E3));
-        if (!emojiStart(c) && !keycap) {
-            if (const uint32_t plain = plainLetter(c)) appendCp(out, plain);
-            else if (c >= 0x20 || c == '\n') appendCp(out, c);
-            ++i;
-            continue;
-        }
-        std::vector<uint32_t> seq{c};
-        size_t j = i + 1;
-        if (c >= 0x1F1E6 && c <= 0x1F1FF && j < cps.size() && cps[j] >= 0x1F1E6 && cps[j] <= 0x1F1FF)
-            seq.push_back(cps[j++]);
-        for (;;) {
-            if (j < cps.size() && (cps[j] == 0xFE0F || cps[j] == 0x20E3 || (cps[j] >= 0x1F3FB && cps[j] <= 0x1F3FF)
-                                   || (cps[j] >= 0xE0020 && cps[j] <= 0xE007F))) {
-                seq.push_back(cps[j++]);
-            } else if (j + 1 < cps.size() && cps[j] == 0x200D) {
-                seq.push_back(cps[j++]);
-                seq.push_back(cps[j++]);
-            } else {
-                break;
-            }
-        }
-        mark(out, emojis, twemoji(seq));
-        i = j;
-    }
-    return out;
+    return markUnicodeEmoji(tags, emojis);
 }
 
-std::string avatarUrl(yyjson_val* user) {
-    const std::string id = str(user, "id"), av = str(user, "avatar");
-    if (!av.empty()) return "https://cdn.discordapp.com/avatars/" + id + "/" + av + ".png?size=64";
+// What's being typed, with its emoji as pictures (nothing else changed).
+std::string draftText(const std::string& s, std::vector<std::string>& emojis) {
+    std::string tags;
+    for (size_t i = 0; i < s.size();) {
+        if (s[i] == '<' && (s.compare(i, 2, "<:") == 0 || s.compare(i, 3, "<a:") == 0)) {
+            const size_t end = s.find('>', i);
+            const std::string tag = end == std::string::npos ? std::string() : s.substr(i + 1, end - i - 1);
+            const size_t b = tag.rfind(':');
+            if (b != std::string::npos && b > 0) {
+                mark(tags, emojis, customEmojiUrl(tag.substr(b + 1)));
+                i = end + 1;
+                continue;
+            }
+        }
+        tags += s[i++];
+    }
+    return markUnicodeEmoji(tags, emojis);
+}
+
+std::string avatarUrl(const std::string& id, const std::string& hash) {
+    if (!hash.empty()) return "https://cdn.discordapp.com/avatars/" + id + "/" + hash + ".png?size=128";
     return "https://cdn.discordapp.com/embed/avatars/" + std::to_string((snowflake(id) >> 22) % 6) + ".png";
 }
+
+std::string avatarUrl(yyjson_val* user) { return avatarUrl(str(user, "id"), str(user, "avatar")); }
 
 // Discord's media proxy shrinks a picture (and makes PNG of WebP) for us.
 std::string sized(const std::string& url, int w, int h) {
@@ -360,38 +542,43 @@ std::string sized(const std::string& url, int w, int h) {
     return out;
 }
 
-// Tenor and Giphy "GIFs" are MP4s; both also serve a real GIF.
+// Tenor's small GIF of the same clip: .../<id><5-letter format>/<name>.<ext>,
+// AAAAM being the 220 px "tinygif" (the full one is megabytes).
+std::string tenorTiny(const std::string& v) {
+    const size_t host = v.find("media.tenor.com/");
+    if (host == std::string::npos) return {};
+    const size_t slash = v.find('/', host + 16);
+    const size_t dot = v.rfind('.');
+    if (slash == std::string::npos || slash < host + 21 || dot == std::string::npos || dot < slash) return {};
+    return v.substr(0, slash - 5) + "AAAAM" + v.substr(slash, dot - slash) + ".gif";
+}
+
+// Tenor and Giphy "GIFs" are MP4s; both also serve a small real GIF.
 std::string gifOf(yyjson_val* embed) {
     std::string v = str(yyjson_obj_get(embed, "video"), "url");
     if (v.empty()) v = str(yyjson_obj_get(embed, "thumbnail"), "url");
-    if (v.find("giphy.com") != std::string::npos) {
-        const size_t dot = v.rfind(".mp4");
-        if (dot != std::string::npos) return v.substr(0, dot) + ".gif";
+    if (v.find("giphy.com/media/") != std::string::npos) {
+        const size_t slash = v.rfind('/');
+        if (slash != std::string::npos) return v.substr(0, slash) + "/200w.gif";
     }
-    const size_t host = v.find("media.tenor.com/");
-    if (host != std::string::npos) {
-        const size_t slash = v.find('/', host + 16);
-        const size_t dot = v.rfind('.');
-        if (slash != std::string::npos && slash >= host + 21 && dot != std::string::npos && dot > slash)
-            return v.substr(0, slash - 5) + "AAAAC" + v.substr(slash, dot - slash) + ".gif";
-    }
-    return {};
+    return tenorTiny(v);
 }
 
-// ---------------------------------------------------------------- account
+// ---------------------------------------------------------------- accounts
 
 struct Account {
-    std::string token, name;
+    std::string id, token, name, avatar;
 };
 
-// Same rules as HomeNX's panel: the current account, else the first one, never
-// one that was signed out in HomeNX.
-Account loadAccount() {
+// The signed-in accounts: HomeNX's (never one signed out in HomeNX), then
+// SwitchCord's. `current` is the one to use: the overlay's own last choice,
+// else HomeNX's current account, else the first.
+std::vector<Account> loadAccounts(size_t& current) {
     constexpr const char* kHomeNX = "sdmc:/config/SwitchU/discord.json";
     constexpr const char* kSwitchCord = "sdmc:/switch/SwitchCord/accounts.json";
-    std::string current;
+    std::string homeCurrent;
     std::vector<std::string> signedOut;
-    std::vector<std::pair<std::string, Account>> all;
+    std::vector<Account> all;
     for (const char* path : {kHomeNX, kSwitchCord}) {
         Json doc(readFile(path));
         yyjson_val* root = doc.root();
@@ -399,23 +586,34 @@ Account loadAccount() {
         size_t i, n;
         yyjson_val* v;
         if (path == kHomeNX) {
-            current = str(root, "current");
+            homeCurrent = str(root, "current");
             yyjson_arr_foreach(yyjson_obj_get(root, "signed_out"), i, n, v)
                 if (yyjson_is_str(v)) signedOut.push_back(yyjson_get_str(v));
-            if (!str(root, "token").empty()) all.push_back({"", {str(root, "token"), ""}});
+            if (!str(root, "token").empty()) all.push_back({"", str(root, "token"), "", ""});
         }
         yyjson_arr_foreach(yyjson_obj_get(root, "accounts"), i, n, v) {
-            const std::string id = str(v, "id"), token = str(v, "token");
-            if (token.empty()) continue;
-            if (!id.empty() && std::find(signedOut.begin(), signedOut.end(), id) != signedOut.end()) continue;
-            std::string nm = str(v, "global_name");
-            all.push_back({id, {token, cleanName(nm.empty() ? str(v, "username") : nm)}});
+            Account a{str(v, "id"), str(v, "token"), std::string(), std::string()};
+            if (a.token.empty()) continue;
+            if (!a.id.empty() && std::find(signedOut.begin(), signedOut.end(), a.id) != signedOut.end()) continue;
+            if (std::any_of(all.begin(), all.end(), [&](const Account& b) {
+                    return b.token == a.token || (!a.id.empty() && b.id == a.id);
+                }))
+                continue;
+            const std::string nm = str(v, "global_name");
+            a.name = cleanName(nm.empty() ? str(v, "username") : nm);
+            if (!a.id.empty()) a.avatar = avatarUrl(a.id, str(v, "avatar"));
+            all.push_back(std::move(a));
         }
     }
-    if (all.empty()) return {};
-    for (const auto& [id, acc] : all)
-        if (!id.empty() && id == current) return acc;
-    return all.front().second;
+    current = 0;
+    const std::string chosen = trimmed(readFile(kChoicePath));
+    for (const std::string& want : {chosen, homeCurrent})
+        for (size_t i = 0; !want.empty() && i < all.size(); ++i)
+            if (all[i].id == want) {
+                current = i;
+                return all;
+            }
+    return all;
 }
 
 // ---------------------------------------------------------------- addresses
@@ -520,10 +718,19 @@ bool gifInfo(const std::string& d, int& w, int& h, int& frames) {
     return frames > 0 && w > 0 && h > 0;
 }
 
-// Area-average shrink of RGBA8 into RGBA4444 (round: a circle, for avatars and icons).
-void shrinkInto(const uint8_t* src, int sw, int sh, u16* dst, int dw, int dh, bool round) {
-    const float cx = (dw - 1) * 0.5f, cy = (dh - 1) * 0.5f, rr = std::min(dw, dh) * 0.5f;
+// Area-average shrink of RGBA8 into RGBA4444. 4 bits a channel shows steps in
+// pictures, so stills get error diffusion (Floyd-Steinberg) and animation a
+// fixed pattern (so frames don't shimmer). Round ones (avatars, server icons)
+// get a smooth circular edge.
+void shrinkInto(const uint8_t* src, int sw, int sh, u16* dst, int dw, int dh, bool round, bool animated) {
+    static const uint8_t kBayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    const size_t rowLen = static_cast<size_t>(dw + 2) * 3;
+    std::vector<float> carry(animated ? 0 : rowLen * 2, 0.f); // this row's and the next row's error
+    const float cx = dw * 0.5f, cy = dh * 0.5f, rr = std::min(dw, dh) * 0.5f;
     for (int y = 0; y < dh; ++y) {
+        float* cur = animated ? nullptr : carry.data() + (y & 1) * rowLen;
+        float* next = animated ? nullptr : carry.data() + ((y + 1) & 1) * rowLen;
+        if (next) std::fill(next, next + rowLen, 0.f);
         const int y0 = y * sh / dh, y1 = std::max(y0 + 1, (y + 1) * sh / dh);
         for (int x = 0; x < dw; ++x) {
             const int x0 = x * sw / dw, x1 = std::max(x0 + 1, (x + 1) * sw / dw);
@@ -534,61 +741,98 @@ void shrinkInto(const uint8_t* src, int sw, int sh, u16* dst, int dw, int dh, bo
                     sum[0] += px[0]; sum[1] += px[1]; sum[2] += px[2]; sum[3] += px[3];
                     ++n;
                 }
-            unsigned a = sum[3] / n;
+            float a = static_cast<float>(sum[3]) / n;
             if (round) {
-                const float dx = x - cx, dy = y - cy;
-                if (dx * dx + dy * dy > rr * rr) a = 0;
+                const float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+                a *= std::clamp(rr - std::sqrt(dx * dx + dy * dy) + 0.5f, 0.f, 1.f);
             }
-            dst[(size_t)y * dw + x] = tsl::Color(static_cast<u8>(sum[0] / n >> 4), static_cast<u8>(sum[1] / n >> 4),
-                                                 static_cast<u8>(sum[2] / n >> 4), static_cast<u8>(a >> 4)).rgba;
+            u8 q[3];
+            for (int c = 0; c < 3; ++c) {
+                const float v = static_cast<float>(sum[c]) / n;
+                if (animated) {
+                    q[c] = static_cast<u8>(std::min(15.f, v * (15.f / 255.f) + (kBayer[y & 3][x & 3] + 0.5f) / 16.f));
+                    continue;
+                }
+                const float want = v + cur[(x + 1) * 3 + c];
+                const int level = std::clamp(static_cast<int>(std::lround(want * 15.f / 255.f)), 0, 15);
+                q[c] = static_cast<u8>(level);
+                if (a < 8.f) continue; // nothing shows here: no error to spread
+                const float e = want - level * 17.f;
+                cur[(x + 2) * 3 + c] += e * (7.f / 16.f);
+                next[x * 3 + c] += e * (3.f / 16.f);
+                next[(x + 1) * 3 + c] += e * (5.f / 16.f);
+                next[(x + 2) * 3 + c] += e * (1.f / 16.f);
+            }
+            dst[(size_t)y * dw + x] =
+                tsl::Color(q[0], q[1], q[2], static_cast<u8>(std::lround(a * 15.f / 255.f))).rgba;
         }
     }
 }
 
-// A picture fitted into maxW x maxH. GIFs animate (up to 8 frames) when small
-// enough to decode in an overlay's memory; otherwise their first frame shows.
+void fitInto(int w, int h, int maxW, int maxH, Picture& out) {
+    const float s = std::min(1.f, std::min((float)maxW / w, (float)maxH / h));
+    out.w = std::max(1, (int)(w * s));
+    out.h = std::max(1, (int)(h * s));
+}
+
+// A GIF animated, decoded a frame at a time (stb's own loader holds every
+// frame at once, which an overlay hasn't the memory for). Keeps up to
+// kGifFrames frames spread over the clip.
+bool decodeGif(const std::string& body, int maxW, int maxH, bool round, Picture& out) {
+    int gw = 0, gh = 0, count = 0;
+    if (!gifInfo(body, gw, gh, count) || count < 2 || gw * gh > kGifPixels) return false;
+    struct Gif { // stb's GIF state holds a 32 KB table: on the heap, not the stack
+        stbi__gif g{};
+        ~Gif() {
+            STBI_FREE(g.out);
+            STBI_FREE(g.history);
+            STBI_FREE(g.background);
+        }
+    };
+    std::unique_ptr<Gif> gif(new Gif());
+    stbi__context s;
+    stbi__start_mem(&s, reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()));
+    fitInto(gw, gh, maxW, maxH, out);
+    const int keep = std::min(count, kGifFrames);
+    out.px.assign((size_t)out.w * out.h * keep, 0);
+    int comp = 0, frame = 0, kept = -1;
+    for (;;) {
+        stbi_uc* u = stbi__gif_load_next(&s, &gif->g, &comp, 4, nullptr);
+        if (!u || u == reinterpret_cast<stbi_uc*>(&s)) break; // done (or broken)
+        if (gif->g.w != gw || gif->g.h != gh) return false;
+        const int k = std::min(keep - 1, frame * keep / count);
+        if (k != kept) {
+            shrinkInto(u, gw, gh, out.px.data() + (size_t)k * out.w * out.h, out.w, out.h, round, true);
+            out.delays.push_back(0);
+            kept = k;
+        }
+        out.delays.back() += gif->g.delay > 10 ? gif->g.delay : 100;
+        ++frame;
+    }
+    if (kept < 0) return false;
+    out.frames = kept + 1;
+    out.px.resize((size_t)out.w * out.h * out.frames);
+    out.totalMs = 0;
+    for (int d : out.delays) out.totalMs += d;
+    return true;
+}
+
+// A picture fitted into maxW x maxH: animated GIFs when they're small enough,
+// else the first frame. Pictures too big to decode here are refused.
 bool decodePicture(const std::string& body, int maxW, int maxH, bool animated, bool round, Picture& out) {
+    if (animated && decodeGif(body, maxW, maxH, round, out)) return true;
+    out = Picture{};
     const auto* data = reinterpret_cast<const stbi_uc*>(body.data());
     const int len = static_cast<int>(body.size());
-    auto fit = [&](int w, int h) {
-        const float s = std::min(1.f, std::min((float)maxW / w, (float)maxH / h));
-        out.w = std::max(1, (int)(w * s));
-        out.h = std::max(1, (int)(h * s));
-    };
-    int gw = 0, gh = 0, count = 0;
-    if (animated && gifInfo(body, gw, gh, count) && count > 1
-        && static_cast<uint64_t>(gw) * gh * 4u * count <= (1536u << 10)) {
-        int* delays = nullptr;
-        int w = 0, h = 0, z = 0, comp = 0;
-        stbi_uc* frames = stbi_load_gif_from_memory(data, len, &delays, &w, &h, &z, &comp, 4);
-        if (frames && z > 0) {
-            fit(w, h);
-            const int keep = std::min(z, 8);
-            out.frames = keep;
-            out.px.resize((size_t)out.w * out.h * keep);
-            for (int k = 0; k < keep; ++k) {
-                const int first = k * z / keep, next = std::max(first + 1, (k + 1) * z / keep);
-                int ms = 0;
-                for (int f = first; f < next && f < z; ++f) ms += delays && delays[f] > 10 ? delays[f] : 100;
-                shrinkInto(frames + (size_t)first * w * h * 4, w, h, out.px.data() + (size_t)k * out.w * out.h,
-                           out.w, out.h, round);
-                out.delays.push_back(ms);
-                out.totalMs += ms;
-            }
-            stbi_image_free(frames);
-            if (delays) stbi_image_free(delays);
-            return true;
-        }
-        if (frames) stbi_image_free(frames);
-        if (delays) stbi_image_free(delays);
-    }
     int w = 0, h = 0, comp = 0;
+    if (!stbi_info_from_memory(data, len, &w, &h, &comp)) return false;
+    const bool gif = body.compare(0, 3, "GIF") == 0;
+    if (static_cast<uint64_t>(w) * h * (gif ? 9u : 4u) > (1600u << 10)) return false;
     stbi_uc* px = stbi_load_from_memory(data, len, &w, &h, &comp, 4);
     if (!px) return false;
-    fit(w, h);
-    out.frames = 1;
+    fitInto(w, h, maxW, maxH, out);
     out.px.resize((size_t)out.w * out.h);
-    shrinkInto(px, w, h, out.px.data(), out.w, out.h, round);
+    shrinkInto(px, w, h, out.px.data(), out.w, out.h, round, false);
     stbi_image_free(px);
     return true;
 }
@@ -668,6 +912,7 @@ private:
         std::shared_ptr<Reply> reply;
     };
     struct Sink {
+        CURL* c;
         std::string* body;
         size_t cap;
     };
@@ -691,6 +936,12 @@ private:
 
     static size_t onBody(char* p, size_t size, size_t n, void* user) {
         Sink* sink = static_cast<Sink*>(user);
+        if (sink->body->empty()) { // room for all of it at once: no doubling copies
+            curl_off_t length = -1;
+            curl_easy_getinfo(sink->c, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
+            if (length > static_cast<curl_off_t>(sink->cap)) return 0;
+            if (length > 0) sink->body->reserve(static_cast<size_t>(length));
+        }
         if (sink->body->size() + size * n > sink->cap) return 0; // too big for an overlay: give up
         sink->body->append(p, size * n);
         return size * n;
@@ -712,21 +963,28 @@ private:
                 job = std::move(q.front());
                 q.pop_front();
             }
-            if (!c) {
-                job.reply->status = -1;
-            } else if (job.api) {
-                fetch(c, job.method, job.url, job.body, true, 2u << 20, *job.reply, job.reply->body);
-            } else {
-                std::string body;
-                for (const std::string& u : {job.url, job.fallback}) {
-                    if (u.empty()) continue;
-                    body.clear();
-                    if (fetch(c, "GET", u, std::string(), false, 1536u << 10, *job.reply, body)
-                        && decodePicture(body, job.maxW, job.maxH, job.animated && u == job.url, job.round,
-                                         job.reply->picture))
-                        break;
-                    job.reply->picture = Picture{};
+            try {
+                if (!c) {
+                    job.reply->status = -1;
+                } else if (job.api) {
+                    fetch(c, job.method, job.url, job.body, true, kApiBody, *job.reply, job.reply->body);
+                } else {
+                    std::string body;
+                    for (const std::string& u : {job.url, job.fallback}) {
+                        if (u.empty()) continue;
+                        body.clear();
+                        if (fetch(c, "GET", u, std::string(), false, kPictureBody, *job.reply, body)
+                            && decodePicture(body, job.maxW, job.maxH, job.animated && u == job.url, job.round,
+                                             job.reply->picture))
+                            break;
+                        job.reply->picture = Picture{};
+                    }
                 }
+            } catch (...) { // out of memory: this one fails, the overlay goes on
+                job.reply->body = std::string();
+                job.reply->picture = Picture{};
+                job.reply->status = -static_cast<long>(CURLE_OUT_OF_MEMORY);
+                job.reply->error = "out of memory";
             }
             job.reply->done = true;
         }
@@ -758,7 +1016,7 @@ private:
         if (auth) headers = curl_slist_append(headers, ("Authorization: " + m_token).c_str());
         headers = curl_slist_append(headers, (std::string("User-Agent: ") + kUserAgent).c_str());
         if (!body.empty()) headers = curl_slist_append(headers, "Content-Type: application/json");
-        Sink sink{&out, cap};
+        Sink sink{c, &out, cap};
         curl_easy_setopt(c, CURLOPT_URL, url.c_str());
         curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
@@ -820,7 +1078,7 @@ std::string problem(const Reply& r) {
     return "Discord said no (" + std::to_string(r.status) + ").";
 }
 
-// ---------------------------------------------------------------- presences
+// ---------------------------------------------------------------- gateway state
 
 struct Presence {
     std::string status;   // online, idle, dnd, offline
@@ -833,6 +1091,13 @@ std::map<std::string, Presence> g_presences; // friends, by user id
 std::string g_myStatus, g_myGame;             // ours: status, and the game we say we play
 bool g_presencesLoaded = false;
 std::atomic<unsigned> g_presenceVersion{0};
+
+// The chat on screen, so the gateway can say when it changes and who's typing.
+std::mutex g_chatMu;
+std::string g_openChannel, g_openGuild, g_typingId, g_typingName;
+bool g_subscribe = false; // the screen opened a server channel: subscribe to it
+u64 g_typingUntil = 0;
+std::atomic<bool> g_chatChanged{false};
 
 Presence presenceOf(yyjson_val* p) {
     Presence out{str(p, "status"), {}};
@@ -1097,7 +1362,7 @@ struct ArrayScan {
             const char c = p[i];
             if (capturing) {
                 out += c;
-                if (out.size() > (768u << 10)) { // more friends online than an overlay holds
+                if (out.size() > (384u << 10)) { // more friends online than an overlay holds
                     out.clear();
                     capturing = false;
                     done = true;
@@ -1192,8 +1457,9 @@ u64 epochMs() {
     return s * 1000ULL;
 }
 
-// The gateway on its own thread: friends' presences for the screen, and our
-// own "Playing" status (it lasts while this connection does).
+// The gateway on its own thread: friends' presences, the open chat's news
+// (new messages, typing), and our own "Playing" status, which lasts while
+// this connection does.
 class Gateway {
 public:
     void start(std::string token) {
@@ -1231,8 +1497,13 @@ private:
         static const int kWaitS[] = {2, 5, 10, 30, 60};
         int attempt = 0;
         while (!m_quit) {
-            const std::vector<std::string> ips = addressesOf(kGatewayHost);
-            const bool reached = !ips.empty() && session(ips[m_ipIndex % ips.size()]);
+            bool reached = false;
+            try {
+                const std::vector<std::string> ips = addressesOf(kGatewayHost);
+                reached = !ips.empty() && session(ips[m_ipIndex % ips.size()]);
+            } catch (...) { // out of memory: drop this connection, try again in a while
+                m_closeCode = 0;
+            }
             if (m_quit || m_closeCode == 4004) break; // signed out: the screen says so
             if (reached) attempt = 0;
             else ++m_ipIndex;
@@ -1273,7 +1544,10 @@ private:
                 m_acked = false;
                 m_nextBeat = now + m_interval;
             }
-            if (m_ready) game(ws, now);
+            if (m_ready) {
+                subscribe(ws);
+                game(ws, now);
+            }
             svcSleepThread(30'000'000ULL);
         }
         m_closeCode = ws.closeCode;
@@ -1292,6 +1566,22 @@ private:
         ws.sendText("{\"op\":2,\"d\":{\"token\":" + jsonString(m_token) + ",\"capabilities\":51,\"properties\":" + props
                     + ",\"presence\":{\"status\":\"unknown\",\"since\":0,\"activities\":[],\"afk\":false},"
                       "\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}");
+    }
+
+    // A server channel's messages and typing come only once subscribed to it
+    // (as HOME's gateway does); DMs always come.
+    void subscribe(Socket& ws) {
+        std::string guild, channel;
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            if (!g_subscribe) return;
+            g_subscribe = false;
+            guild = g_openGuild;
+            channel = g_openChannel;
+        }
+        if (guild.empty() || channel.empty()) return;
+        ws.sendText("{\"op\":37,\"d\":{\"subscriptions\":{\"" + guild + "\":{\"typing\":true,\"threads\":true,"
+                    "\"activities\":false,\"channels\":{\"" + channel + "\":[[0,99]]}}}}}");
     }
 
     // A field near the start of a big message (Discord writes t and s first).
@@ -1355,11 +1645,30 @@ private:
                 std::lock_guard<std::mutex> lk(g_presenceMu);
                 g_myStatus = m_myStatus;
                 ++g_presenceVersion;
+            } else if (t.rfind("MESSAGE_", 0) == 0 || t == "TYPING_START") {
+                std::lock_guard<std::mutex> lk(g_chatMu);
+                if (str(d, "channel_id") == g_openChannel && !g_openChannel.empty()) {
+                    if (t == "TYPING_START") {
+                        yyjson_val* member = yyjson_obj_get(d, "member");
+                        yyjson_val* user = yyjson_obj_get(member, "user");
+                        std::string name = str(member, "nick");
+                        if (name.empty()) name = str(user, "global_name");
+                        if (name.empty()) name = str(user, "username");
+                        g_typingId = str(d, "user_id");
+                        g_typingName = cleanName(name);
+                        g_typingUntil = nowMs() + 9000;
+                    } else {
+                        if (t == "MESSAGE_CREATE") g_typingUntil = 0;
+                        g_chatChanged = true;
+                    }
+                }
             }
         }
         if (t == "READY") {
             m_ready = true;
             m_nextGame = nowMs() + 2000; // our status (SESSIONS_REPLACE) comes just after
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            g_subscribe = !g_openGuild.empty(); // a new connection: subscribe again
         } else if (t == "READY_SUPPLEMENTAL" && m_msg.friends.done) {
             Json doc(m_msg.friends.out);
             std::lock_guard<std::mutex> lk(g_presenceMu);
@@ -1469,6 +1778,13 @@ std::string firstLetter(const std::string& s) {
     return s.substr(0, p - s.data());
 }
 
+// Scissoring for a block of drawing, undone however the block ends.
+struct Scissor {
+    tsl::gfx::Renderer* r;
+    Scissor(tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) : r(renderer) { r->enableScissoring(x, y, w, h); }
+    ~Scissor() { r->disableScissoring(); }
+};
+
 // A rectangle with round corners (Discord's message box, selections).
 void roundRect(tsl::gfx::Renderer* r, s32 x, s32 y, s32 w, s32 h, s32 rad, tsl::Color c) {
     r->drawRect(x + rad, y, w - 2 * rad, h, r->a(c));
@@ -1504,6 +1820,35 @@ std::string statusWord(const std::string& status) {
     return {};
 }
 
+// "Today at 14:05", "Yesterday at 09:30", "12/10/2026 18:00" from a snowflake.
+std::string whenOf(const std::string& id) {
+    const u64 seconds = ((snowflake(id) >> 22) + 1420070400000ULL) / 1000ULL;
+    u64 now = 0;
+    TimeCalendarTime at{}, today{}, yesterday{};
+    TimeCalendarAdditionalInfo info{};
+    if (R_FAILED(timeToCalendarTimeWithMyRule(seconds, &at, &info))) return {};
+    if (R_SUCCEEDED(timeGetCurrentTime(TimeType_UserSystemClock, &now))) {
+        timeToCalendarTimeWithMyRule(now, &today, &info);
+        timeToCalendarTimeWithMyRule(now - 86400, &yesterday, &info);
+    }
+    auto same = [&](const TimeCalendarTime& d) { return d.year == at.year && d.month == at.month && d.day == at.day; };
+    char buf[40];
+    if (same(today)) std::snprintf(buf, sizeof(buf), "Today at %02d:%02d", at.hour, at.minute);
+    else if (same(yesterday)) std::snprintf(buf, sizeof(buf), "Yesterday at %02d:%02d", at.hour, at.minute);
+    else std::snprintf(buf, sizeof(buf), "%02d/%02d/%d %02d:%02d", at.day, at.month, at.year, at.hour, at.minute);
+    return buf;
+}
+
+// The emoji picker's own list: the ones people use most.
+const char* const kStandardEmoji =
+    "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 "
+    "😐 😑 😶 😏 😒 🙄 😬 🤥 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 "
+    "😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 "
+    "👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾 🙈 🙉 🙊 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 "
+    "💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💬 💤 👋 🤚 ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 "
+    "👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 💪 👀 🧠 🗿 🔥 ✨ ⭐ 🌟 🎉 🎊 🎁 🏆 🎮 🕹️ 🍕 🍔 🍟 🍿 ☕ "
+    "🍺 🎂 🌈 ☀️ 🌙 ⚡ ❄️ 🌸 🌹 🐶 🐱 🐸 🐼 🦊 🐧 ✅ ❌ ❓ ❗ ⚠️ 🚫 🆗 🆒 🆕";
+
 struct Row {
     enum Kind { Header, Dm, Channel } kind;
     std::string id, title, avatar, userId; // userId: the other person in a 1:1 DM
@@ -1514,25 +1859,38 @@ struct Server {
     std::string id, name, icon, initials;
 };
 
-struct Media {
-    std::string url, fallback;
-    int w = 0, h = 0;
-    bool animated = false;
+struct ReactionPill {
+    std::string emoji; // its picture
+    int count = 0;
+    bool mine = false;
 };
 
 struct Msg {
-    std::string id, authorId, author, avatar, text;
+    std::string id, authorId, author, avatar, text, time, reply;
     std::vector<std::string> emojis;
     std::vector<Media> media;
+    std::vector<ReactionPill> reactions;
     std::vector<std::string> lines;
     bool wrapped = false, header = true, big = false;
 };
 
+struct EmojiItem {
+    std::string insert, url; // what goes in the message, and its picture
+};
+
+struct GifItem {
+    std::string send, preview; // the link sent (Discord shows it as the GIF), and the small GIF
+};
+
 class DiscordGui : public tsl::Gui {
 public:
-    DiscordGui(std::string account, bool signedIn) : m_account(std::move(account)) {
+    DiscordGui(std::vector<Account> accounts, size_t current) : m_accountList(std::move(accounts)), m_current(current) {
         m_servers.push_back({"", "Direct Messages", "", ""}); // the top of the bar
-        if (!signedIn) {
+        if (m_current < m_accountList.size()) {
+            m_account = m_accountList[m_current].name;
+            m_meAvatar = m_accountList[m_current].avatar;
+        }
+        if (m_accountList.empty()) {
             m_dmsError = "Sign in to Discord in HomeNX first: Social > Discord.";
             m_dmsLoaded = true;
             return;
@@ -1540,17 +1898,58 @@ public:
         m_meReq = g_net.api("GET", "/users/@me");
         m_dmReq = g_net.api("GET", "/users/@me/channels");
         m_guildsReq = g_net.api("GET", "/users/@me/guilds");
+        const std::string list = kStandardEmoji;
+        for (size_t i = 0; i < list.size();) {
+            const size_t sp = list.find(' ', i);
+            const std::string e = list.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
+            if (!e.empty()) m_standardEmoji.push_back({e, twemoji(codepoints(e))});
+            if (sp == std::string::npos) break;
+            i = sp + 1;
+        }
     }
 
     tsl::elm::Element* createUI() override {
-        return new Canvas([this](tsl::gfx::Renderer* r) { draw(r); });
+        return new Canvas([this](tsl::gfx::Renderer* r) {
+            try {
+                draw(r);
+            } catch (...) { // out of memory: let the pictures go rather than the overlay
+                m_pictures.clear();
+            }
+        });
     }
 
     void update() override {
+        try {
+            takeReplies();
+        } catch (...) {
+            m_pictures.clear();
+        }
+    }
+
+    bool handleInput(u64 down, u64 held, const HidTouchState&, HidAnalogStickState, HidAnalogStickState) override {
+        try {
+            return input(down, held);
+        } catch (...) {
+            m_pictures.clear();
+            return true;
+        }
+    }
+
+private:
+    struct Held {
+        std::shared_ptr<Reply> reply;
+        u64 used = 0;
+    };
+    enum class Typing { Message, GifSearch };
+
+    // ------------------------------------------------------------ replies
+
+    void takeReplies() {
         if (m_meReq && m_meReq->done) {
             if (m_meReq->status == 200) {
                 Json doc(m_meReq->body);
                 yyjson_val* me = doc.root();
+                m_meId = str(me, "id");
                 m_meAvatar = avatarUrl(me);
                 const std::string nm = cleanName(str(me, "global_name"));
                 m_account = nm.empty() ? cleanName(str(me, "username")) : nm;
@@ -1578,6 +1977,15 @@ public:
             else m_chatNote = "Couldn't send: " + problem(*m_sendReq);
             m_sendReq.reset();
         }
+        if (m_emojiReq && m_emojiReq->done) {
+            takeServerEmoji();
+            m_emojiReq.reset();
+        }
+        if (m_gifReq && m_gifReq->done) {
+            takeGifs();
+            m_gifReq.reset();
+        }
+        if (m_chat && g_chatChanged.exchange(false)) m_lastPoll = 0; // the gateway says it changed
         if (m_chat && !m_msgReq && armTicksToNs(armGetSystemTick() - m_lastPoll) > 4'000'000'000ULL)
             pollMessages();
         if (g_presenceVersion != m_presenceSeen) {
@@ -1591,26 +1999,41 @@ public:
         trimPictures();
     }
 
-    bool handleInput(u64 down, u64 held, const HidTouchState&, HidAnalogStickState, HidAnalogStickState) override {
+    // ------------------------------------------------------------ input
+
+    bool input(u64 down, u64 held) {
         const u64 dir = repeat(down, held);
-        if (m_keyboard) return keyboardInput(down, dir);
+        if (m_keyboard) {
+            if (m_emojiOpen) return emojiInput(down, dir);
+            return keyboardInput(down, dir);
+        }
+        if (m_gifsOpen) return gifInput(down, dir);
         if (down & HidNpadButton_Minus) { // back to Ultrahand; the game status goes too
             tsl::Overlay::get()->close();
             return true;
         }
+        if (m_accountsOpen) return accountsInput(down, dir);
         if (m_chat) {
             if (down & HidNpadButton_B) {
-                m_chat = false;
+                closeChat();
                 return true;
             }
             if (down & (HidNpadButton_A | HidNpadButton_Y)) {
-                m_keyboard = true;
-                m_kx = 0;
-                m_ky = 1;
+                openKeyboard(Typing::Message);
+                if (down & HidNpadButton_Y) openEmoji();
+                return true;
+            }
+            if (down & HidNpadButton_X) {
+                openGifs();
                 return true;
             }
             if (dir & HidNpadButton_AnyUp) m_chatScroll += 60;
             if (dir & HidNpadButton_AnyDown) m_chatScroll = std::max(0, m_chatScroll - 60);
+            return true;
+        }
+        if (down & HidNpadButton_Y) {
+            m_accountsOpen = true;
+            m_accountSel = (int)m_current;
             return true;
         }
         if (m_onBar) {
@@ -1642,12 +2065,6 @@ public:
         return true;
     }
 
-private:
-    struct Held {
-        std::shared_ptr<Reply> reply;
-        u64 used = 0;
-    };
-
     u64 repeat(u64 down, u64 held) {
         constexpr u64 kDirs = HidNpadButton_AnyUp | HidNpadButton_AnyDown | HidNpadButton_AnyLeft | HidNpadButton_AnyRight;
         if (down & kDirs) {
@@ -1660,6 +2077,29 @@ private:
             m_heldFrames = 0;
         }
         return 0;
+    }
+
+    bool accountsInput(u64 down, u64 dir) {
+        if (down & HidNpadButton_B) {
+            m_accountsOpen = false;
+            return true;
+        }
+        if (dir & HidNpadButton_AnyUp) m_accountSel = std::max(0, m_accountSel - 1);
+        if (dir & HidNpadButton_AnyDown) m_accountSel = std::min((int)m_accountList.size() - 1, m_accountSel + 1);
+        if ((down & HidNpadButton_A) && m_accountSel >= 0 && m_accountSel < (int)m_accountList.size()) {
+            if ((size_t)m_accountSel == m_current) {
+                m_accountsOpen = false;
+                return true;
+            }
+            // The overlay starts again as that account: every connection made fresh.
+            if (FILE* f = std::fopen(kChoicePath, "w")) {
+                std::fputs(m_accountList[(size_t)m_accountSel].id.c_str(), f);
+                std::fclose(f);
+            }
+            tsl::setNextOverlay(kSelfPath, "");
+            tsl::Overlay::get()->close();
+        }
+        return true;
     }
 
     std::vector<Row>& list() { return m_shownServer == 0 ? m_dms : m_channels; }
@@ -1681,10 +2121,12 @@ private:
     const Picture* picture(const std::string& url, const std::string& fallback, int w, int h, bool animated,
                            bool round) {
         if (url.empty()) return nullptr;
-        auto it = m_pictures.find(url);
+        // One copy per size: the same emoji in a message and in the picker.
+        const std::string key = url + '#' + std::to_string(w) + 'x' + std::to_string(h) + (animated ? "a" : "");
+        auto it = m_pictures.find(key);
         if (it == m_pictures.end()) {
-            if (g_net.waitingPictures() > 24) return nullptr; // ask again in a moment
-            it = m_pictures.emplace(url, Held{g_net.picture(url, fallback, w, h, animated, round), 0}).first;
+            if (g_net.waitingPictures() > 16) return nullptr; // ask again in a moment
+            it = m_pictures.emplace(key, Held{g_net.picture(url, fallback, w, h, animated, round), 0}).first;
         }
         it->second.used = armGetSystemTick();
         const Reply& r = *it->second.reply;
@@ -1694,7 +2136,7 @@ private:
     // The least recently drawn pictures go when they take more than the budget.
     void trimPictures() {
         size_t bytes = 0;
-        for (const auto& [url, held] : m_pictures)
+        for (const auto& [key, held] : m_pictures)
             if (held.reply->done) bytes += held.reply->picture.px.size() * 2;
         while (bytes > kPictureBudget) {
             auto oldest = m_pictures.end();
@@ -1854,7 +2296,7 @@ private:
                 }
             }
             if (!str(c, "icon").empty())
-                dm.avatar = "https://cdn.discordapp.com/channel-icons/" + dm.id + "/" + str(c, "icon") + ".png?size=64";
+                dm.avatar = "https://cdn.discordapp.com/channel-icons/" + dm.id + "/" + str(c, "icon") + ".png?size=128";
             if (!dm.id.empty()) dms.push_back(std::move(dm));
         }
         std::sort(dms.begin(), dms.end(), [](const Dm& a, const Dm& b) { return newer(a.last, b.last); });
@@ -1874,7 +2316,7 @@ private:
         yyjson_arr_foreach(doc.root(), i, n, g) {
             Server s{str(g, "id"), cleanName(str(g, "name")), std::string(), std::string()};
             if (!str(g, "icon").empty())
-                s.icon = "https://cdn.discordapp.com/icons/" + s.id + "/" + str(g, "icon") + ".png?size=64";
+                s.icon = "https://cdn.discordapp.com/icons/" + s.id + "/" + str(g, "icon") + ".png?size=128";
             // Initials, like Discord's icons for servers without a picture.
             bool start = true;
             for (const char* p = s.name.data(), *end = p + s.name.size(); p < end && s.initials.size() < 3;) {
@@ -1952,13 +2394,29 @@ private:
         m_chatId = row.id;
         m_chatTitle = row.title;
         m_chatIsChannel = row.kind == Row::Channel;
+        m_chatGuild = m_chatIsChannel ? m_servers[(size_t)m_shownServer].id : std::string();
         m_msgs.clear();
         m_chatLoaded = false;
         m_chatError.clear();
         m_chatNote.clear();
         m_chatScroll = 0;
         m_msgReq.reset(); // a reply for the last chat is ignored
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            g_openChannel = m_chatId;
+            g_openGuild = m_chatGuild;
+            g_subscribe = !m_chatGuild.empty();
+            g_typingUntil = 0;
+        }
+        g_chatChanged = false;
         pollMessages();
+    }
+
+    void closeChat() {
+        m_chat = false;
+        std::lock_guard<std::mutex> lk(g_chatMu);
+        g_openChannel.clear();
+        g_openGuild.clear();
     }
 
     void pollMessages() {
@@ -1983,12 +2441,25 @@ private:
         yyjson_arr_foreach(doc.root(), i, n, m) {
             Msg msg;
             msg.id = str(m, "id");
+            msg.time = whenOf(msg.id);
             yyjson_val* author = yyjson_obj_get(m, "author");
             msg.authorId = str(author, "id");
             std::string nm = str(author, "global_name");
             msg.author = cleanName(nm.empty() ? str(author, "username") : nm);
             msg.avatar = avatarUrl(author);
-            msg.text = messageText(str(m, "content"), m, msg.emojis);
+            msg.text = messageText(str(m, "content"), m, msg.emojis, &msg.media);
+            yyjson_val* edited = yyjson_obj_get(m, "edited_timestamp");
+            if (edited && !yyjson_is_null(edited) && !msg.text.empty()) msg.text += " (edited)";
+            // A reply: who and what it answers, on one line above it.
+            yyjson_val* ref = yyjson_obj_get(m, "referenced_message");
+            if (yyjson_is_obj(ref)) {
+                yyjson_val* who = yyjson_obj_get(ref, "author");
+                std::string rn = str(who, "global_name");
+                std::vector<std::string> ignored;
+                const std::string said = withoutMarks(messageText(str(ref, "content"), ref, ignored, nullptr));
+                msg.reply = cleanName(rn.empty() ? str(who, "username") : rn) + ": "
+                    + (said.empty() ? std::string("(a picture)") : said);
+            }
             size_t k, cnt;
             yyjson_val* a;
             yyjson_arr_foreach(yyjson_obj_get(m, "attachments"), k, cnt, a) {
@@ -2002,7 +2473,7 @@ private:
                     md.url = md.animated ? str(a, "url") : md.fallback;
                     msg.media.push_back(std::move(md));
                 } else {
-                    msg.text += (msg.text.empty() ? "" : "\n") + std::string("[file] ") + file;
+                    msg.text += (msg.text.empty() ? "" : "\n") + std::string("[file] ") + forScreen(file);
                 }
             }
             yyjson_arr_foreach(yyjson_obj_get(m, "embeds"), k, cnt, a) {
@@ -2010,6 +2481,9 @@ private:
                 const std::string type = str(a, "type");
                 yyjson_val* thumb = yyjson_obj_get(a, "thumbnail");
                 yyjson_val* image = yyjson_obj_get(a, "image");
+                if (isDiscordPicture(str(a, "url")) || isDiscordPicture(str(thumb, "url"))
+                    || isDiscordPicture(str(image, "url")))
+                    continue; // an emoji or sticker link: shown from the link already
                 Media md;
                 if (type == "gifv") {
                     md.w = (int)num(thumb, "width");
@@ -2019,7 +2493,7 @@ private:
                     md.animated = !gif.empty();
                     md.url = md.animated ? gif : md.fallback;
                     // A message that's only the GIF's link shows just the GIF, like Discord.
-                    const std::string content = str(m, "content");
+                    const std::string content = trimmed(str(m, "content"));
                     if (content.rfind("http", 0) == 0 && content.find(' ') == std::string::npos) msg.text.clear();
                 } else if (image || type == "image") {
                     yyjson_val* src = image ? image : thumb;
@@ -2029,7 +2503,7 @@ private:
                     const std::string orig = str(src, "url");
                     md.animated = orig.size() > 4 && orig.compare(orig.size() - 4, 4, ".gif") == 0;
                     md.url = md.animated ? orig : md.fallback;
-                    if (type == "image" && str(m, "content") == str(a, "url")) msg.text.clear();
+                    if (type == "image" && trimmed(str(m, "content")) == str(a, "url")) msg.text.clear();
                 } else {
                     if (msg.text.empty() && !str(a, "title").empty()) msg.text = cleanName(str(a, "title"));
                     continue;
@@ -2042,13 +2516,16 @@ private:
                     msg.text += (msg.text.empty() ? "" : " ") + std::string("[sticker] ") + cleanName(str(a, "name"));
                     continue;
                 }
-                Media md;
-                md.w = md.h = 120;
-                md.animated = format == 4;
-                md.fallback = "https://media.discordapp.net/stickers/" + str(a, "id") + ".png?size=160";
-                md.url = md.animated ? "https://media.discordapp.net/stickers/" + str(a, "id") + ".gif?size=160"
-                                     : md.fallback;
-                msg.media.push_back(std::move(md));
+                msg.media.push_back(stickerMedia(str(a, "id"), format == 4));
+            }
+            yyjson_arr_foreach(yyjson_obj_get(m, "reactions"), k, cnt, a) {
+                if (msg.reactions.size() >= 8) break;
+                yyjson_val* e = yyjson_obj_get(a, "emoji");
+                ReactionPill pill;
+                pill.count = (int)num(a, "count");
+                pill.mine = yyjson_get_bool(yyjson_obj_get(a, "me"));
+                pill.emoji = !str(e, "id").empty() ? customEmojiUrl(str(e, "id")) : twemoji(codepoints(str(e, "name")));
+                msg.reactions.push_back(std::move(pill));
             }
             if (msg.text.empty() && msg.media.empty()) msg.text = "[embed]";
             // Only emoji (up to 27): big, like Discord.
@@ -2068,12 +2545,52 @@ private:
         std::reverse(fresh.begin(), fresh.end()); // oldest first
         // One person's messages a few minutes apart share one name and picture.
         for (size_t k = 0; k < fresh.size(); ++k)
-            fresh[k].header = k == 0 || fresh[k].authorId != fresh[k - 1].authorId
+            fresh[k].header = k == 0 || fresh[k].authorId != fresh[k - 1].authorId || !fresh[k].reply.empty()
                 || ((snowflake(fresh[k].id) >> 22) - (snowflake(fresh[k - 1].id) >> 22)) > 7u * 60u * 1000u;
         m_msgs = std::move(fresh);
     }
 
     // ------------------------------------------------------------ keyboard
+
+    // Keyboard layers, 4 rows of 10 keys: letters, shifted, accents, shifted accents.
+    static constexpr const char* kLayers[4][4] = {
+        {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"},
+        {"!@#$%&*()-", "QWERTYUIOP", "ASDFGHJKL\"", "ZXCVBNM;:/"},
+        {"àáâäãåæçèé", "êëìíîïñòóô", "öõøœùúûüýÿ", "ß¡¿€£¥©°…~"},
+        {"ÀÁÂÄÃÅÆÇÈÉ", "ÊËÌÍÎÏÑÒÓÔ", "ÖÕØŒÙÚÛÜÝŸ", "_+=[]{}<>|"},
+    };
+    struct Special {
+        const char* label;
+        int start, span;
+    };
+    // The bottom row: Shift | àé | Space | Emoji | GIF | Delete | Send.
+    static constexpr Special kSpecials[7] = {{"Shift", 0, 1}, {"àé", 1, 1}, {"Space", 2, 3}, {"", 5, 1},
+                                             {"GIF", 6, 1},   {"Del", 7, 1}, {"Send", 8, 2}};
+
+    std::string& typed() { return m_typing == Typing::Message ? m_draft : m_query; }
+
+    void openKeyboard(Typing what) {
+        m_keyboard = true;
+        m_typing = what;
+        m_emojiOpen = false;
+        m_kx = 0;
+        m_ky = 1;
+    }
+
+    int specialKey() const {
+        for (int k = 0; k < 7; ++k)
+            if (m_kx >= kSpecials[k].start && m_kx < kSpecials[k].start + kSpecials[k].span) return k;
+        return 0;
+    }
+
+    std::string keyLabel(int row, int col) const {
+        const char* text = kLayers[(m_accents ? 2 : 0) + (m_shift ? 1 : 0)][row];
+        const char* p = text, *end = text + std::strlen(text);
+        for (int i = 0; i < col && p < end; ++i) nextCp(p, end);
+        const char* from = p;
+        if (p < end) nextCp(p, end);
+        return std::string(from, p);
+    }
 
     bool keyboardInput(u64 down, u64 dir) {
         if (dir & HidNpadButton_AnyUp) m_ky = std::max(0, m_ky - 1);
@@ -2081,61 +2598,188 @@ private:
         if (m_ky < 4) {
             if (dir & HidNpadButton_AnyLeft) m_kx = (m_kx + 9) % 10;
             if (dir & HidNpadButton_AnyRight) m_kx = (m_kx + 1) % 10;
-        } else { // Shift | Space | Delete | Send
+        } else {
             const int key = specialKey();
-            if (dir & HidNpadButton_AnyLeft) m_kx = kSpecialStart[(key + 3) % 4];
-            if (dir & HidNpadButton_AnyRight) m_kx = kSpecialStart[(key + 1) % 4];
+            if (dir & HidNpadButton_AnyLeft) m_kx = kSpecials[(key + 6) % 7].start;
+            if (dir & HidNpadButton_AnyRight) m_kx = kSpecials[(key + 1) % 7].start;
         }
         if (down & HidNpadButton_A) press();
-        if (down & HidNpadButton_X) m_draft += ' ';
+        if (down & HidNpadButton_X) typed() += ' ';
         if (down & HidNpadButton_Y) m_shift = !m_shift;
-        if (down & HidNpadButton_Plus) sendDraft();
+        if (down & HidNpadButton_ZL) m_accents = !m_accents;
+        if (down & HidNpadButton_L) openEmoji();
+        if ((down & HidNpadButton_R) && m_typing == Typing::Message) openGifs();
+        if (down & HidNpadButton_Plus) submit();
         if (down & HidNpadButton_B) {
-            if (m_draft.empty()) m_keyboard = false;
-            else popChar(m_draft);
+            if (typed().empty()) m_keyboard = false;
+            else popToken(typed());
         }
         return true;
     }
 
-    static constexpr int kSpecialStart[4] = {0, 2, 6, 8};
-    int specialKey() const { return m_kx >= 8 ? 3 : m_kx >= 6 ? 2 : m_kx >= 2 ? 1 : 0; }
-
-    std::string keyLabel(int row, int col) const {
-        static const char* const kLower[4] = {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"};
-        static const char* const kUpper[4] = {"!@#$%&*()-", "QWERTYUIOP", "ASDFGHJKL\"", "ZXCVBNM;:/"};
-        return std::string(1, (m_shift ? kUpper : kLower)[row][col]);
-    }
-
     void press() {
         if (m_ky < 4) {
-            if (m_draft.size() < 1900) m_draft += keyLabel(m_ky, m_kx);
+            if (typed().size() < 1900) typed() += keyLabel(m_ky, m_kx);
             m_shift = false;
             return;
         }
         switch (specialKey()) {
             case 0: m_shift = !m_shift; break;
-            case 1: m_draft += ' '; break;
-            case 2: popChar(m_draft); break;
-            case 3: sendDraft(); break;
+            case 1: m_accents = !m_accents; break;
+            case 2: typed() += ' '; break;
+            case 3: openEmoji(); break;
+            case 4: if (m_typing == Typing::Message) openGifs(); break;
+            case 5: popToken(typed()); break;
+            case 6: submit(); break;
         }
+    }
+
+    void submit() {
+        if (m_typing == Typing::GifSearch) {
+            m_keyboard = false;
+            m_emojiOpen = false;
+            loadGifs();
+            return;
+        }
+        sendDraft();
     }
 
     void sendDraft() {
         if (m_draft.empty() || m_sendReq) return;
-        m_sendReq = g_net.api("POST", "/channels/" + m_chatId + "/messages",
-                              "{\"content\":" + jsonString(m_draft) + ",\"tts\":false}");
+        sendContent(m_draft);
         m_draft.clear();
         m_keyboard = false;
+        m_emojiOpen = false;
+    }
+
+    void sendContent(const std::string& content) {
+        m_sendReq = g_net.api("POST", "/channels/" + m_chatId + "/messages",
+                              "{\"content\":" + jsonString(content) + ",\"tts\":false}");
         m_chatNote.clear();
         m_chatScroll = 0;
+    }
+
+    // ------------------------------------------------------------ emoji picker
+
+    void openEmoji() {
+        m_emojiOpen = !m_emojiOpen;
+        m_eSel = 0;
+        m_eScroll = 0;
+        if (m_emojiOpen && !m_chatGuild.empty() && !m_serverEmoji.count(m_chatGuild) && !m_emojiReq) {
+            m_serverEmoji[m_chatGuild]; // asked once per server
+            m_emojiReq = g_net.api("GET", "/guilds/" + m_chatGuild + "/emojis");
+            m_emojiFor = m_chatGuild;
+        }
+    }
+
+    void takeServerEmoji() {
+        if (m_emojiReq->status != 200) return;
+        Json doc(m_emojiReq->body);
+        std::vector<EmojiItem>& items = m_serverEmoji[m_emojiFor];
+        size_t i, n;
+        yyjson_val* e;
+        yyjson_arr_foreach(doc.root(), i, n, e) {
+            if (items.size() >= 120) break;
+            const std::string id = str(e, "id"), name = str(e, "name");
+            if (id.empty() || name.empty() || (yyjson_obj_get(e, "available") && !yyjson_get_bool(yyjson_obj_get(e, "available"))))
+                continue;
+            const bool moving = yyjson_get_bool(yyjson_obj_get(e, "animated"));
+            items.push_back({std::string(moving ? "<a:" : "<:") + name + ":" + id + ">", customEmojiUrl(id)});
+        }
+    }
+
+    std::vector<const EmojiItem*> emojiChoices() const {
+        std::vector<const EmojiItem*> out;
+        auto it = m_serverEmoji.find(m_chatGuild);
+        if (!m_chatGuild.empty() && it != m_serverEmoji.end())
+            for (const EmojiItem& e : it->second) out.push_back(&e);
+        for (const EmojiItem& e : m_standardEmoji) out.push_back(&e);
+        return out;
+    }
+
+    bool emojiInput(u64 down, u64 dir) {
+        const int count = (int)emojiChoices().size();
+        if (dir & HidNpadButton_AnyLeft) m_eSel = std::max(0, m_eSel - 1);
+        if (dir & HidNpadButton_AnyRight) m_eSel = std::min(count - 1, m_eSel + 1);
+        if (dir & HidNpadButton_AnyUp) m_eSel = std::max(0, m_eSel - 10);
+        if (dir & HidNpadButton_AnyDown) m_eSel = std::min(count - 1, m_eSel + 10);
+        if ((down & HidNpadButton_A) && m_eSel >= 0 && m_eSel < count && typed().size() < 1900)
+            typed() += emojiChoices()[(size_t)m_eSel]->insert;
+        if (down & HidNpadButton_X) typed() += ' ';
+        if (down & HidNpadButton_Plus) submit();
+        if (down & (HidNpadButton_B | HidNpadButton_L)) m_emojiOpen = false;
+        return true;
+    }
+
+    // ------------------------------------------------------------ GIF picker
+
+    void openGifs() {
+        m_gifsOpen = true;
+        m_keyboard = false;
+        m_emojiOpen = false;
+        m_gSel = 0;
+        m_gScroll = 0;
+        if (m_gifList.empty() && !m_gifReq) loadGifs();
+    }
+
+    void loadGifs() {
+        m_gifList.clear();
+        m_gSel = 0;
+        m_gScroll = 0;
+        m_gifError.clear();
+        const std::string q = trimmed(m_query);
+        m_gifReq = g_net.api("GET", q.empty() ? "/gifs/trending-gifs?media_format=gif&provider=tenor&locale=en-US"
+                                              : "/gifs/search?q=" + urlEncode(q)
+                                                    + "&media_format=gif&provider=tenor&locale=en-US");
+        m_gifLoading = true;
+    }
+
+    void takeGifs() {
+        m_gifLoading = false;
+        if (m_gifReq->status != 200) {
+            m_gifError = problem(*m_gifReq);
+            return;
+        }
+        Json doc(m_gifReq->body);
+        yyjson_val* list = yyjson_is_arr(doc.root()) ? doc.root() : yyjson_obj_get(doc.root(), "gifs");
+        size_t i, n;
+        yyjson_val* g;
+        yyjson_arr_foreach(list, i, n, g) {
+            if (m_gifList.size() >= 40) break;
+            GifItem item;
+            item.send = str(g, "url");
+            std::string src = str(g, "gif_src");
+            if (src.empty()) src = str(g, "src");
+            item.preview = tenorTiny(src);
+            if (item.preview.empty()) item.preview = str(g, "preview");
+            if (!item.send.empty() && !item.preview.empty()) m_gifList.push_back(std::move(item));
+        }
+        if (m_gifList.empty()) m_gifError = "No GIFs found.";
+    }
+
+    bool gifInput(u64 down, u64 dir) {
+        const int count = (int)m_gifList.size();
+        if (dir & HidNpadButton_AnyLeft) m_gSel = std::max(0, m_gSel - 1);
+        if (dir & HidNpadButton_AnyRight) m_gSel = std::min(std::max(0, count - 1), m_gSel + 1);
+        if (dir & HidNpadButton_AnyUp) m_gSel = std::max(0, m_gSel - 2);
+        if (dir & HidNpadButton_AnyDown) m_gSel = std::min(std::max(0, count - 1), m_gSel + 2);
+        if (down & HidNpadButton_B) m_gifsOpen = false;
+        if (down & HidNpadButton_Y) openKeyboard(Typing::GifSearch);
+        if ((down & HidNpadButton_A) && m_gSel >= 0 && m_gSel < count && !m_sendReq) {
+            sendContent(m_gifList[(size_t)m_gSel].send);
+            m_gifsOpen = false;
+        }
+        return true;
     }
 
     // ------------------------------------------------------------ drawing
 
     void draw(tsl::gfx::Renderer* r) {
         r->fillScreen(r->a(kBg)); // one fast fill; drawRect goes pixel by pixel
-        if (m_chat) drawChat(r);
+        if (m_gifsOpen) drawGifs(r);
+        else if (m_chat) drawChat(r);
         else drawLists(r);
+        if (m_keyboard) drawKeyboard(r, 12, kH - 252, kW - 24);
     }
 
     // Your panel, as at the bottom of Discord's channel list, with the buttons.
@@ -2143,7 +2787,7 @@ private:
         const s32 x = kRailW, y = kH - kPanelH, w = kW - kRailW;
         r->drawRect(x, y, w, kPanelH, r->a(kPanelBg));
         const std::string hint1 = m_onBar ? " Open   Hide" : " Open   Servers";
-        const std::string hint2 = " Close   Move";
+        const std::string hint2 = " Accounts   Close";
         const s32 hw = std::max(widthOf(r, hint1, 13), widthOf(r, hint2, 13));
         r->drawString(hint1.c_str(), false, kW - 10 - hw, y + 21, 13, r->a(kMuted));
         r->drawString(hint2.c_str(), false, kW - 10 - hw, y + 40, 13, r->a(kMuted));
@@ -2158,31 +2802,53 @@ private:
         r->drawString(fit(r, sub, 12, nameW).c_str(), false, x + 48, y + 40, 12, r->a(kMuted));
     }
 
+    void drawAccounts(tsl::gfx::Renderer* r) {
+        const s32 rows = std::max<s32>(1, (s32)m_accountList.size());
+        const s32 h = 44 + rows * 46 + (m_accountList.size() < 2 ? 22 : 0);
+        const s32 x = kRailW + 10, w = kW - kRailW - 20, y = kH - kPanelH - 10 - h;
+        roundRect(r, x, y, w, h, 8, kRailBg);
+        r->drawString("Switch account", false, x + 14, y + 28, 17, r->a(kWhite));
+        s32 ry = y + 40;
+        for (int i = 0; i < (int)m_accountList.size(); ++i) {
+            const Account& a = m_accountList[(size_t)i];
+            if (i == m_accountSel) roundRect(r, x + 6, ry, w - 12, 42, 4, kSelected);
+            drawRound(r, a.avatar, firstLetter(a.name), x + 14, ry + 5, 32);
+            const std::string name = a.name.empty() ? std::string("Account") : a.name;
+            r->drawString(fit(r, name, 16, w - 140).c_str(), false, x + 56, ry + 27, 16, r->a(kText));
+            if ((size_t)i == m_current) r->drawString("in use", false, x + w - 60, ry + 27, 13, r->a(kMuted));
+            ry += 46;
+        }
+        if (m_accountList.size() < 2)
+            r->drawString("Add accounts in HOME: Social > Discord.", false, x + 14, ry + 14, 13, r->a(kMuted));
+        r->drawString(" Switch   Close", false, x + w - 140, y + 28, 13, r->a(kMuted));
+    }
+
     void drawLists(tsl::gfx::Renderer* r) {
         // The server bar.
         r->drawRect(0, 0, kRailW, kH, r->a(kRailBg));
-        const s32 item = 56, top = 12, barH = kH - top;
+        const s32 item = 58, top = 10, barH = kH - top;
         if (m_serverSel * item < m_barScroll) m_barScroll = m_serverSel * item;
         if (m_serverSel * item + item + 10 > m_barScroll + barH) m_barScroll = m_serverSel * item + item + 10 - barH;
-        r->enableScissoring(0, top, kRailW, barH);
+        {
+        Scissor clip(r, 0, top, kRailW, barH);
         for (int i = 0; i < (int)m_servers.size(); ++i) {
             const s32 y = top + i * item - m_barScroll + (i > 0 ? 10 : 0);
             if (y + item < 0 || y > kH) continue;
             const Server& s = m_servers[(size_t)i];
             if (i == 0) { // Direct Messages: Discord's blurple
-                r->drawCircle(kRailW / 2, y + 22, 22, true, r->a(kBlurple));
-                r->drawString("DM", false, kRailW / 2 - widthOf(r, "DM", 17) / 2, y + 28, 17, r->a(kWhite));
+                r->drawCircle(kRailW / 2, y + 24, 24, true, r->a(kBlurple));
+                r->drawString("DM", false, kRailW / 2 - widthOf(r, "DM", 17) / 2, y + 30, 17, r->a(kWhite));
             } else {
-                drawRound(r, s.icon, s.initials, (kRailW - 44) / 2, y, 44);
+                drawRound(r, s.icon, s.initials, (kRailW - 48) / 2, y, 48);
             }
-            if (i == m_shownServer) r->drawRect(0, y + 6, 4, 32, r->a(kWhite)); // the white pill
+            if (i == m_shownServer) r->drawRect(0, y + 8, 4, 32, r->a(kWhite)); // the white pill
             if (i == m_serverSel && m_onBar) {
-                r->drawCircle(kRailW / 2, y + 22, 24, false, r->a(kWhite));
-                r->drawCircle(kRailW / 2, y + 22, 25, false, r->a(kWhite));
+                r->drawCircle(kRailW / 2, y + 24, 26, false, r->a(kWhite));
+                r->drawCircle(kRailW / 2, y + 24, 27, false, r->a(kWhite));
             }
-            if (i == 0) r->drawRect(18, y + 52, kRailW - 36, 2, r->a(kInput));
+            if (i == 0) r->drawRect(18, y + 56, kRailW - 36, 2, r->a(kInput));
         }
-        r->disableScissoring();
+        }
 
         // The list: DMs or the server's channels.
         const s32 lx = kRailW, lw = kW - kRailW;
@@ -2197,7 +2863,7 @@ private:
         if (rows.size() <= (m_shownServer == 0 ? 1u : 0u)) {
             drawText(r, !loaded ? "Loading..." : error, lx + 14, y0 + 30, lw - 28, loaded ? kError : kMuted);
         } else {
-            auto heightOf = [](const Row& row) { return row.kind == Row::Header ? 30 : row.kind == Row::Dm ? 46 : 36; };
+            auto heightOf = [](const Row& row) { return row.kind == Row::Header ? 30 : row.kind == Row::Dm ? 48 : 36; };
             s32 selTop = 0, selH = 0, total = 0;
             for (int i = 0; i < (int)rows.size(); ++i) {
                 if (i == m_rowSel) {
@@ -2211,7 +2877,7 @@ private:
                 if (selTop + selH > m_listScroll + h) m_listScroll = selTop + selH - h;
             }
             m_listScroll = std::clamp(m_listScroll, 0, std::max(0, total - h));
-            r->enableScissoring(lx, y0, lw, h);
+            Scissor clip(r, lx, y0, lw, h);
             s32 rowY = y0 - m_listScroll;
             for (int i = 0; i < (int)rows.size(); ++i) {
                 Row& row = rows[(size_t)i];
@@ -2224,21 +2890,21 @@ private:
                                       r->a(kMuted));
                     } else if (row.kind == Row::Dm) {
                         if (sel) roundRect(r, lx + 8, rowY + 2, lw - 16, rh - 4, 4, back);
-                        drawRound(r, row.avatar, firstLetter(row.title), lx + 14, rowY + 7, 32);
+                        drawRound(r, row.avatar, firstLetter(row.title), lx + 14, rowY + 6, 36);
                         // Friends the gateway doesn't list are offline.
                         const Presence* p = presence(row.userId);
                         if (!row.userId.empty() && (p || m_presencesLoaded))
-                            statusDot(r, lx + 41, rowY + 34, p ? p->status : "offline", back);
-                        const s32 tx = lx + 56;
+                            statusDot(r, lx + 44, rowY + 36, p ? p->status : "offline", back);
+                        const s32 tx = lx + 60;
                         if (row.shown.empty()) row.shown = fit(r, row.title, 17, lx + lw - tx - 14);
                         const bool away = !p || p->status == "offline";
                         const tsl::Color nameColor = sel && !m_onBar ? kWhite : away ? kMuted : kText;
                         if (p && !p->activity.empty()) {
-                            r->drawString(row.shown.c_str(), false, tx, rowY + 21, 17, r->a(nameColor));
-                            r->drawString(fit(r, p->activity, 12, lx + lw - tx - 14).c_str(), false, tx, rowY + 37,
+                            r->drawString(row.shown.c_str(), false, tx, rowY + 22, 17, r->a(nameColor));
+                            r->drawString(fit(r, p->activity, 12, lx + lw - tx - 14).c_str(), false, tx, rowY + 38,
                                           12, r->a(kMuted));
                         } else {
-                            r->drawString(row.shown.c_str(), false, tx, rowY + 29, 17, r->a(nameColor));
+                            r->drawString(row.shown.c_str(), false, tx, rowY + 30, 17, r->a(nameColor));
                         }
                     } else {
                         if (sel) roundRect(r, lx + 8, rowY + 2, lw - 16, rh - 4, 4, back);
@@ -2251,20 +2917,28 @@ private:
                 }
                 rowY += rh;
             }
-            r->disableScissoring();
         }
         drawPanel(r);
+        if (m_accountsOpen) drawAccounts(r);
     }
 
-    s32 messageHeight(const Msg& m) const {
-        s32 h = m.header ? 26 : 2;
+    static s32 mediaHeight(const Media& md) {
+        const float w = md.w > 0 ? (float)md.w : 260.f, hh = md.h > 0 ? (float)md.h : 146.f;
+        const float s = std::min(1.f, std::min(260.f / w, 160.f / hh));
+        return std::max(24, (int)(hh * s));
+    }
+
+    static constexpr s32 kPillW = 54, kPillGap = 6;
+
+    s32 messageHeight(const Msg& m, s32 tw) const {
+        s32 h = (m.reply.empty() ? 0 : 18) + (m.header ? 26 : 2);
         h += (s32)m.lines.size() * (m.big ? 42 : 21);
-        for (const Media& md : m.media) {
-            const float w = md.w > 0 ? (float)md.w : 260.f, hh = md.h > 0 ? (float)md.h : 146.f;
-            const float s = std::min(1.f, std::min(260.f / w, 160.f / hh));
-            h += std::max(24, (int)(hh * s)) + 6;
+        for (const Media& md : m.media) h += mediaHeight(md) + 6;
+        if (!m.reactions.empty()) {
+            const s32 perRow = std::max<s32>(1, tw / (kPillW + kPillGap));
+            h += (((s32)m.reactions.size() + perRow - 1) / perRow) * 28;
         }
-        return std::max(h, m.header ? 44 : 0) + 6;
+        return std::max(h, m.header ? 44 + (m.reply.empty() ? 0 : 18) : 0) + 6;
     }
 
     void drawChat(tsl::gfx::Renderer* r) {
@@ -2274,7 +2948,7 @@ private:
         r->drawRect(0, 48, kW, 1, r->a(kRailBg));
 
         const s32 top = 52;
-        const s32 bottom = m_keyboard ? kH - 252 : kH - 60;
+        const s32 bottom = m_keyboard ? kH - 258 : kH - 74;
         const s32 tx = 60, tw = kW - tx - 12;
         if (!m_chatLoaded) {
             drawText(r, "Loading...", 16, top + 30, kW - 32, kMuted);
@@ -2290,21 +2964,30 @@ private:
                     m.wrapped = true;
                 }
             s32 total = 0;
-            for (const Msg& m : m_msgs) total += messageHeight(m);
+            for (const Msg& m : m_msgs) total += messageHeight(m, tw);
             m_chatScroll = std::clamp(m_chatScroll, 0, std::max(0, total - (bottom - top)));
-            r->enableScissoring(0, top, kW, bottom - top);
+            Scissor clip(r, 0, top, kW, bottom - top);
             s32 cy = bottom + m_chatScroll;
             for (auto it = m_msgs.rbegin(); it != m_msgs.rend(); ++it) {
-                const s32 mh = messageHeight(*it);
+                const s32 mh = messageHeight(*it, tw);
                 cy -= mh;
                 if (cy > bottom) continue;
                 if (cy + mh < top) break;
-                s32 ly = cy + 4;
+                s32 my = cy;
+                if (!it->reply.empty()) { // the message it answers
+                    r->drawRect(30, my + 9, 22, 2, r->a(kInput));
+                    r->drawRect(30, my + 9, 2, 10, r->a(kInput));
+                    r->drawString(fit(r, it->reply, 13, tw).c_str(), false, tx, my + 15, 13, r->a(kMuted));
+                    my += 18;
+                }
+                s32 ly = my + 4;
                 if (it->header) {
-                    drawRound(r, it->avatar, firstLetter(it->author), 12, cy + 4, 36);
-                    if (const Presence* p = presence(it->authorId)) statusDot(r, 42, cy + 34, p->status, kBg);
-                    r->drawString(fit(r, it->author, 16, tw).c_str(), false, tx, cy + 20, 16, r->a(kWhite));
-                    ly = cy + 26;
+                    drawRound(r, it->avatar, firstLetter(it->author), 12, my + 4, 36);
+                    if (const Presence* p = presence(it->authorId)) statusDot(r, 42, my + 34, p->status, kBg);
+                    const std::string name = fit(r, it->author, 16, tw - 110);
+                    r->drawString(name.c_str(), false, tx, my + 20, 16, r->a(kWhite));
+                    r->drawString(it->time.c_str(), false, tx + widthOf(r, name, 16) + 8, my + 20, 12, r->a(kMuted));
+                    ly = my + 26;
                 }
                 const s32 lineH = it->big ? 42 : 21;
                 for (const std::string& line : it->lines) {
@@ -2314,24 +2997,45 @@ private:
                 for (const Media& md : it->media) {
                     const float w = md.w > 0 ? (float)md.w : 260.f, hh = md.h > 0 ? (float)md.h : 146.f;
                     const float s = std::min(1.f, std::min(260.f / w, 160.f / hh));
-                    const s32 boxW = std::max(24, (int)(w * s)), boxH = std::max(24, (int)(hh * s));
+                    const s32 boxW = std::max(24, (int)(w * s)), boxH = mediaHeight(md);
                     if (const Picture* p = picture(md.url, md.fallback, 260, 160, md.animated, false))
                         blit(r, *p, tx, ly + 2);
                     else
                         roundRect(r, tx, ly + 2, boxW, boxH, 4, kInput);
                     ly += boxH + 6;
                 }
+                s32 px = tx;
+                for (const ReactionPill& pill : it->reactions) { // reactions, as Discord's pills
+                    if (px + kPillW > tx + tw) {
+                        px = tx;
+                        ly += 28;
+                    }
+                    roundRect(r, px, ly + 2, kPillW, 24, 6, pill.mine ? kMine : kInput);
+                    if (const Picture* e = picture(pill.emoji, std::string(), 16, 16, false, false))
+                        blit(r, *e, px + 7, ly + 6);
+                    r->drawString(std::to_string(pill.count).c_str(), false, px + 28, ly + 19, 13, r->a(kText));
+                    px += kPillW + kPillGap;
+                }
             }
-            r->disableScissoring();
         }
-        if (m_keyboard) {
-            drawKeyboard(r, 12, kH - 246, kW - 24);
-            return;
+        if (m_keyboard) return;
+        std::string typing;
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            if (g_typingUntil > nowMs() && g_typingId != m_meId) {
+                typing = g_typingName;
+                for (const Msg& m : m_msgs)
+                    if (typing.empty() && m.authorId == g_typingId) typing = m.author;
+                if (typing.empty()) typing = m_chatIsChannel ? "Someone" : m_chatTitle;
+                typing += " is typing...";
+            }
         }
+        if (!typing.empty())
+            r->drawString(fit(r, typing, 13, kW - 40).c_str(), false, 16, kH - 58, 13, r->a(kMuted));
         // Discord's message box, with the buttons in it.
         const s32 by = kH - 52, bh = 40;
         roundRect(r, 12, by, kW - 24, bh, 8, kInput);
-        const std::string keys = " Write   Back   Close";
+        const std::string keys = " Write   Emoji   GIF   Back";
         const s32 kw = widthOf(r, keys, 13);
         r->drawString(keys.c_str(), false, kW - 24 - kw, by + 25, 13, r->a(kMuted));
         const std::string prompt = !m_chatNote.empty() ? m_chatNote
@@ -2341,17 +3045,56 @@ private:
                       r->a(m_chatNote.empty() ? kChannel : kError));
     }
 
+    void drawGifs(tsl::gfx::Renderer* r) {
+        const std::string q = trimmed(m_query);
+        r->drawString(fit(r, q.empty() ? "GIFs: trending" : "GIFs: " + q, 19, kW - 40).c_str(), false, 16, 32, 19,
+                      r->a(kWhite));
+        r->drawRect(0, 48, kW, 1, r->a(kRailBg));
+        const s32 top = 56, bottom = m_keyboard ? kH - 258 : kH - 44;
+        const s32 cw = (kW - 36) / 2, ch = 130;
+        if (m_gifLoading || m_gifList.empty()) {
+            drawText(r, m_gifLoading ? "Loading..." : m_gifError, 16, top + 30, kW - 32,
+                     m_gifLoading ? kMuted : kError);
+        } else {
+            const s32 selRow = m_gSel / 2;
+            if (selRow * (ch + 8) < m_gScroll) m_gScroll = selRow * (ch + 8);
+            if (selRow * (ch + 8) + ch > m_gScroll + (bottom - top)) m_gScroll = selRow * (ch + 8) + ch - (bottom - top);
+            Scissor clip(r, 0, top, kW, bottom - top);
+            for (int i = 0; i < (int)m_gifList.size(); ++i) {
+                const s32 x = 12 + (i % 2) * (cw + 12), y = top + (i / 2) * (ch + 8) - m_gScroll;
+                if (y + ch < top || y > bottom) continue;
+                const bool sel = i == m_gSel;
+                roundRect(r, x, y, cw, ch, 6, sel ? kBlurple : kInput);
+                // Every GIF still; the chosen one moves.
+                if (const Picture* p = picture(m_gifList[(size_t)i].preview, std::string(), cw - 8, ch - 8, sel, false))
+                    blit(r, *p, x + (cw - p->w) / 2, y + (ch - p->h) / 2);
+            }
+        }
+        if (m_keyboard) return;
+        const std::string keys = " Send   Search   Back";
+        r->drawString(keys.c_str(), false, kW - 16 - widthOf(r, keys, 14), kH - 16, 14, r->a(kMuted));
+    }
+
     void drawKeyboard(tsl::gfx::Renderer* r, s32 x, s32 y, s32 w) {
-        // What's been typed: the end of it, two lines at most.
+        // What's been typed (with its emoji): the end of it, two lines at most.
         roundRect(r, x - 4, y, w + 8, 52, 8, kInput);
-        std::vector<std::string> lines = wrapRich(r, m_draft + "_", 17, w - 12, 18);
+        std::vector<std::string> emojis;
+        const std::string shown = draftText(typed(), emojis) + "_";
+        std::vector<std::string> lines = wrapRich(r, shown, 17, w - 12, 18);
         if (lines.size() > 2) lines.erase(lines.begin(), lines.end() - 2);
         s32 ty = y + 20;
+        if (typed().empty())
+            r->drawString(m_typing == Typing::GifSearch ? "Search Tenor" : "", false, x + 16, ty, 17, r->a(kChannel));
         for (const std::string& line : lines) {
-            r->drawString(line.c_str(), false, x + 6, ty, 17, r->a(kText));
+            drawRich(r, line, x + 6, ty, 17, kText, emojis, 18);
             ty += 22;
         }
-        const s32 kw = w / 10, kh = 30, ky = y + 58;
+        const s32 ky = y + 58;
+        if (m_emojiOpen) {
+            drawEmojiPicker(r, x, ky, w);
+            return;
+        }
+        const s32 kw = w / 10, kh = 30;
         for (int row = 0; row < 4; ++row)
             for (int col = 0; col < 10; ++col) {
                 const s32 kx = x + col * kw, kyy = ky + row * (kh + 3);
@@ -2360,21 +3103,53 @@ private:
                 const std::string label = keyLabel(row, col);
                 r->drawString(label.c_str(), false, kx + (kw - widthOf(r, label, 18)) / 2, kyy + 22, 18, r->a(kText));
             }
-        static const char* const kSpecial[4] = {"Shift", "Space", "Delete", "Send"};
-        static const int kSpan[4] = {2, 4, 2, 2};
         const s32 sy = ky + 4 * (kh + 3);
-        for (int k = 0; k < 4; ++k) {
-            const s32 sx = x + kSpecialStart[k] * kw, sw = kSpan[k] * kw;
+        for (int k = 0; k < 7; ++k) {
+            const s32 sx = x + kSpecials[k].start * kw, sw = kSpecials[k].span * kw;
             const bool sel = m_ky == 4 && specialKey() == k;
-            const bool lit = (k == 0 && m_shift) || (k == 3 && !m_draft.empty());
+            const bool lit = (k == 0 && m_shift) || (k == 1 && m_accents) || (k == 6 && !typed().empty());
             r->drawRect(sx + 1, sy, sw - 2, kh, r->a(sel ? kBlurple : lit ? kSelected : kInput));
-            r->drawString(kSpecial[k], false, sx + (sw - widthOf(r, kSpecial[k], 16)) / 2, sy + 21, 16, r->a(kText));
+            if (k == 3) { // the emoji key: a smiley
+                if (const Picture* e = picture(m_standardEmoji.empty() ? std::string() : m_standardEmoji[0].url,
+                                               std::string(), 20, 20, false, false))
+                    blit(r, *e, sx + (sw - 20) / 2, sy + 5);
+                continue;
+            }
+            const char* label = k == 6 && m_typing == Typing::GifSearch ? "Search" : kSpecials[k].label;
+            r->drawString(label, false, sx + (sw - widthOf(r, label, 14)) / 2, sy + 20, 14, r->a(kText));
         }
-        r->drawString(" Delete   Space   Shift   Send", false, x, sy + kh + 22, 14,
-                      r->a(kMuted));
+        const std::string keys = m_typing == Typing::GifSearch
+            ? " Delete   Space   Shift   àé   Search"
+            : " Del   Space   Shift   àé   Emoji   GIF   Send";
+        r->drawString(keys.c_str(), false, x, sy + kh + 20, 13, r->a(kMuted));
     }
 
-    std::string m_account, m_meAvatar;
+    void drawEmojiPicker(tsl::gfx::Renderer* r, s32 x, s32 y, s32 w) {
+        const std::vector<const EmojiItem*> items = emojiChoices();
+        const s32 cell = w / 10, rows = 4;
+        const s32 selRow = m_eSel / 10;
+        if (selRow < m_eScroll) m_eScroll = selRow;
+        if (selRow >= m_eScroll + rows) m_eScroll = selRow - rows + 1;
+        for (int i = m_eScroll * 10; i < (int)items.size() && i < (m_eScroll + rows) * 10; ++i) {
+            const s32 cx = x + (i % 10) * cell, cy = y + (i / 10 - m_eScroll) * (cell + 2);
+            if (i == m_eSel) roundRect(r, cx + 1, cy, cell - 2, cell, 6, kBlurple);
+            if (const Picture* p = picture(items[(size_t)i]->url, std::string(), 30, 30, false, false))
+                blit(r, *p, cx + (cell - p->w) / 2, cy + (cell - p->h) / 2);
+        }
+        const s32 hy = y + rows * (cell + 2) + 18;
+        const std::string where = !m_chatGuild.empty() && m_serverEmoji.count(m_chatGuild)
+                && !m_serverEmoji.at(m_chatGuild).empty()
+            ? "This server's emoji first.  "
+            : "";
+        r->drawString((where + " Add   Send   Keyboard").c_str(), false, x, hy, 13, r->a(kMuted));
+    }
+
+    std::vector<Account> m_accountList;
+    size_t m_current = 0;
+    bool m_accountsOpen = false;
+    int m_accountSel = 0;
+
+    std::string m_account, m_meAvatar, m_meId;
     std::vector<Server> m_servers; // [0] = Direct Messages
     int m_serverSel = 0, m_shownServer = 0, m_channelsFor = -1;
     s32 m_barScroll = 0;
@@ -2384,7 +3159,7 @@ private:
     s32 m_listScroll = 0;
     bool m_dmsLoaded = false, m_channelsLoaded = false;
     std::string m_dmsError, m_channelsError;
-    std::shared_ptr<Reply> m_meReq, m_dmReq, m_guildsReq, m_channelsReq, m_msgReq, m_sendReq;
+    std::shared_ptr<Reply> m_meReq, m_dmReq, m_guildsReq, m_channelsReq, m_msgReq, m_sendReq, m_emojiReq, m_gifReq;
     std::map<std::string, Held> m_pictures;
 
     unsigned m_presenceSeen = ~0u;
@@ -2393,17 +3168,29 @@ private:
     std::string m_myStatus, m_myGame;
 
     bool m_chat = false, m_chatIsChannel = false;
-    std::string m_chatId, m_chatTitle, m_msgFor, m_chatError, m_chatNote;
+    std::string m_chatId, m_chatTitle, m_chatGuild, m_msgFor, m_chatError, m_chatNote;
     std::vector<Msg> m_msgs;
     bool m_chatLoaded = false;
     s32 m_chatScroll = 0; // pixels up from the newest message
     u64 m_lastPoll = 0;
 
-    bool m_keyboard = false;
-    std::string m_draft;
+    bool m_keyboard = false, m_shift = false, m_accents = false;
+    Typing m_typing = Typing::Message;
+    std::string m_draft, m_query;
     int m_kx = 0, m_ky = 1;
-    bool m_shift = false;
     int m_heldFrames = 0;
+
+    bool m_emojiOpen = false;
+    int m_eSel = 0, m_eScroll = 0;
+    std::vector<EmojiItem> m_standardEmoji;
+    std::map<std::string, std::vector<EmojiItem>> m_serverEmoji; // by server id
+    std::string m_emojiFor;
+
+    bool m_gifsOpen = false, m_gifLoading = false;
+    std::vector<GifItem> m_gifList;
+    std::string m_gifError;
+    int m_gSel = 0;
+    s32 m_gScroll = 0;
 };
 
 class DiscordOverlay : public tsl::Overlay {
@@ -2411,9 +3198,14 @@ public:
     void initServices() override {
         tsl::cfg::extraLaunchCombo = kCombo;
         tsl::cfg::launchComboCloses = true;
+        // Never over HOME (HomeNX's own Discord is there): only while its menu isn't running.
+        tsl::cfg::showAllowed = [] {
+            u64 pid = 0;
+            return R_FAILED(pmdmntGetProcessId(&pid, kHomeMenu));
+        };
         fsdevMountSdmc();
         // nifm for the connection state, pm:info + ns for the game being
-        // played, time for when it started.
+        // played, time for when it started and for message times.
         m_nifm = R_SUCCEEDED(nifmInitialize(NifmServiceType_User));
         m_pminfo = R_SUCCEEDED(pminfoInitialize());
         m_ns = R_SUCCEEDED(nsInitialize());
@@ -2423,7 +3215,7 @@ public:
             .tcp_tx_buf_size = 16 * 1024,
             .tcp_rx_buf_size = 32 * 1024,
             .tcp_tx_buf_max_size = 64 * 1024,
-            .tcp_rx_buf_max_size = 128 * 1024,
+            .tcp_rx_buf_max_size = 96 * 1024,
             .udp_tx_buf_size = 0x2400,
             .udp_rx_buf_size = 0xA500,
             .sb_efficiency = 1,
@@ -2458,12 +3250,13 @@ public:
     void onShow() override { tsl::cfg::extraLaunchCombo = kCombo; }
 
     std::unique_ptr<tsl::Gui> loadInitialGui() override {
-        const Account account = loadAccount();
-        if (!account.token.empty() && g_startProblem.empty()) {
-            g_net.start(account.token);
-            if (m_pminfo && m_ns) g_gateway.start(account.token);
+        size_t current = 0;
+        std::vector<Account> accounts = loadAccounts(current);
+        if (!accounts.empty() && g_startProblem.empty()) {
+            g_net.start(accounts[current].token);
+            if (m_pminfo && m_ns) g_gateway.start(accounts[current].token);
         }
-        return initially<DiscordGui>(account.name, !account.token.empty());
+        return initially<DiscordGui>(std::move(accounts), current);
     }
 
 private:

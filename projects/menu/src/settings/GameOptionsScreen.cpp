@@ -132,6 +132,19 @@ void GameOptionsScreen::buildTabs() {
     titleId.type = ItemType::Info;
     titleId.infoText = id;
     info.items.push_back(std::move(titleId));
+    // HomeNX: how much you've played it.
+    auto addInfo = [&](const char* key, const char* label, const std::string& value) {
+        if (value.empty()) return;
+        SettingItem row;
+        row.label = i18n.tr(key, label);
+        row.type = ItemType::Info;
+        row.infoText = value;
+        info.items.push_back(std::move(row));
+    };
+    addInfo("game.play_time", "Play time", m_game.playTime);
+    addInfo("game.times_played", "Times played", m_game.timesPlayed);
+    addInfo("game.last_played", "Last played", m_game.lastPlayed);
+    addInfo("game.first_played", "First played", m_game.firstPlayed);
     m_tabs.push_back(std::move(info));
 
     Tab artwork;

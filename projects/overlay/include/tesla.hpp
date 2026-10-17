@@ -1,6 +1,7 @@
 // libtesla by WerWolv (GPL-2.0), https://github.com/WerWolv/libtesla at f766e9b607.
 // HomeNX changes: tsl::cfg::extraLaunchCombo (a second show/hide combo, L+ZL for Discord),
-// and every CJK font loaded with a per-character choice (Renderer::fontFor).
+// every CJK font loaded with a per-character choice (Renderer::fontFor, hasGlyph),
+// launchComboCloses and showAllowed (the overlay never shows over HOME).
 /**
  * Copyright (C) 2020 werwolv
  *
@@ -94,6 +95,7 @@ namespace tsl {
         extern u64 launchCombo;                 ///< Overlay activation key combo
         extern u64 extraLaunchCombo;            ///< HomeNX: a second combo that also shows/hides it (0 = none)
         extern bool launchComboCloses;          ///< HomeNX: while hidden, launchCombo exits back to the menu overlay
+        extern bool (*showAllowed)();           ///< HomeNX: asked before showing; false keeps it hidden (nullptr = always)
 
     }
 
@@ -757,6 +759,17 @@ namespace tsl {
              * @param color Text color. Use transparent color to skip drawing and only get the string's dimensions
              * @return Dimensions of drawn string
              */
+            /**
+             * @brief HomeNX: whether any of the console's fonts can draw this character
+             */
+            bool hasGlyph(u32 c) {
+                if (stbtt_FindGlyphIndex(&this->m_extFont, c) || stbtt_FindGlyphIndex(&this->m_stdFont, c)) return true;
+                if (this->m_hasLocalFont && stbtt_FindGlyphIndex(&this->m_localFont, c)) return true;
+                for (int i = 0; i < this->m_cjkCount; ++i)
+                    if (stbtt_FindGlyphIndex(&this->m_cjkFonts[i], c)) return true;
+                return false;
+            }
+
             std::pair<u32, u32> drawString(const char* string, bool monospace, s32 x, s32 y, float fontSize, Color color, ssize_t maxWidth = 0) {
                 s32 maxX = x;
                 s32 currX = x;
@@ -3467,7 +3480,7 @@ namespace tsl {
                             shData->running = false;
                             eventFire(&shData->comboEvent);
                         }
-                        else
+                        else if (!tsl::cfg::showAllowed || tsl::cfg::showAllowed())
                             eventFire(&shData->comboEvent);
                     }
 
@@ -3565,7 +3578,7 @@ namespace tsl {
 
         // Argument parsing
         for (u8 arg = 0; arg < argc; arg++) {
-            if (strcasecmp(argv[arg], "--skipCombo") == 0) {
+            if (strcasecmp(argv[arg], "--skipCombo") == 0 && (!tsl::cfg::showAllowed || tsl::cfg::showAllowed())) {
                 eventFire(&shData.comboEvent);
                 overlay->disableNextAnimation();
             }
@@ -3641,6 +3654,7 @@ namespace tsl::cfg {
     u64 launchCombo = HidNpadButton_L | HidNpadButton_Down | HidNpadButton_StickR;
     u64 extraLaunchCombo = 0;
     bool launchComboCloses = false;
+    bool (*showAllowed)() = nullptr;
 }
 
 extern "C" {

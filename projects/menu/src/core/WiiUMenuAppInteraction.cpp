@@ -2,6 +2,7 @@
 #include "widgets/GlossyIcon.hpp"
 #include "widgets/FolderPalette.hpp"
 #include "DebugLog.hpp"
+#include "friends/FriendStore.hpp"
 #ifdef SWITCHU_MENU
 #include <switchu/control_cache.hpp>
 #endif
@@ -1485,6 +1486,19 @@ void WiiUMenuApp::showGameContextMenu(GlossyIcon* icon) {
         game.hasLogoArt = std::filesystem::exists(
             SteamGridDbManager::logoPath(titleId), ec);
         game.hasIconArt = SteamGridDbManager::hasIcon(titleId);
+    }
+    // HomeNX: the player's play record (one pdm query, a millisecond or two).
+    AccountUid uid = activeProfileUid();
+    if (!accountUidIsValid(&uid) && !m_profiles.empty()) uid = m_profiles.front().uid;
+    if (accountUidIsValid(&uid)) {
+        const std::vector<PlayRecord> played = loadMyPlayHistory(uid, {titleId});
+        if (!played.empty()) {
+            const PlayRecord& r = played.front();
+            game.playTime = hoursText(r.minutes);
+            game.timesPlayed = std::to_string(r.launches);
+            if (r.lastPlayed > 0) game.lastPlayed = dateOf(r.lastPlayed) + "  (" + ago(r.lastPlayed) + ")";
+            if (r.firstPlayed > 0) game.firstPlayed = dateOf(r.firstPlayed);
+        }
     }
     m_gameOptions->setGame(game);
     m_gameOptions->onMove([this]() {
