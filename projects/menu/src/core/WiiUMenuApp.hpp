@@ -259,6 +259,12 @@ private:
     bool m_playJobStarted = false;
     std::string pillTitle(class GlossyIcon* icon) const;
     void updateHomeExtras();
+    // HomeNX's own controller pairing (Settings > Controllers > Change Grip/Order).
+    void pairController();
+    void stopPairing();
+    bool m_pairing = false;
+    std::uint32_t m_pairingCount = 0;
+    std::uint64_t m_pairingUntil = 0, m_pairingCheck = 0;
     float m_readbackPrepDelay = 1.5f;
     std::future<void> m_leaveFrameWrite; // background save of the return frame
     void scheduleLeaveCapture(std::function<void()> afterCapture,

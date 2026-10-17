@@ -18,7 +18,7 @@ SettingsScreen::Tab settings::tabs::ControllersTab::build(SettingsScreen& screen
         it.buttonLabel = i18n.tr("button.open", "Open");
         it.description = i18n.tr(
             "settings.controllers.pairing_desc",
-            "Pair controllers and change their player order.");
+            "Pair a wireless controller: press its SYNC button.");
         it.type = ItemType::Action;
         it.onChange = [&screen](SettingItem&) {
             if (screen.m_controllerPairingCb)

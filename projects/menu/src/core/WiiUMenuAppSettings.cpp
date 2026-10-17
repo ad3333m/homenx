@@ -432,11 +432,8 @@ void WiiUMenuApp::createSettings() {
         startSteamGridDbScrape();
     });
 #ifdef SWITCHU_MENU
-    m_settings->onControllerPairing([this]() {
-        if (m_settings) m_settings->hide();
-        m_navigator.resetToHome();
-        leaveThen([this]() { m_launcher.launchControllerPairing(); });
-    });
+    // HomeNX's own pairing instead of Nintendo's Change Grip/Order screen.
+    m_settings->onControllerPairing([this]() { pairController(); });
     m_settings->onControllerRemapping([this]() {
         if (m_settings) m_settings->hide();
         m_navigator.resetToHome();
@@ -1739,6 +1736,49 @@ void WiiUMenuApp::openReturnTimings() {
     m_dialog->show(i18n.tr("timing.title", "Return timing"), body,
                    {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
     focusManager().setFocus(m_dialog.get());
+}
+
+// HomeNX's own "Change Grip/Order": the console looks for a controller whose
+// SYNC button is pressed (30 seconds), without Nintendo's controller screen.
+// Joy-Con attached to the console pair by themselves.
+void WiiUMenuApp::pairController() {
+    auto& i18n = nxui::I18n::instance();
+    if (!m_dialog || m_pairing) return;
+    u32 paired = 0;
+    Result rc = btmsysInitialize();
+    if (R_SUCCEEDED(rc)) {
+        btmsysGetPairedGamepadCount(&paired);
+        rc = btmsysStartGamepadPairing();
+        if (R_FAILED(rc)) btmsysExit();
+    }
+    DebugLog::log("[pairing] start rc=0x%X paired=%u", rc, paired);
+    m_dialogReturnFocus = focusManager().current();
+    if (R_FAILED(rc)) {
+        m_dialog->show(i18n.tr("pairing.title", "Pair a controller"),
+                       i18n.tr("pairing.failed", "Pairing couldn't start.") + fmt::format(" (0x{:X})", rc),
+                       {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
+        return;
+    }
+    m_pairing = true;
+    m_pairingCount = paired;
+    m_pairingUntil = armGetSystemTick() + armNsToTicks(30'000'000'000ULL);
+    m_audio.playSfx(Sfx::ModalShow);
+    m_dialog->show(i18n.tr("pairing.title", "Pair a controller"),
+                   i18n.tr("pairing.body", "Press and hold the SYNC button on the controller until its lights "
+                                           "move: the small round button on a Pro Controller's top, or on the "
+                                           "rail side of a Joy-Con. Joy-Con attached to the console pair by "
+                                           "themselves."),
+                   {{i18n.tr("button.cancel", "Cancel"), [this]() { stopPairing(); }, true}}, 0,
+                   [this]() { stopPairing(); });
+    focusManager().setFocus(m_dialog.get());
+}
+
+void WiiUMenuApp::stopPairing() {
+    if (!m_pairing) return;
+    m_pairing = false;
+    btmsysCancelGamepadPairing();
+    btmsysExit();
 }
 
 // HomeNX's Mii Maker is in Social (Miis): make, change the looks of, name and

@@ -1152,6 +1152,26 @@ void WiiUMenuApp::updateHomeExtras() {
         m_launcher.enterSleep();
     }
 #endif
+    // Controller pairing: done when the console has one more paired, or after 30 s.
+    if (m_pairing && armGetSystemTick() >= m_pairingCheck) {
+        m_pairingCheck = armGetSystemTick() + armNsToTicks(400'000'000ULL);
+        u32 count = 0;
+        const bool paired = R_SUCCEEDED(btmsysGetPairedGamepadCount(&count)) && count > m_pairingCount;
+        if (paired || armGetSystemTick() >= m_pairingUntil) {
+            stopPairing();
+            DebugLog::log("[pairing] %s", paired ? "paired" : "timed out");
+            if (m_dialog) {
+                auto& i18n = nxui::I18n::instance();
+                m_audio.playSfx(paired ? Sfx::ConfirmPositive : Sfx::ModalShow);
+                m_dialog->show(i18n.tr("pairing.title", "Pair a controller"),
+                               paired ? i18n.tr("pairing.done", "Paired. The controller is ready to use.")
+                                      : i18n.tr("pairing.none", "No new controller paired. If its lights stopped "
+                                                                "flashing, it was already paired and is connected."),
+                               {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+                focusManager().setFocus(m_dialog.get());
+            }
+        }
+    }
     if (!m_playJobStarted && !m_allApps.empty()) {
         m_playJobStarted = true;
         AccountUid uid = activeProfileUid();
