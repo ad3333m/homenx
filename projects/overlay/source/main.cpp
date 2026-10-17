@@ -1128,6 +1128,8 @@ std::atomic<u64> g_noticeAt{0};     // when it came; 0 = nothing to show
 Notice g_openNotice;                // ZL was pressed on this one: the screen opens it
 bool g_openPending = false;
 std::atomic<bool> g_visible{false}; // the overlay is on screen
+std::map<std::string, std::string> g_unread; // chats with news for you: channel id -> server id ("" = DM)
+std::atomic<unsigned> g_unreadVersion{0};
 std::string g_meId;                 // our user id (under g_chatMu)
 
 bool noticeShowing() {
@@ -1761,6 +1763,8 @@ private:
         std::lock_guard<std::mutex> lk(g_noticeMu);
         g_notice = std::move(notice);
         g_noticeAt = g_notice.at;
+        g_unread[channel] = guild;
+        ++g_unreadVersion;
     }
 
     // Every few seconds: the game being played, and Discord told when it changes.
@@ -2107,6 +2111,11 @@ private:
             }
         }
         if (opening) openNotice(open);
+        if (g_unreadVersion != m_unreadSeen) {
+            std::lock_guard<std::mutex> lk(g_noticeMu);
+            m_unreadSeen = g_unreadVersion;
+            m_unread = g_unread;
+        }
         if (m_chatInfoReq && m_chatInfoReq->done) { // a server channel's name, opened from a notification
             if (m_chatInfoReq->status == 200) {
                 Json doc(m_chatInfoReq->body);
@@ -2622,6 +2631,10 @@ private:
             g_typingUntil = 0;
         }
         g_chatChanged = false;
+        {
+            std::lock_guard<std::mutex> lk(g_noticeMu);
+            if (g_unread.erase(m_chatId)) ++g_unreadVersion; // read now
+        }
         pollMessages();
     }
 
@@ -3055,6 +3068,17 @@ private:
             } else {
                 drawRound(r, s.icon, s.initials, (kRailW - 48) / 2, y, 48);
             }
+            int news = 0;
+            for (const auto& [channel, guild] : m_unread)
+                if (guild == s.id) ++news;
+            if (news) { // Discord's red badge
+                const std::string count = i == 0 ? std::to_string(std::min(news, 99)) : std::string();
+                const s32 bx = kRailW / 2 + 15, by = y + 40;
+                r->drawCircle(bx, by, 10, true, r->a(kRailBg));
+                r->drawCircle(bx, by, 8, true, r->a(kDnd));
+                if (!count.empty())
+                    r->drawString(count.c_str(), false, bx - widthOf(r, count, 12) / 2, by + 5, 12, r->a(kWhite));
+            }
             if (i == m_shownServer) r->drawRect(0, y + 8, 4, 32, r->a(kWhite)); // the white pill
             if (i == m_serverSel && m_onBar) {
                 r->drawCircle(kRailW / 2, y + 24, 26, false, r->a(kWhite));
@@ -3112,7 +3136,9 @@ private:
                         const s32 tx = lx + 60;
                         if (row.shown.empty()) row.shown = fit(r, row.title, 17, lx + lw - tx - 14);
                         const bool away = !p || p->status == "offline";
-                        const tsl::Color nameColor = sel && !m_onBar ? kWhite : away ? kMuted : kText;
+                        const bool news = m_unread.count(row.id) != 0;
+                        if (news) r->drawRect(lx, rowY + rh / 2 - 4, 4, 8, r->a(kWhite));
+                        const tsl::Color nameColor = sel && !m_onBar ? kWhite : news ? kWhite : away ? kMuted : kText;
                         if (p && !p->activity.empty()) {
                             r->drawString(row.shown.c_str(), false, tx, rowY + 22, 17, r->a(nameColor));
                             r->drawString(fit(r, p->activity, 12, lx + lw - tx - 14).c_str(), false, tx, rowY + 38,
@@ -3125,8 +3151,10 @@ private:
                         r->drawString("#", false, lx + 16, rowY + 25, 20, r->a(kChannel));
                         const s32 tx = lx + 36;
                         if (row.shown.empty()) row.shown = fit(r, row.title, 17, lx + lw - tx - 14);
+                        const bool news = m_unread.count(row.id) != 0;
+                        if (news) r->drawRect(lx, rowY + rh / 2 - 4, 4, 8, r->a(kWhite));
                         r->drawString(row.shown.c_str(), false, tx, rowY + 24, 17,
-                                      r->a(sel && !m_onBar ? kWhite : kChannel));
+                                      r->a((sel && !m_onBar) || news ? kWhite : kChannel));
                     }
                 }
                 rowY += rh;
@@ -3375,6 +3403,8 @@ private:
     std::string m_dmsError, m_channelsError;
     std::shared_ptr<Reply> m_meReq, m_dmReq, m_guildsReq, m_channelsReq, m_msgReq, m_sendReq, m_emojiReq, m_gifReq;
     std::shared_ptr<Reply> m_chatInfoReq;
+    std::map<std::string, std::string> m_unread; // copy of g_unread
+    unsigned m_unreadSeen = ~0u;
     std::string m_noticeLine;
     u64 m_noticeLineAt = 0;
     std::map<std::string, Held> m_pictures;
