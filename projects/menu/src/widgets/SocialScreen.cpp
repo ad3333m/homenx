@@ -726,8 +726,8 @@ void SocialScreen::drawMiiEditor(nxui::Renderer& ren, const nxui::Rect& r, float
         ren.drawTexture(t, big.shrunk(big.width * 0.04f), nxui::Color::white().withAlpha(current ? a : 0.55f * a));
     } else {
         const nxui::Color shade(0.62f, 0.66f, 0.74f, a);
-        ren.drawCircle({c.x, c.y - big.height * 0.1f}, big.width * 0.2f, shade, 32);
-        ren.drawCircle({c.x, c.y + big.height * 0.36f}, big.width * 0.3f, shade, 32);
+        ren.drawCircle({c.x, c.y - big.height * 0.12f}, big.width * 0.17f, shade, 32);
+        ren.drawCircle({c.x, c.y + big.height * 0.26f}, big.width * 0.21f, shade, 32);
     }
     const std::string name = m_edit.name.empty() ? i18n.tr("mii.no_name", "No name") : m_edit.name;
     ren.drawText(fit(m_smallFont, name, r.width - 40.f, 0.8f),
@@ -1339,10 +1339,10 @@ void SocialScreen::drawMii(nxui::Renderer& ren, const MiiEntry* mii, const nxui:
         ren.drawTexture(t, r.shrunk(r.width * 0.04f), nxui::Color::white().withAlpha(a));
         return;
     }
-    // Placeholder: a head and shoulders.
+    // Placeholder: a head and shoulders, inside the circle.
     const nxui::Color shade(0.62f, 0.66f, 0.74f, a);
-    ren.drawCircle({c.x, c.y - r.height * 0.1f}, r.width * 0.2f, shade, 32);
-    ren.drawCircle({c.x, c.y + r.height * 0.36f}, r.width * 0.3f, shade, 32);
+    ren.drawCircle({c.x, c.y - r.height * 0.12f}, r.width * 0.17f, shade, 32);
+    ren.drawCircle({c.x, c.y + r.height * 0.26f}, r.width * 0.21f, shade, 32);
 }
 
 void SocialScreen::drawMiis(nxui::Renderer& ren, const nxui::Rect& r, float a) {

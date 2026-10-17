@@ -403,6 +403,24 @@ void AppletLauncher::installBundledApps() {
     }
     if (ok && !std::filesystem::exists(kComboDone, ec))
         if (std::FILE* done = std::fopen(kComboDone, "wb")) std::fclose(done);
+
+    // An earlier Discord overlay set Ultrahand's overlay memory to 6 MB. That
+    // comes from the system's own pool, and hid then fataled (2001-0132) when
+    // HOME or a game started: back to the 4 MB default, once (the overlay does
+    // the same). A size chosen in Ultrahand afterwards is left alone.
+    constexpr const char* kHeap = "sdmc:/config/nx-ovlloader/heap_size.bin";
+    constexpr const char* kHeapRestored = "sdmc:/config/SwitchU/overlay_heap_restored";
+    if (!std::filesystem::exists(kHeapRestored, ec)) {
+        std::uint64_t size = 0;
+        if (std::FILE* f = std::fopen(kHeap, "rb")) {
+            if (std::fread(&size, sizeof(size), 1, f) != 1) size = 0;
+            std::fclose(f);
+        }
+        if (size == 0x600000) std::filesystem::remove(kHeap, ec);
+        if (std::FILE* done = std::fopen(kHeapRestored, "wb")) std::fclose(done);
+        DebugLog::log("[launcher] overlay memory was %llu bytes%s", (unsigned long long)size,
+                      size == 0x600000 ? ", back to the 4 MB default" : "");
+    }
 }
 
 namespace {

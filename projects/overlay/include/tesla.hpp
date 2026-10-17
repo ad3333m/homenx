@@ -2,7 +2,8 @@
 // HomeNX changes: tsl::cfg::extraLaunchCombo (a second show/hide combo, L+ZL for Discord),
 // every CJK font loaded with a per-character choice (Renderer::fontFor, hasGlyph),
 // launchComboCloses and showAllowed (the overlay never shows over HOME), a bounded glyph cache,
-// and drawing while hidden (Overlay::hasHiddenContent / drawHidden / hiddenKeyPress).
+// drawing while hidden (Overlay::hasHiddenContent / drawHidden / hiddenKeyPress), and
+// Ultrahand's fix to requestForeground (no stale aruid; a hid fatal 2001-0132).
 /**
  * Copyright (C) 2020 werwolv
  *
@@ -290,6 +291,9 @@ namespace tsl {
             u64 applicationAruid = 0, appletAruid = 0;
 
             for (u64 programId = 0x0100000000001000UL; programId < 0x0100000000001020UL; programId++) {
+                // HomeNX (as Ultrahand): reset each time; pmdmnt leaves it as it was on
+                // failure, and a stale one meant ~30 extra hid:sys calls per switch.
+                appletAruid = 0;
                 pmdmntGetProcessId(&appletAruid, programId);
 
                 if (appletAruid != 0)
@@ -297,7 +301,8 @@ namespace tsl {
             }
 
             pmdmntGetApplicationProcessId(&applicationAruid);
-            hidsysEnableAppletToGetInput(!enabled, applicationAruid);
+            if (applicationAruid != 0) // HomeNX: only when a game is running
+                hidsysEnableAppletToGetInput(!enabled, applicationAruid);
 
             hidsysEnableAppletToGetInput(true, 0);
         }
@@ -821,7 +826,7 @@ namespace tsl {
                     if (it == s_glyphCache.end()) {
                         // HomeNX: a bounded cache (an overlay has little memory; every
                         // glyph of every size used to stay forever).
-                        if (s_glyphCache.size() >= 1200) {
+                        if (s_glyphCache.size() >= 600) {
                             for (auto& entry : s_glyphCache) stbtt_FreeBitmap(entry.second.glyphBmp, nullptr);
                             s_glyphCache.clear();
                         }
@@ -3648,6 +3653,7 @@ namespace tsl {
                 drewHidden = want;
             }
             eventClear(&shData.comboEvent);
+            if (!shData.running) break; // HomeNX: closing while hidden, nothing to show
             shData.overlayOpen = true;
 
 

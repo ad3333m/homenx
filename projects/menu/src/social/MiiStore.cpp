@@ -232,5 +232,5 @@ std::string miiFaceUrl(const MiiCharInfo& c) {
         data += hex;
     }
     return "https://studio.mii.nintendo.com/miis/image.png?data=" + data
-         + "&type=face&expression=normal&width=256&bgColor=FFFFFF00";
+         + "&type=face&expression=normal&width=270&bgColor=FFFFFF00"; // Mii Studio's sizes: 96, 128, 270, 512
 }

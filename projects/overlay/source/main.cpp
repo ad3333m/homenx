@@ -39,6 +39,8 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
 #include <switchu/fancy_text.hpp>
 #include <yyjson.h>
 #include <zlib.h>
@@ -77,14 +79,16 @@ constexpr u64 kHomeMenu = 0x010000000000100DULL; // HomeNX's HOME menu
 constexpr s32 kW = 448, kH = 720;               // the overlay's framebuffer
 constexpr s32 kRailW = 64, kPanelH = 52;
 // Memory: decoded pictures kept, download sizes, and how big a GIF may animate.
-// An overlay gets 4 MB by default (Ultrahand's nx-ovlloader), its own code
-// and the 1.3 MB framebuffer included, so everything here is small.
-constexpr std::size_t kPictureBudget = 600u * 1024u;
-constexpr std::size_t kPictureBody = 512u * 1024u, kApiBody = 1024u * 1024u;
-constexpr int kGifFrames = 4, kGifPixels = 70000;
-constexpr int kMediaW = 240, kMediaH = 150; // pictures in a chat
+// An overlay gets 4 MB (Ultrahand's nx-ovlloader), its own ~1 MB of code and
+// the 1.3 MB framebuffer included, so everything here is small. More isn't an
+// option: that memory comes from the system's own pool, and with 6 MB hid had
+// none left when HOME or a game started (fatal 2001-0132).
+constexpr std::size_t kPictureBudget = 350u * 1024u;
+constexpr std::size_t kPictureBody = 384u * 1024u, kApiBody = 768u * 1024u;
+constexpr int kGifFrames = 4, kGifPixels = 50000;
+constexpr int kMediaW = 220, kMediaH = 140; // pictures in a chat
 constexpr const char* kHeapPath = "sdmc:/config/nx-ovlloader/heap_size.bin";
-constexpr u64 kWantHeap = 0x600000;         // 6 MB, one of Ultrahand's own choices
+constexpr const char* kHeapRestored = "sdmc:/config/SwitchU/overlay_heap_restored";
 
 // Discord's dark theme, as close as 4 bits a channel get.
 const tsl::Color kBg(0x3, 0x3, 0x3, 0xF);       // #313338 chat, #2B2D31 lists
@@ -635,6 +639,73 @@ std::vector<Account> loadAccounts(size_t& current) {
 
 std::atomic<bool> g_lookupsWork{true};
 
+// The console answers an overlay's own lookups ("busy, try again"), so the
+// overlay asks a DNS server itself: the console's own servers (nifm), then
+// Cloudflare's and Google's. One UDP question for the host's IPv4 addresses.
+std::vector<std::string> askDns(const std::string& host) {
+    std::vector<std::string> out;
+    std::vector<u32> servers; // network order
+    u32 ip = 0, mask = 0, gateway = 0, dns1 = 0, dns2 = 0;
+    if (R_SUCCEEDED(nifmGetCurrentIpConfigInfo(&ip, &mask, &gateway, &dns1, &dns2))) {
+        if (dns1) servers.push_back(dns1);
+        if (dns2 && dns2 != dns1) servers.push_back(dns2);
+    }
+    servers.push_back(inet_addr("1.1.1.1"));
+    servers.push_back(inet_addr("8.8.8.8"));
+    // The question: id, "recursion please", one A record for host.
+    u16 id = 0;
+    randomGet(&id, sizeof(id));
+    std::string q;
+    q += static_cast<char>(id >> 8);
+    q += static_cast<char>(id & 0xFF);
+    q += std::string("\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00", 10);
+    for (size_t a = 0; a <= host.size();) {
+        size_t b = host.find('.', a);
+        if (b == std::string::npos) b = host.size();
+        if (b - a == 0 || b - a > 63) return out;
+        q += static_cast<char>(b - a);
+        q += host.substr(a, b - a);
+        a = b + 1;
+    }
+    q += std::string("\x00\x00\x01\x00\x01", 5);
+    for (u32 server : servers) {
+        const int fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd < 0) continue;
+        timeval wait{1, 500000};
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof(wait));
+        sockaddr_in to{};
+        to.sin_family = AF_INET;
+        to.sin_port = htons(53);
+        to.sin_addr.s_addr = server;
+        u8 r[512];
+        ssize_t n = -1;
+        if (sendto(fd, q.data(), q.size(), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to)) == (ssize_t)q.size())
+            n = recv(fd, r, sizeof(r), 0);
+        close(fd);
+        if (n < 12 || r[0] != (id >> 8) || r[1] != (id & 0xFF) || (r[3] & 0x0F) != 0) continue;
+        const int answers = (r[6] << 8) | r[7];
+        size_t i = 12 + q.size() - 12; // past our question (echoed back)
+        for (int k = 0; k < answers && i + 12 <= (size_t)n; ++k) {
+            if ((r[i] & 0xC0) == 0xC0) i += 2; // a name: a pointer, or labels
+            else {
+                while (i < (size_t)n && r[i]) i += r[i] + 1u;
+                ++i;
+            }
+            if (i + 10 > (size_t)n) break;
+            const int type = (r[i] << 8) | r[i + 1], len = (r[i + 8] << 8) | r[i + 9];
+            i += 10;
+            if (type == 1 && len == 4 && i + 4 <= (size_t)n) {
+                char text[16];
+                std::snprintf(text, sizeof(text), "%u.%u.%u.%u", r[i], r[i + 1], r[i + 2], r[i + 3]);
+                out.push_back(text);
+            }
+            i += len;
+        }
+        if (!out.empty()) break;
+    }
+    return out;
+}
+
 // Where a host is. The console answers an overlay's own lookups with "busy,
 // try again", so after one failed try this uses the addresses HOME saved
 // (sdmc:/config/SwitchU/discord_hosts.txt, "host address" lines; HOME's lookups
@@ -656,6 +727,7 @@ std::vector<std::string> addressesOf(const std::string& host) {
         }
         if (res) freeaddrinfo(res);
     }
+    if (ips.empty()) ips = askDns(host);
     auto valid = [](const std::string& ip) {
         in_addr check{};
         return inet_pton(AF_INET, ip.c_str(), &check) == 1;
@@ -842,7 +914,7 @@ bool decodePicture(const std::string& body, int maxW, int maxH, bool animated, b
     int w = 0, h = 0, comp = 0;
     if (!stbi_info_from_memory(data, len, &w, &h, &comp)) return false;
     const bool gif = body.compare(0, 3, "GIF") == 0;
-    if (static_cast<uint64_t>(w) * h * (gif ? 9u : 4u) > (900u << 10)) return false;
+    if (static_cast<uint64_t>(w) * h * (gif ? 9u : 4u) > (600u << 10)) return false;
     stbi_uc* px = stbi_load_from_memory(data, len, &w, &h, &comp, 4);
     if (!px) return false;
     fitInto(w, h, maxW, maxH, out);
@@ -872,7 +944,7 @@ public:
         m_token = std::move(token);
         // Its own small stack: an overlay has only a few MB in all.
         m_running = R_SUCCEEDED(threadCreate(&m_thread, [](void* self) { static_cast<Net*>(self)->run(); },
-                                             this, nullptr, 0x20000, 0x2C, -2))
+                                             this, nullptr, 0x18000, 0x2C, -2))
                     && R_SUCCEEDED(threadStart(&m_thread));
     }
 
@@ -1035,6 +1107,7 @@ private:
         curl_easy_setopt(c, CURLOPT_URL, url.c_str());
         curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(c, CURLOPT_MAXCONNECTS, 1L); // a socket and a TLS session each: keep one
         curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, auth ? 0L : 1L); // no redirects for the token
         curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 8000L);
         curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, 20000L);
@@ -1521,7 +1594,7 @@ public:
         m_appId = trimmed(readFile("sdmc:/config/SwitchU/discord_app_id.txt"));
         if (m_appId.empty()) m_appId = kGameAppId;
         m_running = R_SUCCEEDED(threadCreate(&m_thread, [](void* self) { static_cast<Gateway*>(self)->run(); },
-                                             this, nullptr, 0x14000, 0x2C, -2))
+                                             this, nullptr, 0x10000, 0x2C, -2))
                     && R_SUCCEEDED(threadStart(&m_thread));
     }
 
@@ -3526,31 +3599,32 @@ private:
     s32 m_gScroll = 0;
 };
 
-// Ultrahand's nx-ovlloader gives overlays 4 MB unless set otherwise, and
-// Discord here needs more: ask for 6 MB (one of Ultrahand's own choices, in
-// its settings) unless something bigger is set. It applies from the next load.
-bool raiseOverlayMemory() {
+// An earlier build set Ultrahand's overlay memory to 6 MB, which starves the
+// system (hid fataled starting HOME and games): put it back to the 4 MB default
+// once. A size chosen in Ultrahand afterwards is left alone.
+bool restoreOverlayMemory() {
+    if (FILE* done = std::fopen(kHeapRestored, "rb")) {
+        std::fclose(done);
+        return false;
+    }
     u64 size = 0;
     if (FILE* f = std::fopen(kHeapPath, "rb")) {
         if (std::fread(&size, sizeof(size), 1, f) != 1) size = 0;
         std::fclose(f);
     }
-    if (size >= kWantHeap) return false;
-    mkdir("sdmc:/config/nx-ovlloader", 0777);
-    FILE* f = std::fopen(kHeapPath, "wb");
-    if (!f) return false;
-    const bool ok = std::fwrite(&kWantHeap, sizeof(kWantHeap), 1, f) == 1;
-    std::fclose(f);
-    return ok;
+    if (FILE* done = std::fopen(kHeapRestored, "wb")) std::fclose(done);
+    if (size != 0x600000) return false;
+    std::remove(kHeapPath);
+    return true;
 }
 
-// Shown for a moment while the overlay starts again with more memory.
+// Shown for a moment while the overlay starts again with less memory.
 class RestartGui : public tsl::Gui {
 public:
     tsl::elm::Element* createUI() override {
         return new Canvas([](tsl::gfx::Renderer* r) {
             r->fillScreen(r->a(kBg));
-            r->drawString("Giving Discord more memory...", false, 24, 60, 18, r->a(kText));
+            r->drawString("Freeing memory for the system...", false, 24, 60, 18, r->a(kText));
         });
     }
 };
@@ -3569,12 +3643,13 @@ public:
         m_pminfo = R_SUCCEEDED(pminfoInitialize());
         m_ns = R_SUCCEEDED(nsInitialize());
         m_time = R_SUCCEEDED(timeInitialize());
-        // Sockets sized like Ultrahand's downloader (an overlay has a few MB in total).
+        // Sockets: small buffers, so the pool (one socket at its largest plus
+        // UDP) holds the gateway's, a request's and a DNS question at once.
         static const SocketInitConfig kSockets = {
-            .tcp_tx_buf_size = 16 * 1024,
-            .tcp_rx_buf_size = 32 * 1024,
-            .tcp_tx_buf_max_size = 32 * 1024,
-            .tcp_rx_buf_max_size = 64 * 1024,
+            .tcp_tx_buf_size = 8 * 1024,
+            .tcp_rx_buf_size = 16 * 1024,
+            .tcp_tx_buf_max_size = 16 * 1024,
+            .tcp_rx_buf_max_size = 48 * 1024,
             .udp_tx_buf_size = 0x2400,
             .udp_rx_buf_size = 0xA500,
             .sb_efficiency = 1,
@@ -3630,7 +3705,7 @@ public:
     }
 
     std::unique_ptr<tsl::Gui> loadInitialGui() override {
-        if (raiseOverlayMemory()) { // start again with it
+        if (restoreOverlayMemory()) { // start again with 4 MB
             tsl::setNextOverlay(kSelfPath, "");
             close();
             return initially<RestartGui>();
