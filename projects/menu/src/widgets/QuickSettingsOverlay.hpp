@@ -74,6 +74,8 @@ public:
         std::function<void(bool)>  onAirplaneModeToggled;
         std::function<void(bool)>  onWifiToggled;
         std::function<void()>      onSleepRequested;
+        std::function<void()>      onSleepTimerCycle;          // HomeNX: X on Sleep
+        std::function<std::string()> onSleepTimerLabel;        // "25m" while one runs
         std::function<void()>      onRebootRequested;
         std::function<void()>      onShutdownRequested;
         std::function<void()>      onClose;

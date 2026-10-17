@@ -5605,6 +5605,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     pollRecentWidgetAssets();
     pollGameArtworkAssets();
     syncFolderHeader();
+    updateHomeExtras();
 
 #ifdef NXUI_BACKEND_DEKO3D
     // Text is cached as GPU textures. Keep a reserved image-memory margin for

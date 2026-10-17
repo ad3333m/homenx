@@ -56,6 +56,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 namespace {
@@ -75,9 +76,14 @@ constexpr u64 kHomeMenu = 0x010000000000100DULL; // HomeNX's HOME menu
 constexpr s32 kW = 448, kH = 720;               // the overlay's framebuffer
 constexpr s32 kRailW = 64, kPanelH = 52;
 // Memory: decoded pictures kept, download sizes, and how big a GIF may animate.
-constexpr std::size_t kPictureBudget = 1000u * 1024u;
-constexpr std::size_t kPictureBody = 1024u * 1024u, kApiBody = 1536u * 1024u;
-constexpr int kGifFrames = 6, kGifPixels = 140000;
+// An overlay gets 4 MB by default (Ultrahand's nx-ovlloader), its own code
+// and the 1.3 MB framebuffer included, so everything here is small.
+constexpr std::size_t kPictureBudget = 600u * 1024u;
+constexpr std::size_t kPictureBody = 512u * 1024u, kApiBody = 1024u * 1024u;
+constexpr int kGifFrames = 4, kGifPixels = 70000;
+constexpr int kMediaW = 240, kMediaH = 150; // pictures in a chat
+constexpr const char* kHeapPath = "sdmc:/config/nx-ovlloader/heap_size.bin";
+constexpr u64 kWantHeap = 0x600000;         // 6 MB, one of Ultrahand's own choices
 
 // Discord's dark theme, as close as 4 bits a channel get.
 const tsl::Color kBg(0x3, 0x3, 0x3, 0xF);       // #313338 chat, #2B2D31 lists
@@ -103,6 +109,14 @@ u64 nowMs() { return armTicksToNs(armGetSystemTick()) / 1'000'000ULL; }
 struct Json {
     yyjson_doc* doc;
     explicit Json(const std::string& s) : doc(yyjson_read(s.data(), s.size(), 0)) {}
+    // Parsed where it lies, no copy of the text (a reply can be most of a MB):
+    // `s` gets yyjson's padding and must outlive this.
+    struct InPlace {};
+    Json(std::string& s, InPlace) {
+        const size_t len = s.size();
+        s.append(YYJSON_PADDING_SIZE, '\0');
+        doc = yyjson_read_opts(s.data(), len, YYJSON_READ_INSITU, nullptr, nullptr);
+    }
     ~Json() { if (doc) yyjson_doc_free(doc); }
     Json(const Json&) = delete;
     Json& operator=(const Json&) = delete;
@@ -535,7 +549,7 @@ std::string sized(const std::string& url, int w, int h) {
     if (url.empty()) return url;
     std::string out = url + (url.find('?') == std::string::npos ? "?" : "&") + "format=png";
     if (w > 0 && h > 0) {
-        const float s = std::min(1.f, std::min(260.f / w, 160.f / h));
+        const float s = std::min(1.f, std::min((float)kMediaW / w, (float)kMediaH / h));
         out += "&width=" + std::to_string(std::max(1, static_cast<int>(w * s)))
              + "&height=" + std::to_string(std::max(1, static_cast<int>(h * s)));
     }
@@ -827,7 +841,7 @@ bool decodePicture(const std::string& body, int maxW, int maxH, bool animated, b
     int w = 0, h = 0, comp = 0;
     if (!stbi_info_from_memory(data, len, &w, &h, &comp)) return false;
     const bool gif = body.compare(0, 3, "GIF") == 0;
-    if (static_cast<uint64_t>(w) * h * (gif ? 9u : 4u) > (1600u << 10)) return false;
+    if (static_cast<uint64_t>(w) * h * (gif ? 9u : 4u) > (900u << 10)) return false;
     stbi_uc* px = stbi_load_from_memory(data, len, &w, &h, &comp, 4);
     if (!px) return false;
     fitInto(w, h, maxW, maxH, out);
@@ -857,7 +871,7 @@ public:
         m_token = std::move(token);
         // Its own small stack: an overlay has only a few MB in all.
         m_running = R_SUCCEEDED(threadCreate(&m_thread, [](void* self) { static_cast<Net*>(self)->run(); },
-                                             this, nullptr, 0x40000, 0x2C, -2))
+                                             this, nullptr, 0x20000, 0x2C, -2))
                     && R_SUCCEEDED(threadStart(&m_thread));
     }
 
@@ -1199,7 +1213,7 @@ public:
     template <class Data, class End>
     bool poll(Data& onData, End& onEnd) {
         if (!m_open) return false;
-        char buf[16384];
+        char buf[8192];
         for (;;) {
             size_t n = 0;
             const CURLcode rc = curl_easy_recv(m_c, buf, sizeof(buf), &n);
@@ -1347,27 +1361,28 @@ public:
 private:
     z_stream m_z{};
     bool m_ok = false;
-    char m_buf[16384];
+    char m_buf[8192];
 };
 
-// Picks one array (merged_presences.friends) out of a message as it streams
-// by, so READY_SUPPLEMENTAL is never held whole.
-struct ArrayScan {
-    bool inString = false, escaped = false, wantArray = false, capturing = false, done = false;
-    int depth = 0, captureDepth = 0;
-    std::string word, lastWord, out;
+// Friends' presences (merged_presences.friends) picked out of a message as it
+// streams by, one small object at a time: READY_SUPPLEMENTAL is never held whole.
+struct FriendScan {
+    bool inString = false, escaped = false, wantArray = false, inArray = false, done = false;
+    int depth = 0, arrayDepth = 0;
+    std::string word, lastWord, item;
+    std::vector<std::pair<std::string, Presence>> found;
+
+    void take() {
+        Json doc(item);
+        if (doc.root() && found.size() < 2000) found.emplace_back(str(doc.root(), "user_id"), presenceOf(doc.root()));
+    }
 
     void feed(const char* p, size_t n) {
         for (size_t i = 0; i < n && !done; ++i) {
             const char c = p[i];
-            if (capturing) {
-                out += c;
-                if (out.size() > (384u << 10)) { // more friends online than an overlay holds
-                    out.clear();
-                    capturing = false;
-                    done = true;
-                    return;
-                }
+            if (!item.empty()) {
+                item += c;
+                if (item.size() > 16384) item.clear(); // an odd one: skipped
             }
             if (inString) {
                 if (escaped) escaped = false;
@@ -1385,25 +1400,30 @@ struct ArrayScan {
                     wantArray = false;
                     break;
                 case ':':
-                    wantArray = lastWord == "friends";
+                    wantArray = !inArray && lastWord == "friends";
                     break;
                 case '[':
                     ++depth;
-                    if (wantArray && !capturing) {
-                        capturing = true;
-                        captureDepth = depth;
-                        out = "[";
+                    if (wantArray) {
+                        inArray = true;
+                        arrayDepth = depth;
                     }
                     wantArray = false;
                     break;
                 case '{':
                     ++depth;
                     wantArray = false;
+                    if (inArray && depth == arrayDepth + 1) item = "{";
+                    break;
+                case '}':
+                    if (inArray && depth == arrayDepth + 1 && !item.empty()) {
+                        take();
+                        item.clear();
+                    }
+                    --depth;
                     break;
                 case ']':
-                case '}':
-                    if (capturing && depth == captureDepth) {
-                        capturing = false;
+                    if (inArray && depth == arrayDepth) {
                         done = true;
                         return;
                     }
@@ -1467,7 +1487,7 @@ public:
         m_appId = trimmed(readFile("sdmc:/config/SwitchU/discord_app_id.txt"));
         if (m_appId.empty()) m_appId = kGameAppId;
         m_running = R_SUCCEEDED(threadCreate(&m_thread, [](void* self) { static_cast<Gateway*>(self)->run(); },
-                                             this, nullptr, 0x20000, 0x2C, -2))
+                                             this, nullptr, 0x14000, 0x2C, -2))
                     && R_SUCCEEDED(threadStart(&m_thread));
     }
 
@@ -1481,10 +1501,10 @@ public:
 
 private:
     struct Incoming { // one gateway message, as it inflates
-        static constexpr size_t kHeadCap = 64u << 10;
-        std::string head; // the first 64 KB: all of a small message
+        static constexpr size_t kHeadCap = 32u << 10;
+        std::string head; // the first 32 KB: all of a small message
         bool cut = false;
-        ArrayScan friends;
+        FriendScan friends;
         void add(const char* p, size_t n) {
             const size_t room = head.size() < kHeadCap ? kHeadCap - head.size() : 0;
             head.append(p, std::min(room, n));
@@ -1669,12 +1689,9 @@ private:
             m_nextGame = nowMs() + 2000; // our status (SESSIONS_REPLACE) comes just after
             std::lock_guard<std::mutex> lk(g_chatMu);
             g_subscribe = !g_openGuild.empty(); // a new connection: subscribe again
-        } else if (t == "READY_SUPPLEMENTAL" && m_msg.friends.done) {
-            Json doc(m_msg.friends.out);
+        } else if (t == "READY_SUPPLEMENTAL") {
             std::lock_guard<std::mutex> lk(g_presenceMu);
-            size_t i, n;
-            yyjson_val* p;
-            yyjson_arr_foreach(doc.root(), i, n, p) g_presences[str(p, "user_id")] = presenceOf(p);
+            for (auto& [id, presence] : m_msg.friends.found) g_presences[id] = std::move(presence);
             g_presencesLoaded = true;
             ++g_presenceVersion;
         }
@@ -1839,6 +1856,19 @@ std::string whenOf(const std::string& id) {
     return buf;
 }
 
+#include "discord_mark.inc"
+
+// Discord's mark (white) centred at cx, cy.
+void drawMark(tsl::gfx::Renderer* r, s32 cx, s32 cy) {
+    const s32 x0 = cx - kMarkW / 2, y0 = cy - kMarkH / 2;
+    for (s32 y = 0; y < kMarkH; ++y)
+        for (s32 x = 0; x < kMarkW; ++x) {
+            const char d = kMarkAlpha[y * kMarkW + x];
+            const u8 a = static_cast<u8>(d <= '9' ? d - '0' : d - 'A' + 10);
+            if (a) r->setPixelBlendSrc(x0 + x, y0 + y, r->a(tsl::Color(0xF, 0xF, 0xF, a)));
+        }
+}
+
 // The emoji picker's own list: the ones people use most.
 const char* const kStandardEmoji =
     "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 "
@@ -1939,6 +1969,8 @@ private:
     struct Held {
         std::shared_ptr<Reply> reply;
         u64 used = 0;
+        u64 failedAt = 0; // when it was seen failing
+        int tries = 1;
     };
     enum class Typing { Message, GifSearch };
 
@@ -2128,9 +2160,21 @@ private:
             if (g_net.waitingPictures() > 16) return nullptr; // ask again in a moment
             it = m_pictures.emplace(key, Held{g_net.picture(url, fallback, w, h, animated, round), 0}).first;
         }
-        it->second.used = armGetSystemTick();
-        const Reply& r = *it->second.reply;
-        return r.done && !r.picture.px.empty() ? &r.picture : nullptr;
+        Held& held = it->second;
+        held.used = armGetSystemTick();
+        if (!held.reply->done) return nullptr;
+        if (!held.reply->picture.px.empty()) return &held.reply->picture;
+        // Failed (often only for want of memory at that moment): try again in a
+        // little while, a few times.
+        const u64 now = nowMs();
+        if (!held.failedAt) {
+            held.failedAt = now;
+        } else if (now - held.failedAt > 5000 && held.tries < 4 && g_net.waitingPictures() <= 8) {
+            held.reply = g_net.picture(url, fallback, w, h, animated, round);
+            held.failedAt = 0;
+            ++held.tries;
+        }
+        return nullptr;
     }
 
     // The least recently drawn pictures go when they take more than the budget.
@@ -2172,7 +2216,7 @@ private:
         }
         r->drawCircle(x + size / 2, y + size / 2, size / 2, true, r->a(kSelected));
         if (!letters.empty()) {
-            const float fs = size * 0.38f;
+            const float fs = size >= 44 ? 18.f : 15.f;
             r->drawString(letters.c_str(), false, x + (size - widthOf(r, letters, fs)) / 2,
                           y + size / 2 + (s32)(fs * 0.36f), fs, r->a(kText));
         }
@@ -2278,7 +2322,7 @@ private:
         }
         struct Dm { std::string id, title, last, avatar, userId; };
         std::vector<Dm> dms;
-        Json doc(m_dmReq->body);
+        Json doc(m_dmReq->body, Json::InPlace{});
         size_t i, n;
         yyjson_val* c;
         yyjson_arr_foreach(doc.root(), i, n, c) {
@@ -2310,7 +2354,7 @@ private:
 
     void buildServers() {
         if (m_guildsReq->status != 200) return; // DMs still work; the bar stays empty
-        Json doc(m_guildsReq->body);
+        Json doc(m_guildsReq->body, Json::InPlace{});
         size_t i, n;
         yyjson_val* g;
         yyjson_arr_foreach(doc.root(), i, n, g) {
@@ -2359,7 +2403,7 @@ private:
         }
         struct Ch { std::string id, name, parent; long pos, type; };
         std::vector<Ch> cats, texts;
-        Json doc(m_channelsReq->body);
+        Json doc(m_channelsReq->body, Json::InPlace{});
         size_t i, n;
         yyjson_val* c;
         yyjson_arr_foreach(doc.root(), i, n, c) {
@@ -2434,7 +2478,7 @@ private:
         }
         m_chatLoaded = true;
         m_chatError.clear();
-        Json doc(m_msgReq->body);
+        Json doc(m_msgReq->body, Json::InPlace{});
         std::vector<Msg> fresh;
         size_t i, n;
         yyjson_val* m;
@@ -2674,7 +2718,7 @@ private:
 
     void takeServerEmoji() {
         if (m_emojiReq->status != 200) return;
-        Json doc(m_emojiReq->body);
+        Json doc(m_emojiReq->body, Json::InPlace{});
         std::vector<EmojiItem>& items = m_serverEmoji[m_emojiFor];
         size_t i, n;
         yyjson_val* e;
@@ -2740,7 +2784,7 @@ private:
             m_gifError = problem(*m_gifReq);
             return;
         }
-        Json doc(m_gifReq->body);
+        Json doc(m_gifReq->body, Json::InPlace{});
         yyjson_val* list = yyjson_is_arr(doc.root()) ? doc.root() : yyjson_obj_get(doc.root(), "gifs");
         size_t i, n;
         yyjson_val* g;
@@ -2837,7 +2881,7 @@ private:
             const Server& s = m_servers[(size_t)i];
             if (i == 0) { // Direct Messages: Discord's blurple
                 r->drawCircle(kRailW / 2, y + 24, 24, true, r->a(kBlurple));
-                r->drawString("DM", false, kRailW / 2 - widthOf(r, "DM", 17) / 2, y + 30, 17, r->a(kWhite));
+                drawMark(r, kRailW / 2, y + 24);
             } else {
                 drawRound(r, s.icon, s.initials, (kRailW - 48) / 2, y, 48);
             }
@@ -2923,8 +2967,8 @@ private:
     }
 
     static s32 mediaHeight(const Media& md) {
-        const float w = md.w > 0 ? (float)md.w : 260.f, hh = md.h > 0 ? (float)md.h : 146.f;
-        const float s = std::min(1.f, std::min(260.f / w, 160.f / hh));
+        const float w = md.w > 0 ? (float)md.w : kMediaW, hh = md.h > 0 ? (float)md.h : kMediaH;
+        const float s = std::min(1.f, std::min(kMediaW / w, kMediaH / hh));
         return std::max(24, (int)(hh * s));
     }
 
@@ -2995,10 +3039,10 @@ private:
                     ly += lineH;
                 }
                 for (const Media& md : it->media) {
-                    const float w = md.w > 0 ? (float)md.w : 260.f, hh = md.h > 0 ? (float)md.h : 146.f;
-                    const float s = std::min(1.f, std::min(260.f / w, 160.f / hh));
+                    const float w = md.w > 0 ? (float)md.w : kMediaW, hh = md.h > 0 ? (float)md.h : kMediaH;
+                    const float s = std::min(1.f, std::min(kMediaW / w, kMediaH / hh));
                     const s32 boxW = std::max(24, (int)(w * s)), boxH = mediaHeight(md);
-                    if (const Picture* p = picture(md.url, md.fallback, 260, 160, md.animated, false))
+                    if (const Picture* p = picture(md.url, md.fallback, kMediaW, kMediaH, md.animated, false))
                         blit(r, *p, tx, ly + 2);
                     else
                         roundRect(r, tx, ly + 2, boxW, boxH, 4, kInput);
@@ -3193,6 +3237,35 @@ private:
     s32 m_gScroll = 0;
 };
 
+// Ultrahand's nx-ovlloader gives overlays 4 MB unless set otherwise, and
+// Discord here needs more: ask for 6 MB (one of Ultrahand's own choices, in
+// its settings) unless something bigger is set. It applies from the next load.
+bool raiseOverlayMemory() {
+    u64 size = 0;
+    if (FILE* f = std::fopen(kHeapPath, "rb")) {
+        if (std::fread(&size, sizeof(size), 1, f) != 1) size = 0;
+        std::fclose(f);
+    }
+    if (size >= kWantHeap) return false;
+    mkdir("sdmc:/config/nx-ovlloader", 0777);
+    FILE* f = std::fopen(kHeapPath, "wb");
+    if (!f) return false;
+    const bool ok = std::fwrite(&kWantHeap, sizeof(kWantHeap), 1, f) == 1;
+    std::fclose(f);
+    return ok;
+}
+
+// Shown for a moment while the overlay starts again with more memory.
+class RestartGui : public tsl::Gui {
+public:
+    tsl::elm::Element* createUI() override {
+        return new Canvas([](tsl::gfx::Renderer* r) {
+            r->fillScreen(r->a(kBg));
+            r->drawString("Giving Discord more memory...", false, 24, 60, 18, r->a(kText));
+        });
+    }
+};
+
 class DiscordOverlay : public tsl::Overlay {
 public:
     void initServices() override {
@@ -3214,8 +3287,8 @@ public:
         static const SocketInitConfig kSockets = {
             .tcp_tx_buf_size = 16 * 1024,
             .tcp_rx_buf_size = 32 * 1024,
-            .tcp_tx_buf_max_size = 64 * 1024,
-            .tcp_rx_buf_max_size = 96 * 1024,
+            .tcp_tx_buf_max_size = 32 * 1024,
+            .tcp_rx_buf_max_size = 64 * 1024,
             .udp_tx_buf_size = 0x2400,
             .udp_rx_buf_size = 0xA500,
             .sb_efficiency = 1,
@@ -3250,6 +3323,11 @@ public:
     void onShow() override { tsl::cfg::extraLaunchCombo = kCombo; }
 
     std::unique_ptr<tsl::Gui> loadInitialGui() override {
+        if (raiseOverlayMemory()) { // start again with it
+            tsl::setNextOverlay(kSelfPath, "");
+            close();
+            return initially<RestartGui>();
+        }
         size_t current = 0;
         std::vector<Account> accounts = loadAccounts(current);
         if (!accounts.empty() && g_startProblem.empty()) {

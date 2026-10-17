@@ -55,11 +55,19 @@ void DateTimeWidget::onContentRender(nxui::Renderer& ren) {
     float contentH = timeSz.y + 2.f + dateSz.y * 0.7f;
     float tx = cr.x + (cr.width - timeSz.x) * 0.5f;
     float ty = cr.y + (cr.height - contentH) * 0.5f;
-    ren.drawText(m_timeStr, {tx, ty}, m_font, m_textColor.withAlpha(m_opacity), 1.f);
+    // HomeNX: a new minute needs a new text texture, and when HOME's GPU memory
+    // is short that can fail for a while: show the last time drawn meanwhile
+    // (kept cached by being drawn) instead of nothing.
+    auto drawOrLast = [&](nxui::Font* font, const std::string& text, std::string& last, float x, float y,
+                          const nxui::Color& color, float scale) {
+        if (font->draw(ren, text, {x, y}, color, scale)) last = text;
+        else if (!last.empty()) font->draw(ren, last, {x, y}, color, scale);
+    };
+    drawOrLast(m_font, m_timeStr, m_shownTime, tx, ty, m_textColor.withAlpha(m_opacity), 1.f);
 
     float dx = cr.x + (cr.width - dateSz.x * 0.7f) * 0.5f;
     float dy = ty + timeSz.y + 2.f;
-    ren.drawText(m_dateStr, {dx, dy}, sf, m_secondaryColor.withAlpha(m_opacity), 0.7f);
+    drawOrLast(sf, m_dateStr, m_shownDate, dx, dy, m_secondaryColor.withAlpha(m_opacity), 0.7f);
 }
 
 nxui::Vec2 DateTimeWidget::computeContentSize() const {

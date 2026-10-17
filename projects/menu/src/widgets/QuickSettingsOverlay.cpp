@@ -1515,6 +1515,11 @@ void QuickSettingsOverlay::setupNavigationActions() {
 
     addAction(static_cast<uint64_t>(nxui::Button::X), [this]() {
         if (!m_active || m_coverFullscreen) return;
+        // HomeNX: X on Sleep sets a sleep timer (off, 15, 30, 60, 90 min).
+        if (!m_playlistOpen && m_selectedItem == ItemIndex::PowerActions && m_selectedPower == PowerAction::Sleep) {
+            if (m_callbacks.onSleepTimerCycle) m_callbacks.onSleepTimerCycle();
+            return;
+        }
         if (!m_playlistOpen || m_playlistFocusParked || m_playlistReorderMode) return;
         if (!hasPlaylistCover()) return;
         togglePlaylistArtVisible();
@@ -3055,7 +3060,12 @@ void QuickSettingsOverlay::render(nxui::Renderer& ren) {
         }
     };
 
-    drawPowerBtn(PowerAction::Sleep, i18n.tr("quicksettings.sleep", "Sleep"));
+    {
+        // HomeNX: a running sleep timer shows on the button.
+        const std::string left = m_callbacks.onSleepTimerLabel ? m_callbacks.onSleepTimerLabel() : std::string();
+        drawPowerBtn(PowerAction::Sleep, left.empty() ? i18n.tr("quicksettings.sleep", "Sleep")
+                                                      : i18n.tr("quicksettings.sleep", "Sleep") + " " + left);
+    }
     drawPowerBtn(PowerAction::Reboot, i18n.tr("quicksettings.reboot", "Reboot"));
     drawPowerBtn(PowerAction::Shutdown, i18n.tr("quicksettings.power_off", "Power Off"));
 

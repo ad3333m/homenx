@@ -22,8 +22,9 @@ public:
     bool load(GpuDevice& gpu, Renderer& ren,
               const std::string& path, int ptSize);
 
-    // Render a string to a texture (cached) and draw it
-    void draw(Renderer& ren, const std::string& text,
+    // Render a string to a texture (cached) and draw it. False when it
+    // couldn't be drawn this frame (no room for its texture yet).
+    bool draw(Renderer& ren, const std::string& text,
               const Vec2& pos, const Color& color, float scale = 1.f);
 
     // Measure text dimensions

@@ -706,6 +706,20 @@ void WiiUMenuApp::createQuickSettings() {
     callbacks.onMusicQueryFolderCover = [this](const std::string& folder) -> const std::vector<uint8_t>* {
         return m_audio.folderCoverArt(folder);
     };
+    // HomeNX: a sleep timer, for falling asleep to HOME's music.
+    callbacks.onSleepTimerCycle = [this]() {
+        static const int kMinutes[] = {0, 15, 30, 60, 90};
+        m_sleepTimerStep = (m_sleepTimerStep + 1) % 5;
+        const int minutes = kMinutes[m_sleepTimerStep];
+        m_sleepTimerEnd = minutes ? armGetSystemTick() + armNsToTicks(minutes * 60'000'000'000ULL) : 0;
+        DebugLog::log("[sleep-timer] %d min", minutes);
+    };
+    callbacks.onSleepTimerLabel = [this]() -> std::string {
+        if (!m_sleepTimerEnd) return {};
+        const std::uint64_t now = armGetSystemTick();
+        const std::uint64_t left = m_sleepTimerEnd > now ? armTicksToNs(m_sleepTimerEnd - now) / 1'000'000'000ULL : 0;
+        return std::to_string((left + 59) / 60) + "m";
+    };
     callbacks.onSleepRequested = [this]() {
         if (!m_dialog) return;
         auto& i18n = nxui::I18n::instance();

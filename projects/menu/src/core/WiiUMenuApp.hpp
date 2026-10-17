@@ -250,6 +250,15 @@ private:
     std::uint64_t m_launchTitleId = 0;
     std::string m_launchTitleName;
     AccountUid m_launchUid{};
+    // HomeNX: Quick Settings' sleep timer (end tick, 0 = off) and its choice.
+    std::uint64_t m_sleepTimerEnd = 0;
+    int m_sleepTimerStep = 0;
+    // HomeNX: minutes played per game, for the title pill (loaded on a worker).
+    std::unordered_map<std::uint64_t, std::uint64_t> m_playMinutes;
+    std::shared_ptr<struct PlayTimesJob> m_playJob;
+    bool m_playJobStarted = false;
+    std::string pillTitle(class GlossyIcon* icon) const;
+    void updateHomeExtras();
     float m_readbackPrepDelay = 1.5f;
     std::future<void> m_leaveFrameWrite; // background save of the return frame
     void scheduleLeaveCapture(std::function<void()> afterCapture,

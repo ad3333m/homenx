@@ -246,16 +246,17 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
     return &m_lruList.front().tex;
 }
 
-void Font::draw(Renderer& ren, const std::string& text,
+bool Font::draw(Renderer& ren, const std::string& text,
                 const Vec2& pos, const Color& color, float scale) {
-    if (!m_font || !m_gpu || text.empty()) return;
+    if (!m_font || !m_gpu || text.empty()) return false;
 
     Texture* tex = getOrRender(*m_gpu, ren, text);
-    if (!tex || !tex->valid()) return;
+    if (!tex || !tex->valid()) return false;
 
     float w = tex->width()  * scale;
     float h = tex->height() * scale;
     ren.drawTexture(tex, {pos.x, pos.y, w, h}, color);
+    return true;
 }
 
 } // namespace nxui

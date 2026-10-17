@@ -3,6 +3,9 @@
 #include "widgets/FolderPalette.hpp"
 #include "DebugLog.hpp"
 #include "friends/FriendStore.hpp"
+#include "core/BackgroundThread.hpp"
+#include <nxui/core/ThreadPool.hpp>
+#include <mutex>
 #ifdef SWITCHU_MENU
 #include <switchu/control_cache.hpp>
 #endif
@@ -575,7 +578,7 @@ void WiiUMenuApp::exitEditMode() {
     auto* cur = focusManager().current();
     if (isEditableIcon(cur)) {
         auto* icon = static_cast<GlossyIcon*>(cur);
-        m_titlePill->setText(icon->title());
+        m_titlePill->setText(pillTitle(icon));
         m_titlePill->setVisible(true);
     } else {
         m_titlePill->hideAnimated();
@@ -1093,12 +1096,7 @@ void WiiUMenuApp::wireFocusCallback() {
                 m_titlePill->hideAnimated();
                 return;
             }
-#ifdef SWITCHU_MENU
-            if (m_launcher.isAppSuspended(icon->titleId())) {
-                m_titlePill->setText(icon->title());
-            } else
-#endif
-            m_titlePill->setText(icon->title());
+            m_titlePill->setText(pillTitle(icon));
             m_titlePill->setVisible(true);
         } else if (cur) {
             if (m_editMode)
@@ -1124,7 +1122,62 @@ void WiiUMenuApp::wireFocusCallback() {
         if (cur->tag() == "glossy_icon") {
             auto* icon = static_cast<GlossyIcon*>(cur);
             if (icon->titleId() != 0)
-                m_titlePill->setText(icon->title());
+                m_titlePill->setText(pillTitle(icon));
+        }
+    }
+}
+
+// HomeNX: work on a worker thread for the title pill's play times.
+struct PlayTimesJob {
+    std::mutex mu;
+    bool done = false;
+    std::vector<PlayRecord> records;
+};
+
+// A game's name in the title pill, with how long you've played it.
+std::string WiiUMenuApp::pillTitle(GlossyIcon* icon) const {
+    std::string text = icon->title();
+    auto it = m_playMinutes.find(icon->titleId());
+    if (it != m_playMinutes.end() && it->second > 0) text += "  \xC2\xB7  " + hoursText(it->second);
+    return text;
+}
+
+// HomeNX: once a frame, cheap. The sleep timer, and the play times arriving.
+void WiiUMenuApp::updateHomeExtras() {
+#ifdef SWITCHU_MENU
+    if (m_sleepTimerEnd && armGetSystemTick() >= m_sleepTimerEnd) {
+        m_sleepTimerEnd = 0;
+        m_sleepTimerStep = 0;
+        DebugLog::log("[sleep-timer] sleeping");
+        m_launcher.enterSleep();
+    }
+#endif
+    if (!m_playJobStarted && !m_allApps.empty()) {
+        m_playJobStarted = true;
+        AccountUid uid = activeProfileUid();
+        if (!accountUidIsValid(&uid) && !m_profiles.empty()) uid = m_profiles.front().uid;
+        if (!accountUidIsValid(&uid)) return;
+        std::vector<std::uint64_t> ids;
+        for (const AppEntry& app : m_allApps)
+            if (app.isApplication() && app.titleId != 0) ids.push_back(app.titleId);
+        auto job = std::make_shared<PlayTimesJob>();
+        m_playJob = job;
+        runInBackground([job, uid, ids = std::move(ids)]() {
+            nxui::moveToWorkerCores();
+            std::vector<PlayRecord> records = loadMyPlayHistory(uid, ids);
+            std::lock_guard<std::mutex> lk(job->mu);
+            job->records = std::move(records);
+            job->done = true;
+        });
+    }
+    if (m_playJob) {
+        std::lock_guard<std::mutex> lk(m_playJob->mu);
+        if (!m_playJob->done) return;
+        for (const PlayRecord& r : m_playJob->records) m_playMinutes[r.titleId] = r.minutes;
+        m_playJob.reset();
+        if (auto* cur = focusManager().current(); cur && cur->tag() == "glossy_icon" && !m_editMode) {
+            auto* icon = static_cast<GlossyIcon*>(cur);
+            if (icon->titleId() != 0 && m_titlePill && m_titlePill->isVisible()) m_titlePill->setText(pillTitle(icon));
         }
     }
 }
@@ -1195,7 +1248,7 @@ void WiiUMenuApp::markSuspendedIcon(uint64_t titleId) {
 
     if (auto* cur = m_grid ? m_grid->focusManager().current() : nullptr) {
         auto* icon = static_cast<GlossyIcon*>(cur);
-        m_titlePill->setText(icon->title());
+        m_titlePill->setText(pillTitle(icon));
     }
 }
 

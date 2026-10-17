@@ -1,7 +1,7 @@
 // libtesla by WerWolv (GPL-2.0), https://github.com/WerWolv/libtesla at f766e9b607.
 // HomeNX changes: tsl::cfg::extraLaunchCombo (a second show/hide combo, L+ZL for Discord),
 // every CJK font loaded with a per-character choice (Renderer::fontFor, hasGlyph),
-// launchComboCloses and showAllowed (the overlay never shows over HOME).
+// launchComboCloses and showAllowed (the overlay never shows over HOME), a bounded glyph cache.
 /**
  * Copyright (C) 2020 werwolv
  *
@@ -818,6 +818,12 @@ namespace tsl {
 
                     auto it = s_glyphCache.find(key);
                     if (it == s_glyphCache.end()) {
+                        // HomeNX: a bounded cache (an overlay has little memory; every
+                        // glyph of every size used to stay forever).
+                        if (s_glyphCache.size() >= 1200) {
+                            for (auto& entry : s_glyphCache) stbtt_FreeBitmap(entry.second.glyphBmp, nullptr);
+                            s_glyphCache.clear();
+                        }
                         /* Cache glyph */
                         glyph = &s_glyphCache.emplace(key, Glyph()).first->second;
 
