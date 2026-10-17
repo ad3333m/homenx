@@ -108,6 +108,7 @@ public:
     void setCallbacks(const Callbacks& cb) { m_callbacks = cb; }
 
     void show();
+    void showPlaylist() { openPlaylist(); } // HomeNX: the sidebar's Music button
     void hide();
     bool isActive() const { return m_active || m_animating; }
     bool isFullyVisible() const { return m_active && !m_animating; }

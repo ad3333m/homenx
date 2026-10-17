@@ -51,6 +51,9 @@ public:
     // uid: whose friends; name/avatar: shown as "you".
     void show(AccountUid uid, std::string name, std::shared_ptr<nxui::Texture> avatar);
     void hide();
+    // Straight to a page: your Miis (the Mii Maker), or your profile.
+    void showMiisPage() { openMiis(); }
+    void showProfilePage();
     bool isActive() const { return m_active || m_anim > 0.001f; }
     bool isOpen() const { return m_active; }
     void handleTouch(const nxui::Input& in);
@@ -99,7 +102,7 @@ private:
         MiiEntry mii;
     };
     enum class JobKind { None, Requests, Accept, Reject, Lookup, Send,
-                         MiiLoad, MiiRandom, MiiAdd, MiiRename, MiiDelete };
+                         MiiLoad, MiiRandom, MiiAdd, MiiRename, MiiDelete, MiiSave };
     struct FaceJob { // Mii faces from Mii Studio, a few at a time
         std::mutex mu;
         bool done = false;
@@ -122,6 +125,13 @@ private:
     const nxui::Texture* face(const std::string& url) const;
     void drawMii(nxui::Renderer& ren, const MiiEntry* mii, const nxui::Rect& r, float a);
     void drawMiis(nxui::Renderer& ren, const nxui::Rect& r, float a);
+    // HomeNX's own Mii Maker: one Mii's looks, feature by feature.
+    void startEdit(int index);
+    void endEdit();
+    void editChange(int delta);
+    void editRandom();
+    void updateEditFace();
+    void drawMiiEditor(nxui::Renderer& ren, const nxui::Rect& r, float a);
     void startLoad();
     void startJob(JobKind kind, std::function<void(Job&)> work);
     void finishJob();
@@ -218,6 +228,17 @@ private:
     std::map<std::string, std::vector<std::uint8_t>> m_facePngs; // waiting to be uploaded
     std::set<std::string> m_faceTried;
     std::shared_ptr<FaceJob> m_faceJob;
+
+    bool m_editing = false;            // in the Mii Maker
+    MiiEntry m_edit;                   // the Mii as it's being changed
+    MiiEntry m_editOriginal;           // as it was (what gets replaced)
+    int m_editIndex = -1;              // its place in the list
+    int m_editRow = 0;                 // the feature chosen
+    std::uint64_t m_editChangedAt = 0; // the face is asked for once changes settle
+    std::shared_ptr<FaceJob> m_editFaceJob;
+    std::string m_editFaceUrl;         // the face asked for last
+    std::unique_ptr<nxui::Texture> m_editFace;
+    bool m_historyByTime = false;      // your play history: most played first (Y)
 
     std::string m_notice;
     std::uint64_t m_noticeAt = 0;

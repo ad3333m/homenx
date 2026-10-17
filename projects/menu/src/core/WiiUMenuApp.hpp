@@ -222,7 +222,7 @@ private:
     void saveCustomNames() const;
     std::set<std::string> readNewsReadList() const;
     void markNewsRead(const std::string& id);
-    void openFriends();
+    void openFriends(AccountUid forUser = {}); // Social; as this user (default: the active one)
     std::vector<HomebrewApp> m_homebrewApps; // scanned once per session
     bool m_homebrewScanned = false;
     void openMiis();

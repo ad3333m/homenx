@@ -4752,6 +4752,22 @@ void WiiUMenuApp::buildGrid() {
     sidebarActions.onMiiEditor = [this]() { openDiscordPanel(); }; // the Mii Editor is in Social now
     sidebarActions.onCustom = [this]() { activateCustomButton(); };
     sidebarActions.onNextendo = [this]() { activateNextendo(); };
+    // HomeNX: more buttons to place from Settings > HomeNX > Sidebar buttons.
+    sidebarActions.onMusic = [this]() {
+        openQuickSettings();
+        if (m_quickSettings && m_quickSettings->isActive()) m_quickSettings->showPlaylist();
+    };
+    sidebarActions.onStorage = [this]() {
+        m_audio.playSfx(Sfx::ModalShow);
+        if (!m_settings) return;
+        m_navigator.navigate(switchu::navigation::Route::Settings);
+        if (m_themeShop && m_themeShop->isActive())
+            m_themeShop->hide();
+        m_settings->show();
+        m_settings->selectTab(2); // StorageTab, see SettingsScreenState.cpp
+        focusManager().setFocus(m_settings.get());
+    };
+    sidebarActions.onMiiMaker = [this]() { openMiis(); };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
     sidebarActions.onControllers = [this]() {

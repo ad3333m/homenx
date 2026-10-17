@@ -166,12 +166,17 @@ Result addMii(MiiCharInfo info, const std::string& name) {
 }
 
 Result renameMii(const MiiEntry& mii, int index, const std::string& name) {
-    MiiSession m;
-    if (R_FAILED(m.rc)) return m.rc;
     MiiCharInfo info = mii.info;
     setName(info, name);
+    return updateMii(mii, index, info);
+}
+
+Result updateMii(const MiiEntry& mii, int index, const MiiCharInfo& changed) {
+    MiiSession m;
+    if (R_FAILED(m.rc)) return m.rc;
+    MiiCharInfo info = changed;
     Result rc = replaceInPlace(m, info);
-    DebugLog::log("[mii] rename in place rc=0x%X", rc);
+    DebugLog::log("[mii] update in place rc=0x%X", rc);
     if (R_SUCCEEDED(rc)) return rc;
     // Fallback: add the renamed copy, remove the old one, and move it back.
     rc = serviceDispatchIn(m.s(), 26, info);

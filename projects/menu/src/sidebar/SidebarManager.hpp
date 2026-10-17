@@ -21,7 +21,10 @@ public:
         kButtonThemeShop = 4, kButtonSettings = 5, kButtonEshop = 6, kButtonNews = 7,
         kButtonCustom = 8, kButtonFriends = 9,
         kButtonNextendo = 10, // opens Nextendo (prelude.nro); placed from Settings
-        kButtonCount = 11,
+        kButtonMusic = 11,    // HomeNX: the music player (Quick Settings' playlist)
+        kButtonStorage = 12,  // HomeNX: Settings > Storage (data management)
+        kButtonMiiMaker = 13, // HomeNX: Social > Miis, HomeNX's own Mii Maker
+        kButtonCount = 14,
         kSlotCount = 10,
     };
     using Order = std::array<int, kSlotCount>; // left column top-down, then right
@@ -42,6 +45,9 @@ public:
         std::function<void()> onCustom; // the button you set up in Settings > HomeNX
         std::function<void()> onFriends;
         std::function<void()> onNextendo;
+        std::function<void()> onMusic;
+        std::function<void()> onStorage;
+        std::function<void()> onMiiMaker;
     };
 
     void build(nxui::GpuDevice& gpu, nxui::Renderer& ren,

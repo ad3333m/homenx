@@ -18,5 +18,7 @@ Result buildRandomMii(int gender, MiiEntry& out);
 Result addMii(MiiCharInfo info, const std::string& name);
 // Keeps the Mii (same id) when the console accepts it, else re-adds it in the same spot.
 Result renameMii(const MiiEntry& mii, int index, const std::string& name);
+// The same for a Mii's new looks (HomeNX's own Mii Maker).
+Result updateMii(const MiiEntry& mii, int index, const MiiCharInfo& info);
 Result deleteMii(const MiiCharInfo& info);
 std::string miiFaceUrl(const MiiCharInfo& info);

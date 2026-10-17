@@ -6,7 +6,6 @@
 #include "news/NewsStore.hpp"
 #include "friends/FriendStore.hpp"
 #include "homebrew/HomebrewStore.hpp"
-#include "mii/MiiStore.hpp"
 #include <cstdio>
 #include <cstring>
 #include <thread>
@@ -467,7 +466,8 @@ void WiiUMenuApp::createSettings() {
             i18n.tr("sidebar.theme_shop", "Theme Shop"), i18n.tr("sidebar.settings", "Settings"),
             i18n.tr("sidebar.eshop", "Nintendo eShop"), i18n.tr("sidebar.news", "News"),
             i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.social", "Social"),
-            "Nextendo",
+            "Nextendo", i18n.tr("sidebar.music", "Music"), i18n.tr("sidebar.storage", "Storage"),
+            i18n.tr("sidebar.mii_maker", "Mii Maker"),
         });
     }
     m_settings->onSidebarOrderChange([this](std::vector<int> order) {
@@ -1483,7 +1483,7 @@ void WiiUMenuApp::openNews() {
 }
 
 // HomeNX Social: your profile, quick buttons and your friends (SocialScreen).
-void WiiUMenuApp::openFriends() {
+void WiiUMenuApp::openFriends(AccountUid forUser) {
     if (m_editMode || (m_dialog && m_dialog->isActive()) ||
         (m_quickSettings && m_quickSettings->isActive()) ||
         (m_discordPanel && m_discordPanel->isActive()))
@@ -1506,10 +1506,6 @@ void WiiUMenuApp::openFriends() {
                 focusManager().setFocus(target);
             }
             m_dialogReturnFocus = nullptr;
-        };
-        cb.onMiiEditor = [this]() {
-            if (m_social) m_social->hide();
-            openMiis();
         };
         // HomeNX's own keyboard (friend codes, Mii names); Social does the rest itself.
         cb.onEnterText = [this](const std::string& title, const std::string& guide, const std::string& initial,
@@ -1538,7 +1534,7 @@ void WiiUMenuApp::openFriends() {
     }
     if (m_social->isActive()) return;
 
-    const AccountUid uid = activeProfileUid();
+    const AccountUid uid = accountUidIsValid(&forUser) ? forUser : activeProfileUid();
     std::string name;
     std::shared_ptr<nxui::Texture> avatar;
     for (const auto& prof : m_profiles)
@@ -1745,82 +1741,11 @@ void WiiUMenuApp::openReturnTimings() {
     focusManager().setFocus(m_dialog.get());
 }
 
+// HomeNX's Mii Maker is in Social (Miis): make, change the looks of, name and
+// delete Miis there, instead of Nintendo's Mii Maker.
 void WiiUMenuApp::openMiis() {
-    auto& i18n = nxui::I18n::instance();
-    Result rc = 0;
-    std::vector<MiiCharInfo> miis = loadMiis(rc);
-    app().gpu().waitIdle(); // textures are replaced below
-    std::vector<ListDetailScreen::Entry> entries;
-
-    // The face editor itself is the system's Mii Maker; HomeNX lists the Miis
-    // and opens it to create or edit, then shows the updated list.
-    auto reopen = [this]() {
-#ifndef SWITCHU_MENU
-        openMiis(); // refreshes the open screen in place
-#endif
-    };
-    ListDetailScreen::Entry create;
-    create.listName = "+ " + i18n.tr("mii.create", "Create a Mii");
-    create.title = i18n.tr("mii.create", "Create a Mii");
-    create.body = i18n.tr("mii.create_body", "Start a new Mii from scratch or from a template.");
-    create.actionHint = i18n.tr("mii.create_hint", "Press A to create");
-    create.onActivate = [this, reopen]() {
-#ifdef SWITCHU_MENU
-        (void)reopen;
-        if (m_detail) m_detail->hide();
-        leaveThen([this]() { m_launcher.launchMiiEditor(); });
-#else
-        runSystemApplet(false, [this] { return m_launcher.createMii(); }, reopen);
-#endif
-    };
-    entries.push_back(create);
-
-    for (const MiiCharInfo& mii : miis) {
-        ListDetailScreen::Entry e;
-        e.listName = miiName(mii);
-        e.title = e.listName;
-        e.kicker = mii.mii_sex == MiiGender_Female ? i18n.tr("mii.female", "Female")
-                                                   : i18n.tr("mii.male", "Male");
-        auto size = [](u8 v) { return v < 43 ? "Small" : v < 86 ? "Medium" : "Large"; };
-        e.body = i18n.tr("mii.favourite_colour", "Favourite colour") + ": " + miiFavouriteColourName(mii) + "\n"
-               + i18n.tr("mii.height", "Height") + ": " + size(mii.mii_height) + "\n"
-               + i18n.tr("mii.build", "Build") + ": " + size(mii.mii_width);
-        // The Mii's real face (Mii Studio render, cached); a drawing offline.
-        // ponytail: first open fetches uncached faces on the UI thread.
-        const std::vector<std::uint8_t> face = miiFaceImage(mii);
-        if (!face.empty()) {
-            auto tex = std::make_shared<nxui::Texture>();
-            if (tex->loadFromMemory(app().gpu(), app().renderer(), face.data(), face.size(), 256)) {
-                e.image = std::move(tex);
-                e.roundImage = true;
-            }
-        }
-        if (!e.image)
-            e.drawPortrait = [mii](nxui::Renderer& ren, const nxui::Rect& r, float opacity) {
-                drawMiiPortrait(ren, r, mii, opacity);
-            };
-        e.actionHint = i18n.tr("mii.edit_hint", "Press A to edit in Mii Maker");
-        e.onActivate = [this, reopen]() {
-#ifdef SWITCHU_MENU
-            (void)reopen;
-            if (m_detail) m_detail->hide();
-            leaveThen([this]() { m_launcher.launchMiiEditor(); });
-#else
-            runSystemApplet(false, [this] { m_launcher.launchMiiEditor(); return Result(0); }, reopen);
-#endif
-        };
-        entries.push_back(std::move(e));
-    }
-    if (R_FAILED(rc)) {
-        ListDetailScreen::Entry err;
-        err.listName = i18n.tr("mii.title", "Miis");
-        err.title = err.listName;
-        err.body = i18n.tr("mii.unavailable", "The Miis couldn't be read") + fmt::format(" (0x{:X}).", rc);
-        entries.push_back(err);
-    }
-    const auto& left = m_sidebar.leftButtons();
-    showDetailScreen(std::move(entries), i18n.tr("mii.title", "Miis"), std::string(),
-                     left.size() > 1 ? left[1].get() : nullptr);
+    openFriends();
+    if (m_social && m_social->isOpen()) m_social->showMiisPage();
 }
 
 #ifdef SWITCHU_MENU
@@ -2082,8 +2007,10 @@ void WiiUMenuApp::createProfileCarousel() {
         m_audio.playSfx(Sfx::Activate);
         m_profileCarousel->hide();
 #ifdef SWITCHU_MENU
-        // The leave capture waits for the carousel to finish fading out.
-        leaveThen([this, uid]() { m_launcher.launchUserPage(uid); });
+        // HomeNX's own profile page (Social: play history, friend code)
+        // instead of Nintendo's User Page.
+        openFriends(uid);
+        if (m_social && m_social->isOpen()) m_social->showProfilePage();
 #else
         // HomeNX: A switches to this profile (games and eShop launch as it).
         m_audio.playSfx(Sfx::ConfirmPositive);

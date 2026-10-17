@@ -284,9 +284,42 @@ def toggle_icon():
     im.resize((256, 256), Image.LANCZOS).save("projects/manager/icon.jpg", quality=95)
 
 
+def music_player():
+    # pink rounded tile with two beamed white notes (the sidebar's Music button)
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(232, 48, 112))
+    d.rounded_rectangle([p(56), p(56), p(456), p(256)], radius=p(96), fill=(246, 78, 140))
+    d.rectangle([p(56), p(200), p(456), p(256)], fill=(246, 78, 140))
+    for x in (186, 330):  # stems
+        d.rectangle([p(x - 14), p(150), p(x + 14), p(350)], fill="white")
+    d.polygon([(p(172), p(150)), (p(344), p(118)), (p(344), p(176)), (p(172), p(208))], fill="white")  # beam
+    for cx, cy in ((158, 352), (302, 352)):  # heads
+        d.ellipse([p(cx - 50), p(cy - 38), p(cx + 50), p(cy + 38)], fill="white")
+    return im
+
+
+def storage():
+    # slate rounded tile with a white SD card (the sidebar's Storage button)
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(52, 64, 86))
+    d.rounded_rectangle([p(56), p(56), p(456), p(256)], radius=p(96), fill=(70, 86, 112))
+    d.rectangle([p(56), p(200), p(456), p(256)], fill=(70, 86, 112))
+    card = [(p(170), p(110)), (p(312), p(110)), (p(362), p(160)), (p(362), p(400)),
+            (p(150), p(400)), (p(150), p(130))]
+    d.polygon(card, fill="white")
+    for i in range(4):  # contacts
+        x = 186 + i * 40
+        d.rounded_rectangle([p(x), p(132), p(x + 22), p(196)], radius=p(6), fill=(255, 196, 40))
+    d.rounded_rectangle([p(178), p(300), p(334), p(330)], radius=p(15), fill=(210, 216, 228))  # how full
+    d.rounded_rectangle([p(178), p(300), p(276), p(330)], radius=p(15), fill=(64, 160, 255))
+    return im
+
+
 if __name__ == "__main__":
     save(sphaira(), "romfs/icons/sphaira.png", 512)  # sharp at the launch card's size too
     save(nextendo(), "romfs/icons/nextendo.png")
+    save(music_player(), "romfs/icons/music_player.png")
+    save(storage(), "romfs/icons/storage.png")
     for name, fn in [("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()
