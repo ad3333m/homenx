@@ -14,6 +14,7 @@ public:
 
     void setIcon(nxui::Texture* tex)        { m_icon = tex; }
     void setIconCircular(bool enabled)      { m_iconCircular = enabled; }
+    void setBadge(bool on)                  { m_badge = on; } // HomeNX: a red dot (unread)
     nxui::Texture* icon() const             { return m_icon; }
 
     void setLabel(const std::string& l);
@@ -30,6 +31,7 @@ private:
 
     nxui::Texture* m_icon = nullptr;
     bool           m_iconCircular = false;
+    bool           m_badge = false;
     std::string    m_label;
     std::string    m_labelSource;
     std::string    m_labelKey;

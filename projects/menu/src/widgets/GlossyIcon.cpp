@@ -3,6 +3,7 @@
 #include "FolderStyleDraw.hpp"
 #include "core/FolderStore.hpp"
 #include "BatteryDrawing.hpp"
+#include "WeatherDrawing.hpp"
 #include "core/DebugLog.hpp"
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/Font.hpp>
@@ -483,6 +484,7 @@ void GlossyIcon::copyWidgetPresentationFrom(GlossyIcon& source) {
     m_widgetPrimary = source.m_widgetPrimary;
     m_widgetSecondary = source.m_widgetSecondary;
     m_widgetHeader = source.m_widgetHeader;
+    m_weather = source.m_weather;
     m_consoleBatteryPercent = source.m_consoleBatteryPercent;
     m_consoleBatteryCharging = source.m_consoleBatteryCharging;
     m_batteryConsoleIcon = source.m_batteryConsoleIcon;
@@ -846,6 +848,16 @@ void GlossyIcon::onContentRender(nxui::Renderer& ren) {
             ren.drawText(m_widgetSecondary,
                          {textX, textTop + nameHeight + 4.f * s}, m_font,
                          nxui::Color::white().withAlpha(0.72f * m_opacity), timeScale);
+            return;
+        }
+
+        if (m_widgetType == switchu::widgets::WidgetType::Weather) {
+            drawWeatherWidget(ren, inner, std::max(12.f, rad - 5.f), s, m_widgetColumns, m_weather, m_font, m_opacity);
+            return;
+        }
+        if (m_widgetType == switchu::widgets::WidgetType::Calendar) {
+            drawCalendarWidget(ren, inner, std::max(12.f, rad - 5.f), s, m_widgetColumns,
+                               m_weather && m_weather->fahrenheit, m_font, m_opacity);
             return;
         }
 

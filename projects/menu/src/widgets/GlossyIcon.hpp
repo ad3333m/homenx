@@ -90,6 +90,7 @@ public:
         m_widgetColumns = std::max(1, columns);
         m_widgetRows = std::max(1, rows);
     }
+    void setWeather(const switchu::widgets::WeatherNow* weather) { m_weather = weather; } // the app's, kept fresh
     void setConsoleBattery(int percentage, bool charging) {
         m_consoleBatteryPercent = std::clamp(percentage, 0, 100);
         m_consoleBatteryCharging = charging;
@@ -181,6 +182,7 @@ private:
     std::string m_widgetPrimary;
     std::string m_widgetSecondary;
     std::string m_widgetHeader;
+    const switchu::widgets::WeatherNow* m_weather = nullptr;
     std::string m_widgetAssetPath;
     bool m_widgetAssetLoadAttempted = false;
     std::shared_ptr<WidgetGifDecodeState> m_widgetGifDecode;

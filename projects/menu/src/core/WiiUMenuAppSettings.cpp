@@ -809,6 +809,17 @@ void WiiUMenuApp::openDiscordPanel() {
         (m_userSelect && m_userSelect->isActive()) ||
         (m_quickSettings && m_quickSettings->isActive()))
         return;
+    ensureDiscordPanel();
+    if (m_discordPanel->isActive()) return;
+    m_dialogReturnFocus = focusManager().current();
+    m_discordPanel->show();
+    focusManager().setFocus(m_discordPanel.get());
+    if (m_cursor) m_cursor->setVisible(false);
+    m_audio.playSfx(Sfx::ModalShow);
+}
+
+// Made the first time it's opened or HOME shows a Discord alert (its pictures).
+void WiiUMenuApp::ensureDiscordPanel() {
     if (!m_discordPanel) {
         m_discordPanel = std::make_shared<DiscordPanel>();
         m_discordPanel->setFont(&m_fontNormal);
@@ -853,12 +864,6 @@ void WiiUMenuApp::openDiscordPanel() {
             }
         }
     }
-    if (m_discordPanel->isActive()) return;
-    m_dialogReturnFocus = focusManager().current();
-    m_discordPanel->show();
-    focusManager().setFocus(m_discordPanel.get());
-    if (m_cursor) m_cursor->setVisible(false);
-    m_audio.playSfx(Sfx::ModalShow);
 }
 
 void WiiUMenuApp::closeQuickSettings() {
@@ -3113,6 +3118,14 @@ void WiiUMenuApp::applyTheme() {
     m_battery->setBorderColor(m_theme.panelBorder);
     m_battery->setHighlightColor(m_theme.panelHighlight);
     m_battery->setTextColor(m_theme.textPrimary);
+
+    for (const auto& banner : {m_discordBanner, m_nowPlaying}) {
+        if (!banner) continue;
+        banner->setBaseColor(m_theme.panelBase.withAlpha(m_theme.mode == nxui::ThemeMode::Dark ? 0.92f : 0.88f));
+        banner->setBorderColor(m_theme.panelBorder.withAlpha(0.84f));
+        banner->setHighlightColor(m_theme.panelHighlight.withAlpha(0.42f));
+        banner->setTextColor(m_theme.textPrimary);
+    }
 
     m_titlePill->setBaseColor(m_theme.panelBase.withAlpha(
         m_theme.mode == nxui::ThemeMode::Dark ? 0.90f : 0.86f));

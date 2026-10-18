@@ -15,6 +15,19 @@ enum class WidgetType : std::uint8_t {
     RandomScreenshot,
     ImagePin,
     Batteries,
+    Weather,  // HomeNX: Open-Meteo at the console's (IP) location
+    Calendar, // HomeNX: today, or the month
+};
+
+// HomeNX: the weather the Weather widget shows (the app keeps it fresh).
+struct WeatherNow {
+    bool valid = false;
+    bool loading = true;
+    bool day = true;
+    bool fahrenheit = false;
+    int temp = 0, high = 0, low = 0;
+    int code = 0; // WMO weather code
+    std::string city;
 };
 
 struct WidgetSize {

@@ -250,6 +250,22 @@ void DiscordPanel::show() {
     bindInput();
 }
 
+void DiscordPanel::openChat(Snowflake channelId, Snowflake guildId, const std::string& name,
+                            const std::string& avatarUrl) {
+    if (!m_active || !m_service || !channelId) return;
+    m_guild = guildId;
+    m_view = View::Chat;
+    m_chat = channelId;
+    m_chatName = clean(name);
+    m_chatIsChannel = guildId != 0;
+    m_chatAvatar = m_chatIsChannel ? std::string() : avatarUrl;
+    m_chatStatus.clear();
+    m_chatScroll = 0.f;
+    m_chatBuiltFor = 0;
+    m_builtVersion = ~0ull;
+    m_service->openChannel(channelId);
+}
+
 void DiscordPanel::hide() {
     if (!m_active) return;
     m_active = false;

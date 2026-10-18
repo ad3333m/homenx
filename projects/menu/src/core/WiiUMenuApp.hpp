@@ -16,6 +16,7 @@
 #include "widgets/DateTimeWidget.hpp"
 #include "widgets/BatteryWidget.hpp"
 #include "widgets/TitlePillWidget.hpp"
+#include "widgets/HomeBanner.hpp"
 #include "core/AudioManager.hpp"
 #include "core/AccessibilityManager.hpp"
 #include "widgets/LaunchAnimation.hpp"
@@ -259,6 +260,24 @@ private:
     bool m_playJobStarted = false;
     std::string pillTitle(class GlossyIcon* icon) const;
     void updateHomeExtras();
+    // HomeNX: Discord alerts on HOME (a saved account connects a few seconds
+    // after HOME settles; L opens the chat) and the now-playing bar.
+    void updateHomeBanners(float dt);
+    // HomeNX: the Weather widget's weather (fetched every 30 minutes once one is on HOME).
+    void updateWeather();
+    switchu::widgets::WeatherNow m_weather;
+    bool m_weatherWanted = false;
+    std::shared_ptr<struct WeatherJob> m_weatherJob;
+    std::int64_t m_weatherNext = 0; // unix time of the next fetch
+    std::shared_ptr<HomeBanner> m_discordBanner;
+    std::shared_ptr<HomeBanner> m_nowPlaying;
+    DiscordService::Alert m_shownAlert;
+    float m_discordBannerLeft = 0.f;
+    float m_discordAutoStart = 5.f;
+    bool m_discordAutoStarted = false;
+    std::uint64_t m_discordBadgeVersion = ~0ull;
+    nxui::Texture m_nowPlayingCover;
+    int m_nowPlayingIndex = -1;
     // HomeNX's own controller pairing (Settings > Controllers > Change Grip/Order).
     void pairController();
     void stopPairing();
@@ -386,6 +405,7 @@ private:
     void createQuickSettings();
     void openQuickSettings();
     void openDiscordPanel();
+    void ensureDiscordPanel();
     void persistMusicPlaybackState(bool updateEnabledFlag = false);
     void resumeMenuMusicAfterReturn();
     // Console sleep: the daemon announces the sleep before the system goes

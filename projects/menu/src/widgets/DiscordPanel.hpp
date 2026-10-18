@@ -40,6 +40,10 @@ public:
     bool isActive() const { return m_active || m_anim > 0.001f; }
     bool isOpen() const { return m_active; } // false as soon as it starts sliding away
     void handleTouch(const nxui::Input& in);
+    // Straight to a chat (HOME's Discord alert); the panel must be open.
+    void openChat(Snowflake channelId, Snowflake guildId, const std::string& name, const std::string& avatarUrl);
+    const nxui::Texture* avatar(const std::string& url); // downloads it the first time
+    std::string clean(const std::string& text) const; // drops letters the font can't draw
 
 protected:
     void onUpdate(float dt) override;
@@ -95,8 +99,6 @@ private:
     void drawRail(nxui::Renderer& ren, const nxui::Rect& area, float a);
     std::string rowKey(const Row& r) const;
     nxui::Rect panelRect() const;
-    std::string clean(const std::string& text) const; // drops letters the font can't draw
-    const nxui::Texture* avatar(const std::string& url);
     void drawAvatar(nxui::Renderer& ren, const std::string& url, const std::string& name,
                     float x, float y, float size, float alpha);
     void drawStatus(nxui::Renderer& ren, const std::string& status, float cx, float cy, float r,

@@ -53,4 +53,9 @@ void AppletButton::onContentRender(nxui::Renderer& ren) {
     ren.drawTextureRounded(m_icon, {ix, iy, iconSz, iconSz},
                            iconCorner,
                            nxui::Color::white().withAlpha(m_opacity));
+    if (m_badge) {
+        const nxui::Vec2 c{m_rect.x + m_rect.width - 9.f, m_rect.y + 9.f};
+        ren.drawCircle(c, 8.f, nxui::Color::white().withAlpha(m_opacity));
+        ren.drawCircle(c, 6.f, nxui::Color(0.929f, 0.259f, 0.271f, m_opacity));
+    }
 }

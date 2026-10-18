@@ -2,6 +2,7 @@
 
 #include "core/DebugLog.hpp"
 #include "discord/api.h"
+#include "discord/parse.h"
 #include "net/async.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -290,8 +291,10 @@ void DiscordService::update() {
     }
 
     if (!m_gateway) return;
-    for (auto& e : m_gateway->Drain())
-        m_store->Apply(e.type, e.d);
+    for (auto& e : m_gateway->Drain()) {
+        const Store::Change ch = m_store->Apply(e.type, e.d);
+        if (ch.kind == Store::Change::NewMessage && ch.mentionsMe) noteAlert(ch, e.d);
+    }
     State next = m_state;
     switch (m_gateway->GetState()) {
         case Gateway::State::Ready:
@@ -901,4 +904,36 @@ void DiscordService::send(Snowflake channelId, const std::string& raw) {
         if (ok) store->ConfirmSent(nonce, std::move(sent));
         else store->MarkFailed(channelId, nonce);
     });
+}
+
+void DiscordService::noteAlert(const Store::Change& ch, yyjson_val* d) {
+    if (myStatus() == "dnd") return;
+    const Channel* c = m_store->FindChannel(ch.channelId);
+    if (!c || m_store->ChannelMuted(*c)) return;
+    const Message m = Parse::MessageObj(d);
+    Alert a;
+    a.channelId = ch.channelId;
+    a.guildId = c->IsDM() ? 0 : c->guildId;
+    a.title = m_store->AuthorName(m);
+    a.chat = c->IsDM() ? m_store->ChannelName(*c) : c->name;
+    if (!c->IsDM()) a.title += " in #" + c->name;
+    else if (c->type == CH_GROUP_DM) a.title += " in " + a.chat;
+    else a.chatAvatar = m_store->DmAvatarUrl(*c);
+    a.avatarUrl = m.author.AvatarUrl(64);
+    a.text = Str::Trim(stripMarkdown(plainText(m.content)));
+    if (a.text.empty()) a.text = !m.stickers.empty() ? "Sent a sticker" : !m.attachments.empty() ? "Sent a picture" : "Sent a message";
+    m_alert = std::move(a);
+    m_hasAlert = true;
+}
+
+bool DiscordService::takeAlert(Alert& out) {
+    if (!m_hasAlert) return false;
+    m_hasAlert = false;
+    out = std::move(m_alert);
+    return true;
+}
+
+bool DiscordService::hasSavedAccount() const {
+    std::error_code ec;
+    return std::filesystem::exists(kAccountsPath, ec) || std::filesystem::exists(kSwitchCordAccounts, ec);
 }

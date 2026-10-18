@@ -4,6 +4,8 @@
 #include "DebugLog.hpp"
 #include "friends/FriendStore.hpp"
 #include "core/BackgroundThread.hpp"
+#include "themeshop/ThemeHttp.hpp"
+#include <nlohmann/json.hpp>
 #include <nxui/core/ThreadPool.hpp>
 #include <mutex>
 #ifdef SWITCHU_MENU
@@ -11,10 +13,12 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <unordered_set>
 #include <nxui/core/I18n.hpp>
 
@@ -1202,6 +1206,169 @@ void WiiUMenuApp::updateHomeExtras() {
     }
 }
 
+struct WeatherJob {
+    std::mutex mu;
+    bool done = false;
+    switchu::widgets::WeatherNow result;
+};
+
+namespace {
+
+constexpr const char* kWeatherCache = "sdmc:/config/SwitchU/weather.json";
+
+// Where the console is (from its IP: the Switch has no GPS), then that
+// place's weather from Open-Meteo, in °F where that's what people use.
+switchu::widgets::WeatherNow fetchWeather() {
+    switchu::widgets::WeatherNow w;
+    w.loading = false;
+    try {
+        const auto where = nlohmann::json::parse(
+            themeshop::http::getText("http://ip-api.com/json/?fields=status,lat,lon,city,countryCode"));
+        if (where.value("status", std::string()) != "success") return w;
+        const std::string country = where.value("countryCode", std::string());
+        w.fahrenheit = country == "US" || country == "LR" || country == "MM" || country == "BS" || country == "KY";
+        w.city = where.value("city", std::string());
+        char url[360];
+        std::snprintf(url, sizeof(url),
+                      "https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f"
+                      "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min"
+                      "&forecast_days=1&timezone=auto%s",
+                      where.value("lat", 0.0), where.value("lon", 0.0),
+                      w.fahrenheit ? "&temperature_unit=fahrenheit" : "");
+        const auto j = nlohmann::json::parse(themeshop::http::getText(url));
+        const auto& now = j.at("current");
+        w.temp = (int)std::lround(now.value("temperature_2m", 0.0));
+        w.code = now.value("weather_code", 0);
+        w.day = now.value("is_day", 1) != 0;
+        w.high = (int)std::lround(j.at("daily").at("temperature_2m_max").at(0).get<double>());
+        w.low = (int)std::lround(j.at("daily").at("temperature_2m_min").at(0).get<double>());
+        w.valid = true;
+    } catch (const std::exception& ex) {
+        DebugLog::log("[weather] failed: %s", ex.what());
+    }
+    return w;
+}
+
+} // namespace
+
+void WiiUMenuApp::updateWeather() {
+    if (!m_weatherWanted) return;
+    const std::int64_t now = std::time(nullptr);
+    if (!m_weatherNext) { // the last weather straight away, fetched again once it's half an hour old
+        std::int64_t at = 0;
+        try {
+            std::ifstream in(kWeatherCache);
+            const auto j = nlohmann::json::parse(in);
+            m_weather.temp = j.value("temp", 0);
+            m_weather.high = j.value("high", 0);
+            m_weather.low = j.value("low", 0);
+            m_weather.code = j.value("code", 0);
+            m_weather.day = j.value("day", true);
+            m_weather.fahrenheit = j.value("fahrenheit", false);
+            m_weather.city = j.value("city", std::string());
+            m_weather.valid = true;
+            at = j.value("at", (std::int64_t)0);
+        } catch (...) {
+        }
+        m_weatherNext = std::max(now + 8, at + 1800);
+    }
+    if (auto job = m_weatherJob) {
+        switchu::widgets::WeatherNow got;
+        {
+            std::lock_guard<std::mutex> lk(job->mu);
+            if (!job->done) return;
+            got = job->result;
+        }
+        m_weatherJob.reset();
+        m_weatherNext = now + (got.valid ? 1800 : 300);
+        if (!got.valid) {
+            m_weather.loading = false; // keeps the last weather, if any
+            return;
+        }
+        m_weather = got;
+        nlohmann::json j = {{"temp", got.temp}, {"high", got.high}, {"low", got.low}, {"code", got.code},
+                            {"day", got.day}, {"fahrenheit", got.fahrenheit}, {"city", got.city}, {"at", now}};
+        std::ofstream(kWeatherCache, std::ios::trunc) << j.dump();
+        return;
+    }
+    if (now < m_weatherNext || (m_launchAnim && m_launchAnim->isPlaying())) return;
+    auto job = std::make_shared<WeatherJob>();
+    m_weatherJob = job;
+    runInBackground([job]() {
+        nxui::moveToWorkerCores();
+        switchu::widgets::WeatherNow w = fetchWeather();
+        std::lock_guard<std::mutex> lk(job->mu);
+        job->result = std::move(w);
+        job->done = true;
+    });
+}
+
+void WiiUMenuApp::updateHomeBanners(float dt) {
+    if (!m_discordBanner || !m_nowPlaying) return;
+    const bool launching = m_launchAnim && m_launchAnim->isPlaying();
+    const bool panelUp = m_discordPanel && m_discordPanel->isActive();
+
+    // A saved Discord account connects a few seconds after HOME settles, so its
+    // DMs and mentions show here (the overlay shows them over games).
+    if (!m_discordAutoStarted && !leaveSplashActive() && m_deferredInitialAssetFrames == 0 && !launching
+        && !m_discord.stopping() && (m_discordAutoStart -= dt) <= 0.f) {
+        m_discordAutoStarted = true;
+        if (!m_discord.started() && m_discord.hasSavedAccount()) m_discord.activate();
+    }
+
+    DiscordService::Alert alert;
+    if (m_discord.takeAlert(alert) && !panelUp && !launching) {
+        ensureDiscordPanel(); // loads the sender's picture
+        m_shownAlert = std::move(alert);
+        const std::string title = m_discordPanel->clean(m_shownAlert.title);
+        m_discordBanner->setContent(title, m_discordPanel->clean(m_shownAlert.text));
+        const char first = title.empty() ? '?' : title[0];
+        m_discordBanner->setFallback(nxui::Color(0.345f, 0.396f, 0.949f, 1.f),
+                                     std::string(1, (char)std::toupper((unsigned char)first)));
+        m_discordBanner->slideIn();
+        m_discordBannerLeft = 6.f;
+        m_audio.playSfx(Sfx::ModalShow);
+    }
+    if (m_discordBanner->shown()) {
+        m_discordBanner->setPicture(m_discordPanel ? m_discordPanel->avatar(m_shownAlert.avatarUrl) : nullptr, true);
+        if ((m_discordBannerLeft -= dt) <= 0.f || panelUp || launching) m_discordBanner->slideOut();
+    }
+
+    // The Discord button's red dot: unread DMs.
+    if (m_discord.version() != m_discordBadgeVersion) {
+        m_discordBadgeVersion = m_discord.version();
+        if (AppletButton* b = m_sidebar.button(SidebarManager::kButtonMii))
+            b->setBadge(m_discord.started() && m_discord.unreadDms() > 0);
+    }
+
+    // Now playing: HOME's music, bottom left, while it plays.
+    const bool playing = m_audio.isPlaying() && !m_audio.isPaused() && m_audio.trackCount() > 0;
+    const bool showMusic = playing && !launching && !panelUp && !m_editMode
+        && m_navigator.route() == switchu::navigation::Route::Home
+        && !(m_quickSettings && m_quickSettings->isActive());
+    if (playing && m_audio.currentIndex() != m_nowPlayingIndex) {
+        m_nowPlayingIndex = m_audio.currentIndex();
+        const auto& tracks = m_audio.tracks();
+        if (m_nowPlayingIndex >= 0 && m_nowPlayingIndex < (int)tracks.size()) {
+            const MusicTrackInfo& t = tracks[(size_t)m_nowPlayingIndex];
+            const std::string title = t.title.empty() ? t.displayTitle() : t.title;
+            m_nowPlaying->setContent(title, t.artist.empty() ? nxui::I18n::instance().tr("music.now_playing", "Now playing")
+                                                             : t.artist);
+            m_nowPlaying->setFallback(nxui::Color(0.95f, 0.36f, 0.45f, 1.f),
+                                      std::string(1, (char)std::toupper((unsigned char)(title.empty() ? '?' : title[0]))));
+            m_nowPlayingCover = nxui::Texture{};
+            const std::vector<uint8_t>& art = m_audio.currentCoverArt();
+            if (!art.empty())
+                m_nowPlayingCover.loadFromMemory(app().gpu(), app().renderer(), art.data(), art.size(), 96);
+            m_nowPlaying->setPicture(m_nowPlayingCover.valid() ? &m_nowPlayingCover : nullptr, false);
+        }
+    }
+    const float duration = m_audio.durationSeconds();
+    m_nowPlaying->setProgress(duration > 0.f ? m_audio.positionSeconds() / duration : -1.f);
+    if (showMusic) m_nowPlaying->slideIn();
+    else m_nowPlaying->slideOut();
+}
+
 bool WiiUMenuApp::isCurrentFocusableWidget(nxui::Widget* w) const {
     if (!w) return false;
     if (m_steamGridDbPicker && m_steamGridDbPicker.get() == w) return w->isFocusable();
@@ -1418,6 +1585,21 @@ void WiiUMenuApp::wireGlobalActions() {
             focusRoot() != &rootBox())
             return;
         openQuickSettings();
+    });
+
+    // HomeNX: Discord is on L (it slides in from the left), straight to the
+    // chat of an alert that's on screen.
+    root.addAction(static_cast<uint64_t>(nxui::Button::L), [this]() {
+        if (m_editMode || m_navigator.route() != switchu::navigation::Route::Home ||
+            focusRoot() != &rootBox())
+            return;
+        const bool toAlert = m_discordBanner && m_discordBanner->shown();
+        openDiscordPanel();
+        if (toAlert && m_discordPanel && m_discordPanel->isOpen()) {
+            m_discordPanel->openChat(m_shownAlert.channelId, m_shownAlert.guildId, m_shownAlert.chat,
+                                     m_shownAlert.chatAvatar);
+            m_discordBanner->slideOut();
+        }
     });
 
     root.addAction(static_cast<uint64_t>(nxui::Button::LStick), [this]() {

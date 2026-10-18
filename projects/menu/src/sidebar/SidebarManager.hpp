@@ -79,6 +79,7 @@ public:
     const std::vector<std::shared_ptr<AppletButton>>& rightButtons() const { return m_rightButtons; }
 
     AppletButton*  albumButton()    const { return m_albumButton; }
+    AppletButton*  button(int id)   const { return id >= 0 && id < kButtonCount ? m_byId[(std::size_t)id] : nullptr; }
     nxui::Widget*  settingsButton() const { return m_settingsButton; }
     nxui::Widget*  themeShopButton() const { return m_themeShopButton; }
 

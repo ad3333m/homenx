@@ -2626,6 +2626,10 @@ std::string WiiUMenuApp::widgetTypeLabel(switchu::widgets::WidgetType type) cons
             return i18n.tr("widget.image_pin", "Image pin");
         case switchu::widgets::WidgetType::Batteries:
             return i18n.tr("widget.batteries", "Batteries");
+        case switchu::widgets::WidgetType::Weather:
+            return i18n.tr("widget.weather", "Weather");
+        case switchu::widgets::WidgetType::Calendar:
+            return i18n.tr("widget.calendar", "Calendar");
     }
     return i18n.tr("widget.title", "Widget");
 }
@@ -3438,7 +3442,9 @@ void WiiUMenuApp::showWidgetTypeMenu(int targetSlot, const nxui::Rect& anchor) {
                       switchu::widgets::WidgetType::RecentlyPlayed,
                       switchu::widgets::WidgetType::RecentPlaytime,
                       switchu::widgets::WidgetType::ImagePin,
-                      switchu::widgets::WidgetType::Batteries}) {
+                      switchu::widgets::WidgetType::Batteries,
+                      switchu::widgets::WidgetType::Weather,
+                      switchu::widgets::WidgetType::Calendar}) {
         if (switchu::widgets::supportedSizes(type, m_appLayoutMode).empty())
             continue;
         items.push_back({widgetTypeLabel(type),
@@ -4296,6 +4302,8 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
             case switchu::widgets::WidgetType::RandomScreenshot:
             case switchu::widgets::WidgetType::ImagePin:
             case switchu::widgets::WidgetType::Batteries:
+            case switchu::widgets::WidgetType::Weather:
+            case switchu::widgets::WidgetType::Calendar:
                 break;
         }
         std::string assetPath = entry.widgetType == switchu::widgets::WidgetType::RandomScreenshot
@@ -4317,6 +4325,8 @@ std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
             icon->setWidgetHeader(i18n.tr("widget.recently_played", "Recently played"));
         if (entry.widgetType == switchu::widgets::WidgetType::RecentPlaytime)
             icon->setWidgetHeader(i18n.tr("widget.played_recently", "Played recently"));
+        icon->setWeather(&m_weather);
+        if (entry.widgetType == switchu::widgets::WidgetType::Weather) m_weatherWanted = true;
         if (entry.widgetType == switchu::widgets::WidgetType::Batteries)
         icon->setConsoleBattery(m_consoleBatteryPercent,
                                 m_consoleBatteryCharging);
@@ -4550,6 +4560,14 @@ void WiiUMenuApp::buildGrid() {
     m_titlePill->setPadding(9.f, 22.f, 9.f, 22.f);
     m_titlePill->setForceLiquidGlass(true);
     m_titlePill->setBlurEnabled(false);
+
+    m_discordBanner = std::make_shared<HomeBanner>();
+    m_discordBanner->setFonts(&m_fontNormal, &m_fontSmall, &m_fontIcons);
+    m_discordBanner->setPlace({370.f, 84.f, 540.f, 64.f}, -90.f);
+    m_discordBanner->setHint(buttonGlyph(nxui::Button::L), nxui::I18n::instance().tr("discord.alert_open", "Open"));
+    m_nowPlaying = std::make_shared<HomeBanner>();
+    m_nowPlaying->setFonts(&m_fontNormal, &m_fontSmall, &m_fontIcons);
+    m_nowPlaying->setPlace({20.f, 644.f, 244.f, 56.f}, 90.f);
 
     m_pageIndicator = std::make_shared<PageIndicator>();
     m_pageIndicator->setRect({0, 685.f, 1280.f, 28.f});
@@ -4946,6 +4964,8 @@ void WiiUMenuApp::buildGrid() {
     m_contentLayer->addChild(m_topHud);
     m_contentLayer->addChild(m_titlePill);
     m_contentLayer->addChild(m_pageIndicator);
+    m_contentLayer->addChild(m_nowPlaying);
+    m_contentLayer->addChild(m_discordBanner);
 
     m_overlayLayer = std::make_shared<nxui::Box>();
     m_overlayLayer->setRect({0, 0, 1280, 720});
@@ -5502,7 +5522,9 @@ void WiiUMenuApp::onUpdate(float dt) {
         && !(m_launchAnim && m_launchAnim->isPlaying()) && (m_readbackPrepDelay -= dt) <= 0.f)
         m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
 #endif
-    m_discord.update(); // HomeNX Discord panel (idle until it has been opened)
+    m_discord.update(); // HomeNX Discord panel and HOME's alerts
+    updateHomeBanners(dt);
+    updateWeather();
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
@@ -6568,9 +6590,11 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
 
     if (m_openFolderId != 0)
         add(buttonGlyph(nxui::Button::B), i18n.tr("hint.back", "Back"));
-    else
+    else {
+        if (m_discord.started()) add(buttonGlyph(nxui::Button::L), i18n.tr("sidebar.discord", "Discord"));
         add(buttonGlyph(nxui::Button::R),
             i18n.tr("quicksettings.hint_shortcut", "Quick Settings"));
+    }
 
     nxui::Widget* cur = focusManager().current();
     if (cur && cur->tag() == "glossy_icon") {

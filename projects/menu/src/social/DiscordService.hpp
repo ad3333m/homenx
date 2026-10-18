@@ -113,12 +113,24 @@ public:
     bool loading(Snowflake channelId) const;
     void send(Snowflake channelId, const std::string& text);
 
+    // HOME's alerts: the newest DM or mention since the last take (none in Do
+    // Not Disturb or from a muted channel).
+    struct Alert {
+        Snowflake channelId = 0, guildId = 0;
+        std::string title, text, avatarUrl; // the banner: who, what, their picture
+        std::string chat, chatAvatar;       // the chat, as the panel titles it
+    };
+    bool takeAlert(Alert& out);
+    bool hasSavedAccount() const; // this console's or SwitchCord's
+    bool stopping() const { return m_stopping; }
+
 private:
     void connect(const Account& account);
     void loadAccounts();
     void saveAccounts() const;
     void rememberMe();
     std::string plainText(const std::string& content, std::vector<std::string>* emojis = nullptr) const;
+    void noteAlert(const Store::Change& ch, yyjson_val* d);
 
     std::unique_ptr<Store> m_store;
     std::unique_ptr<Gateway> m_gateway;
@@ -136,4 +148,6 @@ private:
     bool m_started = false;
     bool m_stopping = false;
     bool m_lingering = false;
+    Alert m_alert;
+    bool m_hasAlert = false;
 };
