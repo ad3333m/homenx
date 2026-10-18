@@ -48,6 +48,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cstdarg>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -108,6 +109,29 @@ const tsl::Color kIdle(0xF, 0xB, 0x3, 0xF);     // #F0B232
 const tsl::Color kDnd(0xF, 0x4, 0x4, 0xF);      // #F23F43
 
 u64 nowMs() { return armTicksToNs(armGetSystemTick()) / 1'000'000ULL; }
+
+// sdmc:/config/SwitchU/discord_overlay.log: what the connection and the
+// notifications did, a line each (started afresh past 64 KB).
+std::mutex g_logMu;
+void logLine(const char* fmt, ...) {
+    char line[256];
+    va_list args;
+    va_start(args, fmt);
+    std::vsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+    std::lock_guard<std::mutex> lk(g_logMu);
+    constexpr const char* kLog = "sdmc:/config/SwitchU/discord_overlay.log";
+    FILE* f = std::fopen(kLog, "ab");
+    if (!f) return;
+    std::fseek(f, 0, SEEK_END);
+    if (std::ftell(f) > (64 << 10)) {
+        std::fclose(f);
+        f = std::fopen(kLog, "wb");
+        if (!f) return;
+    }
+    std::fprintf(f, "[%llu] %s\n", static_cast<unsigned long long>(nowMs() / 1000), line);
+    std::fclose(f);
+}
 
 // ---------------------------------------------------------------- JSON
 
@@ -1208,6 +1232,12 @@ std::atomic<bool> g_visible{false}; // the overlay is on screen
 std::map<std::string, std::string> g_unread; // chats with news for you: channel id -> server id ("" = DM)
 std::atomic<unsigned> g_unreadVersion{0};
 std::string g_meId;                 // our user id (under g_chatMu)
+std::string g_gatewayState = "Connecting..."; // shown when not connected (under g_chatMu)
+
+void setGatewayState(const std::string& state) {
+    std::lock_guard<std::mutex> lk(g_chatMu);
+    g_gatewayState = state;
+}
 
 bool noticeShowing() {
     const u64 at = g_noticeAt;
@@ -1643,7 +1673,12 @@ private:
     bool session(const std::string& ip) {
         Socket ws(m_quit);
         m_closeCode = 0;
-        if (!ws.open(kGatewayHost, "/?v=9&encoding=json&compress=zlib-stream", ip)) return false;
+        if (!ws.open(kGatewayHost, "/?v=9&encoding=json&compress=zlib-stream", ip)) {
+            logLine("gateway: couldn't connect to %s", ip.c_str());
+            setGatewayState("Can't reach Discord (live updates)");
+            return false;
+        }
+        logLine("gateway: connected to %s", ip.c_str());
         Inflate z;
         if (!z.ok()) return false;
         m_msg = Incoming{};
@@ -1678,6 +1713,8 @@ private:
             svcSleepThread(30'000'000ULL);
         }
         m_closeCode = ws.closeCode;
+        logLine("gateway: closed (code %d, ready %d)", m_closeCode, m_ready ? 1 : 0);
+        setGatewayState(m_closeCode == 4004 ? "Signed out: sign in again in HOME" : "Reconnecting...");
         return m_ready;
     }
 
@@ -1794,11 +1831,14 @@ private:
         }
         if (t == "READY") {
             m_ready = true;
+            logLine("gateway: ready");
+            setGatewayState("");
             m_nextGame = nowMs() + 2000; // our status (SESSIONS_REPLACE) comes just after
             std::lock_guard<std::mutex> lk(g_chatMu);
             g_subscribe = !g_openGuild.empty(); // a new connection: subscribe again
         } else if (t == "READY_SUPPLEMENTAL") {
             std::lock_guard<std::mutex> lk(g_presenceMu);
+            logLine("gateway: %d friends' presences", (int)m_msg.friends.found.size());
             for (auto& [id, presence] : m_msg.friends.found) g_presences[id] = std::move(presence);
             g_presencesLoaded = true;
             ++g_presenceVersion;
@@ -1814,15 +1854,24 @@ private:
         {
             std::lock_guard<std::mutex> lk(g_chatMu);
             me = g_meId;
-            if (g_visible && channel == g_openChannel) return; // being read already
+            if (g_visible && channel == g_openChannel) { // being read already
+                logLine("notify: on screen already");
+                return;
+            }
         }
-        if (me.empty() || authorId.empty() || authorId == me || m_myStatus == "dnd") return;
+        if (me.empty() || authorId.empty() || authorId == me || m_myStatus == "dnd") {
+            if (guild.empty())
+                logLine("notify: skipped a DM (%s)", me.empty() ? "our id unknown" : authorId == me ? "ours"
+                                                     : m_myStatus == "dnd" ? "Do Not Disturb" : "no author");
+            return;
+        }
         bool forMe = guild.empty();
         size_t i, n;
         yyjson_val* u;
         yyjson_arr_foreach(yyjson_obj_get(d, "mentions"), i, n, u)
             if (str(u, "id") == me) forMe = true;
         if (!forMe) return;
+        logLine("notify: %s from %s", guild.empty() ? "DM" : "mention", authorId.c_str());
         Notice notice;
         notice.channelId = channel;
         notice.guildId = guild;
@@ -3161,7 +3210,13 @@ private:
         const std::string status = !m_myStatus.empty() ? m_myStatus : m_presencesLoaded ? "online" : "";
         statusDot(r, x + 35, y + 37, status, kPanelBg);
         const s32 nameW = w - 56 - hw - 18;
-        const std::string sub = !m_myGame.empty() ? "Playing " + m_myGame
+        std::string live;
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            live = g_gatewayState;
+        }
+        const std::string sub = !live.empty() && live != "Connecting..." ? live
+                              : !m_myGame.empty() ? "Playing " + m_myGame
                               : !status.empty() ? statusWord(status) : "Connecting...";
         r->drawString(fit(r, m_account.empty() ? "You" : m_account, 15, nameW).c_str(), false, x + 48, y + 23, 15,
                       r->a(kWhite));
@@ -3692,6 +3747,11 @@ public:
     bool hasHiddenContent() override { return g_gui && noticeShowing() && awayFromHome(); }
 
     void drawHidden(tsl::gfx::Renderer* renderer) override {
+        static u64 logged = 0;
+        if (g_noticeAt != logged) {
+            logged = g_noticeAt;
+            logLine("notify: drawn over the game");
+        }
         if (g_gui) g_gui->drawNotice(renderer);
     }
 
@@ -3712,6 +3772,29 @@ public:
         }
         size_t current = 0;
         std::vector<Account> accounts = loadAccounts(current);
+        if (!accounts.empty()) {
+            std::string id = accounts[current].id;
+            if (id.empty()) { // a token starts with the account's id, in base64
+                const std::string head = accounts[current].token.substr(0, accounts[current].token.find('.'));
+                std::string bits;
+                int value = 0, count = 0;
+                for (char c : head) {
+                    const char* k = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                    const char* at = std::strchr(k, c == '-' ? '+' : c == '_' ? '/' : c);
+                    if (!at || !c) break;
+                    value = (value << 6) | (int)(at - k);
+                    if ((count += 6) >= 8) {
+                        count -= 8;
+                        bits += static_cast<char>((value >> count) & 0xFF);
+                    }
+                }
+                if (!bits.empty() && std::all_of(bits.begin(), bits.end(), [](char c) { return std::isdigit((unsigned char)c); }))
+                    id = bits;
+            }
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            g_meId = id;
+        }
+        logLine("overlay: started, %d account(s), our id %s", (int)accounts.size(), g_meId.empty() ? "unknown" : "known");
         if (!accounts.empty() && g_startProblem.empty()) {
             g_net.start(accounts[current].token);
             if (m_pminfo && m_ns) g_gateway.start(accounts[current].token);
