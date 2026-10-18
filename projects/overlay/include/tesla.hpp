@@ -3408,6 +3408,7 @@ namespace tsl {
          */
         struct SharedThreadData {
             bool running = false;
+            std::atomic<u64> comboQuietUntil{0}; // HomeNX: combos ignored until this tick
 
             Event comboEvent = { 0 };
 
@@ -3525,7 +3526,10 @@ namespace tsl {
                     auto comboHit = [&](u64 combo) {
                         return combo != 0 && (shData->keysHeld & combo) == combo && (shData->keysDown & combo) != 0;
                     };
-                    if (comboHit(tsl::cfg::launchCombo) || comboHit(tsl::cfg::extraLaunchCombo)) {
+                    // HomeNX: just after starting or showing, the press that did it can
+                    // arrive again (input reconfigured): one press must not show and hide.
+                    if ((comboHit(tsl::cfg::launchCombo) || comboHit(tsl::cfg::extraLaunchCombo))
+                        && armGetSystemTick() >= shData->comboQuietUntil.load()) {
                         if (shData->overlayOpen) {
                             tsl::Overlay::get()->hide();
                             shData->overlayOpen = false;
@@ -3615,6 +3619,7 @@ namespace tsl {
         impl::SharedThreadData shData;
 
         shData.running = true;
+        shData.comboQuietUntil = armGetSystemTick() + armNsToTicks(1'500'000'000ULL);
 
         Thread backgroundThread;
         threadCreate(&backgroundThread, impl::backgroundEventPoller, &shData, nullptr, 0x1000, 0x2c, -2);
@@ -3655,6 +3660,7 @@ namespace tsl {
             eventClear(&shData.comboEvent);
             if (!shData.running) break; // HomeNX: closing while hidden, nothing to show
             shData.overlayOpen = true;
+            shData.comboQuietUntil = armGetSystemTick() + armNsToTicks(600'000'000ULL);
 
 
             hlp::requestForeground(true);

@@ -1131,7 +1131,7 @@ private:
         curl_easy_setopt(c, CURLOPT_URL, url.c_str());
         curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(c, CURLOPT_MAXCONNECTS, 1L); // a socket and a TLS session each: keep one
+        curl_easy_setopt(c, CURLOPT_MAXCONNECTS, 2L); // the API's and a picture server's
         curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, auth ? 0L : 1L); // no redirects for the token
         curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 8000L);
         curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, 20000L);
@@ -2123,6 +2123,7 @@ public:
         if (m_accountList.empty()) {
             m_dmsError = "Sign in to Discord in HomeNX first: Social > Discord.";
             m_dmsLoaded = true;
+            m_guildsDone = true; // nothing to wait for
             return;
         }
         m_meReq = g_net.api("GET", "/users/@me");
@@ -2514,6 +2515,23 @@ private:
         }
     }
 
+    // Whether a picture has arrived or failed (asking for it if it wasn't yet):
+    // a screen waits for its pictures so they appear together.
+    bool settled(const std::string& url, const std::string& fallback, int w, int h, bool animated, bool round) {
+        if (url.empty()) return true;
+        picture(url, fallback, w, h, animated, round);
+        auto it = m_pictures.find(url + '#' + std::to_string(w) + 'x' + std::to_string(h) + (animated ? "a" : ""));
+        return it != m_pictures.end() && it->second.reply->done;
+    }
+
+    static constexpr u64 kRevealMs = 3000; // the longest a screen waits for its pictures
+
+    void drawWaiting(tsl::gfx::Renderer* r, s32 x, s32 y, s32 w) {
+        const int dots = 1 + static_cast<int>(nowMs() / 350 % 3);
+        const std::string text = "Loading" + std::string((size_t)dots, '.');
+        r->drawString(text.c_str(), false, x + (w - widthOf(r, "Loading...", 17)) / 2, y, 17, r->a(kMuted));
+    }
+
     // ------------------------------------------------------------ text with emoji
 
     s32 richWidth(tsl::gfx::Renderer* r, const std::string& s, float size, s32 emoji) {
@@ -2645,6 +2663,7 @@ private:
     }
 
     void buildServers() {
+        m_guildsDone = true;
         if (m_guildsReq->status != 200) return; // DMs still work; the bar stays empty
         Json doc(m_guildsReq->body, Json::InPlace{});
         size_t i, n;
@@ -2672,6 +2691,8 @@ private:
     void openServer(int index) {
         m_onBar = false;
         if (index == m_shownServer) return;
+        m_listRevealed = false;
+        m_listWaitFrom = nowMs();
         m_shownServer = index;
         m_listScroll = 0;
         if (index == 0) {
@@ -2751,6 +2772,7 @@ private:
         m_chatGuild = !guild.empty() ? guild : m_chatIsChannel ? m_servers[(size_t)m_shownServer].id : std::string();
         m_msgs.clear();
         m_chatLoaded = false;
+        m_chatRevealed = false;
         m_chatError.clear();
         m_chatNote.clear();
         m_chatScroll = 0;
@@ -2793,6 +2815,7 @@ private:
             m_chatLoaded = true;
             return;
         }
+        if (!m_chatLoaded) m_chatWaitFrom = nowMs(); // its pictures are asked for from now
         m_chatLoaded = true;
         m_chatError.clear();
         Json doc(m_msgReq->body, Json::InPlace{});
@@ -3244,7 +3267,32 @@ private:
         r->drawString(" Switch   Close", false, x + w - 140, y + 28, 13, r->a(kMuted));
     }
 
+    // The list screen's pictures (the first rows, the server icons, yours).
+    bool listPicturesIn() {
+        bool all = settled(m_meAvatar, std::string(), 32, 32, false, true);
+        for (size_t i = 1; i < m_servers.size() && i <= 12; ++i)
+            all = settled(m_servers[i].icon, std::string(), 48, 48, false, true) && all;
+        const std::vector<Row>& rows = list();
+        int n = 0;
+        for (const Row& row : rows)
+            if (row.kind == Row::Dm && n++ < 13) all = settled(row.avatar, std::string(), 36, 36, false, true) && all;
+        return all;
+    }
+
     void drawLists(tsl::gfx::Renderer* r) {
+        const bool loaded = m_shownServer == 0 ? m_dmsLoaded : m_channelsLoaded;
+        if (!m_listRevealed) {
+            if (!loaded || !m_guildsDone) {
+                m_listWaitFrom = nowMs();
+            } else if (listPicturesIn() || nowMs() - m_listWaitFrom > kRevealMs) {
+                m_listRevealed = true;
+            }
+            if (!m_listRevealed) {
+                r->drawRect(0, 0, kRailW, kH, r->a(kRailBg));
+                drawWaiting(r, kRailW, kH / 2, kW - kRailW);
+                return;
+            }
+        }
         // The server bar.
         r->drawRect(0, 0, kRailW, kH, r->a(kRailBg));
         const s32 item = 58, top = 10, barH = kH - top;
@@ -3289,7 +3337,6 @@ private:
         r->drawRect(lx, 48, lw, 1, r->a(kRailBg));
 
         std::vector<Row>& rows = list();
-        const bool loaded = m_shownServer == 0 ? m_dmsLoaded : m_channelsLoaded;
         const std::string& error = m_shownServer == 0 ? m_dmsError : m_channelsError;
         const s32 y0 = 52, h = kH - kPanelH - y0;
         if (rows.size() <= (m_shownServer == 0 ? 1u : 0u)) {
@@ -3377,6 +3424,22 @@ private:
         return std::max(h, m.header ? 44 + (m.reply.empty() ? 0 : 18) : 0) + 6;
     }
 
+    // The newest messages' pictures: avatars, emoji, images and reactions.
+    bool chatPicturesIn() {
+        bool all = true;
+        const size_t from = m_msgs.size() > 10 ? m_msgs.size() - 10 : 0;
+        for (size_t k = from; k < m_msgs.size(); ++k) {
+            const Msg& m = m_msgs[k];
+            if (m.header) all = settled(m.avatar, std::string(), 36, 36, false, true) && all;
+            for (const std::string& e : m.emojis)
+                all = settled(e, std::string(), m.big ? 36 : 18, m.big ? 36 : 18, false, false) && all;
+            for (const Media& md : m.media)
+                all = settled(md.url, md.fallback, kMediaW, kMediaH, md.animated, false) && all;
+            for (const ReactionPill& pill : m.reactions) all = settled(pill.emoji, std::string(), 16, 16, false, false) && all;
+        }
+        return all;
+    }
+
     void drawChat(tsl::gfx::Renderer* r) {
         // The channel's name, as Discord's header.
         r->drawString(m_chatIsChannel ? "#" : "@", false, 16, 33, 22, r->a(kChannel));
@@ -3387,8 +3450,11 @@ private:
         const bool replying = m_keyboard && (!m_replyTo.empty() || !m_reactTo.empty());
         const s32 bottom = m_keyboard ? kH - 258 - (replying ? 22 : 0) : kH - 74;
         const s32 tx = 60, tw = kW - tx - 12;
-        if (!m_chatLoaded) {
-            drawText(r, "Loading...", 16, top + 30, kW - 32, kMuted);
+        if (m_chatLoaded && !m_chatRevealed && m_chatError.empty()) {
+            if (chatPicturesIn() || nowMs() - m_chatWaitFrom > kRevealMs) m_chatRevealed = true;
+        }
+        if (!m_chatLoaded || (!m_chatRevealed && m_chatError.empty())) {
+            drawWaiting(r, 0, top + (bottom - top) / 2, kW);
         } else if (!m_chatError.empty()) {
             drawText(r, m_chatError, 16, top + 30, kW - 32, kError);
         } else if (m_msgs.empty()) {
@@ -3614,6 +3680,8 @@ private:
     std::string m_dmsError, m_channelsError;
     std::shared_ptr<Reply> m_meReq, m_dmReq, m_guildsReq, m_channelsReq, m_msgReq, m_sendReq, m_emojiReq, m_gifReq;
     std::shared_ptr<Reply> m_chatInfoReq;
+    bool m_listRevealed = false, m_guildsDone = false, m_chatRevealed = false;
+    u64 m_listWaitFrom = 0, m_chatWaitFrom = 0;
     bool m_picking = false;                     // choosing a message (ZR)
     int m_pick = -1;
     std::string m_replyTo, m_reactTo, m_replyName; // the message being answered / reacted to
@@ -3704,7 +3772,7 @@ public:
             .tcp_tx_buf_size = 8 * 1024,
             .tcp_rx_buf_size = 16 * 1024,
             .tcp_tx_buf_max_size = 16 * 1024,
-            .tcp_rx_buf_max_size = 48 * 1024,
+            .tcp_rx_buf_max_size = 64 * 1024,
             .udp_tx_buf_size = 0x2400,
             .udp_rx_buf_size = 0xA500,
             .sb_efficiency = 1,
@@ -3712,6 +3780,13 @@ public:
         };
         const Result sockRc = socketInitialize(&kSockets);
         m_sockets = R_SUCCEEDED(sockRc);
+        // curl asks csrng for random bytes (its "Failed initialization" when it
+        // can't): open it first, a few tries, so curl's own use shares ours.
+        for (int i = 0; i < 20 && !m_csrng; ++i) {
+            m_csrng = R_SUCCEEDED(csrngInitialize());
+            if (!m_csrng) svcSleepThread(100'000'000ULL);
+        }
+        logLine("overlay: csrng %s", m_csrng ? "open" : "unavailable");
         // curl's TLS here is the console's ssl service, opened by curl_global_init.
         const CURLcode curlRc = curl_global_init(CURL_GLOBAL_DEFAULT);
         char buf[96];
@@ -3729,6 +3804,7 @@ public:
         g_net.stop();
         curl_global_cleanup();
         if (m_sockets) socketExit();
+        if (m_csrng) csrngExit();
         if (m_time) timeExit();
         if (m_ns) nsExit();
         if (m_pminfo) pminfoExit();
@@ -3803,7 +3879,7 @@ public:
     }
 
 private:
-    bool m_sockets = false, m_nifm = false, m_pminfo = false, m_ns = false, m_time = false;
+    bool m_sockets = false, m_nifm = false, m_pminfo = false, m_ns = false, m_time = false, m_csrng = false;
 };
 
 } // namespace
