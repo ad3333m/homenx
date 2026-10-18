@@ -32,6 +32,7 @@
 #include <math.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <cwctype>
 #include <string>
