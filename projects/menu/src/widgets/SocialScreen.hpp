@@ -107,6 +107,7 @@ private:
         std::mutex mu;
         bool done = false;
         std::vector<std::pair<std::string, std::vector<std::uint8_t>>> pngs;
+        std::vector<std::string> errors; // why each empty one failed (for menu.log)
     };
     enum class Zone { Tiles, List, Detail };
     enum class Mode { Friends, Requests, Miis };
@@ -227,6 +228,7 @@ private:
     std::map<std::string, std::unique_ptr<nxui::Texture>> m_faces;
     std::map<std::string, std::vector<std::uint8_t>> m_facePngs; // waiting to be uploaded
     std::set<std::string> m_faceTried;
+    std::uint64_t m_faceRetryAt = 0; // a failed face is asked for again from this tick
     std::shared_ptr<FaceJob> m_faceJob;
 
     bool m_editing = false;            // in the Mii Maker

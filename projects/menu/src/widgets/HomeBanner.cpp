@@ -66,7 +66,18 @@ void HomeBanner::onContentRender(nxui::Renderer& ren) {
     const float a = m_opacity;
     const float pic = cr.height;
     if (m_picture && m_picture->valid()) {
-        ren.drawTextureRounded(m_picture, {cr.x, cr.y, pic, pic}, m_round ? pic * 0.5f : 8.f,
+        nxui::Rect pr{cr.x, cr.y, pic, pic};
+        if (!m_round && m_picture->width() > 0 && m_picture->height() > 0) { // fitted, not stretched
+            const float aspect = (float)m_picture->width() / (float)m_picture->height();
+            if (aspect < 1.f) {
+                pr.width = pic * aspect;
+                pr.x += (pic - pr.width) * 0.5f;
+            } else {
+                pr.height = pic / aspect;
+                pr.y += (pic - pr.height) * 0.5f;
+            }
+        }
+        ren.drawTextureRounded(m_picture, pr, m_round ? pic * 0.5f : std::min(8.f, std::min(pr.width, pr.height) * 0.2f),
                                nxui::Color::white().withAlpha(a));
     } else {
         ren.drawCircle({cr.x + pic * 0.5f, cr.y + pic * 0.5f}, pic * 0.5f, m_fallbackColor.withAlpha(a));
@@ -78,7 +89,7 @@ void HomeBanner::onContentRender(nxui::Renderer& ren) {
     }
 
     float right = cr.x + cr.width;
-    if (!m_hintGlyph.empty() && m_iconFont && m_smallFont) {
+    if (m_hintShown && !m_hintGlyph.empty() && m_iconFont && m_smallFont) {
         const nxui::Vec2 ls = m_smallFont->measure(m_hintLabel);
         const nxui::Vec2 gs = m_iconFont->measure(m_hintGlyph);
         const float x = right - ls.x;

@@ -86,7 +86,7 @@ Response Perform(const Request& req) {
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
     curl_easy_setopt(c, CURLOPT_HEADERFUNCTION, OnHeader);
     curl_easy_setopt(c, CURLOPT_HEADERDATA, &res);
-    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(c, CURLOPT_NOPROGRESS, req.abortable ? 0L : 1L);
     curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, OnProgress);
     if (hdrs) curl_easy_setopt(c, CURLOPT_HTTPHEADER, hdrs);
     if (g_insecure) {

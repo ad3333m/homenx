@@ -49,6 +49,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdarg>
+#include <malloc.h>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -110,6 +111,32 @@ const tsl::Color kDnd(0xF, 0x4, 0x4, 0xF);      // #F23F43
 
 u64 nowMs() { return armTicksToNs(armGetSystemTick()) / 1'000'000ULL; }
 
+// Atmosphère allows three csrng sessions in the whole system and libnx's curl
+// keeps one open while it's loaded (HOME's and this overlay's), so curl's
+// random bytes failed ("Failed initialization"). These stand in for libnx's
+// csrng: the kernel's entropy (randomGet) needs no session.
+extern "C" {
+Result csrngInitialize(void) { return 0; }
+void csrngExit(void) {}
+Service* csrngGetServiceSession(void) {
+    static Service none{};
+    return &none;
+}
+Result csrngGetRandomBytes(void* out, size_t size) {
+    randomGet(out, size);
+    return 0;
+}
+extern char* fake_heap_start;
+extern char* fake_heap_end;
+}
+
+// What's left of the overlay's heap, in KB (for the log).
+unsigned freeKb() {
+    const struct mallinfo mi = mallinfo();
+    const size_t heap = static_cast<size_t>(fake_heap_end - fake_heap_start);
+    return static_cast<unsigned>((heap - mi.arena + mi.fordblks) / 1024);
+}
+
 // sdmc:/config/SwitchU/discord_overlay.log: what the connection and the
 // notifications did, a line each (started afresh past 64 KB).
 std::mutex g_logMu;
@@ -151,6 +178,40 @@ struct Json {
     Json& operator=(const Json&) = delete;
     yyjson_val* root() const { return doc ? yyjson_doc_get_root(doc) : nullptr; }
 };
+
+// A reply's top-level array one element at a time. Parsing all of it at once
+// costs yyjson about 3x the text up front (a DM list can be most of a MB),
+// which an overlay's heap doesn't have.
+template <typename F>
+void forEachItem(const std::string& body, F&& fn) {
+    std::string item;
+    int depth = 0;
+    bool quoted = false, escaped = false;
+    size_t start = std::string::npos;
+    for (size_t i = 0; i < body.size(); ++i) {
+        const char c = body[i];
+        if (quoted) {
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (c == '"') quoted = false;
+            continue;
+        }
+        if (c == '"') {
+            quoted = true;
+        } else if (c == '{' || c == '[') {
+            if (depth == 1 && c == '{') start = i;
+            ++depth;
+        } else if (c == '}' || c == ']') {
+            --depth;
+            if (depth == 1 && c == '}' && start != std::string::npos) {
+                item.assign(body, start, i + 1 - start);
+                Json doc(item, Json::InPlace{});
+                if (doc.root()) fn(doc.root());
+                start = std::string::npos;
+            }
+        }
+    }
+}
 
 std::string str(yyjson_val* o, const char* key) {
     yyjson_val* v = yyjson_obj_get(o, key);
@@ -1092,6 +1153,7 @@ private:
                     }
                 }
             } catch (...) { // out of memory: this one fails, the overlay goes on
+                logLine("net: out of memory (%u KB free) for %s", freeKb(), job.url.substr(0, 60).c_str());
                 job.reply->body = std::string();
                 job.reply->picture = Picture{};
                 job.reply->status = -static_cast<long>(CURLE_OUT_OF_MEMORY);
@@ -1160,6 +1222,8 @@ private:
         if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
         reply.status = rc == CURLE_OK ? status : -static_cast<long>(rc);
         reply.error = rc == CURLE_OK ? std::string() : std::string(curl_easy_strerror(rc));
+        if (rc != CURLE_OK)
+            logLine("net: %s for %s (%u KB free)", reply.error.c_str(), url.substr(0, 60).c_str(), freeKb());
         if (rc == CURLE_COULDNT_CONNECT || rc == CURLE_OPERATION_TIMEDOUT) ++index; // the next address
         curl_slist_free_all(headers);
         curl_slist_free_all(pinned);
@@ -1659,6 +1723,7 @@ private:
                 const std::vector<std::string> ips = addressesOf(kGatewayHost);
                 reached = !ips.empty() && session(ips[m_ipIndex % ips.size()]);
             } catch (...) { // out of memory: drop this connection, try again in a while
+                logLine("gateway: out of memory (%u KB free)", freeKb());
                 m_closeCode = 0;
             }
             if (m_quit || m_closeCode == 4004) break; // signed out: the screen says so
@@ -2632,10 +2697,7 @@ private:
         }
         struct Dm { std::string id, title, last, avatar, userId; };
         std::vector<Dm> dms;
-        Json doc(m_dmReq->body, Json::InPlace{});
-        size_t i, n;
-        yyjson_val* c;
-        yyjson_arr_foreach(doc.root(), i, n, c) {
+        forEachItem(m_dmReq->body, [&](yyjson_val* c) {
             Dm dm{str(c, "id"), cleanName(str(c, "name")), str(c, "last_message_id"), std::string(), std::string()};
             yyjson_val* people = yyjson_obj_get(c, "recipients");
             if (num(c, "type") == 1 && yyjson_arr_size(people) == 1)
@@ -2652,7 +2714,7 @@ private:
             if (!str(c, "icon").empty())
                 dm.avatar = "https://cdn.discordapp.com/channel-icons/" + dm.id + "/" + str(c, "icon") + ".png?size=128";
             if (!dm.id.empty()) dms.push_back(std::move(dm));
-        }
+        });
         std::sort(dms.begin(), dms.end(), [](const Dm& a, const Dm& b) { return newer(a.last, b.last); });
         m_dms.push_back({Row::Header, "", "DIRECT MESSAGES", "", "", ""});
         for (size_t k = 0; k < dms.size() && k < 50; ++k)
@@ -2665,10 +2727,7 @@ private:
     void buildServers() {
         m_guildsDone = true;
         if (m_guildsReq->status != 200) return; // DMs still work; the bar stays empty
-        Json doc(m_guildsReq->body, Json::InPlace{});
-        size_t i, n;
-        yyjson_val* g;
-        yyjson_arr_foreach(doc.root(), i, n, g) {
+        forEachItem(m_guildsReq->body, [&](yyjson_val* g) {
             Server s{str(g, "id"), cleanName(str(g, "name")), std::string(), std::string()};
             if (!str(g, "icon").empty())
                 s.icon = "https://cdn.discordapp.com/icons/" + s.id + "/" + str(g, "icon") + ".png?size=128";
@@ -2685,7 +2744,7 @@ private:
                 start = false;
             }
             m_servers.push_back(std::move(s));
-        }
+        });
     }
 
     void openServer(int index) {
@@ -2716,14 +2775,11 @@ private:
         }
         struct Ch { std::string id, name, parent; long pos, type; };
         std::vector<Ch> cats, texts;
-        Json doc(m_channelsReq->body, Json::InPlace{});
-        size_t i, n;
-        yyjson_val* c;
-        yyjson_arr_foreach(doc.root(), i, n, c) {
+        forEachItem(m_channelsReq->body, [&](yyjson_val* c) {
             Ch ch{str(c, "id"), cleanName(str(c, "name")), str(c, "parent_id"), num(c, "position"), num(c, "type")};
             if (ch.type == 4) cats.push_back(ch);
             else if (ch.type == 0 || ch.type == 5) texts.push_back(ch); // text and announcements
-        }
+        });
         auto byPos = [](const Ch& a, const Ch& b) { return a.pos < b.pos; };
         std::sort(cats.begin(), cats.end(), byPos);
         std::sort(texts.begin(), texts.end(), byPos);
@@ -2818,11 +2874,8 @@ private:
         if (!m_chatLoaded) m_chatWaitFrom = nowMs(); // its pictures are asked for from now
         m_chatLoaded = true;
         m_chatError.clear();
-        Json doc(m_msgReq->body, Json::InPlace{});
         std::vector<Msg> fresh;
-        size_t i, n;
-        yyjson_val* m;
-        yyjson_arr_foreach(doc.root(), i, n, m) {
+        forEachItem(m_msgReq->body, [&](yyjson_val* m) {
             Msg msg;
             msg.id = str(m, "id");
             msg.time = whenOf(msg.id);
@@ -2925,7 +2978,7 @@ private:
                     msg.wrapped = true;
                 }
             fresh.push_back(std::move(msg));
-        }
+        });
         std::reverse(fresh.begin(), fresh.end()); // oldest first
         // One person's messages a few minutes apart share one name and picture.
         for (size_t k = 0; k < fresh.size(); ++k)
@@ -3100,18 +3153,15 @@ private:
 
     void takeServerEmoji() {
         if (m_emojiReq->status != 200) return;
-        Json doc(m_emojiReq->body, Json::InPlace{});
         std::vector<EmojiItem>& items = m_serverEmoji[m_emojiFor];
-        size_t i, n;
-        yyjson_val* e;
-        yyjson_arr_foreach(doc.root(), i, n, e) {
-            if (items.size() >= 120) break;
+        forEachItem(m_emojiReq->body, [&](yyjson_val* e) {
+            if (items.size() >= 120) return;
             const std::string id = str(e, "id"), name = str(e, "name");
             if (id.empty() || name.empty() || (yyjson_obj_get(e, "available") && !yyjson_get_bool(yyjson_obj_get(e, "available"))))
-                continue;
+                return;
             const bool moving = yyjson_get_bool(yyjson_obj_get(e, "animated"));
             items.push_back({std::string(moving ? "<a:" : "<:") + name + ":" + id + ">", customEmojiUrl(id)});
-        }
+        });
     }
 
     std::vector<const EmojiItem*> emojiChoices() const {
@@ -3780,14 +3830,14 @@ public:
         };
         const Result sockRc = socketInitialize(&kSockets);
         m_sockets = R_SUCCEEDED(sockRc);
-        // curl asks csrng for random bytes (its "Failed initialization" when it
-        // can't): open it first, a few tries, so curl's own use shares ours.
-        for (int i = 0; i < 20 && !m_csrng; ++i) {
-            m_csrng = R_SUCCEEDED(csrngInitialize());
-            if (!m_csrng) svcSleepThread(100'000'000ULL);
+        // curl's TLS is the console's ssl service. curl_global_init fails for good
+        // if it can't open it right then ("Failed initialization"): open it
+        // first, a few tries, so curl's own open only counts ours.
+        for (int i = 0; i < 20 && !m_ssl; ++i) {
+            m_ssl = R_SUCCEEDED(sslInitialize(0x3));
+            if (!m_ssl) svcSleepThread(100'000'000ULL);
         }
-        logLine("overlay: csrng %s", m_csrng ? "open" : "unavailable");
-        // curl's TLS here is the console's ssl service, opened by curl_global_init.
+        logLine("overlay: ssl %s, %u KB free", m_ssl ? "open" : "unavailable", freeKb());
         const CURLcode curlRc = curl_global_init(CURL_GLOBAL_DEFAULT);
         char buf[96];
         if (!m_sockets) {
@@ -3804,7 +3854,7 @@ public:
         g_net.stop();
         curl_global_cleanup();
         if (m_sockets) socketExit();
-        if (m_csrng) csrngExit();
+        if (m_ssl) sslExit();
         if (m_time) timeExit();
         if (m_ns) nsExit();
         if (m_pminfo) pminfoExit();
@@ -3879,7 +3929,7 @@ public:
     }
 
 private:
-    bool m_sockets = false, m_nifm = false, m_pminfo = false, m_ns = false, m_time = false, m_csrng = false;
+    bool m_sockets = false, m_nifm = false, m_pminfo = false, m_ns = false, m_time = false, m_ssl = false;
 };
 
 } // namespace

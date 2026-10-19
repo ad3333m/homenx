@@ -810,6 +810,11 @@ std::vector<DiscordService::Line> DiscordService::lines(Snowflake channelId, siz
         std::string text = m.IsSystem() ? m.systemText
                                         : stripMarkdown(plainText(pictureLinks(m.content, &l.emojis, stickers), &l.emojis));
         text = markEmoji(text, &l.emojis);
+        if (text.size() > 1200) { // the panel shows a few lines of it at most
+            size_t cut = 1200;
+            while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
+            text = text.substr(0, cut) + "...";
+        }
         l.media = std::move(stickers);
         for (const Attachment& a : m.attachments) {
             if (a.IsImage() && !a.Spoiler() && l.media.size() < 2) {
@@ -907,9 +912,12 @@ void DiscordService::send(Snowflake channelId, const std::string& raw) {
 }
 
 void DiscordService::noteAlert(const Store::Change& ch, yyjson_val* d) {
-    if (myStatus() == "dnd") return;
     const Channel* c = m_store->FindChannel(ch.channelId);
-    if (!c || m_store->ChannelMuted(*c)) return;
+    if (myStatus() == "dnd" || !c || m_store->ChannelMuted(*c)) {
+        DebugLog::log("[discord] alert skipped (%s)", !c ? "unknown chat" : myStatus() == "dnd" ? "do not disturb" : "muted");
+        return;
+    }
+    DebugLog::log("[discord] alert for HOME");
     const Message m = Parse::MessageObj(d);
     Alert a;
     a.channelId = ch.channelId;

@@ -1313,7 +1313,19 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
     if (!m_discordAutoStarted && !leaveSplashActive() && m_deferredInitialAssetFrames == 0 && !launching
         && !m_discord.stopping() && (m_discordAutoStart -= dt) <= 0.f) {
         m_discordAutoStarted = true;
-        if (!m_discord.started() && m_discord.hasSavedAccount()) m_discord.activate();
+        const bool saved = m_discord.hasSavedAccount();
+        DebugLog::log("[discord] HOME alerts: %s", saved ? "connecting" : "no saved account");
+        if (!m_discord.started() && saved) m_discord.activate();
+    }
+    // Leaving for an applet stops Discord; HOME showing again a while later
+    // means it came back without restarting: connect again.
+    if (m_discordAutoStarted && m_discord.stopping() && !launching) {
+        if ((m_discordStoppedFor += dt) > 8.f) {
+            m_discordStoppedFor = 0.f;
+            if (m_discord.hasSavedAccount()) m_discord.activate();
+        }
+    } else {
+        m_discordStoppedFor = 0.f;
     }
 
     DiscordService::Alert alert;
@@ -1325,12 +1337,65 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
         const char first = title.empty() ? '?' : title[0];
         m_discordBanner->setFallback(nxui::Color(0.345f, 0.396f, 0.949f, 1.f),
                                      std::string(1, (char)std::toupper((unsigned char)first)));
+        m_discordBanner->setHintShown(true);
+        m_bannerIsDiscord = true;
         m_discordBanner->slideIn();
         m_discordBannerLeft = 6.f;
         m_audio.playSfx(Sfx::ModalShow);
     }
+    // Controllers running low: one banner each, again once they've been charged.
+    if ((m_batteryCheckIn -= dt) <= 0.f && !m_discordBanner->shown() && !launching) {
+        m_batteryCheckIn = 5.f;
+        static const HidNpadIdType kPlayers[] = {HidNpadIdType_No1, HidNpadIdType_No2, HidNpadIdType_No3,
+                                                 HidNpadIdType_No4, HidNpadIdType_No5, HidNpadIdType_No6,
+                                                 HidNpadIdType_No7, HidNpadIdType_No8};
+        for (int player = 0; player < 8 && !m_discordBanner->shown(); ++player) {
+            const u32 styles = hidGetNpadStyleSet(kPlayers[player]);
+            HidPowerInfo power[2]{};
+            const char* names[2] = {nullptr, nullptr};
+            const nxui::Texture* pictures[2] = {nullptr, nullptr};
+            if (styles & HidNpadStyleTag_NpadFullKey) {
+                hidGetNpadPowerInfoSingle(kPlayers[player], &power[0]);
+                names[0] = "Pro Controller";
+            } else if (styles & (HidNpadStyleTag_NpadJoyDual | HidNpadStyleTag_NpadJoyLeft | HidNpadStyleTag_NpadJoyRight)) {
+                hidGetNpadPowerInfoSplit(kPlayers[player], &power[0], &power[1]);
+                if (styles & (HidNpadStyleTag_NpadJoyDual | HidNpadStyleTag_NpadJoyLeft)) {
+                    names[0] = "Joy-Con (L)";
+                    pictures[0] = &m_batteryJoyconLeftTex;
+                }
+                if (styles & (HidNpadStyleTag_NpadJoyDual | HidNpadStyleTag_NpadJoyRight)) {
+                    names[1] = "Joy-Con (R)";
+                    pictures[1] = &m_batteryJoyconRightTex;
+                }
+            }
+            for (int side = 0; side < 2; ++side) {
+                const std::uint32_t bit = 1u << (player * 2 + side);
+                const bool low = names[side] && !power[side].is_charging && !power[side].is_powered
+                    && power[side].battery_level <= 1;
+                if (!low) {
+                    m_lowWarned &= ~bit;
+                    continue;
+                }
+                if (m_lowWarned & bit) continue;
+                m_lowWarned |= bit;
+                auto& i18n = nxui::I18n::instance();
+                m_discordBanner->setContent(std::string(names[side]) + " " + i18n.tr("battery.low_title", "battery low"),
+                                            i18n.tr("battery.player", "Player") + " " + std::to_string(player + 1) + " - "
+                                                + i18n.tr("battery.low_text", "charge it soon"));
+                m_discordBanner->setPicture(pictures[side] && pictures[side]->valid() ? pictures[side] : nullptr, false);
+                m_discordBanner->setFallback(nxui::Color(0.93f, 0.26f, 0.27f, 1.f), "!");
+                m_discordBanner->setHintShown(false);
+                m_bannerIsDiscord = false;
+                m_discordBanner->slideIn();
+                m_discordBannerLeft = 6.f;
+                m_audio.playSfx(Sfx::ModalShow);
+                break;
+            }
+        }
+    }
     if (m_discordBanner->shown()) {
-        m_discordBanner->setPicture(m_discordPanel ? m_discordPanel->avatar(m_shownAlert.avatarUrl) : nullptr, true);
+        if (m_bannerIsDiscord)
+            m_discordBanner->setPicture(m_discordPanel ? m_discordPanel->avatar(m_shownAlert.avatarUrl) : nullptr, true);
         if ((m_discordBannerLeft -= dt) <= 0.f || panelUp || launching) m_discordBanner->slideOut();
     }
 
@@ -1593,7 +1658,7 @@ void WiiUMenuApp::wireGlobalActions() {
         if (m_editMode || m_navigator.route() != switchu::navigation::Route::Home ||
             focusRoot() != &rootBox())
             return;
-        const bool toAlert = m_discordBanner && m_discordBanner->shown();
+        const bool toAlert = m_discordBanner && m_discordBanner->shown() && m_bannerIsDiscord;
         openDiscordPanel();
         if (toAlert && m_discordPanel && m_discordPanel->isOpen()) {
             m_discordPanel->openChat(m_shownAlert.channelId, m_shownAlert.guildId, m_shownAlert.chat,

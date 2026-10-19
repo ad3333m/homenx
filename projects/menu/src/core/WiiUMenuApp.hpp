@@ -275,6 +275,10 @@ private:
     float m_discordBannerLeft = 0.f;
     float m_discordAutoStart = 5.f;
     bool m_discordAutoStarted = false;
+    float m_discordStoppedFor = 0.f; // HOME showing while Discord is stopped (back from an applet)
+    bool m_bannerIsDiscord = false;  // the alert banner is a Discord message (L opens it)
+    float m_batteryCheckIn = 3.f;
+    std::uint32_t m_lowWarned = 0;   // controllers already told about (bit = player * 2 + side)
     std::uint64_t m_discordBadgeVersion = ~0ull;
     nxui::Texture m_nowPlayingCover;
     int m_nowPlayingIndex = -1;

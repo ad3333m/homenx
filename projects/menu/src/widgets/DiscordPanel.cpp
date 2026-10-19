@@ -179,7 +179,7 @@ bool decodePicture(const std::string& body, bool animated, int maxW, int maxH, D
     const int len = static_cast<int>(body.size());
     int gw = 0, gh = 0, count = 0;
     if (animated && gifInfo(body, gw, gh, count) && count > 1
-        && static_cast<uint64_t>(gw) * gh * 4u * count <= (32ull << 20)) {
+        && static_cast<uint64_t>(gw) * gh * 4u * count <= (12ull << 20)) { // stb holds every frame (and grows by copying)
         int* delays = nullptr;
         int w = 0, h = 0, z = 0, comp = 0;
         stbi_uc* frames = stbi_load_gif_from_memory(data, len, &delays, &w, &h, &z, &comp, 4);
@@ -769,17 +769,20 @@ std::vector<std::string> DiscordPanel::wrapRich(nxui::Font* font, const std::str
                                                 int maxLines, float emoji) const {
     std::vector<std::string> lines;
     if (!font) return lines;
+    // The longest start of `t` that fits with "...": a binary search over its
+    // letters (cutting one letter at a time froze HOME on long messages).
     auto fitRich = [&](std::string t) {
         if (richWidth(font, t, scale, emoji) <= maxW) return t;
-        while (!t.empty()) {
-            while (!t.empty()) {
-                const unsigned char c = static_cast<unsigned char>(t.back());
-                t.pop_back();
-                if ((c & 0xC0) != 0x80) break;
-            }
-            if (richWidth(font, t + "...", scale, emoji) <= maxW) return t + "...";
+        std::vector<size_t> cuts; // where each letter starts
+        for (size_t k = 0; k < t.size(); ++k)
+            if ((static_cast<unsigned char>(t[k]) & 0xC0) != 0x80) cuts.push_back(k);
+        size_t lo = 0, hi = cuts.size(); // t.substr(0, cuts[lo]) fits; cuts[hi] doesn't
+        while (hi - lo > 1) {
+            const size_t mid = (lo + hi) / 2;
+            if (richWidth(font, t.substr(0, cuts[mid]) + "...", scale, emoji) <= maxW) lo = mid;
+            else hi = mid;
         }
-        return std::string("...");
+        return lo == 0 ? std::string("...") : t.substr(0, cuts[lo]) + "...";
     };
     std::string line;
     size_t i = 0;

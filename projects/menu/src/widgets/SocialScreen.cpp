@@ -1,5 +1,6 @@
 #include "widgets/SocialScreen.hpp"
 #include "core/BackgroundThread.hpp"
+#include "core/DebugLog.hpp"
 #include "launcher/AppListLoader.hpp"
 #include "net/http.h"
 #include "themeshop/ThemeHttp.hpp"
@@ -700,6 +701,7 @@ void SocialScreen::updateEditFace() {
         req.url = url;
         req.timeoutMs = 10000;
         req.maxBytes = 1u << 20;
+        req.abortable = false;
         const Http::Response res = Http::Perform(req);
         Http::ThreadCleanup();
         std::lock_guard<std::mutex> lk(job->mu);
@@ -834,10 +836,22 @@ void SocialScreen::ensureFaces() {
             done = m_faceJob->done;
         }
         if (!done) return;
-        for (auto& png : m_faceJob->pngs)
-            if (!png.second.empty()) m_facePngs[png.first] = std::move(png.second);
+        for (size_t i = 0; i < m_faceJob->pngs.size(); ++i) {
+            auto& png = m_faceJob->pngs[i];
+            if (!png.second.empty()) {
+                m_facePngs[png.first] = std::move(png.second);
+                continue;
+            }
+            const std::string why = i < m_faceJob->errors.size() ? m_faceJob->errors[i] : std::string("?");
+            DebugLog::log("[mii] face failed: %s", why.c_str());
+            if (why.rfind("status 4", 0) == 0) continue; // Mii Studio refused this one: asking again won't help
+            // Not this time (no connection yet, a busy server): ask again soon.
+            m_faceTried.erase(png.first);
+            m_faceRetryAt = armGetSystemTick() + armNsToTicks(5'000'000'000ULL);
+        }
         m_faceJob.reset();
     }
+    if (armGetSystemTick() < m_faceRetryAt) return;
     if (m_mode != Mode::Miis) return;
     std::vector<std::string> urls;
     if (m_haveCandidate && !m_faceTried.count(m_candidate.faceUrl)) urls.push_back(m_candidate.faceUrl);
@@ -850,18 +864,22 @@ void SocialScreen::ensureFaces() {
     runInBackground([job, urls]() {
         nxui::moveToWorkerCores();
         std::vector<std::pair<std::string, std::vector<std::uint8_t>>> pngs;
+        std::vector<std::string> errors;
         for (const auto& u : urls) {
             Http::Request req;
             req.url = u;
             req.timeoutMs = 10000;
             req.maxBytes = 1u << 20;
+            req.abortable = false; // Discord stopping (a game launching) mustn't cancel these
             const Http::Response res = Http::Perform(req);
             pngs.emplace_back(u, res.Ok() ? std::vector<std::uint8_t>(res.body.begin(), res.body.end())
                                           : std::vector<std::uint8_t>());
+            errors.push_back(res.Ok() ? std::string() : "status " + std::to_string(res.status) + " " + res.error);
         }
         Http::ThreadCleanup();
         std::lock_guard<std::mutex> lk(job->mu);
         job->pngs = std::move(pngs);
+        job->errors = std::move(errors);
         job->done = true;
     });
 }

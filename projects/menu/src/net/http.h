@@ -12,6 +12,7 @@ struct Request {
     std::string body;
     long timeoutMs = 20000;
     size_t maxBytes = 32u << 20;  // images and history pages are far smaller
+    bool abortable = true;        // false: Discord's AbortAll() leaves it alone (HOME's Mii faces)
 };
 
 struct Response {

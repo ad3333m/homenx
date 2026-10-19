@@ -37,6 +37,7 @@ public:
         m_hintGlyph = glyph;
         m_hintLabel = label;
     }
+    void setHintShown(bool on) { m_hintShown = on; }
     void setProgress(float p) { m_progress = p; } // < 0: no line
 
     void slideIn();
@@ -60,6 +61,7 @@ private:
     bool m_fitted = false;
     const nxui::Texture* m_picture = nullptr;
     bool m_round = true;
+    bool m_hintShown = true;
     float m_progress = -1.f;
     bool m_in = false;
     nxui::AnimatedFloat m_t{0.f};
