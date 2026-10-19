@@ -64,6 +64,25 @@
 #include <sys/stat.h>
 #include <vector>
 
+// Atmosphère allows three csrng sessions in the whole system and libnx's curl
+// keeps one open while it's loaded (HOME's and this overlay's), so curl's
+// random bytes failed ("Failed initialization"). These stand in for libnx's
+// csrng: the kernel's entropy (randomGet) needs no session.
+extern "C" {
+Result csrngInitialize(void) { return 0; }
+void csrngExit(void) {}
+Service* csrngGetServiceSession(void) {
+    static Service none{};
+    return &none;
+}
+Result csrngGetRandomBytes(void* out, size_t size) {
+    randomGet(out, size);
+    return 0;
+}
+extern char* fake_heap_start;
+extern char* fake_heap_end;
+}
+
 namespace {
 
 constexpr const char* kApi = "https://discord.com/api/v9";
@@ -111,24 +130,6 @@ const tsl::Color kDnd(0xF, 0x4, 0x4, 0xF);      // #F23F43
 
 u64 nowMs() { return armTicksToNs(armGetSystemTick()) / 1'000'000ULL; }
 
-// Atmosphère allows three csrng sessions in the whole system and libnx's curl
-// keeps one open while it's loaded (HOME's and this overlay's), so curl's
-// random bytes failed ("Failed initialization"). These stand in for libnx's
-// csrng: the kernel's entropy (randomGet) needs no session.
-extern "C" {
-Result csrngInitialize(void) { return 0; }
-void csrngExit(void) {}
-Service* csrngGetServiceSession(void) {
-    static Service none{};
-    return &none;
-}
-Result csrngGetRandomBytes(void* out, size_t size) {
-    randomGet(out, size);
-    return 0;
-}
-extern char* fake_heap_start;
-extern char* fake_heap_end;
-}
 
 // What's left of the overlay's heap, in KB (for the log).
 unsigned freeKb() {
