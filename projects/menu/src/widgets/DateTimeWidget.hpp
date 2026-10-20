@@ -29,7 +29,6 @@ private:
     float m_timer = 0.f;
     std::string m_timeStr;
     std::string m_dateStr;
-    std::string m_shownTime, m_shownDate; // HomeNX: the last ones actually drawn
     bool m_use12HourClock = false;
     switchu::services::ClockService* m_clockService = nullptr;
     nxui::Color m_textColor      {1.f, 1.f, 1.f, 1.f};

@@ -155,7 +155,9 @@ public:
         setScale(selected ? 1.008f : 1.f);
 
         if (theme) {
-            float baseAlpha = isSection ? 0.0f
+            const bool dropdown = isSection && m_item.collapsible;
+            float baseAlpha = dropdown ? (selected ? 0.9f : 0.55f)
+                : isSection ? 0.0f
                 : selected ? 0.95f
                 : isActionLike ? 0.91f
                 : m_item.focusable() ? 0.89f : 0.86f;
@@ -178,9 +180,25 @@ public:
             std::max(0.f, rect().height - insetY * 2.f)
         });
         m_content->setOpacity(alpha);
+        m_chevronColor = theme ? theme->textSecondary.withAlpha(alpha) : nxui::Color(1.f, 1.f, 1.f, alpha);
+    }
+
+protected:
+    void onRender(nxui::Renderer& ren) override {
+        nxui::GlassBox::onRender(ren);
+        if (m_item.type != TabbedOverlayScreen::ItemType::Section || !m_item.collapsible) return;
+        // Closed: pointing right. Open: pointing down.
+        const nxui::Rect r = rect();
+        const nxui::Vec2 c{r.x + r.width - 26.f, r.y + r.height * 0.5f};
+        const float s = 7.f;
+        if (m_item.collapsed)
+            ren.drawTriangle({c.x - s * 0.5f, c.y - s}, {c.x + s * 0.7f, c.y}, {c.x - s * 0.5f, c.y + s}, m_chevronColor);
+        else
+            ren.drawTriangle({c.x - s, c.y - s * 0.5f}, {c.x + s, c.y - s * 0.5f}, {c.x, c.y + s * 0.7f}, m_chevronColor);
     }
 
 private:
+    nxui::Color m_chevronColor{1.f, 1.f, 1.f, 1.f};
     TabbedOverlayScreen::SettingItem& m_item;
     std::shared_ptr<nxui::Box> m_content;
 };
@@ -234,6 +252,7 @@ TabbedOverlayScreen::~TabbedOverlayScreen() {
 }
 
 float TabbedOverlayScreen::itemHeight(const SettingItem& item, float contentWidth) const {
+    if (item.hidden) return 0.f;
     if (item.type == ItemType::Section) return kSectionHeight;
     if (!item.wrapLabel) return kRowHeight;
 
@@ -417,6 +436,7 @@ void TabbedOverlayScreen::rebuildContentItems() {
 
     if (m_tabIndex < 0 || m_tabIndex >= (int)m_tabs.size()) return;
     ensureTabLoaded(m_tabIndex);
+    applySections(m_tabIndex);
     auto& items = m_tabs[m_tabIndex].items;
     auto& cache = m_cachedTabContentWidgets[(size_t)m_tabIndex];
     // DebugLog::log("[settings] rebuildContent tab=%d items=%d cache=%s",
@@ -442,6 +462,43 @@ void TabbedOverlayScreen::rebuildContentItems() {
     for (auto& itemBox : cache) {
         m_tabContent->addChild(itemBox);
     }
+}
+
+// HomeNX: every section with rows under it is a dropdown, closed until opened
+// (a tab with one section just shows it). Rows before the first section stay.
+void TabbedOverlayScreen::applySections(int tabIndex) {
+    if (tabIndex < 0 || tabIndex >= (int)m_tabs.size()) return;
+    auto& items = m_tabs[(size_t)tabIndex].items;
+    int sections = 0;
+    for (const auto& item : items)
+        if (item.type == ItemType::Section) ++sections;
+    bool hide = false;
+    for (size_t i = 0; i < items.size(); ++i) {
+        auto& item = items[i];
+        if (item.type != ItemType::Section) {
+            item.hidden = hide;
+            continue;
+        }
+        const bool hasRows = i + 1 < items.size() && items[i + 1].type != ItemType::Section;
+        item.collapsible = m_mode == ScreenMode::Settings && sections > 1 && hasRows; // Settings only
+        item.collapsed = item.collapsible
+            && !m_openSections.count(std::to_string(tabIndex) + "/" + item.label);
+        hide = item.collapsed;
+    }
+}
+
+void TabbedOverlayScreen::toggleSection(int rawIdx) {
+    auto& items = m_tabs[(size_t)m_tabIndex].items;
+    if (rawIdx < 0 || rawIdx >= (int)items.size()) return;
+    const std::string key = std::to_string(m_tabIndex) + "/" + items[(size_t)rawIdx].label;
+    if (!m_openSections.erase(key)) m_openSections.insert(key);
+    const int focused = m_contentIdx; // the section keeps the focus (nothing above it moves)
+    m_cachedTabContentWidgets[(size_t)m_tabIndex].clear();
+    rebuildContentItems();
+    m_contentIdx = focused;
+    clampContentIdx();
+    scrollToFocused();
+    if (m_activateSfxCb) m_activateSfxCb();
 }
 
 std::shared_ptr<nxui::Box> TabbedOverlayScreen::makeItemWidget(SettingItem& item) {
@@ -654,6 +711,10 @@ void TabbedOverlayScreen::drawContent(nxui::Renderer& ren, const nxui::Rect& pan
     int visibleRank = 0;
     int n = std::min((int)itemChildren.size(), (int)items.size());
     for (int i = 0; i < n; ++i) {
+        if (items[i].hidden) {
+            itemChildren[i]->setVisible(false);
+            continue;
+        }
         float h = itemHeight(items[i], cr.width);
         float insetY = (items[i].type == ItemType::Section) ? 1.f : kContentCardInsetY;
         float cardH = std::max(0.f, h - (items[i].type == ItemType::Section ? 2.f : 6.f));

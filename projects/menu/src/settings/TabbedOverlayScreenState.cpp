@@ -134,8 +134,10 @@ void TabbedOverlayScreen::warmup() {
 }
 
 bool TabbedOverlayScreen::itemFocusable(const SettingItem& item) const {
-    if (!item.enabled)
+    if (!item.enabled || item.hidden)
         return false;
+    if (item.type == ItemType::Section && item.collapsible)
+        return true; // a dropdown: A opens it
     if (item.focusable())
         return true;
     const bool isSection = item.type == ItemType::Section;

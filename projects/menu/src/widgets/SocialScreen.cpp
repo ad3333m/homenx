@@ -132,41 +132,121 @@ SocialScreen::SocialScreen() {
 
 namespace {
 
-// What HomeNX's Mii Maker changes, with how many choices the console allows.
+// A Mii's face from Mii Studio or, if the console can't get it from there, a
+// copy of Mii Studio's renderer that takes the same data over plain HTTP.
+// `why` says what went wrong when neither answers.
+std::vector<std::uint8_t> fetchFace(const std::string& url, std::string& why) {
+    static const std::string kStudio = "https://studio.mii.nintendo.com/";
+    const std::string tries[2] = {
+        url, url.rfind(kStudio, 0) == 0 ? "http://mii-unsecure.ariankordi.net/" + url.substr(kStudio.size())
+                                        : std::string()};
+    for (const std::string& u : tries) {
+        if (u.empty()) continue;
+        Http::Request req;
+        req.url = u;
+        req.timeoutMs = 10000;
+        req.maxBytes = 1u << 20;
+        req.abortable = false; // Discord stopping (leaving HOME) mustn't cancel these
+        const Http::Response res = Http::Perform(req);
+        if (res.Ok() && !res.body.empty()) return std::vector<std::uint8_t>(res.body.begin(), res.body.end());
+        why += (why.empty() ? "" : "; ") + ("status " + std::to_string(res.status) + " " + res.error);
+    }
+    return {};
+}
+
+// What HomeNX's Mii Maker changes, in the console's ranges (CharInfo's
+// validity rules): values lo .. lo + count - 1.
+enum class MiiKind { Style, Colour, Slider, Toggle };
 struct MiiFeature {
     const char* key;
     const char* label;
     u8 MiiCharInfo::*field;
-    int count;
-    int step; // per press
+    int lo, count;
+    MiiKind kind;
+    int step = 1; // per press
 };
 const MiiFeature kMiiFeatures[] = {
-    {"mii.f.gender", "Boy or girl", &MiiCharInfo::mii_sex, 2, 1},
-    {"mii.f.skin", "Skin colour", &MiiCharInfo::mii_face_color, 10, 1},
-    {"mii.f.face", "Face shape", &MiiCharInfo::mii_face_shape, 12, 1},
-    {"mii.f.makeup", "Make-up", &MiiCharInfo::mii_makeup_style, 12, 1},
-    {"mii.f.wrinkles", "Wrinkles", &MiiCharInfo::mii_wrinkles_style, 12, 1},
-    {"mii.f.hair", "Hairstyle", &MiiCharInfo::mii_hair_style, 132, 1},
-    {"mii.f.hair_colour", "Hair colour", &MiiCharInfo::mii_hair_color, 100, 1},
-    {"mii.f.flip", "Part the other way", &MiiCharInfo::mii_has_hair_flipped, 2, 1},
-    {"mii.f.eyebrows", "Eyebrows", &MiiCharInfo::mii_eyebrow_style, 24, 1},
-    {"mii.f.eyebrow_colour", "Eyebrow colour", &MiiCharInfo::mii_eyebrow_color, 100, 1},
-    {"mii.f.eyes", "Eyes", &MiiCharInfo::mii_eye_style, 60, 1},
-    {"mii.f.eye_colour", "Eye colour", &MiiCharInfo::mii_eye_color, 100, 1},
-    {"mii.f.nose", "Nose", &MiiCharInfo::mii_nose_style, 18, 1},
-    {"mii.f.mouth", "Mouth", &MiiCharInfo::mii_mouth_style, 36, 1},
-    {"mii.f.lip_colour", "Lip colour", &MiiCharInfo::mii_mouth_color, 100, 1},
-    {"mii.f.beard", "Beard", &MiiCharInfo::mii_beard_style, 6, 1},
-    {"mii.f.mustache", "Mustache", &MiiCharInfo::mii_mustache_style, 6, 1},
-    {"mii.f.facial_hair_colour", "Beard colour", &MiiCharInfo::mii_facial_hair_color, 100, 1},
-    {"mii.f.glasses", "Glasses", &MiiCharInfo::mii_glasses_style, 20, 1},
-    {"mii.f.glasses_colour", "Glasses colour", &MiiCharInfo::mii_glasses_color, 100, 1},
-    {"mii.f.mole", "Mole", &MiiCharInfo::mii_has_mole, 2, 1},
-    {"mii.f.height", "Height", &MiiCharInfo::mii_height, 128, 8},
-    {"mii.f.build", "Build", &MiiCharInfo::mii_width, 128, 8},
-    {"mii.f.colour", "Favourite colour", &MiiCharInfo::mii_color, 12, 1},
+    // Face
+    {"mii.f.gender", "Boy or girl", &MiiCharInfo::mii_sex, 0, 2, MiiKind::Toggle},
+    {"mii.f.skin", "Skin colour", &MiiCharInfo::mii_face_color, 0, 10, MiiKind::Colour},
+    {"mii.f.face", "Face shape", &MiiCharInfo::mii_face_shape, 0, 12, MiiKind::Style},
+    {"mii.f.wrinkles", "Wrinkles", &MiiCharInfo::mii_wrinkles_style, 0, 12, MiiKind::Style},
+    {"mii.f.makeup", "Make-up", &MiiCharInfo::mii_makeup_style, 0, 12, MiiKind::Style},
+    // Hair
+    {"mii.f.hair", "Hairstyle", &MiiCharInfo::mii_hair_style, 0, 132, MiiKind::Style},
+    {"mii.f.hair_colour", "Hair colour", &MiiCharInfo::mii_hair_color, 0, 100, MiiKind::Colour},
+    {"mii.f.flip", "Part the other way", &MiiCharInfo::mii_has_hair_flipped, 0, 2, MiiKind::Toggle},
+    // Eyebrows
+    {"mii.f.eyebrows", "Eyebrows", &MiiCharInfo::mii_eyebrow_style, 0, 24, MiiKind::Style},
+    {"mii.f.eyebrow_colour", "Colour", &MiiCharInfo::mii_eyebrow_color, 0, 100, MiiKind::Colour},
+    {"mii.f.eyebrow_size", "Size", &MiiCharInfo::mii_eyebrow_size, 0, 9, MiiKind::Slider},
+    {"mii.f.eyebrow_y", "Up and down", &MiiCharInfo::mii_eyebrow_pos_y, 3, 16, MiiKind::Slider},
+    {"mii.f.eyebrow_x", "Apart", &MiiCharInfo::mii_eyebrow_pos_x, 0, 13, MiiKind::Slider},
+    {"mii.f.eyebrow_tilt", "Tilt", &MiiCharInfo::mii_eyebrow_angle, 0, 12, MiiKind::Slider},
+    // Eyes
+    {"mii.f.eyes", "Eyes", &MiiCharInfo::mii_eye_style, 0, 60, MiiKind::Style},
+    {"mii.f.eye_colour", "Colour", &MiiCharInfo::mii_eye_color, 0, 100, MiiKind::Colour},
+    {"mii.f.eye_size", "Size", &MiiCharInfo::mii_eye_size, 0, 8, MiiKind::Slider},
+    {"mii.f.eye_y", "Up and down", &MiiCharInfo::mii_eye_pos_y, 0, 19, MiiKind::Slider},
+    {"mii.f.eye_x", "Apart", &MiiCharInfo::mii_eye_pos_x, 0, 13, MiiKind::Slider},
+    {"mii.f.eye_tilt", "Tilt", &MiiCharInfo::mii_eye_angle, 0, 8, MiiKind::Slider},
+    // Nose
+    {"mii.f.nose", "Nose", &MiiCharInfo::mii_nose_style, 0, 18, MiiKind::Style},
+    {"mii.f.nose_size", "Size", &MiiCharInfo::mii_nose_size, 0, 9, MiiKind::Slider},
+    {"mii.f.nose_y", "Up and down", &MiiCharInfo::mii_nose_pos, 0, 19, MiiKind::Slider},
+    // Mouth
+    {"mii.f.mouth", "Mouth", &MiiCharInfo::mii_mouth_style, 0, 36, MiiKind::Style},
+    {"mii.f.lip_colour", "Lip colour", &MiiCharInfo::mii_mouth_color, 0, 100, MiiKind::Colour},
+    {"mii.f.mouth_size", "Size", &MiiCharInfo::mii_mouth_size, 0, 9, MiiKind::Slider},
+    {"mii.f.mouth_y", "Up and down", &MiiCharInfo::mii_mouth_pos, 0, 19, MiiKind::Slider},
+    // Beard
+    {"mii.f.mustache", "Mustache", &MiiCharInfo::mii_mustache_style, 0, 6, MiiKind::Style},
+    {"mii.f.beard", "Beard", &MiiCharInfo::mii_beard_style, 0, 6, MiiKind::Style},
+    {"mii.f.facial_hair_colour", "Colour", &MiiCharInfo::mii_facial_hair_color, 0, 100, MiiKind::Colour},
+    {"mii.f.mustache_size", "Mustache size", &MiiCharInfo::mii_mustache_size, 0, 9, MiiKind::Slider},
+    {"mii.f.mustache_y", "Mustache up and down", &MiiCharInfo::mii_mustache_pos, 0, 17, MiiKind::Slider},
+    // Glasses
+    {"mii.f.glasses", "Glasses", &MiiCharInfo::mii_glasses_style, 0, 20, MiiKind::Style},
+    {"mii.f.glasses_colour", "Colour", &MiiCharInfo::mii_glasses_color, 0, 100, MiiKind::Colour},
+    {"mii.f.glasses_size", "Size", &MiiCharInfo::mii_glasses_size, 0, 8, MiiKind::Slider},
+    {"mii.f.glasses_y", "Up and down", &MiiCharInfo::mii_glasses_pos, 0, 21, MiiKind::Slider},
+    // Body and the rest
+    {"mii.f.height", "Height", &MiiCharInfo::mii_height, 0, 128, MiiKind::Slider, 4},
+    {"mii.f.build", "Build", &MiiCharInfo::mii_width, 0, 128, MiiKind::Slider, 4},
+    {"mii.f.colour", "Favourite colour", &MiiCharInfo::mii_color, 0, 12, MiiKind::Colour},
+    {"mii.f.mole", "Mole", &MiiCharInfo::mii_has_mole, 0, 2, MiiKind::Toggle},
+    {"mii.f.mole_size", "Mole size", &MiiCharInfo::mii_mole_size, 0, 9, MiiKind::Slider},
+    {"mii.f.mole_x", "Mole left and right", &MiiCharInfo::mii_mole_pos_x, 0, 17, MiiKind::Slider},
+    {"mii.f.mole_y", "Mole up and down", &MiiCharInfo::mii_mole_pos_y, 0, 31, MiiKind::Slider},
 };
 constexpr int kMiiFeatureCount = static_cast<int>(sizeof(kMiiFeatures) / sizeof(kMiiFeatures[0]));
+
+// The Mii Maker's pages (L / R), each a run of kMiiFeatures.
+struct MiiCategory {
+    const char* key;
+    const char* label;
+    int first, count;
+};
+constexpr MiiCategory kMiiCategories[] = {
+    {"mii.c.face", "Face", 0, 5},      {"mii.c.hair", "Hair", 5, 3},    {"mii.c.eyebrows", "Eyebrows", 8, 6},
+    {"mii.c.eyes", "Eyes", 14, 6},     {"mii.c.nose", "Nose", 20, 3},   {"mii.c.mouth", "Mouth", 23, 4},
+    {"mii.c.beard", "Beard", 27, 5},   {"mii.c.glasses", "Glasses", 32, 4}, {"mii.c.body", "Body", 36, 7},
+};
+constexpr int kMiiCategoryCount = static_cast<int>(sizeof(kMiiCategories) / sizeof(kMiiCategories[0]));
+static_assert(kMiiCategories[kMiiCategoryCount - 1].first + kMiiCategories[kMiiCategoryCount - 1].count
+                  == kMiiFeatureCount, "every feature is on a page");
+
+// Swatches for the colours whose look is known: skin tones and favourite colours.
+const nxui::Color kSkinColours[10] = {
+    {1.f, 0.83f, 0.68f, 1.f},  {1.f, 0.73f, 0.47f, 1.f},  {0.87f, 0.48f, 0.25f, 1.f}, {1.f, 0.67f, 0.55f, 1.f},
+    {0.68f, 0.32f, 0.16f, 1.f}, {0.39f, 0.18f, 0.09f, 1.f}, {0.98f, 0.82f, 0.74f, 1.f}, {0.95f, 0.71f, 0.56f, 1.f},
+    {0.61f, 0.39f, 0.27f, 1.f}, {0.29f, 0.15f, 0.09f, 1.f},
+};
+const nxui::Color kFavouriteColours[12] = {
+    {0.82f, 0.12f, 0.08f, 1.f}, {1.f, 0.43f, 0.07f, 1.f},  {1.f, 0.85f, 0.13f, 1.f},  {0.47f, 0.82f, 0.13f, 1.f},
+    {0.f, 0.47f, 0.19f, 1.f},   {0.04f, 0.28f, 0.6f, 1.f}, {0.24f, 0.67f, 0.87f, 1.f}, {0.96f, 0.35f, 0.49f, 1.f},
+    {0.45f, 0.16f, 0.68f, 1.f}, {0.28f, 0.22f, 0.09f, 1.f}, {0.88f, 0.88f, 0.88f, 1.f}, {0.09f, 0.09f, 0.08f, 1.f},
+};
 
 } // namespace
 
@@ -231,9 +311,15 @@ void SocialScreen::bindInput() {
     addAction(static_cast<uint64_t>(nxui::Button::B), [this]() { back(); });
     addAction(static_cast<uint64_t>(nxui::Button::X), [this]() { pressX(); });
     addAction(static_cast<uint64_t>(nxui::Button::Y), [this]() { pressY(); });
+    // The Mii Maker's pages.
+    addAction(static_cast<uint64_t>(nxui::Button::L), [this]() { editPage(-1); });
+    addAction(static_cast<uint64_t>(nxui::Button::R), [this]() { editPage(+1); });
+    addAction(static_cast<uint64_t>(nxui::Button::ZL), [this]() { editPage(-1); });
+    addAction(static_cast<uint64_t>(nxui::Button::ZR), [this]() { editPage(+1); });
 }
 
 int SocialScreen::listCount() const {
+    if (m_editing) return 0; // the Mii Maker's face is there instead
     if (m_mode == Mode::Miis) return 1 + (int)m_miis.size(); // "New Mii", then yours
     return m_mode == Mode::Friends ? 1 + (int)m_friends.size() : (int)m_requests.size();
 }
@@ -486,9 +572,10 @@ void SocialScreen::answer(bool accept) {
 }
 
 void SocialScreen::move(int dx, int dy) {
-    if (m_editing) { // the Mii Maker: up/down choose a feature, left/right change it
+    if (m_editing) { // the Mii Maker: up/down choose on this page, left/right change it
         if (dy != 0) {
-            const int row = std::clamp(m_editRow + dy, 0, kMiiFeatureCount - 1);
+            const MiiCategory& c = kMiiCategories[m_editCat];
+            const int row = std::clamp(m_editRow + dy, c.first, c.first + c.count - 1);
             if (row != m_editRow && m_cb.onNavigate) m_cb.onNavigate();
             m_editRow = row;
         } else if (dx != 0) {
@@ -639,7 +726,8 @@ void SocialScreen::startEdit(int index) {
     m_edit = m_miis[(size_t)index];
     m_editOriginal = m_edit;
     m_editIndex = index;
-    m_editRow = 5; // hairstyle
+    m_editCat = 1; // hair: what most people change first
+    m_editRow = kMiiCategories[m_editCat].first;
     m_editChangedAt = 0;
     m_editFaceUrl.clear();
     if (m_cb.onActivate) m_cb.onActivate();
@@ -650,20 +738,40 @@ void SocialScreen::endEdit() {
     m_editFaceJob.reset();
 }
 
+void SocialScreen::editPage(int delta) {
+    if (!m_editing) return;
+    const int cat = std::clamp(m_editCat + delta, 0, kMiiCategoryCount - 1);
+    if (cat == m_editCat) return;
+    m_editCat = cat;
+    m_editRow = kMiiCategories[cat].first;
+    if (m_cb.onNavigate) m_cb.onNavigate();
+}
+
+// Styles and colours go round; sliders and switches stop at their ends.
 void SocialScreen::editChange(int delta) {
     const MiiFeature& f = kMiiFeatures[m_editRow];
-    const int v = m_edit.info.*f.field;
-    m_edit.info.*f.field = static_cast<u8>((((v + delta * f.step) % f.count) + f.count) % f.count);
+    const int v = (int)(m_edit.info.*f.field) - f.lo;
+    int next = v + delta * f.step;
+    if (f.kind == MiiKind::Style || f.kind == MiiKind::Colour) next = ((next % f.count) + f.count) % f.count;
+    else next = std::clamp(next, 0, f.count - 1);
+    if (next == v) return;
+    m_edit.info.*f.field = static_cast<u8>(f.lo + next);
     m_edit.faceUrl = miiFaceUrl(m_edit.info);
     m_editChangedAt = armGetSystemTick();
     if (m_cb.onNavigate) m_cb.onNavigate();
 }
 
-void SocialScreen::editRandom() {
-    const MiiFeature& f = kMiiFeatures[m_editRow];
-    u32 r = 0;
-    randomGet(&r, sizeof(r));
-    m_edit.info.*f.field = static_cast<u8>(r % (u32)f.count);
+// Y: a surprise for the chosen feature; X: for the whole page.
+void SocialScreen::editRandom(bool wholePage) {
+    const MiiCategory& c = kMiiCategories[m_editCat];
+    const int from = wholePage ? c.first : m_editRow, to = wholePage ? c.first + c.count : m_editRow + 1;
+    for (int i = from; i < to; ++i) {
+        const MiiFeature& f = kMiiFeatures[i];
+        if (wholePage && f.field == &MiiCharInfo::mii_sex) continue; // not on a whim
+        u32 r = 0;
+        randomGet(&r, sizeof(r));
+        m_edit.info.*f.field = static_cast<u8>(f.lo + r % (u32)f.count);
+    }
     m_edit.faceUrl = miiFaceUrl(m_edit.info);
     m_editChangedAt = armGetSystemTick();
     if (m_cb.onNavigate) m_cb.onNavigate();
@@ -697,29 +805,23 @@ void SocialScreen::updateEditFace() {
     const std::string url = m_editFaceUrl;
     runInBackground([job, url]() {
         nxui::moveToWorkerCores();
-        Http::Request req;
-        req.url = url;
-        req.timeoutMs = 10000;
-        req.maxBytes = 1u << 20;
-        req.abortable = false;
-        const Http::Response res = Http::Perform(req);
+        std::string why;
+        std::vector<std::uint8_t> png = fetchFace(url, why);
         Http::ThreadCleanup();
         std::lock_guard<std::mutex> lk(job->mu);
-        job->pngs.emplace_back(url, res.Ok() ? std::vector<std::uint8_t>(res.body.begin(), res.body.end())
-                                             : std::vector<std::uint8_t>());
+        job->pngs.emplace_back(url, std::move(png));
+        job->errors.push_back(std::move(why));
         job->done = true;
     });
 }
 
-void SocialScreen::drawMiiEditor(nxui::Renderer& ren, const nxui::Rect& r, float a) {
+// The Mii Maker's face, big, where the list was.
+void SocialScreen::drawEditPreview(nxui::Renderer& ren, const nxui::Rect& r, float a) {
     auto& i18n = nxui::I18n::instance();
-    const nxui::Color text = m_theme->textPrimary.withAlpha(a);
-    const nxui::Color muted = m_theme->textSecondary.withAlpha(a);
-    const nxui::Color accent = m_theme->cursorNormal;
-    // The face: the latest picture (it follows each change after a moment).
-    const nxui::Rect big{r.x + (r.width - 190.f) * 0.5f, r.y + 16.f, 190.f, 190.f};
+    const float size = std::min(r.width - 40.f, r.height - 56.f);
+    const nxui::Rect big{r.x + (r.width - size) * 0.5f, r.y + 4.f, size, size};
     const nxui::Vec2 c{big.x + big.width * 0.5f, big.y + big.height * 0.5f};
-    ren.drawCircle(c, big.width * 0.5f, nxui::Color(0.93f, 0.95f, 0.98f, 0.9f * a), 40);
+    ren.drawCircle(c, big.width * 0.5f, nxui::Color(0.93f, 0.95f, 0.98f, 0.9f * a), 48);
     const nxui::Texture* t = face(m_edit.faceUrl);
     const bool current = t != nullptr || (m_editFace && m_editFaceUrl == m_edit.faceUrl && !m_editFaceJob);
     if (!t && m_editFace && m_editFace->valid()) t = m_editFace.get();
@@ -731,29 +833,105 @@ void SocialScreen::drawMiiEditor(nxui::Renderer& ren, const nxui::Rect& r, float
         ren.drawCircle({c.x, c.y - big.height * 0.12f}, big.width * 0.17f, shade, 32);
         ren.drawCircle({c.x, c.y + big.height * 0.26f}, big.width * 0.21f, shade, 32);
     }
+    if (!current) { // the new look is on its way
+        const int dots = 1 + (int)(armTicksToNs(armGetSystemTick()) / 300'000'000ULL % 3);
+        ren.drawText(std::string((size_t)dots, '.'), {big.x + big.width - 30.f, big.y + big.height - 34.f}, m_font,
+                     m_theme->textSecondary.withAlpha(a), 1.f);
+    }
     const std::string name = m_edit.name.empty() ? i18n.tr("mii.no_name", "No name") : m_edit.name;
-    ren.drawText(fit(m_smallFont, name, r.width - 40.f, 0.8f),
-                 {r.x + (r.width - m_smallFont->measure(name).x * 0.8f) * 0.5f, big.y + big.height + 6.f},
-                 m_smallFont, muted, 0.8f);
-    // The features: five around the chosen one.
-    float y = big.y + big.height + 40.f;
-    const int first = std::clamp(m_editRow - 2, 0, std::max(0, kMiiFeatureCount - 5));
-    for (int i = first; i < first + 5 && i < kMiiFeatureCount; ++i) {
+    const std::string shown = fit(m_font, name, r.width - 40.f, 0.86f);
+    ren.drawText(shown, {r.x + (r.width - m_font->measure(shown).x * 0.86f) * 0.5f, big.y + big.height + 10.f}, m_font,
+                 m_theme->textPrimary.withAlpha(a), 0.86f);
+}
+
+// The chosen page: its name among the others (L / R), then its features, each
+// with its value as a style number, a colour, a slider or a switch.
+void SocialScreen::drawMiiEditor(nxui::Renderer& ren, const nxui::Rect& r, float a) {
+    auto& i18n = nxui::I18n::instance();
+    const nxui::Color text = m_theme->textPrimary.withAlpha(a);
+    const nxui::Color muted = m_theme->textSecondary.withAlpha(a);
+    const nxui::Color accent = m_theme->cursorNormal;
+
+    // The pages, as chips; the chosen one kept in view.
+    std::vector<float> widths;
+    float total = 0.f;
+    for (const MiiCategory& c : kMiiCategories) {
+        widths.push_back(m_smallFont->measure(i18n.tr(c.key, c.label)).x * 0.8f + 28.f);
+        total += widths.back() + 8.f;
+    }
+    float before = 0.f;
+    for (int i = 0; i < m_editCat; ++i) before += widths[(size_t)i] + 8.f;
+    const float span = r.width - 40.f;
+    const float shift = std::clamp(before + widths[(size_t)m_editCat] * 0.5f - span * 0.5f, 0.f, std::max(0.f, total - span));
+    const nxui::Rect chips{r.x + 20.f, r.y + 16.f, span, 40.f};
+    ren.pushClipRect(chips);
+    float x = chips.x - shift;
+    for (int i = 0; i < kMiiCategoryCount; ++i) {
+        const nxui::Rect chip{x, chips.y, widths[(size_t)i], chips.height};
+        const bool sel = i == m_editCat;
+        ren.drawRoundedRect(chip, sel ? accent.withAlpha(a) : m_theme->textPrimary.withAlpha(0.07f * a), 20.f);
+        const std::string label = i18n.tr(kMiiCategories[i].key, kMiiCategories[i].label);
+        ren.drawText(label, {chip.x + 14.f, chip.y + 9.f}, m_smallFont, sel ? nxui::Color(1.f, 1.f, 1.f, a) : muted, 0.8f);
+        x += chip.width + 8.f;
+    }
+    ren.popClipRect();
+    ren.drawText(i18n.tr("mii.pages_hint", "L / R: more"), {r.x + 22.f, chips.y + chips.height + 8.f}, m_smallFont,
+                 muted, 0.62f);
+
+    // This page's features.
+    const MiiCategory& cat = kMiiCategories[m_editCat];
+    const float rowH = std::min(58.f, (r.y + r.height - (chips.y + chips.height + 36.f) - 8.f) / (float)cat.count);
+    float y = chips.y + chips.height + 36.f;
+    for (int i = cat.first; i < cat.first + cat.count; ++i) {
         const MiiFeature& f = kMiiFeatures[i];
         const bool sel = i == m_editRow;
-        const nxui::Rect row{r.x + 22.f, y, r.width - 44.f, 42.f};
-        if (sel) ren.drawRoundedRect(row, accent.withAlpha(0.2f * a), 12.f);
-        ren.drawText(i18n.tr(f.key, f.label), {row.x + 16.f, row.y + 7.f}, m_font, sel ? text : muted, 0.74f);
-        const int v = m_edit.info.*f.field;
-        std::string value;
-        if (f.field == &MiiCharInfo::mii_sex) value = v ? i18n.tr("mii.girl", "Girl") : i18n.tr("mii.boy", "Boy");
-        else if (f.count == 2) value = v ? i18n.tr("mii.yes", "Yes") : i18n.tr("mii.no", "No");
-        else value = std::to_string(v + 1) + " / " + std::to_string(f.count);
-        if (sel) value = "<   " + value + "   >";
-        const float vw = m_font->measure(value).x * 0.74f;
-        ren.drawText(value, {row.x + row.width - 16.f - vw, row.y + 7.f}, m_font, sel ? accent.withAlpha(a) : muted,
-                     0.74f);
-        y += 46.f;
+        const nxui::Rect row{r.x + 16.f, y, r.width - 32.f, rowH - 6.f};
+        if (sel) {
+            ren.drawRoundedRect(row, accent.withAlpha(0.16f * a), 14.f);
+            ren.drawRoundedRectOutline(row, accent.withAlpha(0.9f * a), 14.f, 2.f);
+        }
+        const float mid = row.y + row.height * 0.5f;
+        ren.drawText(fit(m_font, i18n.tr(f.key, f.label), row.width * 0.46f, 0.74f), {row.x + 16.f, mid - 13.f}, m_font,
+                     sel ? text : muted, 0.74f);
+
+        // The value, right-aligned in the row's right half.
+        const int v = (int)(m_edit.info.*f.field) - f.lo;
+        const float right = row.x + row.width - 16.f;
+        const nxui::Color knob = sel ? accent.withAlpha(a) : m_theme->textSecondary.withAlpha(a);
+        if (f.kind == MiiKind::Slider) {
+            const nxui::Rect track{right - 190.f, mid - 3.f, 190.f, 6.f};
+            const float t = f.count > 1 ? (float)v / (float)(f.count - 1) : 0.f;
+            ren.drawRoundedRect(track, m_theme->textPrimary.withAlpha(0.14f * a), 3.f);
+            ren.drawRoundedRect({track.x, track.y, track.width * t, track.height}, knob.withAlpha(0.7f * a), 3.f);
+            ren.drawCircle({track.x + track.width * t, mid}, sel ? 11.f : 9.f, knob, 24);
+        } else if (f.kind == MiiKind::Toggle) {
+            const bool on = v != 0;
+            std::string label = f.field == &MiiCharInfo::mii_sex ? (on ? i18n.tr("mii.girl", "Girl") : i18n.tr("mii.boy", "Boy"))
+                                                                : (on ? i18n.tr("mii.yes", "Yes") : i18n.tr("mii.no", "No"));
+            const nxui::Rect pill{right - 64.f, mid - 15.f, 64.f, 30.f};
+            ren.drawRoundedRect(pill, on ? knob : m_theme->textPrimary.withAlpha(0.18f * a), 15.f);
+            ren.drawCircle({on ? pill.x + pill.width - 15.f : pill.x + 15.f, mid}, 11.f, nxui::Color(1.f, 1.f, 1.f, a), 20);
+            ren.drawText(label, {pill.x - 12.f - m_smallFont->measure(label).x * 0.78f, mid - 11.f}, m_smallFont,
+                         sel ? text : muted, 0.78f);
+        } else {
+            const nxui::Color* swatch = nullptr;
+            if (f.field == &MiiCharInfo::mii_face_color && v < 10) swatch = &kSkinColours[v];
+            if (f.field == &MiiCharInfo::mii_color && v < 12) swatch = &kFavouriteColours[v];
+            const std::string number = std::to_string(v + 1) + " / " + std::to_string(f.count);
+            float tx = right - m_font->measure(number).x * 0.74f;
+            if (sel) { // arrows round the value: left/right change it
+                ren.drawText(">", {right - m_font->measure(">").x * 0.74f, mid - 13.f}, m_font, accent.withAlpha(a), 0.74f);
+                tx -= 24.f;
+            }
+            ren.drawText(number, {tx, mid - 13.f}, m_font, sel ? accent.withAlpha(a) : muted, 0.74f);
+            if (swatch) {
+                tx -= 40.f;
+                ren.drawCircle({tx + 14.f, mid}, 14.f, nxui::Color(1.f, 1.f, 1.f, a), 24);
+                ren.drawCircle({tx + 14.f, mid}, 12.f, swatch->withAlpha(a), 24);
+            }
+            if (sel) ren.drawText("<", {tx - 22.f, mid - 13.f}, m_font, accent.withAlpha(a), 0.74f);
+        }
+        y += rowH;
     }
 }
 
@@ -775,7 +953,10 @@ void SocialScreen::startMiiJob(JobKind kind, std::function<void(Job&)> work) {
 
 // X: decline a request, or in Miis: change the new Mii's gender / delete (twice).
 void SocialScreen::pressX() {
-    if (m_editing) return;
+    if (m_editing) {
+        editRandom(true);
+        return;
+    }
     if (m_mode != Mode::Miis) {
         answer(false);
         return;
@@ -808,7 +989,7 @@ void SocialScreen::pressX() {
 // the chosen feature there), or your play history most-played first.
 void SocialScreen::pressY() {
     if (m_editing) {
-        editRandom();
+        editRandom(false);
         return;
     }
     if (m_mode == Mode::Friends && m_zone != Zone::Tiles && m_sel == 0) {
@@ -866,15 +1047,9 @@ void SocialScreen::ensureFaces() {
         std::vector<std::pair<std::string, std::vector<std::uint8_t>>> pngs;
         std::vector<std::string> errors;
         for (const auto& u : urls) {
-            Http::Request req;
-            req.url = u;
-            req.timeoutMs = 10000;
-            req.maxBytes = 1u << 20;
-            req.abortable = false; // Discord stopping (a game launching) mustn't cancel these
-            const Http::Response res = Http::Perform(req);
-            pngs.emplace_back(u, res.Ok() ? std::vector<std::uint8_t>(res.body.begin(), res.body.end())
-                                          : std::vector<std::uint8_t>());
-            errors.push_back(res.Ok() ? std::string() : "status " + std::to_string(res.status) + " " + res.error);
+            std::string why;
+            pngs.emplace_back(u, fetchFace(u, why));
+            errors.push_back(std::move(why));
         }
         Http::ThreadCleanup();
         std::lock_guard<std::mutex> lk(job->mu);
@@ -1003,6 +1178,8 @@ void SocialScreen::onUpdate(float dt) {
             auto tex = std::make_unique<nxui::Texture>();
             if (tex->loadFromMemory(*m_gpu, *m_ren, it->second.data(), it->second.size(), 256))
                 m_faces[it->first] = std::move(tex);
+            else
+                DebugLog::log("[mii] face didn't decode (%u bytes)", (unsigned)it->second.size());
             m_facePngs.erase(it);
             --budget;
         }
@@ -1552,6 +1729,10 @@ void SocialScreen::onRender(nxui::Renderer& ren) {
             head += "  " + std::to_string(m_friends.size()) + "  \xC2\xB7  " + std::to_string(online) + " "
                   + i18n.tr("social.online_lower", "online");
     }
+    if (m_editing) {
+        head = i18n.tr("mii.maker", "Mii Maker");
+        drawEditPreview(ren, list, a);
+    }
     ren.drawText(head, {list.x + 8.f, list.y - 36.f}, m_smallFont, muted, 0.82f);
 
     const float total = kRowH * n;
@@ -1663,7 +1844,8 @@ void SocialScreen::onRender(nxui::Renderer& ren) {
     // What the buttons do right now, and the last thing that happened.
     std::string hints;
     if (m_editing) {
-        hints = i18n.tr("mii.hint_maker", "Up/Down  Feature     Left/Right  Change     Y  Surprise     A  Save     B  Cancel");
+        hints = i18n.tr("mii.hint_maker2",
+                        "L/R  Page     Left/Right  Change     Y  Surprise     X  Surprise page     A  Save     B  Cancel");
     } else if (m_add == Add::Found) {
         hints = i18n.tr("social.hint_send", "A  Send     B  Cancel");
     } else if (m_add == Add::Sent || m_add == Add::Failed) {

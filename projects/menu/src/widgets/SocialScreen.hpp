@@ -130,7 +130,9 @@ private:
     void startEdit(int index);
     void endEdit();
     void editChange(int delta);
-    void editRandom();
+    void editRandom(bool wholePage);
+    void editPage(int delta);
+    void drawEditPreview(nxui::Renderer& ren, const nxui::Rect& r, float a);
     void updateEditFace();
     void drawMiiEditor(nxui::Renderer& ren, const nxui::Rect& r, float a);
     void startLoad();
@@ -236,6 +238,7 @@ private:
     MiiEntry m_editOriginal;           // as it was (what gets replaced)
     int m_editIndex = -1;              // its place in the list
     int m_editRow = 0;                 // the feature chosen
+    int m_editCat = 0;                 // its page (Face, Hair, ...)
     std::uint64_t m_editChangedAt = 0; // the face is asked for once changes settle
     std::shared_ptr<FaceJob> m_editFaceJob;
     std::string m_editFaceUrl;         // the face asked for last

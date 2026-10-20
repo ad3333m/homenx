@@ -50,24 +50,31 @@ void DateTimeWidget::onContentRender(nxui::Renderer& ren) {
     nxui::Rect cr = contentRect();
     nxui::Font* sf = m_smallFont ? m_smallFont : m_font;
 
-    nxui::Vec2 timeSz = m_font->measure(m_timeStr);
-    nxui::Vec2 dateSz = sf->measure(m_dateStr);
-    float contentH = timeSz.y + 2.f + dateSz.y * 0.7f;
-    float tx = cr.x + (cr.width - timeSz.x) * 0.5f;
-    float ty = cr.y + (cr.height - contentH) * 0.5f;
-    // HomeNX: a new minute needs a new text texture, and when HOME's GPU memory
-    // is short that can fail for a while: show the last time drawn meanwhile
-    // (kept cached by being drawn) instead of nothing.
-    auto drawOrLast = [&](nxui::Font* font, const std::string& text, std::string& last, float x, float y,
-                          const nxui::Color& color, float scale) {
-        if (font->draw(ren, text, {x, y}, color, scale)) last = text;
-        else if (!last.empty()) font->draw(ren, last, {x, y}, color, scale);
+    // HomeNX: one letter at a time. Text is cached as a texture per string, so
+    // drawing "12:34" whole needed a new texture every minute, which fails when
+    // HOME's GPU memory is short (after a game): the clock went blank. Digits
+    // drawn alone are a dozen textures made once and kept hot.
+    auto width = [](nxui::Font* font, const std::string& text, float scale) {
+        float w = 0.f;
+        for (char c : text) w += font->measure(std::string(1, c)).x * scale;
+        return w;
     };
-    drawOrLast(m_font, m_timeStr, m_shownTime, tx, ty, m_textColor.withAlpha(m_opacity), 1.f);
-
-    float dx = cr.x + (cr.width - dateSz.x * 0.7f) * 0.5f;
-    float dy = ty + timeSz.y + 2.f;
-    drawOrLast(sf, m_dateStr, m_shownDate, dx, dy, m_secondaryColor.withAlpha(m_opacity), 0.7f);
+    auto drawEach = [&ren](nxui::Font* font, const std::string& text, float x, float y, const nxui::Color& color,
+                           float scale) {
+        for (char c : text) {
+            const std::string one(1, c);
+            if (c != ' ') font->draw(ren, one, {x, y}, color, scale);
+            x += font->measure(one).x * scale;
+        }
+    };
+    const float timeW = width(m_font, m_timeStr, 1.f), dateW = width(sf, m_dateStr, 0.7f);
+    const float timeH = m_font->measure("0").y, dateH = sf->measure("0").y;
+    float contentH = timeH + 2.f + dateH * 0.7f;
+    float tx = cr.x + (cr.width - timeW) * 0.5f;
+    float ty = cr.y + (cr.height - contentH) * 0.5f;
+    drawEach(m_font, m_timeStr, tx, ty, m_textColor.withAlpha(m_opacity), 1.f);
+    drawEach(sf, m_dateStr, cr.x + (cr.width - dateW) * 0.5f, ty + timeH + 2.f,
+             m_secondaryColor.withAlpha(m_opacity), 0.7f);
 }
 
 nxui::Vec2 DateTimeWidget::computeContentSize() const {

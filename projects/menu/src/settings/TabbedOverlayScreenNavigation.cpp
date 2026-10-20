@@ -273,6 +273,12 @@ void TabbedOverlayScreen::onPressA() {
         return;
     }
 
+    if (item.type == ItemType::Section && item.collapsible) {
+        toggleSection(rawIdx);
+        announceCurrentFocus();
+        return;
+    }
+
     if (!item.enabled)
         return;
 

@@ -4,6 +4,7 @@
 #include "discord/store.h"
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -151,6 +152,7 @@ private:
     bool m_lingering = false;
     Alert m_alert;
     bool m_hasAlert = false;
+    std::deque<Gateway::Event> m_events; // waiting to be applied (a few ms of them per frame)
     std::string m_savedLists;    // what discord_lists.json holds
     uint64_t m_listsNextTick = 0;
 };

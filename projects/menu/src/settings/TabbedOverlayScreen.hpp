@@ -6,6 +6,7 @@
 #include <nxui/core/Animation.hpp>
 #include <nxui/widgets/GlassWidget.hpp>
 #include "widgets/SelectionCursor.hpp"
+#include <set>
 #include <string>
 #include <vector>
 #include <functional>
@@ -135,6 +136,11 @@ public:
         std::string              infoText;
         float                    anim01 = 0.f;
         bool                     wrapLabel = false;
+        // HomeNX: sections are dropdowns. A collapsible section hides the rows
+        // under it (up to the next section) until it's opened with A.
+        bool                     collapsible = false;
+        bool                     collapsed = false;
+        bool                     hidden = false;
 
         std::function<void(SettingItem&)> onChange;
         std::function<void(SettingItem&)> onSecondary;
@@ -216,6 +222,9 @@ protected:
 
     void rebuildTabBar();
     void rebuildContentItems();
+    void applySections(int tabIndex);
+    void toggleSection(int rawIdx);
+    std::set<std::string> m_openSections; // "tab index / section label" opened this session
     std::shared_ptr<nxui::Box> makeItemWidget(SettingItem& item);
 
     bool  m_active    = false;

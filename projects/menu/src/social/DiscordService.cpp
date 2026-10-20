@@ -231,6 +231,7 @@ void DiscordService::activate() {
 
 void DiscordService::connect(const Account& account) {
     retire(m_gateway, m_oldGateways);
+    m_events.clear(); // the last account's
     m_store->Clear();
     m_token = account.token;
     m_current = account.id;
@@ -291,9 +292,16 @@ void DiscordService::update() {
     }
 
     if (!m_gateway) return;
-    for (auto& e : m_gateway->Drain()) {
+    // A burst (connecting: READY, member lists, presences) is applied over a
+    // few frames, ~3 ms each, so HOME doesn't stutter while Discord connects.
+    for (auto& e : m_gateway->Drain()) m_events.push_back(std::move(e));
+    const uint64_t until = armGetSystemTick() + armNsToTicks(3'000'000ULL);
+    while (!m_events.empty()) {
+        Gateway::Event e = std::move(m_events.front());
+        m_events.pop_front();
         const Store::Change ch = m_store->Apply(e.type, e.d);
         if (ch.kind == Store::Change::NewMessage && ch.mentionsMe) noteAlert(ch, e.d);
+        if (armGetSystemTick() >= until) break;
     }
     State next = m_state;
     switch (m_gateway->GetState()) {
