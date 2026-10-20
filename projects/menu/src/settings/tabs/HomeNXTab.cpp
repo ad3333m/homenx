@@ -16,6 +16,17 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
 
     {
         SettingItem it;
+        it.label = i18n.tr("settings.homenx.diagnostics", "Diagnostics");
+        it.buttonLabel = i18n.tr("button.show", "Show");
+        it.description = i18n.tr("settings.homenx.diagnostics_desc",
+            "What HomeNX and the Discord overlay are doing right now: memory, Mii faces, Discord. "
+            "A screenshot of it helps fix problems.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_diagnosticsCb) screen.m_diagnosticsCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
         it.label = i18n.tr("settings.homenx.glass", "Glass effects");
         it.description = i18n.tr("settings.homenx.glass_desc",
             "Off keeps HomeNX at a steady 60 FPS. On draws the full liquid-glass and blur look, "

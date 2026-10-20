@@ -187,6 +187,24 @@ void Font::trimCache(std::size_t maxEntries, std::size_t maxBytes) {
     m_maintenanceRequested = false;
 }
 
+bool Font::renderTo(Renderer& ren, const std::string& text, Texture& out) {
+    if (!m_font || !m_gpu || text.empty()) return false;
+    SDL_Color white = {255, 255, 255, 255};
+    std::vector<std::pair<TTF_Font*, std::string>> pieces;
+    SDL_Surface* surface = runs(text, pieces) ? renderRuns(pieces)
+                                              : TTF_RenderUTF8_Blended(m_font, text.c_str(), white);
+    if (!surface) return false;
+    SDL_Surface* rgba = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ABGR8888, 0);
+    SDL_FreeSurface(surface);
+    if (!rgba) return false;
+    SDL_LockSurface(rgba);
+    const bool ok = out.loadFromSurface(*m_gpu, ren, static_cast<const uint8_t*>(rgba->pixels),
+                                        rgba->w, rgba->h, rgba->pitch);
+    SDL_UnlockSurface(rgba);
+    SDL_FreeSurface(rgba);
+    return ok;
+}
+
 Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& text) {
     // Cache hit: promote to the front.
     auto it = m_lruMap.find(text);

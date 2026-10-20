@@ -475,6 +475,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->onCustomButtonIcon([this]() { openCustomButtonIconPicker(); });
     m_settings->onNextendoApp([this]() { openNextendoAppPicker(); });
     m_settings->onHomePages([this]() { openHomePagesPicker(); });
+    m_settings->onDiagnostics([this]() { showDiagnostics(); });
     m_settings->onReturnTimings([this]() { openReturnTimings(); });
     m_settings->setGlassEffectsState(m_config.glassEffects);
     m_settings->onGlassEffectsChange([this](bool on) {
@@ -804,6 +805,70 @@ void WiiUMenuApp::openQuickSettings() {
 }
 
 // HomeNX: Discord panel, slides in from the left like Quick Settings from the right.
+namespace {
+
+// The last lines of a log containing `tag` (from its last 48 KB), each cut to fit.
+std::vector<std::string> logTail(const char* path, const char* tag, size_t count) {
+    std::vector<std::string> out;
+    FILE* f = std::fopen(path, "rb");
+    if (!f) return out;
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    const long from = size > (48 << 10) ? size - (48 << 10) : 0;
+    std::fseek(f, from, SEEK_SET);
+    std::string text((size_t)(size - from), '\0');
+    text.resize(std::fread(text.data(), 1, text.size(), f));
+    std::fclose(f);
+    size_t end = text.size();
+    while (end > 0 && out.size() < count) {
+        const size_t start = text.rfind('\n', end - 1);
+        const size_t a = start == std::string::npos ? 0 : start + 1;
+        std::string line = text.substr(a, end - a);
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        if (!line.empty() && (!*tag || line.find(tag) != std::string::npos))
+            out.insert(out.begin(), line.size() > 90 ? line.substr(0, 90) + "..." : line);
+        if (start == std::string::npos) break;
+        end = start;
+    }
+    return out;
+}
+
+std::string megabytes(std::uint64_t bytes) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.1f MB", bytes / (1024.0 * 1024.0));
+    return buf;
+}
+
+} // namespace
+
+// Settings > HomeNX > Diagnostics: the numbers behind the problems people see,
+// on one screen they can photograph.
+void WiiUMenuApp::showDiagnostics() {
+    if (!m_dialog) return;
+    auto& gpu = app().gpu();
+    std::string body = "Pictures (GPU): " + megabytes(gpu.imageMemoryUsed()) + " of " + megabytes(gpu.imageMemoryBudget());
+    body += "\nText cache: " + std::to_string(m_fontNormal.cacheEntryCount() + m_fontSmall.cacheEntryCount())
+            + " pieces, " + megabytes(m_fontNormal.cacheBytes() + m_fontSmall.cacheBytes());
+    u64 total = 0, used = 0;
+    if (R_SUCCEEDED(svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0))
+        && R_SUCCEEDED(svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0)))
+        body += "\nMemory: " + megabytes(used) + " of " + megabytes(total);
+    static const char* const kStates[] = {"signed out", "QR sign-in", "connecting", "connected", "failed"};
+    body += "\nDiscord in HOME: ";
+    body += !m_discord.started() ? std::string(m_discord.hasSavedAccount() ? "not started" : "no account")
+                                 : std::string(kStates[(int)m_discord.state()]);
+    if (!m_discord.error().empty()) body += " (" + m_discord.error() + ")";
+    for (const char* tag : {"[mii]", "[press]", "[text-cache] maintenance done"})
+        for (const std::string& line : logTail("sdmc:/config/SwitchU/menu.log", tag, 2)) body += "\n" + line;
+    const auto overlay = logTail("sdmc:/config/SwitchU/discord_overlay.log", "", 5);
+    body += "\nOverlay:" + std::string(overlay.empty() ? " no log yet (open it with L+ZL in a game)" : "");
+    for (const std::string& line : overlay) body += "\n  " + line;
+    m_audio.playSfx(Sfx::ModalShow);
+    m_dialog->show(nxui::I18n::instance().tr("settings.homenx.diagnostics", "Diagnostics"), body,
+                   {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+    focusManager().setFocus(m_dialog.get());
+}
+
 void WiiUMenuApp::openDiscordPanel() {
     if (m_editMode || (m_dialog && m_dialog->isActive()) ||
         (m_userSelect && m_userSelect->isActive()) ||

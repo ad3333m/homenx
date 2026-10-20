@@ -216,6 +216,7 @@ private:
     void openNroPicker(const std::string& title, const std::string& current, std::string noneLabel,
                        std::function<void(const std::string&)> choose);
     void openHomePagesPicker();
+    void showDiagnostics();
     void openReturnTimings();
     void openNews();
     // HomeNX: names set with Rename (game options), by title id.

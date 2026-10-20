@@ -214,6 +214,87 @@ void forEachItem(const std::string& body, F&& fn) {
     }
 }
 
+// A JSON array arriving in pieces, split into its elements as they complete
+// (an element too big for an overlay is skipped).
+struct ItemStream {
+    std::string item;
+    int depth = 0;
+    bool quoted = false, escaped = false, inItem = false, skipping = false;
+
+    template <typename F>
+    void feed(const char* p, size_t n, F&& onItem) {
+        for (size_t i = 0; i < n; ++i) {
+            const char c = p[i];
+            if (inItem && !skipping) {
+                item += c;
+                if (item.size() > (96u << 10)) skipping = true; // ponytail: a 96 KB element is dropped whole
+            }
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') quoted = false;
+                continue;
+            }
+            if (c == '"') {
+                quoted = true;
+            } else if (c == '{' || c == '[') {
+                if (depth == 1 && c == '{') {
+                    inItem = true;
+                    skipping = false;
+                    item.assign(1, c);
+                }
+                ++depth;
+            } else if (c == '}' || c == ']') {
+                --depth;
+                if (depth == 1 && inItem && c == '}') {
+                    inItem = false;
+                    if (!skipping) onItem(item);
+                    item.clear();
+                }
+            }
+        }
+    }
+};
+
+// One value as JSON text (yyjson writes it).
+std::string jsonOf(yyjson_val* v) {
+    if (!v) return "null";
+    size_t len = 0;
+    char* text = yyjson_val_write(v, 0, &len);
+    std::string out = text ? std::string(text, len) : std::string("null");
+    std::free(text);
+    return out;
+}
+
+// Only these keys of an object, as a smaller object.
+std::string keepKeys(yyjson_val* o, std::initializer_list<const char*> keys) {
+    std::string out = "{";
+    for (const char* k : keys) {
+        yyjson_val* v = yyjson_obj_get(o, k);
+        if (!v) continue;
+        if (out.size() > 1) out += ',';
+        out += std::string("\"") + k + "\":" + jsonOf(v);
+    }
+    return out + "}";
+}
+
+// What the overlay reads of a server's channel, a DM, a server.
+std::string thinChannel(yyjson_val* c) { return keepKeys(c, {"id", "name", "parent_id", "position", "type"}); }
+std::string thinGuild(yyjson_val* g) { return keepKeys(g, {"id", "name", "icon"}); }
+std::string thinDm(yyjson_val* c) {
+    std::string people = "[";
+    size_t i, n;
+    yyjson_val* u;
+    yyjson_arr_foreach(yyjson_obj_get(c, "recipients"), i, n, u) {
+        if (people.size() > 1) people += ',';
+        people += keepKeys(u, {"id", "username", "global_name", "avatar"});
+    }
+    std::string out = keepKeys(c, {"id", "name", "type", "last_message_id", "icon"});
+    out.insert(out.size() - 1, std::string(out.size() > 2 ? "," : "") + "\"recipients\":" + people + "]");
+    return out;
+}
+using Thin = std::string (*)(yyjson_val*);
+
 std::string str(yyjson_val* o, const char* key) {
     yyjson_val* v = yyjson_obj_get(o, key);
     return yyjson_is_str(v) ? std::string(yyjson_get_str(v)) : std::string();
@@ -1106,6 +1187,17 @@ public:
         return queue(std::move(job));
     }
 
+    // A list that can be huge (a big server's channels): kept as it arrives as
+    // only what `thin` keeps of each element, never whole in memory.
+    std::shared_ptr<Reply> apiList(std::string path, Thin thin) {
+        Job job;
+        job.api = true;
+        job.method = "GET";
+        job.url = std::string(kApi) + path;
+        job.thin = thin;
+        return queue(std::move(job));
+    }
+
     // A picture from any host, no token. `fallback` is tried if `url` fails.
     std::shared_ptr<Reply> picture(std::string url, std::string fallback, int maxW, int maxH, bool animated,
                                    bool round) {
@@ -1131,12 +1223,17 @@ private:
         std::string method, url, body, fallback;
         int maxW = 0, maxH = 0;
         bool animated = false, round = false;
+        Thin thin = nullptr; // a list kept thinned as it arrives
         std::shared_ptr<Reply> reply;
     };
     struct Sink {
         CURL* c;
         std::string* body;
         size_t cap;
+        Thin thin = nullptr;
+        ItemStream stream{};
+        bool tooBig = false;
+        bool outOfMemory = false;
     };
 
     std::shared_ptr<Reply> queue(Job job) {
@@ -1157,7 +1254,29 @@ private:
     }
 
     static size_t onBody(char* p, size_t size, size_t n, void* user) {
-        Sink* sink = static_cast<Sink*>(user);
+        try {
+            return takeBody(p, size, n, static_cast<Sink*>(user));
+        } catch (...) { // out of memory: this transfer stops, curl stays sound
+            static_cast<Sink*>(user)->outOfMemory = true;
+            return 0;
+        }
+    }
+
+    static size_t takeBody(char* p, size_t size, size_t n, Sink* sink) {
+        if (sink->thin) {
+            sink->stream.feed(p, size * n, [sink](std::string& item) {
+                Json doc(item, Json::InPlace{});
+                if (!doc.root() || sink->tooBig) return;
+                const std::string kept = sink->thin(doc.root());
+                if (sink->body->size() + kept.size() + 2 > sink->cap) {
+                    sink->tooBig = true;
+                    return;
+                }
+                *sink->body += sink->body->empty() ? "[" : ",";
+                *sink->body += kept;
+            });
+            return sink->tooBig ? 0 : size * n;
+        }
         if (sink->body->empty()) { // room for all of it at once: no doubling copies
             curl_off_t length = -1;
             curl_easy_getinfo(sink->c, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
@@ -1191,7 +1310,9 @@ private:
                     job.reply->status = -1;
                     job.reply->error = startProblem();
                 } else if (job.api) {
-                    fetch(c, job.method, job.url, job.body, true, kApiBody, *job.reply, job.reply->body);
+                    fetch(c, job.method, job.url, job.body, true, kApiBody, *job.reply, job.reply->body, job.thin);
+                    if (job.thin && !job.reply->body.empty()) job.reply->body += "]";
+                    if (job.thin && job.reply->body.empty() && job.reply->status == 200) job.reply->body = "[]";
                 } else {
                     std::string body;
                     for (const std::string& u : {job.url, job.fallback}) {
@@ -1211,6 +1332,11 @@ private:
                 job.reply->status = -static_cast<long>(CURLE_OUT_OF_MEMORY);
                 job.reply->error = "out of memory";
             }
+            if (c && job.reply->status == -static_cast<long>(CURLE_FAILED_INIT)) {
+                logLine("net: handle stuck, making a new one");
+                curl_easy_cleanup(c);
+                c = nullptr;
+            }
             job.reply->done = true;
         }
         if (c) curl_easy_cleanup(c);
@@ -1224,7 +1350,7 @@ private:
     }
 
     bool fetch(CURL* c, const std::string& method, const std::string& url, const std::string& body, bool auth,
-               size_t cap, Reply& reply, std::string& out) {
+               size_t cap, Reply& reply, std::string& out, Thin thin = nullptr) {
         curl_easy_reset(c);
         const std::string host = hostOf(url);
         std::vector<std::string>& ips = m_ips[host];
@@ -1241,7 +1367,7 @@ private:
         if (auth) headers = curl_slist_append(headers, ("Authorization: " + m_token).c_str());
         headers = curl_slist_append(headers, (std::string("User-Agent: ") + kUserAgent).c_str());
         if (!body.empty()) headers = curl_slist_append(headers, "Content-Type: application/json");
-        Sink sink{c, &out, cap};
+        Sink sink{c, &out, cap, thin};
         curl_easy_setopt(c, CURLOPT_URL, url.c_str());
         curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
@@ -1273,7 +1399,8 @@ private:
         long status = 0;
         if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
         reply.status = rc == CURLE_OK ? status : -static_cast<long>(rc);
-        reply.error = rc == CURLE_OK ? std::string() : std::string(curl_easy_strerror(rc));
+        reply.error = sink.outOfMemory ? std::string("out of memory")
+                    : rc == CURLE_OK ? std::string() : std::string(curl_easy_strerror(rc));
         if (rc != CURLE_OK)
             logLine("net: %s for %s (%u KB free)", reply.error.c_str(), url.substr(0, 60).c_str(), freeKb());
         if (rc == CURLE_COULDNT_CONNECT || rc == CURLE_OPERATION_TIMEDOUT) ++index; // the next address
@@ -2250,8 +2377,8 @@ public:
         }
         m_meReq = g_net.api("GET", "/users/@me");
         if (!loadSavedLists()) {
-            m_dmReq = g_net.api("GET", "/users/@me/channels");
-            m_guildsReq = g_net.api("GET", "/users/@me/guilds");
+            m_dmReq = g_net.apiList("/users/@me/channels", thinDm);
+            m_guildsReq = g_net.apiList("/users/@me/guilds", thinGuild);
         }
         const std::string list = kStandardEmoji;
         for (size_t i = 0; i < list.size();) {
@@ -2856,7 +2983,7 @@ private:
         m_channelsLoaded = false;
         m_channelsError.clear();
         m_rowSel = -1;
-        m_channelsReq = g_net.api("GET", "/guilds/" + m_servers[(size_t)index].id + "/channels");
+        m_channelsReq = g_net.apiList("/guilds/" + m_servers[(size_t)index].id + "/channels", thinChannel);
         m_channelsFor = index;
     }
 

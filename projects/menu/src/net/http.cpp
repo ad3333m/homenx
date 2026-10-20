@@ -29,7 +29,12 @@ size_t OnBody(char* ptr, size_t size, size_t nmemb, void* user) {
         s->overflow = true;
         return 0;
     }
-    s->body->append(ptr, n);
+    try { // an exception must never unwind through curl (it leaves the handle unusable)
+        s->body->append(ptr, n);
+    } catch (...) {
+        s->overflow = true;
+        return 0;
+    }
     return n;
 }
 

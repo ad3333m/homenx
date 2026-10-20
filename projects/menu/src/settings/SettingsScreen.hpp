@@ -50,6 +50,7 @@ public:
     void onCustomButtonIcon(VoidCb cb) { m_customIconCb = std::move(cb); }
     void onNextendoApp(VoidCb cb) { m_nextendoAppCb = std::move(cb); }
     void onHomePages(VoidCb cb) { m_homePagesCb = std::move(cb); }
+    void onDiagnostics(VoidCb cb) { m_diagnosticsCb = std::move(cb); }
     void onReturnTimings(VoidCb cb) { m_returnTimingsCb = std::move(cb); }
     // Sidebar order: slot 0-4 left column, 5-9 right; value = button id.
     void setSidebarOrderState(std::vector<int> order, std::vector<std::string> names) {
@@ -155,6 +156,7 @@ private:
     VoidCb m_customIconCb;
     VoidCb m_nextendoAppCb;
     VoidCb m_homePagesCb;
+    VoidCb m_diagnosticsCb;
     VoidCb m_returnTimingsCb;
     std::vector<int> m_sidebarOrder;
     std::vector<std::string> m_sidebarNames;

@@ -50,31 +50,43 @@ void DateTimeWidget::onContentRender(nxui::Renderer& ren) {
     nxui::Rect cr = contentRect();
     nxui::Font* sf = m_smallFont ? m_smallFont : m_font;
 
-    // HomeNX: one letter at a time. Text is cached as a texture per string, so
-    // drawing "12:34" whole needed a new texture every minute, which fails when
-    // HOME's GPU memory is short (after a game): the clock went blank. Digits
-    // drawn alone are a dozen textures made once and kept hot.
-    auto width = [](nxui::Font* font, const std::string& text, float scale) {
-        float w = 0.f;
-        for (char c : text) w += font->measure(std::string(1, c)).x * scale;
-        return w;
-    };
-    auto drawEach = [&ren](nxui::Font* font, const std::string& text, float x, float y, const nxui::Color& color,
-                           float scale) {
-        for (char c : text) {
-            const std::string one(1, c);
-            if (c != ' ') font->draw(ren, one, {x, y}, color, scale);
-            x += font->measure(one).x * scale;
-        }
-    };
-    const float timeW = width(m_font, m_timeStr, 1.f), dateW = width(sf, m_dateStr, 0.7f);
+    // HomeNX: one letter at a time, from the clock's own textures (see Glyphs).
+    const nxui::Color timeColor = m_textColor.withAlpha(m_opacity);
+    const nxui::Color dateColor = m_secondaryColor.withAlpha(m_opacity);
+    const float timeW = drawGlyphs(ren, m_font, m_bigGlyphs, m_timeStr, 0.f, 0.f, timeColor, 1.f, false);
+    const float dateW = drawGlyphs(ren, sf, m_smallGlyphs, m_dateStr, 0.f, 0.f, dateColor, 0.7f, false);
     const float timeH = m_font->measure("0").y, dateH = sf->measure("0").y;
     float contentH = timeH + 2.f + dateH * 0.7f;
     float tx = cr.x + (cr.width - timeW) * 0.5f;
     float ty = cr.y + (cr.height - contentH) * 0.5f;
-    drawEach(m_font, m_timeStr, tx, ty, m_textColor.withAlpha(m_opacity), 1.f);
-    drawEach(sf, m_dateStr, cr.x + (cr.width - dateW) * 0.5f, ty + timeH + 2.f,
-             m_secondaryColor.withAlpha(m_opacity), 0.7f);
+    drawGlyphs(ren, m_font, m_bigGlyphs, m_timeStr, tx, ty, timeColor, 1.f, true);
+    drawGlyphs(ren, sf, m_smallGlyphs, m_dateStr, cr.x + (cr.width - dateW) * 0.5f, ty + timeH + 2.f, dateColor, 0.7f,
+               true);
+}
+
+// Draws (or only measures) `text` from the clock's own letter textures,
+// making any missing one; returns its width.
+float DateTimeWidget::drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& glyphs, const std::string& text,
+                                 float x, float y, const nxui::Color& color, float scale, bool draw) {
+    if (glyphs.revision != font->revision()) { // another font (a theme): its own letters
+        glyphs.tex.clear();
+        glyphs.revision = font->revision();
+    }
+    const float start = x;
+    for (char c : text) {
+        const std::string one(1, c);
+        const float advance = font->measure(one).x * scale;
+        if (draw && c != ' ') {
+            auto& tex = glyphs.tex[c];
+            if (!tex || !tex->valid()) {
+                tex = std::make_unique<nxui::Texture>();
+                if (!font->renderTo(ren, one, *tex)) tex.reset(); // no room now: next frame
+            }
+            if (tex) ren.drawTexture(tex.get(), {x, y, tex->width() * scale, tex->height() * scale}, color);
+        }
+        x += advance;
+    }
+    return x - start;
 }
 
 nxui::Vec2 DateTimeWidget::computeContentSize() const {

@@ -27,6 +27,10 @@ public:
     bool draw(Renderer& ren, const std::string& text,
               const Vec2& pos, const Color& color, float scale = 1.f);
 
+    // Renders text into a texture the caller keeps (outside the cache, so it
+    // is never evicted). False if there's no room for it right now.
+    bool renderTo(Renderer& ren, const std::string& text, Texture& out);
+
     // Measure text dimensions
     Vec2 measure(const std::string& text) const;
     // Whether the font has a glyph for this Unicode codepoint.

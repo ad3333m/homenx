@@ -394,7 +394,7 @@ namespace tsl {
              *
              * @return Settings data
              */
-            static IniData readOverlaySettings() {
+            static IniData readOverlaySettings(const char* path = CONFIG_FILE) {
                 /* Open Sd card filesystem. */
                 FsFileSystem fsSdmc;
                 if (R_FAILED(fsOpenSdCardFileSystem(&fsSdmc)))
@@ -403,7 +403,7 @@ namespace tsl {
 
                 /* Open config file. */
                 FsFile fileConfig;
-                if (R_FAILED(fsFsOpenFile(&fsSdmc, CONFIG_FILE, FsOpenMode_Read, &fileConfig)))
+                if (R_FAILED(fsFsOpenFile(&fsSdmc, path, FsOpenMode_Read, &fileConfig)))
                     return {};
                 hlp::ScopeGuard fileGuard([&] { fsFileClose(&fileConfig); });
 
@@ -3429,9 +3429,15 @@ namespace tsl {
          *
          */
         static void parseOverlaySettings() {
-            hlp::ini::IniData parsedConfig = hlp::ini::readOverlaySettings();
-
-            u64 decodedKeys = hlp::comboStringToKeys(parsedConfig["tesla"]["key_combo"]);
+            // HomeNX: Ultrahand keeps its menu combo in its own config; Tesla's
+            // file is only the fallback (it can be stale, so Ultrahand's combo
+            // went unrecognised while this overlay was loaded).
+            hlp::ini::IniData ultrahand = hlp::ini::readOverlaySettings("/config/ultrahand/config.ini");
+            u64 decodedKeys = hlp::comboStringToKeys(ultrahand["ultrahand"]["key_combo"]);
+            if (!decodedKeys) {
+                hlp::ini::IniData parsedConfig = hlp::ini::readOverlaySettings();
+                decodedKeys = hlp::comboStringToKeys(parsedConfig["tesla"]["key_combo"]);
+            }
             if (decodedKeys)
                 tsl::cfg::launchCombo = decodedKeys;
         }
@@ -3529,16 +3535,23 @@ namespace tsl {
                     };
                     // HomeNX: just after starting or showing, the press that did it can
                     // arrive again (input reconfigured): one press must not show and hide.
+                    const bool menuCombo = comboHit(tsl::cfg::launchCombo) && !comboHit(tsl::cfg::extraLaunchCombo);
                     if ((comboHit(tsl::cfg::launchCombo) || comboHit(tsl::cfg::extraLaunchCombo))
                         && armGetSystemTick() >= shData->comboQuietUntil.load()) {
-                        if (shData->overlayOpen) {
-                            tsl::Overlay::get()->hide();
-                            shData->overlayOpen = false;
-                        }
-                        else if (tsl::cfg::launchComboCloses && !comboHit(tsl::cfg::extraLaunchCombo)) {
-                            // HomeNX: hidden, the menu's own combo goes back to the menu
+                        if (menuCombo && tsl::cfg::launchComboCloses) {
+                            // HomeNX: the menu's own combo opens the menu, open straight
+                            // away like Ultrahand's overlays do (it used to only close this).
+                            tsl::setNextOverlay("sdmc:/switch/.overlays/ovlmenu.ovl", "--direct --comboReturn");
+                            if (shData->overlayOpen) {
+                                tsl::Overlay::get()->hide();
+                                shData->overlayOpen = false;
+                            }
                             shData->running = false;
                             eventFire(&shData->comboEvent);
+                        }
+                        else if (shData->overlayOpen) {
+                            tsl::Overlay::get()->hide();
+                            shData->overlayOpen = false;
                         }
                         else if (!tsl::cfg::showAllowed || tsl::cfg::showAllowed())
                             eventFire(&shData->comboEvent);

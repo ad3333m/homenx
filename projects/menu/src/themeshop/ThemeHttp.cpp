@@ -2,6 +2,7 @@
 
 #include "core/DebugLog.hpp"
 
+#include <atomic>
 #include <curl/curl.h>
 #include <curlpp/Easy.hpp>
 #include <curlpp/Infos.hpp>
@@ -21,6 +22,10 @@ std::mutex g_themeHttpMutex;
 bool g_nifmInitialized = false;
 bool g_socketInitialized = false;
 bool g_curlInitialized = false;
+// HomeNX: set once the runtime is up, read without the lock: transfers hold the
+// lock for their whole length, and HOME's main thread asking "ready?" while
+// one ran (the weather, a theme) froze until it finished.
+std::atomic<bool> g_runtimeReady{false};
 
 constexpr int kRequestAttemptCount = 2;
 
@@ -35,6 +40,7 @@ bool runtimeInitializedLocked() {
 }
 
 void shutdownRuntimeLocked() {
+    g_runtimeReady = false;
     if (g_curlInitialized) {
         curl_global_cleanup();
         g_curlInitialized = false;
@@ -84,6 +90,7 @@ bool initializeRuntimeLocked() {
     }
 
     DebugLog::log("[themeshop] http runtime ready");
+    g_runtimeReady = true;
     return true;
 }
 
@@ -222,6 +229,7 @@ std::vector<std::uint8_t> performBytes(const std::string& url,
 namespace themeshop::http {
 
 bool initialize() {
+    if (g_runtimeReady.load()) return true;
     std::lock_guard<std::mutex> lk(g_themeHttpMutex);
     return initializeRuntimeLocked();
 }
@@ -232,6 +240,7 @@ void shutdown() {
 }
 
 bool isInitialized() {
+    if (g_runtimeReady.load()) return true;
     std::lock_guard<std::mutex> lk(g_themeHttpMutex);
     return runtimeInitializedLocked();
 }
