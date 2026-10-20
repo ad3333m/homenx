@@ -211,6 +211,7 @@ private:
     void openCustomButtonIconPicker();
     void openNextendoAppPicker();
     void activateNextendo();
+    void openToggle();
     // A list of every .nro in sdmc:/switch; `choose` gets the picked path.
     void openNroPicker(const std::string& title, const std::string& current, std::string noneLabel,
                        std::function<void(const std::string&)> choose);

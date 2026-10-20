@@ -315,11 +315,31 @@ def storage():
     return im
 
 
+def toggle_button():
+    # deep-blue rounded tile with HomeNX's house and Toggle's red power badge (the sidebar's Toggle button)
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(16, 44, 110))
+    top = canvas()  # the lighter top half, cut straight across (no notches at the seam)
+    ImageDraw.Draw(top).rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(28, 70, 160))
+    half = top.crop((0, 0, N, p(256)))
+    im.paste(half, (0, 0), half)
+    d.polygon([(p(236), p(126)), (p(366), p(232)), (p(106), p(232))], fill="white")  # roof
+    d.rounded_rectangle([p(136), p(214), p(336), p(392)], radius=p(18), fill="white")
+    d.rounded_rectangle([p(212), p(290), p(260), p(392)], radius=p(12), fill=(28, 70, 160))  # door
+    cx, cy, r = 366, 366, 74  # power badge
+    d.ellipse([p(cx - r), p(cy - r), p(cx + r), p(cy + r)], fill=(230, 40, 60))
+    rr, w = 38, p(13)
+    d.arc([p(cx - rr), p(cy - rr), p(cx + rr), p(cy + rr)], start=-60, end=240, fill="white", width=w)
+    d.line([p(cx), p(cy - rr - 6), p(cx), p(cy - 4)], fill="white", width=w)
+    return im
+
+
 if __name__ == "__main__":
     save(sphaira(), "romfs/icons/sphaira.png", 512)  # sharp at the launch card's size too
     save(nextendo(), "romfs/icons/nextendo.png")
     save(music_player(), "romfs/icons/music_player.png")
     save(storage(), "romfs/icons/storage.png")
+    save(toggle_button(), "romfs/icons/toggle.png")
     for name, fn in [("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()

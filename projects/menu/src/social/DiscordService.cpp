@@ -301,6 +301,7 @@ void DiscordService::update() {
             if (m_store->ready) {
                 next = State::Ready;
                 if (!m_rememberedMe) rememberMe();
+                if (armGetSystemTick() >= m_listsNextTick) saveListsForOverlay();
             }
             break;
         case Gateway::State::AuthFailed: {
@@ -944,4 +945,34 @@ bool DiscordService::takeAlert(Alert& out) {
 bool DiscordService::hasSavedAccount() const {
     std::error_code ec;
     return std::filesystem::exists(kAccountsPath, ec) || std::filesystem::exists(kSwitchCordAccounts, ec);
+}
+
+// The Discord overlay can't afford the API's DM and server lists (most of a MB
+// of its 4 MB): HOME keeps them small in sdmc:/config/SwitchU/discord_lists.json
+// for the account it's signed in as, written only when they change.
+void DiscordService::saveListsForOverlay() {
+    m_listsNextTick = armGetSystemTick() + armNsToTicks(20'000'000'000ULL);
+    std::string out = "{\"account\":" + Str::Json(Str::Id(m_store->me.id)) + ",\"dms\":[";
+    bool first = true;
+    for (const Dm& d : dms(60)) {
+        const Channel* c = m_store->FindChannel(d.channelId);
+        const std::string user = c && c->type == CH_DM && !c->recipients.empty() ? Str::Id(c->recipients[0]) : std::string();
+        out += std::string(first ? "" : ",") + "{\"id\":" + Str::Json(Str::Id(d.channelId)) + ",\"name\":"
+               + Str::Json(d.name) + ",\"avatar\":" + Str::Json(d.avatarUrl) + ",\"user\":" + Str::Json(user) + "}";
+        first = false;
+    }
+    out += "],\"servers\":[";
+    first = true;
+    for (const Server& sv : servers()) {
+        out += std::string(first ? "" : ",") + "{\"id\":" + Str::Json(Str::Id(sv.id)) + ",\"name\":"
+               + Str::Json(sv.name) + ",\"icon\":" + Str::Json(sv.iconUrl) + "}";
+        first = false;
+    }
+    out += "]}\n";
+    if (out == m_savedLists) return;
+    if (FILE* f = std::fopen("sdmc:/config/SwitchU/discord_lists.json", "w")) {
+        std::fputs(out.c_str(), f);
+        std::fclose(f);
+        m_savedLists = std::move(out);
+    }
 }

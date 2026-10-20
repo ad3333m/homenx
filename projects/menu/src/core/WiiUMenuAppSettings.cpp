@@ -464,7 +464,7 @@ void WiiUMenuApp::createSettings() {
             i18n.tr("sidebar.eshop", "Nintendo eShop"), i18n.tr("sidebar.news", "News"),
             i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.social", "Social"),
             "Nextendo", i18n.tr("sidebar.music", "Music"), i18n.tr("sidebar.storage", "Storage"),
-            i18n.tr("sidebar.mii_maker", "Mii Maker"),
+            i18n.tr("sidebar.mii_maker", "Mii Maker"), i18n.tr("sidebar.toggle", "HomeNX Toggle"),
         });
     }
     m_settings->onSidebarOrderChange([this](std::vector<int> order) {

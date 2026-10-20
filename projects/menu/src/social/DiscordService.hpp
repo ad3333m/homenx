@@ -131,6 +131,7 @@ private:
     void rememberMe();
     std::string plainText(const std::string& content, std::vector<std::string>* emojis = nullptr) const;
     void noteAlert(const Store::Change& ch, yyjson_val* d);
+    void saveListsForOverlay();
 
     std::unique_ptr<Store> m_store;
     std::unique_ptr<Gateway> m_gateway;
@@ -150,4 +151,6 @@ private:
     bool m_lingering = false;
     Alert m_alert;
     bool m_hasAlert = false;
+    std::string m_savedLists;    // what discord_lists.json holds
+    uint64_t m_listsNextTick = 0;
 };

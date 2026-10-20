@@ -1485,6 +1485,30 @@ void WiiUMenuApp::activateNextendo() {
 #endif
 }
 
+// HomeNX Toggle (updates, turning HomeNX off), the same .nro Settings > HomeNX updates with.
+void WiiUMenuApp::openToggle() {
+    static constexpr const char* kToggle = "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro";
+    std::error_code ec;
+    if (!std::filesystem::exists(kToggle, ec)) {
+        if (!m_dialog) return;
+        auto& i18n = nxui::I18n::instance();
+        m_audio.playSfx(Sfx::ModalShow);
+        m_dialog->show(i18n.tr("toggle.missing_title", "HomeNX Toggle isn't there"),
+                       i18n.tr("toggle.missing_body", "HomeNX looked for") + " " + kToggle + ". "
+                           + i18n.tr("toggle.missing_fix", "Restart the console and HomeNX puts it back."),
+                       {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
+        return;
+    }
+#ifdef SWITCHU_MENU
+    if (!loaderReadyOrExplain()) return;
+    leaveThen([this] { m_launcher.launchNro(kToggle, homebrewHostTitleId(), activeProfileUid()); });
+#else
+    m_audio.playSfx(Sfx::LaunchGame);
+    fadeOutThen([this] { m_launcher.launchNro(kToggle); });
+#endif
+}
+
 void WiiUMenuApp::openHomeNXSettings() {
     if (!m_settings) return;
     m_audio.playSfx(Sfx::ModalShow);
@@ -4786,6 +4810,7 @@ void WiiUMenuApp::buildGrid() {
         focusManager().setFocus(m_settings.get());
     };
     sidebarActions.onMiiMaker = [this]() { openMiis(); };
+    sidebarActions.onToggle = [this]() { openToggle(); };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
     sidebarActions.onControllers = [this]() {

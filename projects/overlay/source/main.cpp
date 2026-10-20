@@ -1020,7 +1020,56 @@ struct Reply {
     Picture picture;   // pictures: decoded on the network thread
 };
 
-std::string g_startProblem; // set when the network didn't start (shown on the first screen)
+// The network: sockets at start; ssl and curl when a thread first needs them,
+// tried again every few seconds if they won't start (one failure used to break
+// the overlay until the console restarted: "Failed initialization").
+std::mutex g_startMu;
+std::string g_startProblem; // why it isn't running (under g_startMu)
+bool g_socketsUp = false, g_sslOpen = false, g_curlUp = false;
+u64 g_nextStartTry = 0;
+
+std::string startProblem() {
+    std::lock_guard<std::mutex> lk(g_startMu);
+    return g_startProblem;
+}
+
+bool ensureNetwork() {
+    std::lock_guard<std::mutex> lk(g_startMu);
+    if (g_curlUp) return true;
+    if (!g_socketsUp || nowMs() < g_nextStartTry) return false;
+    g_nextStartTry = nowMs() + 3000;
+    char buf[112];
+    if (!g_sslOpen) {
+        // Fewer ssl sessions if three can't be had (the console shares them out).
+        Result rc = 0;
+        for (u32 sessions : {3u, 1u}) {
+            rc = sslInitialize(sessions);
+            if (R_SUCCEEDED(rc)) {
+                g_sslOpen = true;
+                break;
+            }
+        }
+        if (!g_sslOpen) {
+            std::snprintf(buf, sizeof(buf), "Secure connections didn't start (ssl 0x%X). Trying again...", rc);
+            g_startProblem = buf;
+            logLine("overlay: %s %u KB free", buf, freeKb());
+            return false;
+        }
+    }
+    // curl's own ssl open now only counts ours. A failed global init undoes
+    // itself in this curl, so the next try runs it again.
+    const CURLcode rc = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (rc != CURLE_OK) {
+        std::snprintf(buf, sizeof(buf), "Secure connections didn't start: %s. Trying again...", curl_easy_strerror(rc));
+        g_startProblem = buf;
+        logLine("overlay: %s %u KB free", buf, freeKb());
+        return false;
+    }
+    g_curlUp = true;
+    g_startProblem.clear();
+    logLine("overlay: network up, %u KB free", freeKb());
+    return true;
+}
 
 // One thread runs every request in order (Discord's API first, then pictures),
 // so the overlay never waits on the network.
@@ -1125,7 +1174,7 @@ private:
     }
 
     void run() {
-        CURL* c = curl_easy_init();
+        CURL* c = nullptr;
         for (;;) {
             Job job;
             {
@@ -1136,9 +1185,11 @@ private:
                 job = std::move(q.front());
                 q.pop_front();
             }
+            if (!c && ensureNetwork()) c = curl_easy_init();
             try {
                 if (!c) {
                     job.reply->status = -1;
+                    job.reply->error = startProblem();
                 } else if (job.api) {
                     fetch(c, job.method, job.url, job.body, true, kApiBody, *job.reply, job.reply->body);
                 } else {
@@ -1248,7 +1299,8 @@ std::string problem(const Reply& r) {
     if (r.status == 401) return "Discord signed this account out. Sign in again in HomeNX: Social > Discord.";
     if (r.status == 403) return "You can't see this.";
     if (r.status < 0) {
-        if (!g_startProblem.empty()) return g_startProblem;
+        const std::string start = startProblem();
+        if (!start.empty()) return start;
         NifmInternetConnectionStatus net = NifmInternetConnectionStatus_ConnectingUnknown1;
         u32 strength = 0;
         if (R_SUCCEEDED(nifmGetInternetConnectionStatus(nullptr, &strength, &net))
@@ -1719,6 +1771,10 @@ private:
         static const int kWaitS[] = {2, 5, 10, 30, 60};
         int attempt = 0;
         while (!m_quit) {
+            if (!ensureNetwork()) {
+                for (int t = 0; t < 30 && !m_quit; ++t) svcSleepThread(100'000'000ULL);
+                continue;
+            }
             bool reached = false;
             try {
                 const std::vector<std::string> ips = addressesOf(kGatewayHost);
@@ -2193,8 +2249,10 @@ public:
             return;
         }
         m_meReq = g_net.api("GET", "/users/@me");
-        m_dmReq = g_net.api("GET", "/users/@me/channels");
-        m_guildsReq = g_net.api("GET", "/users/@me/guilds");
+        if (!loadSavedLists()) {
+            m_dmReq = g_net.api("GET", "/users/@me/channels");
+            m_guildsReq = g_net.api("GET", "/users/@me/guilds");
+        }
         const std::string list = kStandardEmoji;
         for (size_t i = 0; i < list.size();) {
             const size_t sp = list.find(' ', i);
@@ -2729,23 +2787,58 @@ private:
         m_guildsDone = true;
         if (m_guildsReq->status != 200) return; // DMs still work; the bar stays empty
         forEachItem(m_guildsReq->body, [&](yyjson_val* g) {
-            Server s{str(g, "id"), cleanName(str(g, "name")), std::string(), std::string()};
-            if (!str(g, "icon").empty())
-                s.icon = "https://cdn.discordapp.com/icons/" + s.id + "/" + str(g, "icon") + ".png?size=128";
-            // Initials, like Discord's icons for servers without a picture.
-            bool start = true;
-            for (const char* p = s.name.data(), *end = p + s.name.size(); p < end && s.initials.size() < 3;) {
-                const char* from = p;
-                const uint32_t cp = nextCp(p, end);
-                if (cp == ' ') {
-                    start = true;
-                    continue;
-                }
-                if (start) s.initials.append(from, p);
-                start = false;
-            }
-            m_servers.push_back(std::move(s));
+            const std::string id = str(g, "id"), icon = str(g, "icon");
+            addServer(id, str(g, "name"),
+                      icon.empty() ? std::string() : "https://cdn.discordapp.com/icons/" + id + "/" + icon + ".png?size=128");
         });
+    }
+
+    void addServer(const std::string& id, const std::string& name, const std::string& icon) {
+        Server s{id, cleanName(name), icon, std::string()};
+        // Initials, like Discord's icons for servers without a picture.
+        bool start = true;
+        for (const char* p = s.name.data(), *end = p + s.name.size(); p < end && s.initials.size() < 3;) {
+            const char* from = p;
+            const uint32_t cp = nextCp(p, end);
+            if (cp == ' ') {
+                start = true;
+                continue;
+            }
+            if (start) s.initials.append(from, p);
+            start = false;
+        }
+        m_servers.push_back(std::move(s));
+    }
+
+    // HOME keeps its DM and server lists in a small file (newest DMs first) for
+    // the account it's signed in as: a few KB here, where the API's replies
+    // cost most of a MB of the overlay's 4.
+    bool loadSavedLists() {
+        const std::string text = readFile("sdmc:/config/SwitchU/discord_lists.json");
+        if (text.empty() || text.size() > (128u << 10)) return false;
+        std::string me;
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            me = g_meId;
+        }
+        Json doc(text);
+        yyjson_val* root = doc.root();
+        if (!root || me.empty() || str(root, "account") != me) return false;
+        m_dms.push_back({Row::Header, "", "DIRECT MESSAGES", "", "", ""});
+        size_t i, n;
+        yyjson_val* v;
+        yyjson_arr_foreach(yyjson_obj_get(root, "dms"), i, n, v) {
+            const std::string title = cleanName(str(v, "name"));
+            m_dms.push_back({Row::Dm, str(v, "id"), title.empty() ? "Conversation" : title, str(v, "avatar"),
+                             str(v, "user"), ""});
+        }
+        if (m_dms.size() == 1) m_dmsError = "No conversations yet.";
+        m_dmsLoaded = true;
+        m_rowSel = firstItem(m_dms);
+        yyjson_arr_foreach(yyjson_obj_get(root, "servers"), i, n, v) addServer(str(v, "id"), str(v, "name"), str(v, "icon"));
+        m_guildsDone = true;
+        logLine("overlay: lists from HOME (%d DMs, %d servers)", (int)m_dms.size() - 1, (int)m_servers.size() - 1);
+        return true;
     }
 
     void openServer(int index) {
@@ -3817,45 +3910,41 @@ public:
         m_pminfo = R_SUCCEEDED(pminfoInitialize());
         m_ns = R_SUCCEEDED(nsInitialize());
         m_time = R_SUCCEEDED(timeInitialize());
-        // Sockets: small buffers, so the pool (one socket at its largest plus
-        // UDP) holds the gateway's, a request's and a DNS question at once.
+        // Sockets: the pool is (max tx + max rx) x sb_efficiency plus UDP. It
+        // holds the gateway's, two requests' (API, pictures) and a DNS question
+        // at once: with room for only one socket at its largest, new
+        // connections failed ("Couldn't connect to server").
         static const SocketInitConfig kSockets = {
             .tcp_tx_buf_size = 8 * 1024,
             .tcp_rx_buf_size = 16 * 1024,
             .tcp_tx_buf_max_size = 16 * 1024,
-            .tcp_rx_buf_max_size = 64 * 1024,
+            .tcp_rx_buf_max_size = 48 * 1024,
             .udp_tx_buf_size = 0x2400,
-            .udp_rx_buf_size = 0xA500,
-            .sb_efficiency = 1,
+            .udp_rx_buf_size = 0x2400, // DNS answers are small
+            .sb_efficiency = 3,
             .bsd_service_type = BsdServiceType_Auto,
         };
         const Result sockRc = socketInitialize(&kSockets);
         m_sockets = R_SUCCEEDED(sockRc);
-        // curl's TLS is the console's ssl service. curl_global_init fails for good
-        // if it can't open it right then ("Failed initialization"): open it
-        // first, a few tries, so curl's own open only counts ours.
-        for (int i = 0; i < 20 && !m_ssl; ++i) {
-            m_ssl = R_SUCCEEDED(sslInitialize(0x3));
-            if (!m_ssl) svcSleepThread(100'000'000ULL);
+        {
+            std::lock_guard<std::mutex> lk(g_startMu);
+            g_socketsUp = m_sockets;
+            if (!m_sockets) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "The network didn't start (0x%X).", sockRc);
+                g_startProblem = buf;
+            }
         }
-        logLine("overlay: ssl %s, %u KB free", m_ssl ? "open" : "unavailable", freeKb());
-        const CURLcode curlRc = curl_global_init(CURL_GLOBAL_DEFAULT);
-        char buf[96];
-        if (!m_sockets) {
-            std::snprintf(buf, sizeof(buf), "The network didn't start (0x%X).", sockRc);
-            g_startProblem = buf;
-        } else if (curlRc != CURLE_OK) {
-            std::snprintf(buf, sizeof(buf), "Secure connections didn't start: %s.", curl_easy_strerror(curlRc));
-            g_startProblem = buf;
-        }
+        logLine("overlay: sockets %s, %u KB free", m_sockets ? "up" : "failed", freeKb());
+        ensureNetwork(); // ssl and curl now if they will; the threads try again if not
     }
 
     void exitServices() override {
         g_gateway.stop();
         g_net.stop();
-        curl_global_cleanup();
+        if (g_curlUp) curl_global_cleanup();
         if (m_sockets) socketExit();
-        if (m_ssl) sslExit();
+        if (g_sslOpen) sslExit();
         if (m_time) timeExit();
         if (m_ns) nsExit();
         if (m_pminfo) pminfoExit();
@@ -3922,7 +4011,7 @@ public:
             g_meId = id;
         }
         logLine("overlay: started, %d account(s), our id %s", (int)accounts.size(), g_meId.empty() ? "unknown" : "known");
-        if (!accounts.empty() && g_startProblem.empty()) {
+        if (!accounts.empty() && m_sockets) {
             g_net.start(accounts[current].token);
             if (m_pminfo && m_ns) g_gateway.start(accounts[current].token);
         }
@@ -3930,7 +4019,7 @@ public:
     }
 
 private:
-    bool m_sockets = false, m_nifm = false, m_pminfo = false, m_ns = false, m_time = false, m_ssl = false;
+    bool m_sockets = false, m_nifm = false, m_pminfo = false, m_ns = false, m_time = false;
 };
 
 } // namespace

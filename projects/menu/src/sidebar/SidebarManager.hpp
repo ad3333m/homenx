@@ -24,7 +24,8 @@ public:
         kButtonMusic = 11,    // HomeNX: the music player (Quick Settings' playlist)
         kButtonStorage = 12,  // HomeNX: Settings > Storage (data management)
         kButtonMiiMaker = 13, // HomeNX: Social > Miis, HomeNX's own Mii Maker
-        kButtonCount = 14,
+        kButtonToggle = 14,   // HomeNX: opens HomeNX Toggle (updates, turning HomeNX off)
+        kButtonCount = 15,
         kSlotCount = 10,
     };
     using Order = std::array<int, kSlotCount>; // left column top-down, then right
@@ -48,6 +49,7 @@ public:
         std::function<void()> onMusic;
         std::function<void()> onStorage;
         std::function<void()> onMiiMaker;
+        std::function<void()> onToggle;
     };
 
     void build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
