@@ -918,6 +918,7 @@ void WiiUMenuApp::updateLeaveSplashHandoff(float dt) {
             // content rect; re-anchor glass + title once HOME is interactive.
             refreshOpenFolderChrome();
             showFocusedSteamGridDbArtwork();
+            m_leaveSplashTex = nxui::Texture{}; // 3.6 MB of picture memory back
             DebugLog::log("[leave] splash handoff complete");
         }
     }
@@ -5527,7 +5528,19 @@ void WiiUMenuApp::finalizeRefresh() {
 
 #endif
 
+void WiiUMenuApp::noteWork(WorkPart part, std::uint64_t startTick) {
+    const std::uint64_t now = armGetSystemTick();
+    if (now >= m_workWindowEnd) { // a new 10 s window; the last one is kept to show
+        std::copy(std::begin(m_workWorst), std::end(m_workWorst), std::begin(m_workWorstBefore));
+        std::fill(std::begin(m_workWorst), std::end(m_workWorst), 0);
+        m_workWindowEnd = now + armNsToTicks(10'000'000'000ULL);
+    }
+    const std::uint64_t us = armTicksToNs(now - startTick) / 1000ULL;
+    m_workWorst[part] = std::max(m_workWorst[part], us);
+}
+
 void WiiUMenuApp::onUpdate(float dt) {
+    noteWork(WorkFrame, armGetSystemTick() - armNsToTicks(static_cast<std::uint64_t>(std::max(0.f, dt) * 1e9f)));
     // HomeNX launch card: once it covers the screen, stop drawing HOME under it
     // (that was what made the card stutter); finish the launch on black frames.
     {
@@ -5547,9 +5560,13 @@ void WiiUMenuApp::onUpdate(float dt) {
         && !(m_launchAnim && m_launchAnim->isPlaying()) && (m_readbackPrepDelay -= dt) <= 0.f)
         m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
 #endif
+    std::uint64_t workStart = armGetSystemTick();
     m_discord.update(); // HomeNX Discord panel and HOME's alerts
+    noteWork(WorkDiscord, workStart);
+    workStart = armGetSystemTick();
     updateHomeBanners(dt);
     updateWeather();
+    noteWork(WorkBanners, workStart);
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
@@ -5662,11 +5679,13 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     // Widget-owned images are intentionally managed before recording the next
     // frame. This is the only safe point to retire Deko textures from pages
     // that have left the screen and to warm the next page.
+    const std::uint64_t picturesStart = armGetSystemTick();
     syncWidgetPageAssets();
     // Reading and decoding happens on a worker. Transfer at most one recent
     // widget texture to the GPU per frame so returning HOME remains smooth.
     pollRecentWidgetAssets();
     pollGameArtworkAssets();
+    noteWork(WorkPictures, picturesStart);
     syncFolderHeader();
     updateHomeExtras();
 
@@ -5675,6 +5694,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     // labels that only appear after opening a screen (notably Settings).
     // Maintenance happens here, before Application starts recording the next
     // frame, so no texture referenced by the current command buffer is evicted.
+    const std::uint64_t textStart = armGetSystemTick();
     {
         auto& gpu = app().gpu();
         constexpr std::uint64_t kTextImageReserve = 4u * 1024u * 1024u;
@@ -5740,9 +5760,12 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 m_fontNormal.cacheEntryCount() + m_fontSmall.cacheEntryCount());
         }
     }
+    noteWork(WorkText, textStart);
 #endif
 
+    const std::uint64_t steamStart = armGetSystemTick();
     syncSteamGridDb();
+    noteWork(WorkSteamGridDb, steamStart);
 
     // Dynamic-line navigation owns a small internal focus manager. Depending
     // on the route transition, its selected icon can change without producing

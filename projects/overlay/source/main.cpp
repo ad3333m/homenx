@@ -279,8 +279,10 @@ std::string keepKeys(yyjson_val* o, std::initializer_list<const char*> keys) {
 }
 
 // What the overlay reads of a server's channel, a DM, a server.
-std::string thinChannel(yyjson_val* c) { return keepKeys(c, {"id", "name", "parent_id", "position", "type"}); }
-std::string thinGuild(yyjson_val* g) { return keepKeys(g, {"id", "name", "icon"}); }
+std::string thinChannel(yyjson_val* c) {
+    return keepKeys(c, {"id", "name", "parent_id", "position", "type", "permission_overwrites"});
+}
+std::string thinGuild(yyjson_val* g) { return keepKeys(g, {"id", "name", "icon", "permissions", "owner"}); }
 std::string thinDm(yyjson_val* c) {
     std::string people = "[";
     size_t i, n;
@@ -2332,7 +2334,59 @@ struct Row {
 
 struct Server {
     std::string id, name, icon, initials;
+    // HomeNX: what we may do there before a channel's own rules (from HOME, or
+    // the server list's "permissions"), and our roles if they're known.
+    bool permsKnown = false, rolesKnown = false;
+    u64 base = 0;
+    std::vector<std::string> roles;
 };
+
+constexpr u64 kAdministrator = 1ull << 3, kViewChannel = 1ull << 10;
+
+u64 bitsOf(yyjson_val* o, const char* key) {
+    yyjson_val* v = yyjson_obj_get(o, key);
+    if (yyjson_is_str(v)) return std::strtoull(yyjson_get_str(v), nullptr, 10);
+    return yyjson_is_uint(v) ? yyjson_get_uint(v) : 0;
+}
+
+// Whether we can see a server channel, by Discord's rules: the base
+// permissions, then the @everyone overwrite, our roles' overwrites together,
+// then our own. Without our roles, a role that would let us in counts.
+bool canSee(const Server& sv, yyjson_val* channel, const std::string& me) {
+    if (!sv.permsKnown || (sv.base & kAdministrator)) return true;
+    yyjson_val* overwrites = yyjson_obj_get(channel, "permission_overwrites");
+    u64 p = sv.base;
+    size_t i, n;
+    yyjson_val* o;
+    yyjson_arr_foreach(overwrites, i, n, o) {
+        if (str(o, "id") == sv.id) {
+            p &= ~bitsOf(o, "deny");
+            p |= bitsOf(o, "allow");
+        }
+    }
+    u64 allow = 0, deny = 0;
+    bool aRoleLetsIn = false;
+    yyjson_arr_foreach(overwrites, i, n, o) {
+        const std::string id = str(o, "id");
+        if (num(o, "type") != 0 || id == sv.id) continue;
+        if (!sv.rolesKnown) {
+            aRoleLetsIn = aRoleLetsIn || (bitsOf(o, "allow") & kViewChannel);
+        } else if (std::find(sv.roles.begin(), sv.roles.end(), id) != sv.roles.end()) {
+            allow |= bitsOf(o, "allow");
+            deny |= bitsOf(o, "deny");
+        }
+    }
+    p &= ~deny;
+    p |= allow;
+    if (aRoleLetsIn) p |= kViewChannel;
+    yyjson_arr_foreach(overwrites, i, n, o) {
+        if (num(o, "type") == 1 && str(o, "id") == me) {
+            p &= ~bitsOf(o, "deny");
+            p |= bitsOf(o, "allow");
+        }
+    }
+    return (p & kViewChannel) != 0;
+}
 
 struct ReactionPill {
     std::string emoji; // its picture
@@ -2915,12 +2969,16 @@ private:
         if (m_guildsReq->status != 200) return; // DMs still work; the bar stays empty
         forEachItem(m_guildsReq->body, [&](yyjson_val* g) {
             const std::string id = str(g, "id"), icon = str(g, "icon");
-            addServer(id, str(g, "name"),
-                      icon.empty() ? std::string() : "https://cdn.discordapp.com/icons/" + id + "/" + icon + ".png?size=128");
+            Server& sv = addServer(id, str(g, "name"),
+                                   icon.empty() ? std::string() : "https://cdn.discordapp.com/icons/" + id + "/" + icon + ".png?size=128");
+            if (yyjson_obj_get(g, "permissions")) {
+                sv.permsKnown = true;
+                sv.base = yyjson_get_bool(yyjson_obj_get(g, "owner")) ? ~0ull : bitsOf(g, "permissions");
+            }
         });
     }
 
-    void addServer(const std::string& id, const std::string& name, const std::string& icon) {
+    Server& addServer(const std::string& id, const std::string& name, const std::string& icon) {
         Server s{id, cleanName(name), icon, std::string()};
         // Initials, like Discord's icons for servers without a picture.
         bool start = true;
@@ -2935,6 +2993,7 @@ private:
             start = false;
         }
         m_servers.push_back(std::move(s));
+        return m_servers.back();
     }
 
     // HOME keeps its DM and server lists in a small file (newest DMs first) for
@@ -2962,7 +3021,17 @@ private:
         if (m_dms.size() == 1) m_dmsError = "No conversations yet.";
         m_dmsLoaded = true;
         m_rowSel = firstItem(m_dms);
-        yyjson_arr_foreach(yyjson_obj_get(root, "servers"), i, n, v) addServer(str(v, "id"), str(v, "name"), str(v, "icon"));
+        yyjson_arr_foreach(yyjson_obj_get(root, "servers"), i, n, v) {
+            Server& sv = addServer(str(v, "id"), str(v, "name"), str(v, "icon"));
+            if (yyjson_obj_get(v, "permissions")) {
+                sv.permsKnown = sv.rolesKnown = true;
+                sv.base = bitsOf(v, "permissions");
+                size_t k, m;
+                yyjson_val* role;
+                yyjson_arr_foreach(yyjson_obj_get(v, "roles"), k, m, role)
+                    if (yyjson_is_str(role)) sv.roles.push_back(yyjson_get_str(role));
+            }
+        }
         m_guildsDone = true;
         logLine("overlay: lists from HOME (%d DMs, %d servers)", (int)m_dms.size() - 1, (int)m_servers.size() - 1);
         return true;
@@ -2996,8 +3065,15 @@ private:
         }
         struct Ch { std::string id, name, parent; long pos, type; };
         std::vector<Ch> cats, texts;
+        std::string me;
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            me = g_meId;
+        }
+        const Server& server = m_servers[(size_t)m_channelsFor];
         forEachItem(m_channelsReq->body, [&](yyjson_val* c) {
             Ch ch{str(c, "id"), cleanName(str(c, "name")), str(c, "parent_id"), num(c, "position"), num(c, "type")};
+            if (ch.type != 4 && !canSee(server, c, me)) return; // a channel we aren't let into
             if (ch.type == 4) cats.push_back(ch);
             else if (ch.type == 0 || ch.type == 5) texts.push_back(ch); // text and announcements
         });

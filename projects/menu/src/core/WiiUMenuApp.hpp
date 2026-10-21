@@ -265,6 +265,11 @@ private:
     // HomeNX: Discord alerts on HOME (a saved account connects a few seconds
     // after HOME settles; L opens the chat) and the now-playing bar.
     void updateHomeBanners(float dt);
+    // HomeNX: the slowest each part of HOME's work was lately (Diagnostics).
+    enum WorkPart { WorkFrame, WorkDiscord, WorkBanners, WorkPictures, WorkText, WorkSteamGridDb, WorkPartCount };
+    std::uint64_t m_workWorst[WorkPartCount] = {}, m_workWorstBefore[WorkPartCount] = {};
+    std::uint64_t m_workWindowEnd = 0;
+    void noteWork(WorkPart part, std::uint64_t startTick);
     // HomeNX: the Weather widget's weather (fetched every 30 minutes once one is on HOME).
     void updateWeather();
     switchu::widgets::WeatherNow m_weather;
@@ -284,6 +289,7 @@ private:
     std::uint64_t m_discordBadgeVersion = ~0ull;
     nxui::Texture m_nowPlayingCover;
     int m_nowPlayingIndex = -1;
+    bool m_nowPlayingWasPlaying = false;
     // HomeNX's own controller pairing (Settings > Controllers > Change Grip/Order).
     void pairController();
     void stopPairing();

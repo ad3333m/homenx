@@ -83,6 +83,7 @@ float DateTimeWidget::drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& 
                 if (!font->renderTo(ren, one, *tex)) tex.reset(); // no room now: next frame
             }
             if (tex) ren.drawTexture(tex.get(), {x, y, tex->width() * scale, tex->height() * scale}, color);
+            else font->draw(ren, one, {x, y}, color, scale); // no room for our own yet: the shared cache's
         }
         x += advance;
     }

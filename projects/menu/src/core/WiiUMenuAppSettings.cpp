@@ -858,7 +858,12 @@ void WiiUMenuApp::showDiagnostics() {
     body += !m_discord.started() ? std::string(m_discord.hasSavedAccount() ? "not started" : "no account")
                                  : std::string(kStates[(int)m_discord.state()]);
     if (!m_discord.error().empty()) body += " (" + m_discord.error() + ")";
-    for (const char* tag : {"[mii]", "[press]", "[text-cache] maintenance done"})
+    static const char* const kWork[] = {"frame", "Discord", "banners", "pictures", "text", "artwork"};
+    body += "\nSlowest lately (ms):";
+    for (int i = 0; i < WorkPartCount; ++i)
+        body += std::string(i ? ", " : " ") + kWork[i] + " "
+                + std::to_string(std::max(m_workWorst[i], m_workWorstBefore[i]) / 1000);
+    for (const char* tag : {"[mii]", "[news]", "[press]", "[text-cache] maintenance done"})
         for (const std::string& line : logTail("sdmc:/config/SwitchU/menu.log", tag, 2)) body += "\n" + line;
     const auto overlay = logTail("sdmc:/config/SwitchU/discord_overlay.log", "", 5);
     body += "\nOverlay:" + std::string(overlay.empty() ? " no log yet (open it with L+ZL in a game)" : "");
@@ -1533,9 +1538,15 @@ void WiiUMenuApp::openNews() {
             }
 #endif
             if (!r.image.empty()) {
-                auto tex = std::make_shared<nxui::Texture>();
-                if (tex->loadFromMemory(app().gpu(), app().renderer(), r.image.data(), r.image.size(), 720))
-                    e.image = std::move(tex);
+                // Made when the article is opened (40 pictures at once took most
+                // of HOME's picture memory, and its text then failed to draw).
+                auto bytes = std::make_shared<std::vector<std::uint8_t>>(std::move(r.image));
+                e.lazyImage = [this, bytes]() -> std::shared_ptr<nxui::Texture> {
+                    auto tex = std::make_shared<nxui::Texture>();
+                    if (!tex->loadFromMemory(app().gpu(), app().renderer(), bytes->data(), bytes->size(), 560))
+                        return nullptr;
+                    return tex;
+                };
             }
             m_newsEntries.push_back(std::move(e));
         }

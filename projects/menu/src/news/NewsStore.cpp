@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <set>
 #include <thread>
 
@@ -93,6 +94,37 @@ bool parseArticle(const std::vector<u8>& bytes, NewsArticle& a) {
     if (auto more = j.find("more"); more != j.end() && more->is_object())
         if (auto br = more->find("browser"); br != more->end() && br->is_object())
             a.linkUrl = textOf(*br, "url");
+    if (a.subject.empty() && a.body.empty()) {
+        // HomeNX: a layout these keys don't fit (Nintendo changes it now and
+        // then, and every article was skipped: "no news"). Take a title-ish
+        // string, the longest text and the first JPEG, wherever they are.
+        std::string title, longest;
+        std::vector<u8> jpeg;
+        std::function<void(const nlohmann::json&, const std::string&)> walk = [&](const nlohmann::json& v,
+                                                                                 const std::string& key) {
+            if (v.is_string()) {
+                const std::string& text = v.get_ref<const std::string&>();
+                if (text.rfind("http", 0) == 0) return;
+                if (title.empty() && (key.find("subject") != std::string::npos || key.find("title") != std::string::npos))
+                    title = text;
+                if (text.size() > longest.size()) longest = text;
+            } else if (v.is_binary()) {
+                const auto& bin = v.get_binary();
+                if (jpeg.empty() && bin.size() > 2 && bin[0] == 0xFF && bin[1] == 0xD8) jpeg.assign(bin.begin(), bin.end());
+            } else if (v.is_object()) {
+                for (auto it = v.begin(); it != v.end(); ++it) walk(it.value(), key + "/" + it.key());
+            } else if (v.is_array()) {
+                for (const auto& e : v) walk(e, key);
+            }
+        };
+        walk(j, "");
+        a.subject = title;
+        if (longest != title) a.body = longest;
+        if (a.image.empty()) a.image = std::move(jpeg);
+        std::string keys;
+        for (auto it = j.begin(); it != j.end() && keys.size() < 160; ++it) keys += it.key() + " ";
+        DebugLog::log("[news] other layout, keys: %s", keys.c_str());
+    }
     return !a.subject.empty() || !a.body.empty();
 }
 

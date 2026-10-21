@@ -1408,24 +1408,30 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
 
     // Now playing: HOME's music, bottom left, while it plays.
     const bool playing = m_audio.isPlaying() && !m_audio.isPaused() && m_audio.trackCount() > 0;
-    const bool showMusic = playing && !launching && !panelUp && !m_editMode
+    const bool onTrack = m_config.musicEnabled && m_audio.trackCount() > 0; // playing or paused
+    const bool showMusic = onTrack && !launching && !panelUp && !m_editMode
         && m_navigator.route() == switchu::navigation::Route::Home
         && !(m_quickSettings && m_quickSettings->isActive());
-    if (playing && m_audio.currentIndex() != m_nowPlayingIndex) {
+    const bool newTrack = onTrack && m_audio.currentIndex() != m_nowPlayingIndex;
+    if (onTrack && (newTrack || playing != m_nowPlayingWasPlaying)) {
         m_nowPlayingIndex = m_audio.currentIndex();
+        m_nowPlayingWasPlaying = playing;
         const auto& tracks = m_audio.tracks();
         if (m_nowPlayingIndex >= 0 && m_nowPlayingIndex < (int)tracks.size()) {
             const MusicTrackInfo& t = tracks[(size_t)m_nowPlayingIndex];
             const std::string title = t.title.empty() ? t.displayTitle() : t.title;
-            m_nowPlaying->setContent(title, t.artist.empty() ? nxui::I18n::instance().tr("music.now_playing", "Now playing")
-                                                             : t.artist);
+            std::string line = t.artist.empty() ? nxui::I18n::instance().tr("music.now_playing", "Now playing") : t.artist;
+            if (!playing) line = nxui::I18n::instance().tr("music.paused", "Paused");
+            m_nowPlaying->setContent(title, line);
             m_nowPlaying->setFallback(nxui::Color(0.95f, 0.36f, 0.45f, 1.f),
                                       std::string(1, (char)std::toupper((unsigned char)(title.empty() ? '?' : title[0]))));
-            m_nowPlayingCover = nxui::Texture{};
-            const std::vector<uint8_t>& art = m_audio.currentCoverArt();
-            if (!art.empty())
-                m_nowPlayingCover.loadFromMemory(app().gpu(), app().renderer(), art.data(), art.size(), 96);
-            m_nowPlaying->setPicture(m_nowPlayingCover.valid() ? &m_nowPlayingCover : nullptr, false);
+            if (newTrack) { // the cover only when the track changes (it's decoded here)
+                m_nowPlayingCover = nxui::Texture{};
+                const std::vector<uint8_t>& art = m_audio.currentCoverArt();
+                if (!art.empty())
+                    m_nowPlayingCover.loadFromMemory(app().gpu(), app().renderer(), art.data(), art.size(), 96);
+                m_nowPlaying->setPicture(m_nowPlayingCover.valid() ? &m_nowPlayingCover : nullptr, false);
+            }
         }
     }
     const float duration = m_audio.durationSeconds();

@@ -973,7 +973,29 @@ void DiscordService::saveListsForOverlay() {
     first = true;
     for (const Server& sv : servers()) {
         out += std::string(first ? "" : ",") + "{\"id\":" + Str::Json(Str::Id(sv.id)) + ",\"name\":"
-               + Str::Json(sv.name) + ",\"icon\":" + Str::Json(sv.iconUrl) + "}";
+               + Str::Json(sv.name) + ",\"icon\":" + Str::Json(sv.iconUrl);
+        // What we may do there before a channel's own rules (the overlay hides
+        // channels we can't see): base permissions, and our roles.
+        const Guild* g = m_store->FindGuild(sv.id);
+        if (g && (g->myRolesKnown || g->ownerId == m_store->me.id)) {
+            uint64_t base = 0;
+            if (g->ownerId == m_store->me.id) {
+                base = Perm::ALL;
+            } else {
+                auto everyone = g->roles.find(g->id);
+                if (everyone != g->roles.end()) base = everyone->second.permissions;
+                for (Snowflake rid : g->myRoles) {
+                    auto r = g->roles.find(rid);
+                    if (r != g->roles.end()) base |= r->second.permissions;
+                }
+                if (base & Perm::ADMINISTRATOR) base = Perm::ALL;
+            }
+            out += ",\"permissions\":\"" + std::to_string(base) + "\",\"roles\":[";
+            for (size_t k = 0; k < g->myRoles.size(); ++k)
+                out += (k ? "," : "") + Str::Json(Str::Id(g->myRoles[k]));
+            out += "]";
+        }
+        out += "}";
         first = false;
     }
     out += "]}\n";

@@ -129,9 +129,12 @@ private:
     // HomeNX's own Mii Maker: one Mii's looks, feature by feature.
     void startEdit(int index);
     void endEdit();
-    void editChange(int delta);
+    void editMove(int dx, int dy);
+    void editOpenPage(bool open);
+    void editTab(int delta);
+    void editSet(int feature, int value);
     void editRandom(bool wholePage);
-    void editPage(int delta);
+    void saveEdit();
     void drawEditPreview(nxui::Renderer& ren, const nxui::Rect& r, float a);
     void updateEditFace();
     void drawMiiEditor(nxui::Renderer& ren, const nxui::Rect& r, float a);
@@ -239,6 +242,10 @@ private:
     int m_editIndex = -1;              // its place in the list
     int m_editRow = 0;                 // the feature chosen
     int m_editCat = 0;                 // its page (Face, Hair, ...)
+    int m_editTab = 0;                 // the page's tab (Type, Colour, Adjust)
+    bool m_editInPage = false;         // in the tab (else choosing a page)
+    bool m_editAsk = false;            // "Save the changes?"
+    float m_editGridScroll = 0.f;
     std::uint64_t m_editChangedAt = 0; // the face is asked for once changes settle
     std::shared_ptr<FaceJob> m_editFaceJob;
     std::string m_editFaceUrl;         // the face asked for last
