@@ -1326,10 +1326,16 @@ void SocialScreen::onUpdate(float dt) {
         while (budget > 0 && !m_facePngs.empty()) {
             auto it = m_facePngs.begin();
             auto tex = std::make_unique<nxui::Texture>();
-            if (tex->loadFromMemory(*m_gpu, *m_ren, it->second.data(), it->second.size(), 256))
+            // 192 px: sharp at the sizes it's drawn, and ~40% of 256 px's GPU memory.
+            if (tex->loadFromMemory(*m_gpu, *m_ren, it->second.data(), it->second.size(), 192)) {
                 m_faces[it->first] = std::move(tex);
-            else
-                DebugLog::log("[mii] face didn't decode (%u bytes)", (unsigned)it->second.size());
+            } else {
+                // No room for it right now (or a bad picture): ask for it again
+                // in a few seconds instead of leaving that Mii blank for good.
+                DebugLog::log("[mii] face didn't load (%u bytes), trying again", (unsigned)it->second.size());
+                m_faceTried.erase(it->first);
+                m_faceRetryAt = armGetSystemTick() + armNsToTicks(3'000'000'000ULL);
+            }
             m_facePngs.erase(it);
             --budget;
         }

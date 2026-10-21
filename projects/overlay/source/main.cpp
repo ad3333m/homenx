@@ -105,7 +105,7 @@ constexpr s32 kRailW = 64, kPanelH = 52;
 // option: that memory comes from the system's own pool, and with 6 MB hid had
 // none left when HOME or a game started (fatal 2001-0132).
 constexpr std::size_t kPictureBudget = 350u * 1024u;
-constexpr std::size_t kPictureBody = 384u * 1024u, kApiBody = 768u * 1024u;
+constexpr std::size_t kPictureBody = 384u * 1024u, kApiBody = 512u * 1024u; // lists arrive thinned now
 constexpr int kGifFrames = 4, kGifPixels = 50000;
 constexpr int kMediaW = 220, kMediaH = 140; // pictures in a chat
 constexpr const char* kHeapPath = "sdmc:/config/nx-ovlloader/heap_size.bin";
@@ -2600,7 +2600,16 @@ private:
             m_gifReq.reset();
         }
         if (m_chat && g_chatChanged.exchange(false)) m_lastPoll = 0; // the gateway says it changed
-        if (m_chat && !m_msgReq && armTicksToNs(armGetSystemTick() - m_lastPoll) > 4'000'000'000ULL)
+        // The gateway says when the chat changes (then at once); polling is the
+        // fallback: often without it, rarely with it (each poll is a page of
+        // messages to hold in a small heap).
+        bool live = false;
+        {
+            std::lock_guard<std::mutex> lk(g_chatMu);
+            live = g_gatewayState.empty();
+        }
+        const u64 every = live ? 20'000'000'000ULL : 4'000'000'000ULL;
+        if (m_chat && !m_msgReq && armTicksToNs(armGetSystemTick() - m_lastPoll) > every)
             pollMessages();
         if (g_presenceVersion != m_presenceSeen) {
             std::lock_guard<std::mutex> lk(g_presenceMu);
@@ -3157,7 +3166,7 @@ private:
 
     void pollMessages() {
         m_lastPoll = armGetSystemTick();
-        m_msgReq = g_net.api("GET", "/channels/" + m_chatId + "/messages?limit=30");
+        m_msgReq = g_net.api("GET", "/channels/" + m_chatId + "/messages?limit=20");
         m_msgFor = m_chatId;
     }
 

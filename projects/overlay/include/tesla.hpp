@@ -827,7 +827,7 @@ namespace tsl {
                     if (it == s_glyphCache.end()) {
                         // HomeNX: a bounded cache (an overlay has little memory; every
                         // glyph of every size used to stay forever).
-                        if (s_glyphCache.size() >= 600) {
+                        if (s_glyphCache.size() >= 400) { // HomeNX: 600 was ~100 KB more of a 4 MB overlay
                             for (auto& entry : s_glyphCache) stbtt_FreeBitmap(entry.second.glyphBmp, nullptr);
                             s_glyphCache.clear();
                         }
@@ -3410,6 +3410,7 @@ namespace tsl {
         struct SharedThreadData {
             bool running = false;
             std::atomic<u64> comboQuietUntil{0}; // HomeNX: combos ignored until this tick
+            std::atomic<u64> showPendingUntil{0}; // HomeNX: a show asked for while it wasn't allowed yet
 
             Event comboEvent = { 0 };
 
@@ -3530,6 +3531,14 @@ namespace tsl {
                             eventFire(&shData->comboEvent);
                     }
 
+                    if (const u64 pending = shData->showPendingUntil.load(); pending && !shData->overlayOpen) {
+                        if (armGetSystemTick() > pending) shData->showPendingUntil = 0;
+                        else if (!tsl::cfg::showAllowed || tsl::cfg::showAllowed()) {
+                            shData->showPendingUntil = 0;
+                            eventFire(&shData->comboEvent);
+                        }
+                    }
+
                     auto comboHit = [&](u64 combo) {
                         return combo != 0 && (shData->keysHeld & combo) == combo && (shData->keysDown & combo) != 0;
                     };
@@ -3555,6 +3564,8 @@ namespace tsl {
                         }
                         else if (!tsl::cfg::showAllowed || tsl::cfg::showAllowed())
                             eventFire(&shData->comboEvent);
+                        else // HomeNX: not yet (HOME still closing): as soon as it may, for 4 s
+                            shData->showPendingUntil = armGetSystemTick() + armNsToTicks(4'000'000'000ULL);
                     }
 
                     shData->keysDownPending |= shData->keysDown;
@@ -3652,9 +3663,12 @@ namespace tsl {
 
         // Argument parsing
         for (u8 arg = 0; arg < argc; arg++) {
-            if (strcasecmp(argv[arg], "--skipCombo") == 0 && (!tsl::cfg::showAllowed || tsl::cfg::showAllowed())) {
+            if (strcasecmp(argv[arg], "--skipCombo") != 0) continue;
+            if (!tsl::cfg::showAllowed || tsl::cfg::showAllowed()) {
                 eventFire(&shData.comboEvent);
                 overlay->disableNextAnimation();
+            } else { // HomeNX: launched while HOME is still closing: show once it has
+                shData.showPendingUntil = armGetSystemTick() + armNsToTicks(5'000'000'000ULL);
             }
         }
 

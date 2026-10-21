@@ -21,17 +21,32 @@ constexpr u64 kMaxArticleBytes = 8u * 1024u * 1024u;
 
 Result getList(NewsDatabaseService& db, NewsRecord* records, u32& count) {
     // The SQL phrases aren't documented; try forms that are valid either way
-    // and sort by published_at ourselves.
+    // and sort by received_at ourselves. One can succeed with nothing while
+    // another finds every article (the first success used to be taken, and
+    // News said there was none): keep the form that finds the most.
     static const char* const attempts[][2] = {
-        {"", "received_at DESC"}, {"", ""}, {"1=1", "received_at DESC"}, {"1=1", ""},
+        {"", "received_at DESC"}, {"", ""}, {"1=1", "received_at DESC"}, {"1=1", ""}, {"1", ""},
     };
-    Result rc = 0;
-    for (const auto& a : attempts) {
-        count = 0;
-        rc = newsDatabaseGetList(&db, records, kMaxRecords, a[0], a[1], &count, 0);
-        DebugLog::log("[news] GetList where='%s' order='%s' rc=0x%X count=%u", a[0], a[1], rc, count);
-        if (R_SUCCEEDED(rc)) return rc;
+    Result rc = 0, firstRc = 0;
+    int best = -1;
+    u32 bestCount = 0;
+    for (int i = 0; i < (int)(sizeof(attempts) / sizeof(attempts[0])); ++i) {
+        u32 n = 0;
+        rc = newsDatabaseGetList(&db, records, kMaxRecords, attempts[i][0], attempts[i][1], &n, 0);
+        DebugLog::log("[news] GetList where='%s' order='%s' rc=0x%X count=%u", attempts[i][0], attempts[i][1], rc, n);
+        if (i == 0) firstRc = rc;
+        if (R_SUCCEEDED(rc) && (best < 0 || n > bestCount)) {
+            best = i;
+            bestCount = n;
+        }
     }
+    count = 0;
+    if (best < 0) return firstRc;
+    if (best == (int)(sizeof(attempts) / sizeof(attempts[0])) - 1 && R_SUCCEEDED(rc)) { // already in `records`
+        count = bestCount;
+        return 0;
+    }
+    rc = newsDatabaseGetList(&db, records, kMaxRecords, attempts[best][0], attempts[best][1], &count, 0);
     return rc;
 }
 
