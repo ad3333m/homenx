@@ -838,10 +838,17 @@ bool AppletLauncher::rebootToHekate() {
     const size_t got = std::fread(payload, 1, sizeof(payload), f);
     std::fclose(f);
     if (got == 0) return false;
-    Result rc = amsBpcInitialize();
+    // Atmosphère's own port (not in libnx): command 65001 takes the payload.
+    Handle port = 0;
+    Result rc = svcConnectToNamedPort(&port, "bpc:ams");
     if (R_SUCCEEDED(rc)) {
-        rc = amsBpcSetRebootPayload(payload, sizeof(payload));
-        amsBpcExit();
+        Service bpcAms;
+        serviceCreate(&bpcAms, port);
+        rc = serviceDispatch(&bpcAms, 65001,
+            .buffer_attrs = { SfBufferAttr_In | SfBufferAttr_HipcMapAlias },
+            .buffers = { { payload, sizeof(payload) } },
+        );
+        serviceClose(&bpcAms);
     }
     DebugLog::log("[launcher] hekate payload %s (%u bytes) rc=0x%X", path.c_str(), (unsigned)got, rc);
     if (R_FAILED(rc)) return false;
