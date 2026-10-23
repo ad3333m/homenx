@@ -94,6 +94,7 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         {kButtonStorage, "sidebar.storage", "Storage", actions.onStorage},
         {kButtonMiiMaker, "sidebar.mii_maker", "Mii Maker", actions.onMiiMaker},
         {kButtonToggle, "sidebar.toggle", "HomeNX Toggle", actions.onToggle},
+        {kButtonHekate, "sidebar.hekate", "hekate", actions.onHekate},
     };
     m_byId.fill(nullptr);
     for (int slot = 0; slot < kSlotCount; ++slot) {
@@ -277,7 +278,7 @@ void SidebarManager::loadAssets(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     static const char* iconFiles[] = {
         "sphaira.png", "discord.png", "controller.png", "power.png", "themes.png", "settings.png",
         "eshop.png", "news.png", nullptr /* custom: setCustomButton */, "friends.png",
-        "nextendo.png", "music_player.png", "storage.png", "mii_editor.png", "toggle.png",
+        "nextendo.png", "music_player.png", "storage.png", "mii_editor.png", "toggle.png", "hekate.png",
     };
     if ((int)m_icons.size() != kSidebarIconCount)
         m_icons.resize(kSidebarIconCount);

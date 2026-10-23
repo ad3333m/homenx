@@ -20,6 +20,9 @@ public:
     void setSecondaryTextColor(const nxui::Color& c) { m_secondaryColor = c; }
     void setClockService(switchu::services::ClockService* service) { m_clockService = service; }
     void setUse12HourClock(bool enabled);
+    // HomeNX: makes the clock's letters now, while HOME's GPU memory is still
+    // free (after a game it fills up and the clock's letters couldn't be made).
+    void warmGlyphs(nxui::Renderer& ren);
 
 protected:
     void onContentUpdate(float dt) override;
@@ -46,4 +49,6 @@ private:
     Glyphs m_bigGlyphs, m_smallGlyphs;
     float drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& glyphs, const std::string& text, float x, float y,
                      const nxui::Color& color, float scale, bool draw);
+    void refreshTime();
+    std::uint64_t m_lastMissLog = 0;
 };

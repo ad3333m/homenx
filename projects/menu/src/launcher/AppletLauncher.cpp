@@ -815,3 +815,43 @@ void AppletLauncher::terminateApplication()    {}
 void AppletLauncher::checkRunningApplication() {}
 
 #endif
+
+// HomeNX: restarting into hekate. Atmosphère boots a payload it's handed
+// (bpc:ams) instead of the system on the next restart: hekate's own copy in
+// bootloader/, else Atmosphère's reboot payload (usually hekate too).
+std::string AppletLauncher::hekatePayload() {
+    for (const char* path : {"sdmc:/bootloader/update.bin", "sdmc:/atmosphere/reboot_payload.bin"}) {
+        struct stat st{};
+        if (stat(path, &st) == 0 && st.st_size > 0 && st.st_size <= 0x24000) return path;
+    }
+    return {};
+}
+
+bool AppletLauncher::rebootToHekate() {
+    static constexpr size_t kPayloadMax = 0x24000; // what fits in IRAM
+    alignas(0x1000) static u8 payload[kPayloadMax];
+    const std::string path = hekatePayload();
+    if (path.empty()) return false;
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::memset(payload, 0, sizeof(payload));
+    const size_t got = std::fread(payload, 1, sizeof(payload), f);
+    std::fclose(f);
+    if (got == 0) return false;
+    Result rc = amsBpcInitialize();
+    if (R_SUCCEEDED(rc)) {
+        rc = amsBpcSetRebootPayload(payload, sizeof(payload));
+        amsBpcExit();
+    }
+    DebugLog::log("[launcher] hekate payload %s (%u bytes) rc=0x%X", path.c_str(), (unsigned)got, rc);
+    if (R_FAILED(rc)) return false;
+#ifdef SWITCHU_MENU
+    reboot();
+#else
+    if (R_SUCCEEDED(spsmInitialize())) {
+        spsmShutdown(true);
+        spsmExit();
+    }
+#endif
+    return true;
+}

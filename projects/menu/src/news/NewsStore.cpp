@@ -145,7 +145,9 @@ bool parseArticle(const std::vector<u8>& bytes, NewsArticle& a) {
 
 } // namespace
 
-std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles) {
+std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles, NewsLoadStats* stats) {
+    NewsLoadStats local;
+    NewsLoadStats& st = stats ? *stats : local;
     std::vector<NewsArticle> articles;
     rc = newsInitialize(NewsServiceType_Administrator);
     if (R_FAILED(rc)) {
@@ -160,6 +162,7 @@ std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles) {
         rc = getList(db, records, count);
         newsDatabaseClose(&db);
         count = std::min(count, kMaxRecords);
+        st.records = count;
         std::sort(records, records + count, [](const NewsRecord& a, const NewsRecord& b) {
             return a.received_at > b.received_at;
         });
@@ -167,7 +170,14 @@ std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles) {
             std::vector<u8> bytes;
             Result r = readArticle(records[i], bytes);
             NewsArticle a;
-            if (R_SUCCEEDED(r) && parseArticle(bytes, a)) {
+            if (R_FAILED(r)) {
+                ++st.readFails;
+                st.lastReadRc = r;
+            } else if (!parseArticle(bytes, a)) {
+                ++st.parseFails;
+                r = MAKERESULT(Module_Libnx, LibnxError_BadInput); // logged below
+            }
+            if (R_SUCCEEDED(r)) {
                 a.id.assign(records[i].news_id,
                             std::find(records[i].news_id, records[i].news_id + sizeof(records[i].news_id), '\0'));
                 a.read = records[i].read != 0;

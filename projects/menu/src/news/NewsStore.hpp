@@ -19,8 +19,16 @@ struct NewsArticle {
     std::vector<std::uint8_t> image; // JPEG: body main image, else the list image
 };
 
+// What loading found, for News to show when it comes up empty.
+struct NewsLoadStats {
+    unsigned records = 0;   // in the console's news list
+    unsigned readFails = 0; // records whose article couldn't be read
+    unsigned parseFails = 0; // articles read but not understood
+    Result lastReadRc = 0;
+};
+
 // Newest first (oldest last). On failure returns empty and sets rc.
-std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles = 40);
+std::vector<NewsArticle> loadNewsArticles(Result& rc, int maxArticles = 40, NewsLoadStats* stats = nullptr);
 
 // Asks the console to download news now, on its own thread. The real HOME menu
 // does this; without it the articles saved on the console stay the old ones.

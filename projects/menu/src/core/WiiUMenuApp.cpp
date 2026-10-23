@@ -1510,6 +1510,35 @@ void WiiUMenuApp::openToggle() {
 #endif
 }
 
+// HomeNX: hekate, from the power menu or its sidebar button.
+void WiiUMenuApp::confirmRebootToHekate() {
+    if (!m_dialog) return;
+    auto& i18n = nxui::I18n::instance();
+    m_audio.playSfx(Sfx::ModalShow);
+    m_dialogReturnFocus = focusManager().current();
+    m_dialog->show(i18n.tr("power.hekate", "Restart to hekate"),
+                   i18n.tr("power.hekate_confirm", "The console restarts into hekate. Anything open closes."),
+                   {{i18n.tr("power.hekate_go", "Restart"), [this]() { startRebootToHekate(); }, true},
+                    {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
+                   0, {});
+    focusManager().setFocus(m_dialog.get());
+}
+
+void WiiUMenuApp::startRebootToHekate() {
+    m_audio.playSfx(Sfx::ConfirmPositive);
+    if (m_launcher.rebootToHekate()) return;
+    if (!m_dialog) return;
+    auto& i18n = nxui::I18n::instance();
+    const bool missing = AppletLauncher::hekatePayload().empty();
+    m_dialog->show(i18n.tr("power.hekate", "Restart to hekate"),
+                   missing ? i18n.tr("power.hekate_missing",
+                                     "hekate isn't on the SD card: HomeNX looks for sdmc:/bootloader/update.bin "
+                                     "and sdmc:/atmosphere/reboot_payload.bin.")
+                           : i18n.tr("power.hekate_failed", "Atmosphère didn't take the hekate payload."),
+                   {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+    focusManager().setFocus(m_dialog.get());
+}
+
 void WiiUMenuApp::openHomeNXSettings() {
     if (!m_settings) return;
     m_audio.playSfx(Sfx::ModalShow);
@@ -4546,6 +4575,7 @@ void WiiUMenuApp::buildGrid() {
     m_clock->setFont(&m_fontNormal);
     m_clock->setSmallFont(&m_fontSmall);
     m_clock->setClockService(&m_clockService);
+    m_clock->warmGlyphs(app().renderer());
     m_clock->setUse12HourClock(m_config.clockUse12Hour);
     m_clock->setCornerRadius(m_theme.cellCornerRadius);
     m_clock->setForceLiquidGlass(true);
@@ -4812,6 +4842,7 @@ void WiiUMenuApp::buildGrid() {
     };
     sidebarActions.onMiiMaker = [this]() { openMiis(); };
     sidebarActions.onToggle = [this]() { openToggle(); };
+    sidebarActions.onHekate = [this]() { confirmRebootToHekate(); };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
     sidebarActions.onControllers = [this]() {
@@ -4885,7 +4916,8 @@ void WiiUMenuApp::buildGrid() {
                     m_audio.playSfx(Sfx::ConfirmPositive);
                     app().requestExit();
 #endif
-                }, true}
+                }, true},
+                {i18n.tr("power.hekate", "Restart to hekate"), [this]() { startRebootToHekate(); }, true}
             },
             0,
             {}

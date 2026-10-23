@@ -1408,7 +1408,9 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
 
     // Now playing: HOME's music, bottom left, while it plays.
     const bool playing = m_audio.isPlaying() && !m_audio.isPaused() && m_audio.trackCount() > 0;
-    const bool onTrack = m_config.musicEnabled && m_audio.trackCount() > 0; // playing or paused
+    // Playing or paused; once the music has loaded (it loads on a worker, and
+    // reading the track list meanwhile raced with it).
+    const bool onTrack = m_audioStarted && m_config.musicEnabled && m_audio.trackCount() > 0;
     const bool showMusic = onTrack && !launching && !panelUp && !m_editMode
         && m_navigator.route() == switchu::navigation::Route::Home
         && !(m_quickSettings && m_quickSettings->isActive());

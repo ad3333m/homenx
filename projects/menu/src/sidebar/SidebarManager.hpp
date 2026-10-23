@@ -25,7 +25,8 @@ public:
         kButtonStorage = 12,  // HomeNX: Settings > Storage (data management)
         kButtonMiiMaker = 13, // HomeNX: Social > Miis, HomeNX's own Mii Maker
         kButtonToggle = 14,   // HomeNX: opens HomeNX Toggle (updates, turning HomeNX off)
-        kButtonCount = 15,
+        kButtonHekate = 15,   // HomeNX: restarts into hekate
+        kButtonCount = 16,
         kSlotCount = 10,
     };
     using Order = std::array<int, kSlotCount>; // left column top-down, then right
@@ -50,6 +51,7 @@ public:
         std::function<void()> onStorage;
         std::function<void()> onMiiMaker;
         std::function<void()> onToggle;
+        std::function<void()> onHekate;
     };
 
     void build(nxui::GpuDevice& gpu, nxui::Renderer& ren,

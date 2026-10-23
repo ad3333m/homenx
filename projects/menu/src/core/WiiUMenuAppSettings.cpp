@@ -464,7 +464,7 @@ void WiiUMenuApp::createSettings() {
             i18n.tr("sidebar.eshop", "Nintendo eShop"), i18n.tr("sidebar.news", "News"),
             i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.social", "Social"),
             "Nextendo", i18n.tr("sidebar.music", "Music"), i18n.tr("sidebar.storage", "Storage"),
-            i18n.tr("sidebar.mii_maker", "Mii Maker"), i18n.tr("sidebar.toggle", "HomeNX Toggle"),
+            i18n.tr("sidebar.mii_maker", "Mii Maker"), i18n.tr("sidebar.toggle", "HomeNX Toggle"), "hekate",
         });
     }
     m_settings->onSidebarOrderChange([this](std::vector<int> order) {
@@ -863,7 +863,7 @@ void WiiUMenuApp::showDiagnostics() {
     for (int i = 0; i < WorkPartCount; ++i)
         body += std::string(i ? ", " : " ") + kWork[i] + " "
                 + std::to_string(std::max(m_workWorst[i], m_workWorstBefore[i]) / 1000);
-    for (const char* tag : {"[mii]", "[news]", "[press]", "[text-cache] maintenance done"})
+    for (const char* tag : {"[clock]", "[mii]", "[news]", "[press]", "[text-cache] maintenance done"})
         for (const std::string& line : logTail("sdmc:/config/SwitchU/menu.log", tag, 2)) body += "\n" + line;
     const auto overlay = logTail("sdmc:/config/SwitchU/discord_overlay.log", "", 5);
     body += "\nOverlay:" + std::string(overlay.empty() ? " no log yet (open it with L+ZL in a game)" : "");
@@ -1503,7 +1503,8 @@ void WiiUMenuApp::openNews() {
     if (!m_newsLoaded) {
         m_newsLoadedAt = armGetSystemTick();
         Result rc = 0;
-        std::vector<NewsArticle> raw = loadNewsArticles(rc);
+        NewsLoadStats stats;
+        std::vector<NewsArticle> raw = loadNewsArticles(rc, 40, &stats);
         const std::set<std::string> newsRead = readNewsReadList();
         m_newsEntries.clear();
         app().gpu().waitIdle();
@@ -1553,6 +1554,11 @@ void WiiUMenuApp::openNews() {
         m_newsEmpty = R_FAILED(rc)
             ? i18n.tr("news.unavailable", "The console's news couldn't be read") + fmt::format(" (0x{:X}).", rc)
             : i18n.tr("news.empty", "There's no news saved on this console yet.");
+        if (raw.empty() && R_SUCCEEDED(rc)) // where it came up empty, to photograph
+            m_newsEmpty += fmt::format("\n\n({} in the list, {} couldn't be read{}, {} not understood)", stats.records,
+                                       stats.readFails,
+                                       stats.readFails ? fmt::format(" 0x{:X}", stats.lastReadRc) : std::string(),
+                                       stats.parseFails);
         m_newsLoaded = R_SUCCEEDED(rc);
     }
     const auto& left = m_sidebar.leftButtons();

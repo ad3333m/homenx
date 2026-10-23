@@ -1,4 +1,7 @@
 #include "DateTimeWidget.hpp"
+#include "core/DebugLog.hpp"
+#include <nxui/core/GpuDevice.hpp>
+#include <switch.h>
 #include "services/ClockService.hpp"
 #include <nxui/core/Renderer.hpp>
 #include <cstdio>
@@ -16,7 +19,10 @@ void DateTimeWidget::onContentUpdate(float dt) {
     m_timer += dt;
     if (m_timer < 1.f && !m_timeStr.empty()) return;
     m_timer = 0.f;
+    refreshTime();
+}
 
+void DateTimeWidget::refreshTime() {
     if (!m_clockService)
         return;
     const auto snapshot = m_clockService->refresh();
@@ -44,8 +50,17 @@ void DateTimeWidget::onContentUpdate(float dt) {
     m_dateStr = buf;
 }
 
+void DateTimeWidget::warmGlyphs(nxui::Renderer& ren) {
+    if (!m_font) return;
+    nxui::Font* sf = m_smallFont ? m_smallFont : m_font;
+    const nxui::Color none{1.f, 1.f, 1.f, 0.f};
+    drawGlyphs(ren, m_font, m_bigGlyphs, "0123456789:APM", -1000.f, -1000.f, none, 1.f, true);
+    drawGlyphs(ren, sf, m_smallGlyphs, "0123456789/", -1000.f, -1000.f, none, 0.7f, true);
+}
+
 void DateTimeWidget::onContentRender(nxui::Renderer& ren) {
     if (!m_font) return;
+    if (m_timeStr.empty()) refreshTime(); // not waiting for the next update
 
     nxui::Rect cr = contentRect();
     nxui::Font* sf = m_smallFont ? m_smallFont : m_font;
@@ -82,8 +97,21 @@ float DateTimeWidget::drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& 
                 tex = std::make_unique<nxui::Texture>();
                 if (!font->renderTo(ren, one, *tex)) tex.reset(); // no room now: next frame
             }
-            if (tex) ren.drawTexture(tex.get(), {x, y, tex->width() * scale, tex->height() * scale}, color);
-            else font->draw(ren, one, {x, y}, color, scale); // no room for our own yet: the shared cache's
+            if (tex) {
+                ren.drawTexture(tex.get(), {x, y, tex->width() * scale, tex->height() * scale}, color);
+            } else if (!font->draw(ren, one, {x, y}, color, scale)) { // no room for our own yet: the shared cache's
+                const std::uint64_t now = armGetSystemTick();
+                if (now - m_lastMissLog > armNsToTicks(10'000'000'000ULL)) { // why the clock is blank, in menu.log
+                    m_lastMissLog = now;
+                    u64 total = 0, used = 0;
+                    svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+                    svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+                    DebugLog::log("[clock] can't draw '%c': gpu %lluK of %lluK, process free %lluK", c,
+                                  (unsigned long long)(ren.gpu().imageMemoryUsed() >> 10),
+                                  (unsigned long long)(ren.gpu().imageMemoryBudget() >> 10),
+                                  (unsigned long long)((total - used) >> 10));
+                }
+            }
         }
         x += advance;
     }

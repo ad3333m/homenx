@@ -334,12 +334,30 @@ def toggle_button():
     return im
 
 
+def hekate_button():
+    # charcoal tile, a teal restart arrow round a bold "h" (the sidebar's hekate button)
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(24, 26, 32))
+    top = canvas()
+    ImageDraw.Draw(top).rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(40, 44, 54))
+    half = top.crop((0, 0, N, p(256)))
+    im.paste(half, (0, 0), half)
+    teal = (0, 200, 190)
+    d.arc([p(126), p(126), p(386), p(386)], start=-50, end=250, fill=teal, width=p(26))
+    ax, ay = p(354), p(150)  # arrow head at the open end of the arc
+    d.polygon([(ax - p(46), ay - p(4)), (ax + p(30), ay - p(22)), (ax + p(8), ay + p(54))], fill=teal)
+    f = ImageFont.truetype(BOLD, p(150))
+    d.text((p(256), p(262)), "h", font=f, fill="white", anchor="mm")
+    return im
+
+
 if __name__ == "__main__":
     save(sphaira(), "romfs/icons/sphaira.png", 512)  # sharp at the launch card's size too
     save(nextendo(), "romfs/icons/nextendo.png")
     save(music_player(), "romfs/icons/music_player.png")
     save(storage(), "romfs/icons/storage.png")
     save(toggle_button(), "romfs/icons/toggle.png")
+    save(hekate_button(), "romfs/icons/hekate.png")
     for name, fn in [("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()
