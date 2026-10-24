@@ -1471,6 +1471,16 @@ struct Notice {
 constexpr u64 kNoticeMs = 6000;
 std::mutex g_noticeMu;
 Notice g_notice;                    // the latest
+// What happened to the last message that could have been a notification, for
+// the DM list ("why didn't it pop up?"), and when (under g_noticeMu).
+std::string g_lastAlert;
+u64 g_lastAlertAt = 0;
+
+void noteAlert(const std::string& what) {
+    std::lock_guard<std::mutex> lk(g_noticeMu);
+    g_lastAlert = what;
+    g_lastAlertAt = nowMs();
+}
 std::atomic<u64> g_noticeAt{0};     // when it came; 0 = nothing to show
 Notice g_openNotice;                // ZL was pressed on this one: the screen opens it
 bool g_openPending = false;
@@ -2111,9 +2121,12 @@ private:
             }
         }
         if (me.empty() || authorId.empty() || authorId == me || m_myStatus == "dnd") {
-            if (guild.empty())
-                logLine("notify: skipped a DM (%s)", me.empty() ? "our id unknown" : authorId == me ? "ours"
-                                                     : m_myStatus == "dnd" ? "Do Not Disturb" : "no author");
+            if (guild.empty()) {
+                const char* why = me.empty() ? "our id unknown" : authorId == me ? "ours"
+                                : m_myStatus == "dnd" ? "Do Not Disturb" : "no author";
+                logLine("notify: skipped a DM (%s)", why);
+                if (authorId != me) noteAlert(std::string("A DM didn't pop up: ") + why);
+            }
             return;
         }
         bool forMe = guild.empty();
@@ -2137,6 +2150,8 @@ private:
                         : yyjson_arr_size(yyjson_obj_get(d, "sticker_items")) ? "sent a sticker"
                                                                               : "sent a message";
         notice.at = nowMs();
+        noteAlert((guild.empty() ? "DM from " : "Mention from ") + notice.author
+                  + (awayFromHome() ? " - waiting to show" : " - HOME was open (it shows its own)"));
         std::lock_guard<std::mutex> lk(g_noticeMu);
         g_notice = std::move(notice);
         g_noticeAt = g_notice.at;
@@ -3694,7 +3709,23 @@ private:
 
         std::vector<Row>& rows = list();
         const std::string& error = m_shownServer == 0 ? m_dmsError : m_channelsError;
-        const s32 y0 = 52, h = kH - kPanelH - y0;
+        s32 y0 = 52;
+        if (m_shownServer == 0) {
+            std::string alert;
+            u64 at = 0;
+            {
+                std::lock_guard<std::mutex> lk(g_noticeMu);
+                alert = g_lastAlert;
+                at = g_lastAlertAt;
+            }
+            if (!alert.empty()) {
+                const u64 mins = (nowMs() - at) / 60000;
+                alert += mins == 0 ? std::string(" (just now)") : " (" + std::to_string(mins) + " min ago)";
+                r->drawString(fit(r, alert, 11, lw - 28).c_str(), false, lx + 14, 66, 11, r->a(kMuted));
+                y0 = 72;
+            }
+        }
+        const s32 h = kH - kPanelH - y0;
         if (rows.size() <= (m_shownServer == 0 ? 1u : 0u)) {
             drawText(r, !loaded ? "Loading..." : error, lx + 14, y0 + 30, lw - 28, loaded ? kError : kMuted);
         } else {
@@ -4179,6 +4210,12 @@ public:
         if (g_noticeAt != logged) {
             logged = g_noticeAt;
             logLine("notify: drawn over the game");
+            std::string who;
+            {
+                std::lock_guard<std::mutex> lk(g_noticeMu);
+                who = g_notice.author;
+            }
+            noteAlert("Shown over the game: " + who);
         }
         if (g_gui) g_gui->drawNotice(renderer);
     }
