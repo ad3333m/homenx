@@ -5,6 +5,7 @@
 #include "friends/FriendStore.hpp"
 #include "core/BackgroundThread.hpp"
 #include "themeshop/ThemeHttp.hpp"
+#include "social/NotificationLog.hpp"
 #include <nlohmann/json.hpp>
 #include <nxui/core/ThreadPool.hpp>
 #include <mutex>
@@ -1116,6 +1117,11 @@ void WiiUMenuApp::wireFocusCallback() {
                 m_titlePill->setVisible(true);
                 return;
             }
+            if (m_bell && m_bell.get() == cur) {
+                m_titlePill->setText(nxui::I18n::instance().tr("notifications.title", "Notifications"));
+                m_titlePill->setVisible(true);
+                return;
+            }
             m_titlePill->hideAnimated();
         } else {
             m_titlePill->hideAnimated();
@@ -1329,7 +1335,12 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
     }
 
     DiscordService::Alert alert;
-    if (m_discord.takeAlert(alert) && !panelUp && !launching) {
+    const bool gotAlert = m_discord.takeAlert(alert);
+    if (gotAlert) { // the notification centre keeps every one, shown or not
+        notifications::add("discord", alert.title, alert.text);
+        if (m_bell) m_bell->setUnread(m_bell->unread() + 1);
+    }
+    if (gotAlert && !panelUp && !launching) {
         ensureDiscordPanel(); // loads the sender's picture
         m_shownAlert = std::move(alert);
         const std::string title = m_discordPanel->clean(m_shownAlert.title);
@@ -1382,6 +1393,9 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
                 m_discordBanner->setContent(std::string(names[side]) + " " + i18n.tr("battery.low_title", "battery low"),
                                             i18n.tr("battery.player", "Player") + " " + std::to_string(player + 1) + " - "
                                                 + i18n.tr("battery.low_text", "charge it soon"));
+                notifications::add("battery", std::string(names[side]) + " " + i18n.tr("battery.low_title", "battery low"),
+                                   i18n.tr("battery.player", "Player") + " " + std::to_string(player + 1));
+                if (m_bell) m_bell->setUnread(m_bell->unread() + 1);
                 m_discordBanner->setPicture(pictures[side] && pictures[side]->valid() ? pictures[side] : nullptr, false);
                 m_discordBanner->setFallback(nxui::Color(0.93f, 0.26f, 0.27f, 1.f), "!");
                 m_discordBanner->setHintShown(false);
@@ -1454,6 +1468,7 @@ bool WiiUMenuApp::isCurrentFocusableWidget(nxui::Widget* w) const {
     for (const auto& btn : m_sidebar.rightButtons())
         if (btn.get() == w) return w->isFocusable();
     if (m_profileLock && m_profileLock.get() == w) return w->isFocusable();
+    if (m_bell && m_bell.get() == w) return w->isFocusable();
     if (m_grid)
         for (const auto& icon : m_grid->allIcons())
             if (icon.get() == w) return w->isFocusable();
@@ -2087,6 +2102,7 @@ void WiiUMenuApp::handleTouch() {
 
         m_touchArrowLeft = m_touchArrowRight = false;
         m_touchBattery = false;
+        m_touchBell = false;
         if (m_arrowAnimLeft.show > 0.5f && pageArrowRect(true).expanded(12.f).contains(tx, ty)) {
             m_touchArrowLeft = true;
             m_touchHitIndex = -1;
@@ -2103,6 +2119,11 @@ void WiiUMenuApp::handleTouch() {
         if (m_battery && m_battery->isVisible() && m_battery->hitTest(tx, ty)
             && m_topHud && m_topHud->isVisible()) {
             m_touchBattery = true;
+            m_touchHitIndex = -1;
+            return;
+        }
+        if (m_bell && m_bell->isVisible() && m_bell->hitTest(tx, ty) && m_topHud && m_topHud->isVisible()) {
+            m_touchBell = true;
             m_touchHitIndex = -1;
             return;
         }
@@ -2185,6 +2206,15 @@ void WiiUMenuApp::handleTouch() {
                 && m_battery && m_battery->isVisible()
                 && m_battery->hitTest(input.touchX(), input.touchY())) {
                 openQuickSettings();
+            }
+            return;
+        }
+        if (m_touchBell) {
+            m_touchBell = false;
+            if (std::abs(input.touchDeltaX()) < 20.f && std::abs(input.touchDeltaY()) < 20.f && m_bell
+                && m_bell->hitTest(input.touchX(), input.touchY())) {
+                focusManager().setFocus(m_bell.get());
+                m_bell->activate();
             }
             return;
         }

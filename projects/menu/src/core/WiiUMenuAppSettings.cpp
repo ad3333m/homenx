@@ -3287,6 +3287,8 @@ void WiiUMenuApp::applyTheme() {
         m_folderHeaderLabel->setTextColor(m_theme.textPrimary);
     if (m_profileLock)
         m_profileLock->setTheme(&m_theme);
+    if (m_bell)
+        m_bell->setTheme(&m_theme);
     if (m_profileCarousel)
         m_profileCarousel->setTheme(&m_theme);
     DebugLog::log("[theme-apply] widget recolor HUD done");

@@ -1884,6 +1884,21 @@ u64 epochMs() {
     return s * 1000ULL;
 }
 
+// HOME's notification centre lists these: what came while a game was on (HOME
+// adds its own while it's open). One line each: time, kind, title, text.
+void appendNotification(const char* kind, const std::string& title, const std::string& text) {
+    auto flat = [](std::string s) {
+        for (char& c : s)
+            if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+        return s.size() > 300 ? s.substr(0, 300) : s;
+    };
+    if (FILE* f = fopen("sdmc:/config/SwitchU/notifications.txt", "a")) {
+        fprintf(f, "%llu\t%s\t%s\t%s\n", (unsigned long long)(epochMs() / 1000), kind, flat(title).c_str(),
+                flat(text).c_str());
+        fclose(f);
+    }
+}
+
 // The gateway on its own thread: friends' presences, the open chat's news
 // (new messages, typing), and our own "Playing" status, which lasts while
 // this connection does.
@@ -2166,6 +2181,7 @@ private:
         notice.at = nowMs();
         noteAlert((guild.empty() ? "DM from " : "Mention from ") + notice.author
                   + (awayFromHome() ? " - waiting to show" : " - HOME was open (it shows its own)"));
+        if (awayFromHome()) appendNotification("discord", notice.author, notice.text);
         std::lock_guard<std::mutex> lk(g_noticeMu);
         g_notice = std::move(notice);
         g_noticeAt = g_notice.at;

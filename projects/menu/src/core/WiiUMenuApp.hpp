@@ -28,6 +28,7 @@
 #include "widgets/PageIndicator.hpp"
 #include "widgets/ProfileCarouselScreen.hpp"
 #include "widgets/ProfileLockButton.hpp"
+#include "widgets/NotificationBell.hpp"
 #include "widgets/FolderBackdrop.hpp"
 #include "widgets/SteamGridDbBackdrop.hpp"
 #include "widgets/FolderZoom.hpp"
@@ -389,6 +390,7 @@ private:
     PageArrowAnim m_arrowAnimLeft, m_arrowAnimRight;
     bool m_touchArrowLeft = false, m_touchArrowRight = false;
     bool m_touchBattery = false;
+    bool m_touchBell = false;
 
     nxui::Rect pageArrowRect(bool left);
     void kickPageArrow(int dir);
@@ -424,6 +426,7 @@ private:
     void openDiscordPanel();
     void ensureDiscordPanel();
     void applyDiscordFont();
+    void openNotifications();
     void persistMusicPlaybackState(bool updateEnabledFlag = false);
     void resumeMenuMusicAfterReturn();
     // Console sleep: the daemon announces the sleep before the system goes
@@ -587,6 +590,8 @@ private:
     std::shared_ptr<nxui::Box> m_leftSidebar;
     std::shared_ptr<nxui::Box> m_rightSidebar;
     std::shared_ptr<ProfileLockButton> m_profileLock;
+    std::shared_ptr<NotificationBell> m_bell;   // next to the profile tile
+    std::shared_ptr<nxui::Box> m_hudLeft;       // the two of them, in the HUD row
     std::shared_ptr<FolderBackdrop> m_folderBackdrop;
     std::shared_ptr<SteamGridDbBackdrop> m_steamGridDbBackdrop;
     std::shared_ptr<FolderZoom>     m_folderZoom;

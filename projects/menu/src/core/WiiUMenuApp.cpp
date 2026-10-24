@@ -1,5 +1,6 @@
 #include "WiiUMenuApp.hpp"
 #include "FontChoice.hpp"
+#include "social/NotificationLog.hpp"
 #include <switchu/sd_commit.hpp>
 #include "widgets/GlossyIcon.hpp"
 #include "widgets/FolderPalette.hpp"
@@ -1619,31 +1620,99 @@ void WiiUMenuApp::wireProfileLockNavigation() {
     lock->removeAction(static_cast<uint64_t>(nxui::Button::DDown));
     lock->removeAction(static_cast<uint64_t>(nxui::Button::LStickD));
     lock->removeAction(static_cast<uint64_t>(nxui::Button::RStickD));
+    // The notification bell, right of the tile: same up / down as the tile.
+    nxui::Widget* bell = m_bell ? static_cast<nxui::Widget*>(m_bell.get()) : lock;
+    if (m_bell) {
+        m_bell->setCustomNavigation(nxui::FocusDirection::LEFT, lock);
+        m_bell->setCustomNavigation(nxui::FocusDirection::UP, m_bell.get());
+        m_bell->setCustomNavigation(nxui::FocusDirection::DOWN, nullptr);
+        m_bell->removeAction(static_cast<uint64_t>(nxui::Button::DDown));
+        m_bell->removeAction(static_cast<uint64_t>(nxui::Button::LStickD));
+        m_bell->removeAction(static_cast<uint64_t>(nxui::Button::RStickD));
+    }
 
     if (dynamicLine) {
-        // The tile heads the top strip: [profile] [left applets] [right applets].
+        // The tile heads the top strip: [profile] [bell] [left applets] [right applets].
         nxui::Widget* first = leftButtons.empty() ? nullptr : leftButtons.front().get();
-        lock->setCustomNavigation(nxui::FocusDirection::RIGHT, first ? first : lock);
-        m_sidebar.setDynamicLineProfileTarget(lock);
-        lock->addDirectionAction(nxui::FocusDirection::DOWN, [this]() {
+        lock->setCustomNavigation(nxui::FocusDirection::RIGHT, bell != lock ? bell : (first ? first : lock));
+        if (m_bell) m_bell->setCustomNavigation(nxui::FocusDirection::RIGHT, first ? first : bell);
+        m_sidebar.setDynamicLineProfileTarget(bell);
+        auto toGrid = [this]() {
             if (!m_grid || m_appLayoutMode != AppLayoutMode::DynamicLine
                 || m_navigator.route() != switchu::navigation::Route::Home)
                 return;
             if (auto* target = m_grid->focusManager().current())
                 focusManager().setFocus(target);
-        });
+        };
+        lock->addDirectionAction(nxui::FocusDirection::DOWN, toGrid);
+        if (m_bell) m_bell->addDirectionAction(nxui::FocusDirection::DOWN, toGrid);
         if (m_grid)
             m_grid->setDynamicLineUpTarget(lock);
         m_sidebar.setDynamicLineUpTarget(nullptr);
     } else {
-        lock->setCustomNavigation(nxui::FocusDirection::RIGHT, nullptr);
+        lock->setCustomNavigation(nxui::FocusDirection::RIGHT, bell != lock ? bell : nullptr);
+        if (m_bell) m_bell->setCustomNavigation(nxui::FocusDirection::RIGHT, m_bell.get());
         m_sidebar.setDynamicLineProfileTarget(nullptr);
         // Grid mode: the tile sits right above the left applet column.
         if (!leftButtons.empty()) {
             lock->setCustomNavigation(nxui::FocusDirection::DOWN, leftButtons.front().get());
+            if (m_bell) m_bell->setCustomNavigation(nxui::FocusDirection::DOWN, leftButtons.front().get());
             leftButtons.front()->setCustomNavigation(nxui::FocusDirection::UP, lock);
         }
     }
+}
+
+// The bell: everything HOME and the Discord overlay told you lately (see
+// social/NotificationLog.hpp), newest first. Opening it marks them seen.
+void WiiUMenuApp::openNotifications() {
+    if (!m_dialog) return;
+    auto& i18n = nxui::I18n::instance();
+    // Discord's emoji marks (U+F0000 and up: 4-byte UTF-8 from 0xF3) aren't letters here.
+    auto plain = [](const std::string& s) {
+        std::string out;
+        for (std::size_t i = 0; i < s.size(); ++i) {
+            if (static_cast<unsigned char>(s[i]) >= 0xF3) { i += 3; continue; }
+            out += s[i];
+        }
+        if (out.size() <= 70) return out;
+        std::size_t cut = 67;
+        while (cut > 0 && (static_cast<unsigned char>(out[cut]) & 0xC0) == 0x80) --cut; // not mid-letter
+        return out.substr(0, cut) + "...";
+    };
+    auto ago = [&i18n](std::uint64_t at) {
+        const std::uint64_t now = static_cast<std::uint64_t>(std::time(nullptr));
+        const std::uint64_t s = now > at ? now - at : 0;
+        if (s < 60) return i18n.tr("notifications.now", "just now");
+        if (s < 3600) return std::to_string(s / 60) + " " + i18n.tr("notifications.min", "min ago");
+        if (s < 86400) return std::to_string(s / 3600) + " " + i18n.tr("notifications.hours", "h ago");
+        return std::to_string(s / 86400) + " " + i18n.tr("notifications.days", "d ago");
+    };
+    const std::uint64_t seen = notifications::seenAt();
+    const auto items = notifications::recent(8);
+    std::string body;
+    for (const auto& it : items) {
+        const std::string kind = it.kind == "discord" ? "Discord" : it.kind == "battery" ? i18n.tr("notifications.battery", "Battery") : it.kind;
+        body += std::string(body.empty() ? "" : "\n") + (it.at > seen ? "* " : "") + kind + " - " + plain(it.title)
+              + ": " + plain(it.text) + "  (" + ago(it.at) + ")";
+    }
+    if (body.empty())
+        body = i18n.tr("notifications.empty",
+                       "Nothing yet. Discord messages (in HOME and in games) and low controller batteries show up here.");
+    notifications::markSeen();
+    if (m_bell) m_bell->setUnread(0);
+
+    std::vector<OverlayDialog::ButtonDef> buttons;
+    if (!items.empty())
+        buttons.push_back({i18n.tr("notifications.clear", "Clear all"), [this]() {
+            notifications::clear();
+            m_audio.playSfx(Sfx::ToggleOff);
+        }, true});
+    buttons.push_back({i18n.tr("button.ok", "OK"), [] {}, true});
+    const int ok = static_cast<int>(buttons.size()) - 1;
+    m_dialogReturnFocus = m_bell ? static_cast<nxui::Widget*>(m_bell.get()) : focusManager().current();
+    m_audio.playSfx(Sfx::ModalShow);
+    m_dialog->show(i18n.tr("notifications.title", "Notifications"), body, std::move(buttons), ok, {});
+    focusManager().setFocus(m_dialog.get());
 }
 
 void WiiUMenuApp::loadNextProfile() {
@@ -4641,14 +4710,36 @@ void WiiUMenuApp::buildGrid() {
     m_profileLock->setMarginTop(14.f);
     m_profileLock->setMarginLeft(24.f);
     m_profileLock->setCornerRadius(m_theme.cellCornerRadius);
-    // The HUD row spreads its items evenly; balance the square tile against the
-    // battery widget so the clock lands on the screen's centre line.
-    m_profileLock->setMarginRight((150.f + 24.f) - (kProfileLockWidth + 24.f));
+    m_profileLock->setMarginRight(10.f); // then the notification bell
     m_profileLock->setTheme(&m_theme);
     m_profileLock->setOnActivate([this]() {
         m_audio.playSfx(Sfx::Activate);
         openProfileCarousel();
     });
+
+    m_bell = std::make_shared<NotificationBell>();
+    m_bell->setSize(kProfileLockWidth, kProfileLockHeight);
+    m_bell->setMinWidth(kProfileLockWidth);
+    m_bell->setMinHeight(kProfileLockHeight);
+    m_bell->setShrink(0.f);
+    m_bell->setMarginTop(14.f);
+    m_bell->setCornerRadius(m_theme.cellCornerRadius);
+    m_bell->setTheme(&m_theme);
+    m_bell->setFont(&m_fontSmall);
+    m_bell->setUnread(notifications::unreadCount());
+    m_bell->setOnActivate([this]() {
+        m_audio.playSfx(Sfx::Activate);
+        openNotifications();
+    });
+    // The HUD row spreads its items evenly: the tile and the bell take as much
+    // room as the battery side, so the clock lands on the screen's centre line.
+    m_hudLeft = std::make_shared<nxui::Box>(nxui::Axis::ROW);
+    m_hudLeft->setSize(150.f + 24.f, 90.f);
+    m_hudLeft->setShrink(0.f);
+    m_hudLeft->setWireframeEnabled(false);
+    m_hudLeft->setAlignItems(nxui::AlignItems::FLEX_START);
+    m_hudLeft->addChild(m_profileLock);
+    m_hudLeft->addChild(m_bell);
 
     loadProfiles(!m_fastReturnRequested);
 
@@ -5040,7 +5131,7 @@ void WiiUMenuApp::buildGrid() {
     m_topHud->setWireframeEnabled(false);
     m_topHud->setJustifyContent(nxui::JustifyContent::SPACE_BETWEEN);
     m_topHud->setAlignItems(nxui::AlignItems::FLEX_START);
-    m_topHud->addChild(m_profileLock);
+    m_topHud->addChild(m_hudLeft);
     m_topHud->addChild(m_clock);
     m_topHud->addChild(m_battery);
     m_topHud->layout();
@@ -6789,6 +6880,8 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
         }
         if (m_profileLock && m_profileLock.get() == cur)
             add(buttonGlyph(nxui::Button::A), i18n.tr("profilelock.choose", "Change profile"));
+        if (m_bell && m_bell.get() == cur)
+            add(buttonGlyph(nxui::Button::A), i18n.tr("notifications.open", "Notifications"));
     }
 
     if (m_navigator.route() == switchu::navigation::Route::Home && !m_editMode) {
