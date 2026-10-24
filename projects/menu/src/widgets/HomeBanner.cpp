@@ -39,6 +39,7 @@ void HomeBanner::slideIn() {
     if (m_in) return;
     m_in = true;
     setVisible(true);
+    onContentUpdate(0.f); // placed (and drawable) from its first frame
     m_t.set(1.f, 0.32f, nxui::Easing::outCubic);
 }
 
@@ -48,7 +49,10 @@ void HomeBanner::slideOut() {
     m_t.set(0.f, 0.24f, nxui::Easing::outCubic);
 }
 
-void HomeBanner::onRender(nxui::Renderer& ren) {
+// The slide and fade, in the update: a widget at opacity 0 isn't drawn at all,
+// so doing this while drawing left a banner that started at 0 (HOME's motion
+// is frozen just after a game) at 0 for good - the music bar never showed.
+void HomeBanner::onContentUpdate(float) {
     const float t = std::clamp(m_t.value(), 0.f, 1.f);
     if (!m_in && t <= 0.01f) {
         setVisible(false);
@@ -57,7 +61,10 @@ void HomeBanner::onRender(nxui::Renderer& ren) {
     m_rect = m_place;
     m_rect.y += (1.f - t) * m_fromDy;
     setCornerRadius(m_rect.height * 0.5f);
-    setOpacity(t);
+    setOpacity(std::max(t, 0.001f)); // never 0 while it's on its way in
+}
+
+void HomeBanner::onRender(nxui::Renderer& ren) {
     nxui::GlassWidget::onRender(ren);
 }
 
