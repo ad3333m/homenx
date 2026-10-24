@@ -14,7 +14,7 @@ namespace updater {
 namespace {
 
 constexpr float kRowH = 76.f;
-constexpr nxui::Rect kList{60.f, 128.f, 1160.f, 500.f};
+const nxui::Rect kList{60.f, 128.f, 1160.f, 500.f};
 
 class Painter final : public nxui::Widget {
 public:
