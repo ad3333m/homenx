@@ -23,6 +23,7 @@ public:
         std::string manifest;
         std::string cover;
         std::vector<std::string> screenshots;
+        std::string catalogUrl; // the catalogue it's listed in (path and manifest are relative to it)
     };
 
     struct Snapshot {
@@ -32,6 +33,8 @@ public:
     };
 
     static constexpr const char* kDefaultCatalogUrl = "https://raw.githubusercontent.com/PoloNX/SwitchU-Themes/main/index.json";
+    // HomeNX's wallpapers (tools/make_wallpapers.py), listed before the community's.
+    static constexpr const char* kHomeNXCatalogUrl = "https://raw.githubusercontent.com/ad3333m/homenx/master/themes.json";
 
     explicit ThemeCatalogClient(std::string catalogUrl = kDefaultCatalogUrl);
 

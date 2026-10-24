@@ -1,0 +1,50 @@
+{
+  "id": "homenx-aurora",
+  "name": "Aurora",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "dark",
+    "colors": {
+      "cursor": [
+        0.4289,
+        0.9048,
+        0.5882
+      ],
+      "accent": [
+        0.7107,
+        1.0,
+        0.651
+      ],
+      "background": [
+        0.5605,
+        0.5274,
+        0.08
+      ],
+      "backgroundAccent": [
+        0.5605,
+        0.5274,
+        0.16
+      ],
+      "shapes": [
+        0.7107,
+        1.0,
+        0.651
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

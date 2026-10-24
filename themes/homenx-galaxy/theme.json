@@ -1,0 +1,50 @@
+{
+  "id": "homenx-galaxy",
+  "name": "Galaxy",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "dark",
+    "colors": {
+      "cursor": [
+        0.8902,
+        1.0,
+        0.6549
+      ],
+      "accent": [
+        0.6086,
+        1.0,
+        0.651
+      ],
+      "background": [
+        0.7263,
+        0.4963,
+        0.08
+      ],
+      "backgroundAccent": [
+        0.7263,
+        0.4963,
+        0.16
+      ],
+      "shapes": [
+        0.6086,
+        1.0,
+        0.651
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

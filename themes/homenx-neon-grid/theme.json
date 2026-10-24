@@ -1,0 +1,50 @@
+{
+  "id": "homenx-neon-grid",
+  "name": "Neon Grid",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "dark",
+    "colors": {
+      "cursor": [
+        0.8445,
+        1.0,
+        0.6196
+      ],
+      "accent": [
+        0.0978,
+        1.0,
+        0.6392
+      ],
+      "background": [
+        0.8543,
+        0.5457,
+        0.08
+      ],
+      "backgroundAccent": [
+        0.8543,
+        0.5457,
+        0.16
+      ],
+      "shapes": [
+        0.0978,
+        1.0,
+        0.6392
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

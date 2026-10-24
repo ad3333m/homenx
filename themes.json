@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "themes": [
+    {
+      "id": "homenx-aurora",
+      "name": "Aurora",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-aurora",
+      "manifest": "themes/homenx-aurora/theme.json",
+      "cover": "themes/homenx-aurora/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-neon-grid",
+      "name": "Neon Grid",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-neon-grid",
+      "manifest": "themes/homenx-neon-grid/theme.json",
+      "cover": "themes/homenx-neon-grid/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-sunset-dunes",
+      "name": "Sunset Dunes",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-sunset-dunes",
+      "manifest": "themes/homenx-sunset-dunes/theme.json",
+      "cover": "themes/homenx-sunset-dunes/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-ocean-depths",
+      "name": "Ocean Depths",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-ocean-depths",
+      "manifest": "themes/homenx-ocean-depths/theme.json",
+      "cover": "themes/homenx-ocean-depths/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-midnight-mountains",
+      "name": "Midnight Mountains",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-midnight-mountains",
+      "manifest": "themes/homenx-midnight-mountains/theme.json",
+      "cover": "themes/homenx-midnight-mountains/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-sakura",
+      "name": "Sakura",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-sakura",
+      "manifest": "themes/homenx-sakura/theme.json",
+      "cover": "themes/homenx-sakura/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-galaxy",
+      "name": "Galaxy",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-galaxy",
+      "manifest": "themes/homenx-galaxy/theme.json",
+      "cover": "themes/homenx-galaxy/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-forest-mist",
+      "name": "Forest Mist",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-forest-mist",
+      "manifest": "themes/homenx-forest-mist/theme.json",
+      "cover": "themes/homenx-forest-mist/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-ember",
+      "name": "Ember",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-ember",
+      "manifest": "themes/homenx-ember/theme.json",
+      "cover": "themes/homenx-ember/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-pastel-waves",
+      "name": "Pastel Waves",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-pastel-waves",
+      "manifest": "themes/homenx-pastel-waves/theme.json",
+      "cover": "themes/homenx-pastel-waves/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-low-poly",
+      "name": "Low Poly Night",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-low-poly",
+      "manifest": "themes/homenx-low-poly/theme.json",
+      "cover": "themes/homenx-low-poly/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-candy",
+      "name": "Candy",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-candy",
+      "manifest": "themes/homenx-candy/theme.json",
+      "cover": "themes/homenx-candy/media/screenshots/00.jpg"
+    },
+    {
+      "id": "homenx-snow-peaks",
+      "name": "Snow Peaks",
+      "author": "HomeNX",
+      "version": "1.0.0",
+      "path": "themes/homenx-snow-peaks",
+      "manifest": "themes/homenx-snow-peaks/theme.json",
+      "cover": "themes/homenx-snow-peaks/media/screenshots/00.jpg"
+    }
+  ]
+}

@@ -2551,8 +2551,8 @@ void WiiUMenuApp::startThemePackageTransfer(const ThemeCatalogClient::Entry& ent
         focusManager().setFocus(m_progressDialog.get());
     }
 
-    const std::string catalogUrl = m_themeShop
-        ? m_themeShop->communityCatalogUrl()
+    const std::string catalogUrl = !entry.catalogUrl.empty() ? entry.catalogUrl
+        : m_themeShop ? m_themeShop->communityCatalogUrl()
         : ThemeCatalogClient::kDefaultCatalogUrl;
     ThemePackageInstaller::Mode mode = installMode
         ? ThemePackageInstaller::Mode::InstallAndApply

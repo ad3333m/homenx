@@ -1,0 +1,50 @@
+{
+  "id": "homenx-forest-mist",
+  "name": "Forest Mist",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "light",
+    "colors": {
+      "cursor": [
+        0.4358,
+        0.5053,
+        0.3725
+      ],
+      "accent": [
+        0.4309,
+        0.2515,
+        0.3196
+      ],
+      "background": [
+        0.4091,
+        0.1267,
+        0.92
+      ],
+      "backgroundAccent": [
+        0.4091,
+        0.1267,
+        0.84
+      ],
+      "shapes": [
+        0.4309,
+        0.2515,
+        0.3196
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

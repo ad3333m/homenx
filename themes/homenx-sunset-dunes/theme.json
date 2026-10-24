@@ -1,0 +1,50 @@
+{
+  "id": "homenx-sunset-dunes",
+  "name": "Sunset Dunes",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "dark",
+    "colors": {
+      "cursor": [
+        0.0811,
+        1.0,
+        0.7098
+      ],
+      "accent": [
+        0.9606,
+        1.0,
+        0.7176
+      ],
+      "background": [
+        0.9586,
+        0.2723,
+        0.08
+      ],
+      "backgroundAccent": [
+        0.9586,
+        0.2723,
+        0.16
+      ],
+      "shapes": [
+        0.9606,
+        1.0,
+        0.7176
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

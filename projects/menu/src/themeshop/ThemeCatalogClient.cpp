@@ -232,17 +232,27 @@ void ThemeCatalogClient::refresh(nxui::ThreadPool& pool) {
     DebugLog::log("[themeshop] catalog refresh start: %s", url.c_str());
 
     m_future = pool.submit([this, url]() {
+        // HomeNX's wallpapers, then the community's themes; either one is enough.
         Snapshot loaded;
-        try {
-            loaded = loadCatalog(url);
-            DebugLog::log("[themeshop] catalog refresh done: %d entries", (int)loaded.entries.size());
-        } catch (const std::exception& ex) {
-            loaded.loading.fail(ex.what());
-            DebugLog::log("[themeshop] catalog refresh failed: %s", ex.what());
-        } catch (...) {
-            loaded.loading.fail("Unknown network error");
-            DebugLog::log("[themeshop] catalog refresh failed: unknown error");
+        std::string error;
+        for (const std::string& u : {std::string(kHomeNXCatalogUrl), url}) {
+            try {
+                Snapshot one = loadCatalog(u);
+                for (auto& entry : one.entries)
+                    loaded.entries.push_back(std::move(entry));
+                DebugLog::log("[themeshop] catalog %s: %d entries", u.c_str(), (int)one.entries.size());
+            } catch (const std::exception& ex) {
+                error = ex.what();
+                DebugLog::log("[themeshop] catalog %s failed: %s", u.c_str(), ex.what());
+            } catch (...) {
+                error = "Unknown network error";
+                DebugLog::log("[themeshop] catalog %s failed: unknown error", u.c_str());
+            }
         }
+        if (loaded.entries.empty() && !error.empty())
+            loaded.loading.fail(error);
+        else
+            loaded.loading.succeed(std::to_string(loaded.entries.size()) + " themes available.");
 
         std::lock_guard<std::mutex> lk(m_mutex);
         if (loaded.loading.isReady())
@@ -326,6 +336,18 @@ ThemeCatalogClient::Snapshot ThemeCatalogClient::loadCatalog(const std::string& 
         }
 
         ensureCoverFirst(entry);
+
+        // Pictures as full links: the shop shows entries from more than one catalogue.
+        auto absolute = [&url](std::string& path) {
+            const std::size_t slash = url.find_last_of('/');
+            if (path.empty() || startsWith(path, "https://") || startsWith(path, "http://") || slash == std::string::npos)
+                return;
+            path = url.substr(0, slash + 1) + trimSlashes(path);
+        };
+        absolute(entry.cover);
+        for (auto& shot : entry.screenshots)
+            absolute(shot);
+        entry.catalogUrl = url;
 
         snapshot.entries.push_back(std::move(entry));
     }

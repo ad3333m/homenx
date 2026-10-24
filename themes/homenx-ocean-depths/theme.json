@@ -1,0 +1,50 @@
+{
+  "id": "homenx-ocean-depths",
+  "name": "Ocean Depths",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "dark",
+    "colors": {
+      "cursor": [
+        0.5307,
+        1.0,
+        0.6804
+      ],
+      "accent": [
+        0.5423,
+        0.8138,
+        0.5157
+      ],
+      "background": [
+        0.5661,
+        0.7505,
+        0.08
+      ],
+      "backgroundAccent": [
+        0.5661,
+        0.7505,
+        0.16
+      ],
+      "shapes": [
+        0.5423,
+        0.8138,
+        0.5157
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "homenx-pastel-waves",
+  "name": "Pastel Waves",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "light",
+    "colors": {
+      "cursor": [
+        0.7007,
+        1.0,
+        0.7118
+      ],
+      "accent": [
+        0.9435,
+        1.0,
+        0.7804
+      ],
+      "background": [
+        0.7398,
+        0.2544,
+        0.92
+      ],
+      "backgroundAccent": [
+        0.7398,
+        0.2544,
+        0.84
+      ],
+      "shapes": [
+        0.9435,
+        1.0,
+        0.7804
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

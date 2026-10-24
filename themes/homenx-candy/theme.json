@@ -1,0 +1,50 @@
+{
+  "id": "homenx-candy",
+  "name": "Candy",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "light",
+    "colors": {
+      "cursor": [
+        0.9223,
+        1.0,
+        0.6804
+      ],
+      "accent": [
+        0.5726,
+        1.0,
+        0.6804
+      ],
+      "background": [
+        0.0253,
+        0.1427,
+        0.92
+      ],
+      "backgroundAccent": [
+        0.0253,
+        0.1427,
+        0.84
+      ],
+      "shapes": [
+        0.5726,
+        1.0,
+        0.6804
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "homenx-snow-peaks",
+  "name": "Snow Peaks",
+  "author": "HomeNX",
+  "version": "1.0.0",
+  "preview": {
+    "screenshots": [
+      "media/screenshots/00.jpg"
+    ]
+  },
+  "theme": {
+    "mode": "light",
+    "colors": {
+      "cursor": [
+        0.5913,
+        0.7406,
+        0.5314
+      ],
+      "accent": [
+        0.5879,
+        1.0,
+        0.6765
+      ],
+      "background": [
+        0.5855,
+        0.8102,
+        0.92
+      ],
+      "backgroundAccent": [
+        0.5855,
+        0.8102,
+        0.84
+      ],
+      "shapes": [
+        0.5879,
+        1.0,
+        0.6765
+      ]
+    },
+    "background": {
+      "layout": "floating",
+      "count": 0,
+      "image": {
+        "path": "media/backgrounds/wallpaper.jpg",
+        "opacity": 1.0,
+        "fit": "cover"
+      }
+    }
+  }
+}
