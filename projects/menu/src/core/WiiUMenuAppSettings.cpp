@@ -476,6 +476,40 @@ void WiiUMenuApp::createSettings() {
     m_settings->onNextendoApp([this]() { openNextendoAppPicker(); });
     m_settings->onHomePages([this]() { openHomePagesPicker(); });
     m_settings->onDiagnostics([this]() { showDiagnostics(); });
+    m_settings->onDiscordAppId([this]() {
+        // Read and written as the overlay reads it (config/SwitchU/discord_app_id.txt).
+        static constexpr const char* kPath = "sdmc:/config/SwitchU/discord_app_id.txt";
+        std::string current;
+        if (FILE* f = std::fopen(kPath, "r")) {
+            char buf[32] = {};
+            if (std::fgets(buf, sizeof(buf), f)) current = buf;
+            std::fclose(f);
+        }
+        while (!current.empty() && (current.back() == '\n' || current.back() == '\r' || current.back() == ' '))
+            current.pop_back();
+        auto& i18n = nxui::I18n::instance();
+        requestTextEntry(i18n.tr("settings.homenx.discord_app", "Discord game icons"),
+                         i18n.tr("settings.homenx.discord_app_guide", "Application ID (numbers only)"), current, 20,
+                         false, [this](const std::string& text) {
+            std::string id;
+            for (char c : text)
+                if (c >= '0' && c <= '9') id += c;
+            std::error_code ec;
+            std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+            if (FILE* f = std::fopen(kPath, "w")) {
+                std::fputs(id.c_str(), f);
+                std::fclose(f);
+            }
+            auto& tr = nxui::I18n::instance();
+            if (!m_dialog) return;
+            m_dialog->show(tr.tr("settings.homenx.discord_app", "Discord game icons"),
+                           id.empty() ? tr.tr("settings.homenx.discord_app_off", "Cleared: your status shows the game's name only.")
+                                      : tr.tr("settings.homenx.discord_app_on",
+                                              "Saved. The next time the Discord overlay starts, games show their icon."),
+                           {{tr.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+            focusManager().setFocus(m_dialog.get());
+        });
+    });
     m_settings->onReturnTimings([this]() { openReturnTimings(); });
     m_settings->setGlassEffectsState(m_config.glassEffects);
     m_settings->onGlassEffectsChange([this](bool on) {

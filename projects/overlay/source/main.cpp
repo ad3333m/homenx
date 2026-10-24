@@ -94,7 +94,10 @@ constexpr const char* kUserAgent =
 // Discord shows a status's picture only through a Discord application. Its ID
 // comes from sdmc:/config/SwitchU/discord_app_id.txt, else this; without one
 // the status still says the game and "Nintendo Switch", with no picture.
-constexpr const char* kGameAppId = "";
+constexpr const char* kGameAppId = ""; // set in HOME: Settings > HomeNX > Discord game icons
+// The small picture in the corner of the game's icon on Discord.
+constexpr const char* kSwitchBadge =
+    "https://raw.githubusercontent.com/ad3333m/homenx/master/romfs/icons/widget_battery_switch.png";
 constexpr u64 kCombo = HidNpadButton_L | HidNpadButton_ZL;
 constexpr u64 kHomeMenu = 0x010000000000100DULL; // HomeNX's HOME menu
 constexpr s32 kW = 448, kH = 720;               // the overlay's framebuffer
@@ -2168,15 +2171,17 @@ private:
                 m_game = std::move(g);
                 m_since = epochMs();
                 m_image.clear();
+                m_badge.clear();
                 m_assets.reset();
                 m_sent = false;
                 if (m_game.id && !m_appId.empty()) {
-                    // Discord fetches the icon itself; it never comes to the console.
+                    // Discord fetches the pictures itself; they never come to the
+                    // console: the game's icon, and a small Switch for the corner.
                     char url[96];
                     std::snprintf(url, sizeof(url), "https://tinfoil.media/ti/%016llX/256/256/",
                                   static_cast<unsigned long long>(m_game.id));
                     m_assets = g_net.api("POST", "/applications/" + m_appId + "/external-assets",
-                                         std::string("{\"urls\":[\"") + url + "\"]}");
+                                         std::string("{\"urls\":[\"") + url + "\",\"" + kSwitchBadge + "\"]}");
                 }
                 std::lock_guard<std::mutex> lk(g_presenceMu);
                 g_myGame = m_game.name;
@@ -2185,8 +2190,12 @@ private:
         }
         if (m_assets && m_assets->done) {
             Json doc(m_assets->body);
-            const std::string path = str(yyjson_arr_get_first(doc.root()), "external_asset_path");
+            const std::string path = str(yyjson_arr_get(doc.root(), 0), "external_asset_path");
+            const std::string badge = str(yyjson_arr_get(doc.root(), 1), "external_asset_path");
             if (m_assets->status == 200 && !path.empty()) m_image = "mp:" + path;
+            if (m_assets->status == 200 && !badge.empty()) m_badge = "mp:" + badge;
+            logLine("presence: icon %s, badge %s (status %ld)", m_image.empty() ? "none" : "ok",
+                    m_badge.empty() ? "none" : "ok", m_assets->status);
             m_assets.reset();
         }
         if (m_sent || m_assets) return;
@@ -2196,9 +2205,13 @@ private:
             activities = "[{\"type\":0,\"name\":" + jsonString(m_game.name)
                 + ",\"details\":\"Nintendo Switch\",\"timestamps\":{\"start\":" + std::to_string(m_since) + "}";
             if (!m_appId.empty()) activities += ",\"application_id\":" + jsonString(m_appId);
-            if (!m_image.empty())
+            if (!m_image.empty()) {
                 activities += ",\"assets\":{\"large_image\":" + jsonString(m_image)
-                    + ",\"large_text\":" + jsonString(m_game.name) + "}";
+                    + ",\"large_text\":" + jsonString(m_game.name);
+                if (!m_badge.empty())
+                    activities += ",\"small_image\":" + jsonString(m_badge) + ",\"small_text\":\"Nintendo Switch\"";
+                activities += "}";
+            }
             activities += "}]";
         }
         ws.sendText("{\"op\":3,\"d\":{\"status\":" + jsonString(m_myStatus.empty() ? "unknown" : m_myStatus)
@@ -2220,7 +2233,7 @@ private:
 
     Game m_game;
     u64 m_since = 0;
-    std::string m_image;
+    std::string m_image, m_badge;
     std::shared_ptr<Reply> m_assets;
     bool m_sent = true;
 };

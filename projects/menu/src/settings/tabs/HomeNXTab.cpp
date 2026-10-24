@@ -27,6 +27,18 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     }
     {
         SettingItem it;
+        it.label = i18n.tr("settings.homenx.discord_app", "Discord game icons");
+        it.buttonLabel = i18n.tr("button.set", "Set");
+        it.description = i18n.tr("settings.homenx.discord_app_desc",
+            "Your Discord status shows the game's icon with a Discord application of your own: at "
+            "discord.com/developers make a New Application (name it Nintendo Switch), then enter its "
+            "Application ID here.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_discordAppIdCb) screen.m_discordAppIdCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
         it.label = i18n.tr("settings.homenx.glass", "Glass effects");
         it.description = i18n.tr("settings.homenx.glass_desc",
             "Off keeps HomeNX at a steady 60 FPS. On draws the full liquid-glass and blur look, "
