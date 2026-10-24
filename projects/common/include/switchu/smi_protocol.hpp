@@ -45,6 +45,7 @@ enum class SystemMessage : uint32_t {
     Shutdown              = 21,
     Reboot                = 22,
     RequestForeground     = 23,
+    RebootToPayload       = 24, // HomeNX: a reboot through am, which Atmosphère sends to its payload
 
     GetAppList            = 30,
     GetSystemStatus       = 31,

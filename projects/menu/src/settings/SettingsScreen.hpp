@@ -53,6 +53,7 @@ public:
     void onDiagnostics(VoidCb cb) { m_diagnosticsCb = std::move(cb); }
     void onDiscordAppId(VoidCb cb) { m_discordAppIdCb = std::move(cb); }
     void onFontsChange(VoidCb cb) { m_fontsCb = std::move(cb); }
+    void onPointerModeChange(std::function<void(int)> cb) { m_pointerModeCb = std::move(cb); }
     void onReturnTimings(VoidCb cb) { m_returnTimingsCb = std::move(cb); }
     // Sidebar order: slot 0-4 left column, 5-9 right; value = button id.
     void setSidebarOrderState(std::vector<int> order, std::vector<std::string> names) {
@@ -161,6 +162,7 @@ private:
     VoidCb m_diagnosticsCb;
     VoidCb m_discordAppIdCb;
     VoidCb m_fontsCb;
+    std::function<void(int)> m_pointerModeCb;
     VoidCb m_returnTimingsCb;
     std::vector<int> m_sidebarOrder;
     std::vector<std::string> m_sidebarNames;

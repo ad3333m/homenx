@@ -82,10 +82,17 @@ void Input::setVirtualPointerEnabled(bool enabled) {
     if (m_virtualPointerEnabled == enabled)
         return;
     m_virtualPointerEnabled = enabled;
-    if (enabled)
+    if (enabled && m_pointerMode == PointerMode::Gyro)
         startVirtualPointerSensors();
     else
         stopVirtualPointerSensors();
+}
+
+void Input::setPointerMode(PointerMode mode) {
+    if (m_pointerMode == mode)
+        return;
+    setVirtualPointerEnabled(false);
+    m_pointerMode = mode;
 }
 
 void Input::setVirtualPointerShortcutsEnabled(bool enabled) {
@@ -150,6 +157,17 @@ void Input::update() {
     float hardwareTouchX = hardwareTouching ? tState.touches[0].x : m_touchX;
     float hardwareTouchY = hardwareTouching ? tState.touches[0].y : m_touchY;
 
+    // HomeNX: the left stick moves the stick pointer, so while it's on the
+    // stick's directions don't reach the menu (or turn the pointer off).
+    const bool stickPointer = m_virtualPointerEnabled && m_pointerMode == PointerMode::Stick;
+    if (stickPointer) {
+        constexpr uint64_t kLeftStick = HidNpadButton_StickLLeft | HidNpadButton_StickLUp
+                                      | HidNpadButton_StickLRight | HidNpadButton_StickLDown;
+        m_kDown &= ~kLeftStick;
+        m_kUp &= ~kLeftStick;
+        m_kHeld &= ~kLeftStick;
+    }
+
     bool navInputUsed =
         isDown(Button::DLeft)  || isDown(Button::DRight) ||
         isDown(Button::DUp)    || isDown(Button::DDown)  ||
@@ -157,8 +175,8 @@ void Input::update() {
         isDown(Button::LStickU)|| isDown(Button::LStickD)||
         isDown(Button::RStickL)|| isDown(Button::RStickR)||
         isDown(Button::RStickU)|| isDown(Button::RStickD)||
-        std::abs(m_lx) >= kNavStickDisableThreshold ||
-        std::abs(m_ly) >= kNavStickDisableThreshold ||
+        (!stickPointer && std::abs(m_lx) >= kNavStickDisableThreshold) ||
+        (!stickPointer && std::abs(m_ly) >= kNavStickDisableThreshold) ||
         std::abs(m_rx) >= kNavStickDisableThreshold ||
         std::abs(m_ry) >= kNavStickDisableThreshold;
 
@@ -166,14 +184,24 @@ void Input::update() {
         setVirtualPointerEnabled(false);
     }
 
-    if (m_virtualPointerShortcutsEnabled && isDown(Button::LStick)) {
+    const bool pointerShortcuts = m_virtualPointerShortcutsEnabled && m_pointerMode != PointerMode::Off;
+    if (pointerShortcuts && isDown(Button::LStick)) {
         setVirtualPointerEnabled(!m_virtualPointerEnabled);
     }
-    if (m_virtualPointerShortcutsEnabled && isDown(Button::RStick)) {
+    if (pointerShortcuts && isDown(Button::RStick)) {
         recenterVirtualPointer();
     }
 
-    if (m_virtualPointerEnabled) {
+    if (m_virtualPointerEnabled && m_pointerMode == PointerMode::Stick) {
+        // Faster the further it's pushed (squared), nothing in the dead zone.
+        constexpr float kDeadzone = 0.12f, kSpeed = 1100.f; // px/s at full tilt
+        auto curve = [](float v) {
+            const float a = (std::abs(v) - kDeadzone) / (1.f - kDeadzone);
+            return a <= 0.f ? 0.f : std::copysign(a * a, v);
+        };
+        m_virtualPointerX = std::clamp(m_virtualPointerX + curve(m_lx) * kSpeed * dt, 0.f, kScreenWidth - 1.f);
+        m_virtualPointerY = std::clamp(m_virtualPointerY - curve(m_ly) * kSpeed * dt, 0.f, kScreenHeight - 1.f);
+    } else if (m_virtualPointerEnabled) {
         HidSixAxisSensorState sixAxis = {};
         if (readActiveSixAxisState(sixAxis)) {
             float roll = applyGyroDeadzone(sixAxis.angular_velocity.z);

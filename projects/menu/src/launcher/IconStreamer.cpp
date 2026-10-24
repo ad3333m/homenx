@@ -1,6 +1,7 @@
 #include "IconStreamer.hpp"
 #include "widgets/GlossyIcon.hpp"
 #include "core/DebugLog.hpp"
+#include <nxui/core/GpuDevice.hpp>
 #include <nxui/third_party/stb/stb_image.h>
 #include <algorithm>
 #include <chrono>
@@ -417,6 +418,7 @@ void IconStreamer::onPageChanged(int currentPage, int iconsPerPage,
             if (icon && icon->texture() == &slot.texture)
                 icon->setTexture(nullptr);
         }
+        nxui::GpuDevice::EssentialScope essential; // app icons: may use the reserve
         if (slot.texture.loadFromPixels(gpu, ren, decoded.rgba.data(), decoded.w, decoded.h)) {
             slot.appIndex = appIndex;
             m_appToSlot[(size_t)appIndex] = poolIdx;

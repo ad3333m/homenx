@@ -465,8 +465,8 @@ void WiiUMenuApp::createSettings() {
             i18n.tr("sidebar.eshop", "Nintendo eShop"), i18n.tr("sidebar.news", "News"),
             i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.social", "Social"),
             "Nextendo", i18n.tr("sidebar.music", "Music"), i18n.tr("sidebar.storage", "Storage"),
-            i18n.tr("sidebar.mii_maker", "Mii Maker"), i18n.tr("sidebar.toggle", "HomeNX Toggle"), "hekate",
-            i18n.tr("sidebar.updater", "Homebrew Updater"),
+            i18n.tr("sidebar.mii_maker", "Mii Maker"), i18n.tr("sidebar.toggle", "HomeNX Toggle"), i18n.tr("sidebar.hekate", "Reboot to Hekate"),
+            i18n.tr("sidebar.updater", "Homebrew Manager"),
         });
     }
     m_settings->onSidebarOrderChange([this](std::vector<int> order) {
@@ -480,6 +480,9 @@ void WiiUMenuApp::createSettings() {
     m_settings->onHomePages([this]() { openHomePagesPicker(); });
     m_settings->onDiagnostics([this]() { showDiagnostics(); });
     m_settings->onFontsChange([this]() { m_fontsChanged = true; });
+    m_settings->onPointerModeChange([this](int mode) {
+        app().input().setPointerMode(static_cast<nxui::Input::PointerMode>(mode));
+    });
     m_settings->onDiscordAppId([this]() {
         // Read and written as the overlay reads it (config/SwitchU/discord_app_id.txt).
         static constexpr const char* kPath = "sdmc:/config/SwitchU/discord_app_id.txt";

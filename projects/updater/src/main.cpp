@@ -1,4 +1,4 @@
-// HomeNX Updater: updates the .nro apps on the SD card from GitHub releases
+// Homebrew Manager: the .nro apps on the SD card, updated from GitHub releases
 // and the HB App Store.
 #include "UpdaterActivity.hpp"
 

@@ -371,7 +371,7 @@ void GpuDevice::waitIdle() {
 
 dk::UniqueMemBlock GpuDevice::allocImageMemory(uint32_t size) {
     size = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
-    if (m_imageMemUsed + size > kDefaultImageBudget) {
+    if (m_imageMemUsed + size + imageReserve() > kDefaultImageBudget) {
         GpuDevice::logGpu( "[GpuDevice] image budget exceeded (%llu + %u > %llu), skipping\n",
                      (unsigned long long)m_imageMemUsed, size,
                      (unsigned long long)kDefaultImageBudget);
@@ -429,7 +429,7 @@ void GpuDevice::freeImageMemory(uint32_t size) {
 GpuDevice::ImageAlloc GpuDevice::allocImageFromPool(uint32_t size, uint32_t alignment) {
     if (alignment < kGpuAlign) alignment = kGpuAlign;
     size = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
-    if (m_imageMemUsed + size > kDefaultImageBudget) {
+    if (m_imageMemUsed + size + imageReserve() > kDefaultImageBudget) {
         GpuDevice::logGpu( "[GpuDevice] pool budget exceeded (%llu + %u > %llu)\n",
                      (unsigned long long)m_imageMemUsed, size,
                      (unsigned long long)kDefaultImageBudget);

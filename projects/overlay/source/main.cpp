@@ -283,10 +283,7 @@ std::string keepKeys(yyjson_val* o, std::initializer_list<const char*> keys) {
     return out + "}";
 }
 
-// What the overlay reads of a server's channel, a DM, a server.
-std::string thinChannel(yyjson_val* c) {
-    return keepKeys(c, {"id", "name", "parent_id", "position", "type", "permission_overwrites"});
-}
+// What the overlay reads of a DM, a server (a server's channel: thinChannel).
 std::string thinGuild(yyjson_val* g) { return keepKeys(g, {"id", "name", "icon", "permissions", "owner"}); }
 std::string thinDm(yyjson_val* c) {
     std::string people = "[";
@@ -325,6 +322,74 @@ std::string jsonString(const std::string& s) {
         } else out += static_cast<char>(c);
     }
     return out + "\"";
+}
+
+// At most `max` bytes of text, cut between letters.
+std::string cutText(const std::string& s, size_t max) {
+    if (s.size() <= max) return s;
+    size_t cut = max;
+    while (cut > 0 && (static_cast<unsigned char>(s[cut]) & 0xC0) == 0x80) --cut;
+    return s.substr(0, cut) + "...";
+}
+
+// The first `max` elements of an array, each kept by `one`.
+std::string firstOf(yyjson_val* arr, size_t max, Thin one) {
+    std::string out = "[";
+    size_t i, n;
+    yyjson_val* v;
+    yyjson_arr_foreach(arr, i, n, v) {
+        if (i >= max) break;
+        if (out.size() > 1) out += ',';
+        out += one(v);
+    }
+    return out + "]";
+}
+
+std::string thinUser(yyjson_val* u) { return keepKeys(u, {"id", "username", "global_name", "avatar"}); }
+std::string thinMedia(yyjson_val* m) {
+    return keepKeys(m, {"url", "proxy_url", "width", "height", "content_type", "filename"});
+}
+std::string thinReaction(yyjson_val* r) {
+    std::string out = keepKeys(r, {"count", "me"});
+    out.insert(out.size() - 1, std::string(out.size() > 2 ? "," : "") + "\"emoji\":"
+                                   + keepKeys(yyjson_obj_get(r, "emoji"), {"id", "name"}));
+    return out;
+}
+std::string thinSticker(yyjson_val* s) { return keepKeys(s, {"id", "name", "format_type"}); }
+std::string thinEmbed(yyjson_val* e) {
+    std::string out = keepKeys(e, {"type", "url"});
+    auto add = [&out](const char* key, const std::string& json) {
+        out.insert(out.size() - 1, std::string(out.size() > 2 ? "," : "") + "\"" + key + "\":" + json);
+    };
+    if (!str(e, "title").empty()) add("title", jsonString(cutText(str(e, "title"), 200)));
+    for (const char* k : {"thumbnail", "image", "video"})
+        if (yyjson_is_obj(yyjson_obj_get(e, k))) add(k, thinMedia(yyjson_obj_get(e, k)));
+    return out;
+}
+
+// A message as the chat draws it. Big servers' messages carry much more (whole
+// replied-to messages, every mention, components), and 20 of them whole didn't
+// fit next to everything else: long text is cut and the lists are capped.
+std::string thinMessageBody(yyjson_val* m, size_t textMax) {
+    std::string out = keepKeys(m, {"id", "edited_timestamp"});
+    auto add = [&out](const char* key, const std::string& json) {
+        out.insert(out.size() - 1, std::string(out.size() > 2 ? "," : "") + "\"" + key + "\":" + json);
+    };
+    add("author", thinUser(yyjson_obj_get(m, "author")));
+    add("content", jsonString(cutText(str(m, "content"), textMax)));
+    add("mentions", firstOf(yyjson_obj_get(m, "mentions"), 10, thinUser));
+    add("attachments", firstOf(yyjson_obj_get(m, "attachments"), 4, thinMedia));
+    add("embeds", firstOf(yyjson_obj_get(m, "embeds"), 3, thinEmbed));
+    add("sticker_items", firstOf(yyjson_obj_get(m, "sticker_items"), 3, thinSticker));
+    add("reactions", firstOf(yyjson_obj_get(m, "reactions"), 8, thinReaction));
+    return out;
+}
+std::string thinMessage(yyjson_val* m) {
+    std::string out = thinMessageBody(m, 1200);
+    yyjson_val* ref = yyjson_obj_get(m, "referenced_message");
+    if (yyjson_is_obj(ref))
+        out.insert(out.size() - 1, ",\"referenced_message\":" + thinMessageBody(ref, 160));
+    return out;
 }
 
 std::string urlEncode(const std::string& s) {
@@ -1275,6 +1340,7 @@ private:
                 Json doc(item, Json::InPlace{});
                 if (!doc.root() || sink->tooBig) return;
                 const std::string kept = sink->thin(doc.root());
+                if (kept.empty()) return; // not wanted at all
                 if (sink->body->size() + kept.size() + 2 > sink->cap) {
                     sink->tooBig = true;
                     return;
@@ -2181,7 +2247,9 @@ private:
         notice.at = nowMs();
         noteAlert((guild.empty() ? "DM from " : "Mention from ") + notice.author
                   + (awayFromHome() ? " - waiting to show" : " - HOME was open (it shows its own)"));
-        if (awayFromHome()) appendNotification("discord", notice.author, notice.text);
+        if (awayFromHome()) // HOME's notification centre opens its chat: discord/<channel>/<server>
+            appendNotification(("discord/" + channel + "/" + (guild.empty() ? std::string("0") : guild)).c_str(),
+                               notice.author, notice.text);
         std::lock_guard<std::mutex> lk(g_noticeMu);
         g_notice = std::move(notice);
         g_noticeAt = g_notice.at;
@@ -2441,6 +2509,47 @@ bool canSee(const Server& sv, yyjson_val* channel, const std::string& me) {
         }
     }
     return (p & kViewChannel) != 0;
+}
+
+// Which permission overwrites a server's channel list keeps (thinChannel runs
+// on the network thread): the server's own (@everyone), your roles' and yours;
+// without your roles, those that let some role in. A big server lists dozens of
+// roles on every channel, and all of them didn't fit in an overlay.
+std::mutex g_keepMu;
+std::vector<std::string> g_keepIds;
+bool g_keepAll = false;   // everything's visible (no rules known, or an admin): none needed
+bool g_keepRoles = false; // roles unknown
+
+void keepOverwritesFor(const Server& sv, const std::string& me) {
+    std::lock_guard<std::mutex> lk(g_keepMu);
+    g_keepAll = !sv.permsKnown || (sv.base & kAdministrator);
+    g_keepRoles = !sv.rolesKnown;
+    g_keepIds = sv.roles;
+    g_keepIds.push_back(sv.id);
+    g_keepIds.push_back(me);
+}
+
+// A server channel as the list reads it: text, announcements and categories only.
+std::string thinChannel(yyjson_val* c) {
+    const long type = num(c, "type");
+    if (type != 0 && type != 4 && type != 5) return {}; // voice, stage, forum: not listed
+    std::string out = keepKeys(c, {"id", "name", "parent_id", "position", "type"});
+    std::string kept = "[";
+    {
+        std::lock_guard<std::mutex> lk(g_keepMu);
+        size_t i, n;
+        yyjson_val* o;
+        yyjson_arr_foreach(yyjson_obj_get(c, "permission_overwrites"), i, n, o) {
+            if (g_keepAll) break;
+            const std::string id = str(o, "id");
+            const bool ours = std::find(g_keepIds.begin(), g_keepIds.end(), id) != g_keepIds.end();
+            if (!ours && !(g_keepRoles && num(o, "type") == 0 && (bitsOf(o, "allow") & kViewChannel))) continue;
+            if (kept.size() > 1) kept += ',';
+            kept += keepKeys(o, {"id", "type", "allow", "deny"});
+        }
+    }
+    out.insert(out.size() - 1, std::string(out.size() > 2 ? "," : "") + "\"permission_overwrites\":" + kept + "]");
+    return out;
 }
 
 struct ReactionPill {
@@ -3116,6 +3225,14 @@ private:
         m_channelsLoaded = false;
         m_channelsError.clear();
         m_rowSel = -1;
+        {
+            std::string me;
+            {
+                std::lock_guard<std::mutex> lk(g_chatMu);
+                me = g_meId;
+            }
+            keepOverwritesFor(m_servers[(size_t)index], me);
+        }
         m_channelsReq = g_net.apiList("/guilds/" + m_servers[(size_t)index].id + "/channels", thinChannel);
         m_channelsFor = index;
     }
@@ -3221,7 +3338,7 @@ private:
 
     void pollMessages() {
         m_lastPoll = armGetSystemTick();
-        m_msgReq = g_net.api("GET", "/channels/" + m_chatId + "/messages?limit=20");
+        m_msgReq = g_net.apiList("/channels/" + m_chatId + "/messages?limit=20", thinMessage); // thinned as it comes
         m_msgFor = m_chatId;
     }
 

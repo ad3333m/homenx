@@ -42,8 +42,9 @@ public:
     bool isHeld(Button b)     const;   // Currently held
 
     // Analog sticks (normalized −1..+1)
-    float leftStickX()  const { return m_lx; }
-    float leftStickY()  const { return m_ly; }
+    // Centred while the left stick moves the pointer (it's not navigating then).
+    float leftStickX()  const { return stickPointerOn() ? 0.f : m_lx; }
+    float leftStickY()  const { return stickPointerOn() ? 0.f : m_ly; }
     float rightStickX() const { return m_rx; }
     float rightStickY() const { return m_ry; }
 
@@ -70,6 +71,12 @@ public:
     bool  pointerConsumesButton(Button b) const {
         return b == Button::A && m_virtualPointerEnabled;
     }
+    // HomeNX: what L3 turns on: nothing, the motion (gyro) pointer, or a
+    // pointer the left stick moves (the stick then stops moving the selection).
+    enum class PointerMode { Off, Gyro, Stick };
+    void setPointerMode(PointerMode mode);
+    PointerMode pointerMode() const { return m_pointerMode; }
+    bool stickPointerOn() const { return m_virtualPointerEnabled && m_pointerMode == PointerMode::Stick; }
 
 private:
     void recenterVirtualPointer();
@@ -93,6 +100,7 @@ private:
     bool  m_sixAxisRunning = false;
     bool  m_virtualPointerEnabled = false;
     bool  m_virtualPointerShortcutsEnabled = true;
+    PointerMode m_pointerMode = PointerMode::Gyro;
     float m_virtualPointerX = 640.f;
     float m_virtualPointerY = 360.f;
     float m_virtualPointerSensitivity = 7000.f;

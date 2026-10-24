@@ -83,9 +83,12 @@ void DateTimeWidget::onContentRender(nxui::Renderer& ren) {
 // making any missing one; returns its width.
 float DateTimeWidget::drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& glyphs, const std::string& text,
                                  float x, float y, const nxui::Color& color, float scale, bool draw) {
-    if (glyphs.revision != font->revision()) { // another font (a theme): its own letters
+    if (glyphs.revision != font->revision()) { // another font: its own letters, the old ones until they're made
+        for (auto& [ch, t] : glyphs.tex)
+            if (t && t->valid()) glyphs.old[ch] = std::move(t);
         glyphs.tex.clear();
         glyphs.revision = font->revision();
+        glyphs.retryAt = 0;
     }
     const float start = x;
     for (char c : text) {
@@ -93,12 +96,21 @@ float DateTimeWidget::drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& 
         const float advance = font->measure(one).x * scale;
         if (draw && c != ' ') {
             auto& tex = glyphs.tex[c];
-            if (!tex || !tex->valid()) {
+            const std::uint64_t now = armGetSystemTick();
+            if ((!tex || !tex->valid()) && now >= glyphs.retryAt) {
                 tex = std::make_unique<nxui::Texture>();
-                if (!font->renderTo(ren, one, *tex)) tex.reset(); // no room now: next frame
+                if (!font->renderTo(ren, one, *tex)) { // no room now: again in a moment, not every frame
+                    tex.reset();
+                    glyphs.retryAt = now + armNsToTicks(500'000'000ULL);
+                }
             }
-            if (tex) {
-                ren.drawTexture(tex.get(), {x, y, tex->width() * scale, tex->height() * scale}, color);
+            const nxui::Texture* use = tex && tex->valid() ? tex.get() : nullptr;
+            if (!use) {
+                auto it = glyphs.old.find(c);
+                if (it != glyphs.old.end() && it->second && it->second->valid()) use = it->second.get();
+            }
+            if (use) {
+                ren.drawTexture(use, {x, y, use->width() * scale, use->height() * scale}, color);
             } else if (!font->draw(ren, one, {x, y}, color, scale)) { // no room for our own yet: the shared cache's
                 const std::uint64_t now = armGetSystemTick();
                 if (now - m_lastMissLog > armNsToTicks(10'000'000'000ULL)) { // why the clock is blank, in menu.log

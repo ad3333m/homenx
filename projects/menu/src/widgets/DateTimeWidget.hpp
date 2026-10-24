@@ -45,6 +45,8 @@ private:
     struct Glyphs {
         std::uint64_t revision = ~0ull;
         std::map<char, std::unique_ptr<nxui::Texture>> tex;
+        std::map<char, std::unique_ptr<nxui::Texture>> old; // the last font's, shown until these exist
+        std::uint64_t retryAt = 0;                          // a failed letter is tried again from this tick
     };
     Glyphs m_bigGlyphs, m_smallGlyphs;
     float drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& glyphs, const std::string& text, float x, float y,

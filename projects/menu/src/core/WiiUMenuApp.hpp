@@ -29,6 +29,7 @@
 #include "widgets/ProfileCarouselScreen.hpp"
 #include "widgets/ProfileLockButton.hpp"
 #include "widgets/NotificationBell.hpp"
+#include "widgets/NotificationPanel.hpp"
 #include "widgets/FolderBackdrop.hpp"
 #include "widgets/SteamGridDbBackdrop.hpp"
 #include "widgets/FolderZoom.hpp"
@@ -591,6 +592,7 @@ private:
     std::shared_ptr<nxui::Box> m_rightSidebar;
     std::shared_ptr<ProfileLockButton> m_profileLock;
     std::shared_ptr<NotificationBell> m_bell;   // next to the profile tile
+    std::shared_ptr<NotificationPanel> m_notifPanel; // what it opens
     std::shared_ptr<nxui::Box> m_hudLeft;       // the two of them, in the HUD row
     std::shared_ptr<FolderBackdrop> m_folderBackdrop;
     std::shared_ptr<SteamGridDbBackdrop> m_steamGridDbBackdrop;

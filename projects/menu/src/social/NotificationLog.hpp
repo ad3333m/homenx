@@ -92,6 +92,18 @@ inline int unreadCount() {
     return n;
 }
 
+// A Discord notification's chat ("discord/<channel>/<server>", server 0 for a DM).
+inline bool discordTarget(const Item& it, std::uint64_t& channel, std::uint64_t& guild) {
+    channel = guild = 0;
+    if (it.kind.rfind("discord", 0) != 0) return false;
+    const std::size_t a = it.kind.find('/');
+    if (a == std::string::npos) return true; // an older line: Discord, no chat
+    char* end = nullptr;
+    channel = std::strtoull(it.kind.c_str() + a + 1, &end, 10);
+    if (end && *end == '/') guild = std::strtoull(end + 1, nullptr, 10);
+    return true;
+}
+
 inline void clear() {
     std::remove(kPath);
 }

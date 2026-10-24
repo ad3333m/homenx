@@ -1,5 +1,6 @@
 #include "TabBuilders.hpp"
 #include "core/FontChoice.hpp"
+#include "core/PointerSetting.hpp"
 #include <nxui/core/I18n.hpp>
 #include <algorithm>
 #include <filesystem>
@@ -90,6 +91,23 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
              i18n.tr("settings.homenx.font_overlay_desc",
                      "The font for the Discord overlay in games. It changes the next time the overlay starts "
                      "(after a restart)."));
+    {
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.pointer", "Pointer (L3)");
+        it.description = i18n.tr("settings.homenx.pointer_desc",
+            "What pressing L3 turns on. Motion: tilt the controller. Left stick: the stick moves the pointer "
+            "(it stops moving the selection until L3 again). A clicks, R3 centres it.");
+        it.type = ItemType::Selector;
+        it.options = {i18n.tr("settings.homenx.pointer_off", "Off"),
+                      i18n.tr("settings.homenx.pointer_gyro", "Motion (gyro)"),
+                      i18n.tr("settings.homenx.pointer_stick", "Left stick")};
+        it.intVal = pointersetting::read();
+        it.onChange = [&screen](SettingItem& self) {
+            pointersetting::write(self.intVal);
+            if (screen.m_pointerModeCb) screen.m_pointerModeCb(self.intVal);
+        };
+        t.items.push_back(std::move(it));
+    }
     {
         SettingItem it;
         it.label = i18n.tr("settings.homenx.custom_app", "Custom button: app");

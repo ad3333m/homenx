@@ -351,18 +351,21 @@ def hekate_button():
     return im
 
 
-def updater_button():
-    # green tile with a white download arrow into a tray (HomeNX Updater: app + sidebar button)
+def manager_button():
+    # Homebrew Manager (app + sidebar button): an indigo tile, three app tiles
+    # and a fourth that's an update arrow in a circle
     im = canvas(); d = ImageDraw.Draw(im)
-    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(18, 128, 84))
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(70, 66, 196))
     top = canvas()
-    ImageDraw.Draw(top).rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(34, 168, 110))
+    ImageDraw.Draw(top).rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(98, 94, 232))
     half = top.crop((0, 0, N, p(256)))
     im.paste(half, (0, 0), half)
-    d.rounded_rectangle([p(226), p(120), p(286), p(300)], radius=p(14), fill="white")  # shaft
-    d.polygon([(p(166), p(250)), (p(346), p(250)), (p(256), p(346))], fill="white")   # head
-    d.rounded_rectangle([p(140), p(330), p(372), p(386)], radius=p(18), outline="white", width=p(22))  # tray
-    d.rectangle([p(170), p(326), p(342), p(352)], fill=(18, 128, 84))
+    for x, y in [(136, 136), (272, 136), (136, 272)]:
+        d.rounded_rectangle([p(x), p(y), p(x + 104), p(y + 104)], radius=p(26), fill="white")
+    d.ellipse([p(268), p(268), p(380), p(380)], fill="white")
+    ink = (70, 66, 196)
+    d.rounded_rectangle([p(313), p(290), p(335), p(336)], radius=p(6), fill=ink)       # shaft
+    d.polygon([(p(292), p(326)), (p(356), p(326)), (p(324), p(360))], fill=ink)         # head
     return im
 
 
@@ -373,8 +376,8 @@ if __name__ == "__main__":
     save(storage(), "romfs/icons/storage.png")
     save(toggle_button(), "romfs/icons/toggle.png")
     save(hekate_button(), "romfs/icons/hekate.png")
-    save(updater_button(), "romfs/icons/updater.png")
-    _u = updater_button(); _bg = Image.new("RGB", _u.size, (10, 14, 24)); _bg.paste(_u, (0, 0), _u)
+    save(manager_button(), "romfs/icons/manager.png")
+    _u = manager_button(); _bg = Image.new("RGB", _u.size, (10, 14, 24)); _bg.paste(_u, (0, 0), _u)
     _bg.resize((256, 256), Image.LANCZOS).save("projects/updater/icon.jpg", quality=95)  # the .nro's icon
     for name, fn in [("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
         save(fn(), f"romfs/icons/{name}.png")

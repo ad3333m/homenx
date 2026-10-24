@@ -1,6 +1,7 @@
 #include "WiiUMenuApp.hpp"
 #include "FontChoice.hpp"
 #include "social/NotificationLog.hpp"
+#include "PointerSetting.hpp"
 #include <switchu/sd_commit.hpp>
 #include "widgets/GlossyIcon.hpp"
 #include "widgets/FolderPalette.hpp"
@@ -633,6 +634,7 @@ bool WiiUMenuApp::hasActiveLeaveCaptureOverlay() const {
         || (m_profileCarousel && m_profileCarousel->isActive())
         || (m_steamGridDbPicker && m_steamGridDbPicker->isActive())
         || (m_discordPanel && m_discordPanel->isActive())
+        || (m_notifPanel && m_notifPanel->isActive())
         || (m_social && m_social->isActive());
 }
 
@@ -949,6 +951,7 @@ bool WiiUMenuApp::onCreate() {
     }
     loadCustomNames();
     nxui::GlassPanel::setPerformanceMode(!m_config.glassEffects);
+    app().input().setPointerMode(static_cast<nxui::Input::PointerMode>(pointersetting::read()));
     m_appLoader.setPendingTransform([this](std::vector<PendingApp>& apps) {
         for (auto& app : apps) {
             auto it = m_customNames.find(app.titleId);
@@ -1560,9 +1563,13 @@ void WiiUMenuApp::confirmRebootToHekate() {
     auto& i18n = nxui::I18n::instance();
     m_audio.playSfx(Sfx::ModalShow);
     m_dialogReturnFocus = focusManager().current();
-    m_dialog->show(i18n.tr("power.hekate", "Restart to hekate"),
-                   i18n.tr("power.hekate_confirm", "The console restarts into hekate. Anything open closes."),
-                   {{i18n.tr("power.hekate_go", "Restart"), [this]() { startRebootToHekate(); }, true},
+    m_dialog->show(i18n.tr("power.hekate", "Reboot to Hekate"),
+                   AppletLauncher::canRebootToPayload()
+                       ? i18n.tr("power.hekate_confirm", "The console restarts into Hekate's menu. Anything open closes.")
+                       : i18n.tr("power.hekate_mariko",
+                                 "This Switch model can't restart into a payload (only the first, unpatched model "
+                                 "can). It restarts normally; Hekate shows if your modchip starts it without autoboot."),
+                   {{i18n.tr("power.hekate_go", "Reboot"), [this]() { startRebootToHekate(); }, true},
                     {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
                    0, {});
     focusManager().setFocus(m_dialog.get());
@@ -1574,7 +1581,7 @@ void WiiUMenuApp::startRebootToHekate() {
     if (!m_dialog) return;
     auto& i18n = nxui::I18n::instance();
     const bool missing = AppletLauncher::hekatePayload().empty();
-    m_dialog->show(i18n.tr("power.hekate", "Restart to hekate"),
+    m_dialog->show(i18n.tr("power.hekate", "Reboot to Hekate"),
                    missing ? i18n.tr("power.hekate_missing",
                                      "hekate isn't on the SD card: HomeNX looks for sdmc:/bootloader/update.bin "
                                      "and sdmc:/atmosphere/reboot_payload.bin.")
@@ -1662,57 +1669,53 @@ void WiiUMenuApp::wireProfileLockNavigation() {
     }
 }
 
-// The bell: everything HOME and the Discord overlay told you lately (see
-// social/NotificationLog.hpp), newest first. Opening it marks them seen.
+// The bell: the notification centre (widgets/NotificationPanel), dropping down
+// from it. A on a Discord message opens its chat.
 void WiiUMenuApp::openNotifications() {
-    if (!m_dialog) return;
-    auto& i18n = nxui::I18n::instance();
-    // Discord's emoji marks (U+F0000 and up: 4-byte UTF-8 from 0xF3) aren't letters here.
-    auto plain = [](const std::string& s) {
-        std::string out;
-        for (std::size_t i = 0; i < s.size(); ++i) {
-            if (static_cast<unsigned char>(s[i]) >= 0xF3) { i += 3; continue; }
-            out += s[i];
-        }
-        if (out.size() <= 70) return out;
-        std::size_t cut = 67;
-        while (cut > 0 && (static_cast<unsigned char>(out[cut]) & 0xC0) == 0x80) --cut; // not mid-letter
-        return out.substr(0, cut) + "...";
-    };
-    auto ago = [&i18n](std::uint64_t at) {
-        const std::uint64_t now = static_cast<std::uint64_t>(std::time(nullptr));
-        const std::uint64_t s = now > at ? now - at : 0;
-        if (s < 60) return i18n.tr("notifications.now", "just now");
-        if (s < 3600) return std::to_string(s / 60) + " " + i18n.tr("notifications.min", "min ago");
-        if (s < 86400) return std::to_string(s / 3600) + " " + i18n.tr("notifications.hours", "h ago");
-        return std::to_string(s / 86400) + " " + i18n.tr("notifications.days", "d ago");
-    };
-    const std::uint64_t seen = notifications::seenAt();
-    const auto items = notifications::recent(8);
-    std::string body;
-    for (const auto& it : items) {
-        const std::string kind = it.kind == "discord" ? "Discord" : it.kind == "battery" ? i18n.tr("notifications.battery", "Battery") : it.kind;
-        body += std::string(body.empty() ? "" : "\n") + (it.at > seen ? "* " : "") + kind + " - " + plain(it.title)
-              + ": " + plain(it.text) + "  (" + ago(it.at) + ")";
-    }
-    if (body.empty())
-        body = i18n.tr("notifications.empty",
-                       "Nothing yet. Discord messages (in HOME and in games) and low controller batteries show up here.");
-    notifications::markSeen();
-    if (m_bell) m_bell->setUnread(0);
-
-    std::vector<OverlayDialog::ButtonDef> buttons;
-    if (!items.empty())
-        buttons.push_back({i18n.tr("notifications.clear", "Clear all"), [this]() {
-            notifications::clear();
+    if (m_editMode || (m_dialog && m_dialog->isActive()) || (m_discordPanel && m_discordPanel->isActive()))
+        return;
+    if (!m_notifPanel) {
+        m_notifPanel = std::make_shared<NotificationPanel>();
+        m_notifPanel->setFonts(&m_fontNormal, &m_fontSmall);
+        NotificationPanel::Callbacks cb;
+        cb.onClosed = [this]() {
+            m_audio.playSfx(Sfx::ModalHide);
+            if (m_bell && isCurrentFocusableWidget(m_bell.get())) focusManager().setFocus(m_bell.get());
+            updateCursor();
+        };
+        cb.onOpen = [this](const notifications::Item& it) {
+            std::uint64_t channel = 0, guild = 0;
+            if (!notifications::discordTarget(it, channel, guild)) return;
+            openDiscordPanel();
+            if (channel && m_discordPanel && m_discordPanel->isOpen())
+                m_discordPanel->openChat(channel, guild, it.title, std::string());
+        };
+        cb.onNavigate = [this]() { m_audio.playSfx(Sfx::Navigate); };
+        cb.onCleared = [this]() {
             m_audio.playSfx(Sfx::ToggleOff);
-        }, true});
-    buttons.push_back({i18n.tr("button.ok", "OK"), [] {}, true});
-    const int ok = static_cast<int>(buttons.size()) - 1;
+            if (m_bell) m_bell->setUnread(0);
+        };
+        m_notifPanel->setCallbacks(std::move(cb));
+        if (m_overlayLayer) {
+            m_overlayLayer->addChild(m_notifPanel);
+            // Dialogs, the launch card and the pointer stay above it.
+            for (const auto& overlay : {std::static_pointer_cast<nxui::Widget>(m_dialog),
+                                       std::static_pointer_cast<nxui::Widget>(m_progressDialog),
+                                       std::static_pointer_cast<nxui::Widget>(m_launchAnim),
+                                       std::static_pointer_cast<nxui::Widget>(m_pointerCursor)}) {
+                if (!overlay) continue;
+                m_overlayLayer->removeChild(overlay.get());
+                m_overlayLayer->addChild(overlay);
+            }
+        }
+    }
+    m_notifPanel->setTheme(&m_theme);
     m_dialogReturnFocus = m_bell ? static_cast<nxui::Widget*>(m_bell.get()) : focusManager().current();
+    m_notifPanel->show();
+    if (m_bell) m_bell->setUnread(0);
+    focusManager().setFocus(m_notifPanel.get());
+    if (m_cursor) m_cursor->setVisible(false);
     m_audio.playSfx(Sfx::ModalShow);
-    m_dialog->show(i18n.tr("notifications.title", "Notifications"), body, std::move(buttons), ok, {});
-    focusManager().setFocus(m_dialog.get());
 }
 
 void WiiUMenuApp::loadNextProfile() {
@@ -4978,7 +4981,7 @@ void WiiUMenuApp::buildGrid() {
     sidebarActions.onToggle = [this]() { openToggle(); };
     sidebarActions.onHekate = [this]() { confirmRebootToHekate(); };
     sidebarActions.onUpdater = [this]() {
-        openBundledApp("sdmc:/switch/HomeNX-Updater/HomeNX-Updater.nro", "HomeNX Updater");
+        openBundledApp("sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro", "Homebrew Manager");
     };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
@@ -5054,7 +5057,7 @@ void WiiUMenuApp::buildGrid() {
                     app().requestExit();
 #endif
                 }, true},
-                {i18n.tr("power.hekate", "Restart to hekate"), [this]() { startRebootToHekate(); }, true}
+                {i18n.tr("power.hekate", "Reboot to Hekate"), [this]() { startRebootToHekate(); }, true}
             },
             0,
             {}
@@ -6517,10 +6520,13 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         && !(m_userSelect && m_userSelect->isActive())
         && !(m_progressDialog && m_progressDialog->isActive())
         && !(m_discordPanel && m_discordPanel->isActive())
+        && !(m_notifPanel && m_notifPanel->isActive())
         && !(m_social && m_social->isActive()))
     {
         handleTouch();
     }
+    if (m_notifPanel && m_notifPanel->isOpen())
+        m_notifPanel->handleTouch(app().input());
     // HomeNX: the Discord panel takes taps and drags; a tap beside it closes it.
     if (m_discordPanel && m_discordPanel->isActive() && !(m_textEntry && m_textEntry->isActive()))
         m_discordPanel->handleTouch(app().input());

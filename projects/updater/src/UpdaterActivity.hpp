@@ -38,6 +38,16 @@ private:
     void startUpdate(std::vector<int> which);
     void move(int delta);
     void draw(nxui::Renderer& r);
+    // The selected app's menu (A): open it, update it, delete it.
+    enum class Action { Open, Update, Delete, ConfirmDelete, Cancel };
+    std::vector<std::pair<Action, std::string>> menuFor(int index) const;
+    void runAction(Action action);
+    void openApp(const App& app);
+    void deleteApp(int index);
+    void drawMenu(nxui::Renderer& r);
+    int m_menuFor = -1;         // the app whose menu is open (-1 = none)
+    int m_menuSel = 0;
+    bool m_confirmDelete = false;
 
     nxui::Theme m_theme = nxui::Theme::dark();
     nxui::Font m_title, m_body, m_small;

@@ -1002,6 +1002,16 @@ static void startPowerSequence(const char* source, smi::SystemMessage action) {
         case smi::SystemMessage::Reboot:
             requestPowerStateChange(source, true);
             break;
+        case smi::SystemMessage::RebootToPayload: {
+            // Through am: Atmosphère's bpc mitm only sends reboots from am (omm
+            // on 14.0.0+), fatal and hbl to the payload set with bpc:ams. spsm's
+            // (requestPowerStateChange) are plain restarts.
+            const Result rc = appletStartRebootSequence();
+            switchu::FileLog::logCommit("[power] %s am reboot rc=0x%X", source, rc);
+            if (R_FAILED(rc))
+                requestPowerStateChange(source, true);
+            break;
+        }
         default:
             break;
     }
@@ -1692,6 +1702,10 @@ static bool handleMenuCommand() {
 
     case smi::SystemMessage::Reboot:
         startPowerSequence("smi-reboot", smi::SystemMessage::Reboot);
+        break;
+
+    case smi::SystemMessage::RebootToPayload:
+        startPowerSequence("smi-reboot-payload", smi::SystemMessage::RebootToPayload);
         break;
 
     case smi::SystemMessage::RequestForeground:

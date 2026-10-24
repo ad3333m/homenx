@@ -291,8 +291,8 @@ void AppletLauncher::installBundledApps() {
     static const struct { const char* source; const char* dir; const char* target; } kApps[] = {
         {"sdmc:/switch/SwitchU/bin/homenx-toggle.nro", "sdmc:/switch/HomeNX-Toggle",
          "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro"},
-        {"sdmc:/switch/SwitchU/bin/homenx-updater.nro", "sdmc:/switch/HomeNX-Updater",
-         "sdmc:/switch/HomeNX-Updater/HomeNX-Updater.nro"},
+        {"sdmc:/switch/SwitchU/bin/homebrew-manager.nro", "sdmc:/switch/Homebrew-Manager",
+         "sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro"},
         // Discord over games: a Tesla/Ultrahand overlay.
         {"sdmc:/switch/SwitchU/bin/homenx-discord.ovl", "sdmc:/switch/.overlays",
          "sdmc:/switch/.overlays/homenx-discord.ovl"},
@@ -315,6 +315,11 @@ void AppletLauncher::installBundledApps() {
         if (fb) std::fclose(fb);
         return same;
     };
+    { // the Homebrew Manager's first name: HomeNX Updater
+        std::error_code ec;
+        std::filesystem::remove_all("sdmc:/switch/HomeNX-Updater", ec);
+        std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-updater.nro", ec);
+    }
     for (const auto& app : kApps) {
         std::error_code ec;
         if (!std::filesystem::exists(app.source, ec)) continue;
@@ -840,6 +845,14 @@ bool AppletLauncher::rebootToHekate() {
     const size_t got = std::fread(payload, 1, sizeof(payload), f);
     std::fclose(f);
     if (got == 0) return false;
+    // hekate's boot storage (0x94 boot_cfg, 0x95 autoboot): Force AutoBoot with
+    // entry 0 opens its menu instead of the ini's autoboot straight back into
+    // Atmosphère. Only when that storage is empty, as a hekate binary ships it
+    // (anything there is some other payload's code).
+    if (got > 0x98 && !payload[0x94] && !payload[0x95] && !payload[0x96] && !payload[0x97]) {
+        payload[0x94] = 0x01;
+        payload[0x95] = 0x00;
+    }
     // Atmosphère's own port (not in libnx): command 65001 takes the payload.
     Handle port = 0;
     Result rc = svcConnectToNamedPort(&port, "bpc:ams");
@@ -854,13 +867,27 @@ bool AppletLauncher::rebootToHekate() {
     }
     DebugLog::log("[launcher] hekate payload %s (%u bytes) rc=0x%X", path.c_str(), (unsigned)got, rc);
     if (R_FAILED(rc)) return false;
+    // The payload is only used for reboots Atmosphère sees from am, fatal or
+    // hbl: the daemon (the system applet) asks am; the .nro build is hbl itself.
 #ifdef SWITCHU_MENU
-    reboot();
+    if (!preparePowerAction()) return false;
+    rc = switchu::menu::smi_cmd::rebootToPayload();
+    DebugLog::log("[launcher] reboot to payload rc=0x%X", rc);
+    return R_SUCCEEDED(rc);
 #else
-    if (R_SUCCEEDED(spsmInitialize())) {
-        spsmShutdown(true);
-        spsmExit();
+    if (R_SUCCEEDED(bpcInitialize())) {
+        bpcRebootSystem();
+        bpcExit();
     }
-#endif
     return true;
+#endif
+}
+
+bool AppletLauncher::canRebootToPayload() {
+    SetSysProductModel model = SetSysProductModel_Invalid;
+    if (R_SUCCEEDED(setsysInitialize())) {
+        setsysGetProductModel(&model);
+        setsysExit();
+    }
+    return model == SetSysProductModel_Nx || model == SetSysProductModel_Invalid; // unknown: try
 }

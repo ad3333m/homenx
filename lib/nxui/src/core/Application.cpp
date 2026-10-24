@@ -213,6 +213,8 @@ void Application::dispatchInput() {
 
 void Application::run() {
     uint64_t prevTick = armGetSystemTick();
+    float idleSeconds = 0.f;
+    bool skipIdleFrame = false;
 
     while (m_running) {
         uint64_t nowTick = armGetSystemTick();
@@ -234,6 +236,12 @@ void Application::run() {
         }
 
         m_input.update();
+        if (m_input.hasUserActivity()) {
+            idleSeconds = 0.f;
+            skipIdleFrame = false;
+        } else {
+            idleSeconds += dt;
+        }
         dispatchInput();
 
         if (m_activity) {
@@ -245,9 +253,17 @@ void Application::run() {
             m_activity->m_rootBox->update(dt);
 
             if (m_renderEnabled) {
-                // Always 60 Hz: HomeNX's menus keep moving with no input (the
-                // open game's glow, the music bar, the clock), and presenting
-                // every other frame after 2 s idle made them run at 30 Hz.
+                // Static menus do not need a full GPU submission at 60 Hz.
+                // Keep input/update responsive, but present every other frame
+                // after the UI has been idle long enough for transitions to
+                // settle. Any new input immediately restores 60 Hz.
+                if (idleSeconds >= 2.f) {
+                    skipIdleFrame = !skipIdleFrame;
+                    if (skipIdleFrame) {
+                        svcSleepThread(16'000'000ULL);
+                        continue;
+                    }
+                }
                 m_gpu.beginFrame();
                 m_renderer->beginFrame();
                 m_activity->m_rootBox->render(*m_renderer);

@@ -17,8 +17,8 @@
 namespace updater {
 namespace {
 
-constexpr const char* kUserAgent = "HomeNX-Updater";
-constexpr const char* kTmpZip = "sdmc:/switch/.homenx-updater.zip";
+constexpr const char* kUserAgent = "HomeNX-Homebrew-Manager";
+constexpr const char* kTmpZip = "sdmc:/switch/.homebrew-manager.zip";
 
 // GitHub projects for well-known homebrew, by their NACP name squashed to
 // lowercase letters and digits.

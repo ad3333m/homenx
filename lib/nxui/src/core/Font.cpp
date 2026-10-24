@@ -198,6 +198,7 @@ bool Font::renderTo(Renderer& ren, const std::string& text, Texture& out) {
     SDL_FreeSurface(surface);
     if (!rgba) return false;
     SDL_LockSurface(rgba);
+    GpuDevice::EssentialScope essential; // text: may use the reserve
     const bool ok = out.loadFromSurface(*m_gpu, ren, static_cast<const uint8_t*>(rgba->pixels),
                                         rgba->w, rgba->h, rgba->pitch);
     SDL_UnlockSurface(rgba);
@@ -248,6 +249,7 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
     entry.key = text;
     entry.w = w;
     entry.h = h;
+    GpuDevice::EssentialScope essential; // text: may use the reserve
     if (!entry.tex.loadFromSurface(gpu, ren, pixels, w, h, pitch)) {
         m_lruList.pop_front();
         m_maintenanceRequested = true;

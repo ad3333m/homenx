@@ -145,6 +145,16 @@ public:
     // well below that process ceiling so CPU-side decodes, audio and Deko's
     // fixed framebuffer/offscreen pools retain comfortable headroom.
     static constexpr uint64_t kDefaultImageBudget = 64u * 1024u * 1024u;
+    // HomeNX: the last 8 MiB of the budget only go to what a screen can't do
+    // without: text (the clock too) and app icons, uploaded inside an
+    // EssentialScope. Other pictures (artwork, news, Discord) are refused
+    // first, so they can't starve the text cache. When they did, it evicted and
+    // re-rendered labels every frame behind a GPU wait: lag and blank text.
+    static constexpr uint64_t kEssentialReserve = 8u * 1024u * 1024u;
+    struct EssentialScope {
+        EssentialScope() { ++s_essential; }
+        ~EssentialScope() { --s_essential; }
+    };
     uint64_t imageMemoryUsed() const { return m_imageMemUsed; }
     uint64_t imageMemoryBudget() const { return kDefaultImageBudget; }
     uint64_t imageMemoryAvailable() const {
@@ -184,6 +194,7 @@ public:
     uint64_t imageMemoryUsed() const { return 0; }
     uint64_t imageMemoryBudget() const { return UINT64_MAX; }
     uint64_t imageMemoryAvailable() const { return UINT64_MAX; }
+    struct EssentialScope {}; // no budget here
 #endif
 
 private:
@@ -243,6 +254,8 @@ private:
     uint64_t m_imageMemUsed = 0;
     uint64_t m_poolMemUsed  = 0;
     static inline LogSink s_logSink = nullptr;
+    static inline thread_local int s_essential = 0;
+    uint64_t imageReserve() const { return s_essential ? 0 : kEssentialReserve; }
 
     static constexpr uint32_t kImageChunkSize = 2u * 1024u * 1024u;
     struct ImagePoolChunk {

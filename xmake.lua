@@ -328,9 +328,10 @@ target("SwitchU-Manager")
     set_values("switch.format",  "nro")
 target_end()
 
--- HomeNX Updater: updates the .nro apps on the SD card (GitHub releases, HB App
--- Store). The frontend ships it in switch/SwitchU/bin; HOME copies it out.
-target("HomeNX-Updater")
+-- Homebrew Manager: the .nro apps on the SD card, updated (GitHub releases, HB
+-- App Store), opened or deleted. The frontend ships it in switch/SwitchU/bin;
+-- HOME copies it out.
+target("Homebrew-Manager")
     set_kind("binary")
     if not is_plat("cross") then return end
 
@@ -367,7 +368,7 @@ target("HomeNX-Updater")
         os.cp(path.join(os.projectdir(), "projects/updater/icon.jpg"), romfs_dir) -- header icon
     end)
 
-    set_values("switch.name",    "HomeNX-Updater")
+    set_values("switch.name",    "Homebrew Manager")
     set_values("switch.author",  "Adam")
     set_values("switch.version", version)
     set_values("switch.romfs",   "build/updater-romfs")

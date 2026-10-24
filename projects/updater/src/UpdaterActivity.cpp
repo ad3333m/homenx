@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <functional>
+#include <system_error>
 
 namespace updater {
 namespace {
@@ -66,7 +68,7 @@ void UpdaterActivity::startCheck() {
     if (m_busy) return;
     if (m_worker.joinable()) m_worker.join();
     m_items.clear();
-    for (App& a : scanApps("sdmc:/switch/HomeNX-Updater/HomeNX-Updater.nro")) {
+    for (App& a : scanApps("sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro")) {
         Item it;
         it.app = std::move(a);
         if (!it.app.icon.empty()) {
@@ -153,31 +155,50 @@ void UpdaterActivity::onUpdate(float dt) {
     }
 
     auto& in = app().input();
-    // Up / down, repeating while held.
+    // Up / down, repeating while held: the list, or the open menu.
+    auto step = [this](int delta) {
+        if (m_menuFor < 0) {
+            move(delta);
+            return;
+        }
+        const int n = static_cast<int>(menuFor(m_menuFor).size());
+        m_menuSel = std::clamp(m_menuSel + delta, 0, n - 1);
+    };
     const bool up = in.isHeld(nxui::Button::DUp) || in.isHeld(nxui::Button::LStickU);
     const bool down = in.isHeld(nxui::Button::DDown) || in.isHeld(nxui::Button::LStickD);
     if (in.isDown(nxui::Button::DUp) || in.isDown(nxui::Button::LStickU)) {
-        move(-1);
+        step(-1);
         m_repeat = 0.35f;
     } else if (in.isDown(nxui::Button::DDown) || in.isDown(nxui::Button::LStickD)) {
-        move(+1);
+        step(+1);
         m_repeat = 0.35f;
     } else if (up || down) {
         if ((m_repeat -= dt) <= 0.f) {
-            move(up ? -1 : 1);
+            step(up ? -1 : 1);
             m_repeat = 0.08f;
         }
+    }
+    if (m_menuFor >= 0) {
+        if (in.isDown(nxui::Button::B)) {
+            m_menuFor = -1;
+            m_confirmDelete = false;
+        } else if (in.isDown(nxui::Button::A)) {
+            const auto items = menuFor(m_menuFor);
+            if (m_menuSel < static_cast<int>(items.size())) runAction(items[(size_t)m_menuSel].first);
+        }
+        return;
     }
     if (in.isDown(nxui::Button::B) || in.isDown(nxui::Button::Plus)) {
         if (!m_busy || m_updating < 0) app().requestExit();
         return;
     }
-    if (m_busy) return;
-    if (in.isDown(nxui::Button::A) && m_sel < (int)m_items.size()) {
-        const Row row = m_items[(size_t)m_sel].row;
-        if (row == Row::Update || row == Row::Failed || row == Row::UpToDate) // up to date: install it again
-            if (!m_items[(size_t)m_sel].app.downloadUrl.empty()) startUpdate({m_sel});
+    if (in.isDown(nxui::Button::A) && m_sel < (int)m_items.size() && m_updating < 0) {
+        m_menuFor = m_sel;
+        m_menuSel = 0;
+        m_confirmDelete = false;
+        return;
     }
+    if (m_busy) return;
     if (in.isDown(nxui::Button::X)) {
         std::vector<int> all;
         for (int i = 0; i < (int)m_items.size(); ++i)
@@ -189,6 +210,92 @@ void UpdaterActivity::onUpdate(float dt) {
 
 void UpdaterActivity::onRender(nxui::Renderer&) {}
 
+std::vector<std::pair<UpdaterActivity::Action, std::string>> UpdaterActivity::menuFor(int index) const {
+    const Item& it = m_items[(size_t)index];
+    if (m_confirmDelete)
+        return {{Action::ConfirmDelete, "Delete " + it.app.name}, {Action::Cancel, "Keep it"}};
+    std::vector<std::pair<Action, std::string>> out{{Action::Open, "Open"}};
+    if (!m_busy && !it.app.downloadUrl.empty())
+        out.push_back({Action::Update, it.row == Row::Update ? "Update to " + it.app.latest
+                                                              : "Reinstall " + (it.app.latest.empty() ? it.app.version
+                                                                                                      : it.app.latest)});
+    if (!m_busy) out.push_back({Action::Delete, "Delete"});
+    out.push_back({Action::Cancel, "Cancel"});
+    return out;
+}
+
+void UpdaterActivity::runAction(Action action) {
+    const int index = m_menuFor;
+    m_menuFor = -1;
+    if (index < 0 || index >= static_cast<int>(m_items.size())) return;
+    switch (action) {
+        case Action::Open: openApp(m_items[(size_t)index].app); break;
+        case Action::Update: startUpdate({index}); break;
+        case Action::Delete: // asked again, with "Keep it" chosen to start with
+            m_menuFor = index;
+            m_menuSel = 1;
+            m_confirmDelete = true;
+            break;
+        case Action::ConfirmDelete:
+            m_confirmDelete = false;
+            deleteApp(index);
+            break;
+        case Action::Cancel: m_confirmDelete = false; break;
+    }
+}
+
+// The app replaces this one, the way hbmenu starts it.
+void UpdaterActivity::openApp(const App& a) {
+    if (!envHasNextLoad()) {
+        m_status = "Apps can't be opened from here: start the Homebrew Manager from HOME or the homebrew menu.";
+        return;
+    }
+    const std::string args = "\"" + a.path + "\"";
+    envSetNextLoad(a.path.c_str(), args.c_str());
+    app().requestExit();
+}
+
+// The .nro goes, and its own folder too once that's empty (never sdmc:/switch).
+void UpdaterActivity::deleteApp(int index) {
+    if (m_busy) return;
+    const std::string path = m_items[(size_t)index].app.path, name = m_items[(size_t)index].app.name;
+    std::error_code ec;
+    if (!std::filesystem::remove(path, ec) || ec) {
+        m_status = "Couldn't delete " + name + (ec ? " (" + ec.message() + ")." : ".");
+        return;
+    }
+    const std::filesystem::path dir = std::filesystem::path(path).parent_path();
+    if (dir.filename() != "switch" && std::filesystem::is_empty(dir, ec) && !ec)
+        std::filesystem::remove(dir, ec);
+    m_status = name + " deleted.";
+    m_items.erase(m_items.begin() + index);
+    m_sel = std::clamp(m_sel, 0, std::max(0, static_cast<int>(m_items.size()) - 1));
+}
+
+void UpdaterActivity::drawMenu(nxui::Renderer& r) {
+    const auto items = menuFor(m_menuFor);
+    const nxui::Color text = m_theme.textPrimary, muted = m_theme.textSecondary, accent = m_theme.cursorNormal;
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f));
+    const float w = 520.f, rowH = 58.f, h = 84.f + rowH * items.size();
+    const nxui::Rect panel{(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h};
+    r.drawRoundedRect(panel, nxui::Color(0.09f, 0.11f, 0.19f, 0.98f), 24.f);
+    r.drawRoundedRectOutline(panel, nxui::Color(1.f, 1.f, 1.f, 0.12f), 24.f, 1.5f);
+    const std::string title = m_confirmDelete ? "Delete it from the SD card?" : m_items[(size_t)m_menuFor].app.name;
+    r.drawText(fit(m_body, title, w - 48.f, 1.f), {panel.x + 24.f, panel.y + 20.f}, &m_body, m_confirmDelete ? muted : text);
+    for (size_t i = 0; i < items.size(); ++i) {
+        const nxui::Rect row{panel.x + 16.f, panel.y + 66.f + rowH * i, w - 32.f, rowH - 8.f};
+        const bool sel = static_cast<int>(i) == m_menuSel;
+        const bool danger = items[i].first == Action::Delete || items[i].first == Action::ConfirmDelete;
+        const nxui::Color tint = danger ? nxui::Color(0.95f, 0.35f, 0.35f, 1.f) : accent;
+        if (sel) {
+            r.drawRoundedRect(row, tint.withAlpha(0.2f), 14.f);
+            r.drawRoundedRectOutline(row, tint, 14.f, 2.f);
+        }
+        r.drawText(fit(m_body, items[i].second, row.width - 32.f, 0.9f), {row.x + 16.f, row.y + 12.f}, &m_body,
+                   danger ? tint : text, 0.9f);
+    }
+}
+
 void UpdaterActivity::draw(nxui::Renderer& r) {
     const nxui::Color text = m_theme.textPrimary, muted = m_theme.textSecondary, accent = m_theme.cursorNormal;
     r.drawGradientRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.035f, 0.045f, 0.085f, 1.f),
@@ -196,7 +303,7 @@ void UpdaterActivity::draw(nxui::Renderer& r) {
 
     // Header: icon, title, what's going on.
     if (m_appIcon.valid()) r.drawTextureRounded(&m_appIcon, {60.f, 34.f, 64.f, 64.f}, 16.f);
-    r.drawText("Homebrew Updater", {140.f, 34.f}, &m_title, text);
+    r.drawText("Homebrew Manager", {140.f, 34.f}, &m_title, text);
     int updates = 0;
     for (const Item& it : m_items) updates += it.row == Row::Update ? 1 : 0;
     std::string status = m_status;
@@ -264,8 +371,11 @@ void UpdaterActivity::draw(nxui::Renderer& r) {
         r.popClipRect();
     }
 
-    r.drawText(m_busy ? "B  Exit" : "A  Update     X  Update all     Y  Check again     B  Exit", {60.f, 662.f}, &m_small,
-               muted);
+    r.drawText(m_menuFor >= 0 ? "A  Choose     B  Back"
+               : m_busy ? "A  Open     B  Exit"
+                        : "A  Open, update or delete     X  Update all     Y  Check again     B  Exit",
+               {60.f, 662.f}, &m_small, muted);
+    if (m_menuFor >= 0) drawMenu(r);
 }
 
 } // namespace updater

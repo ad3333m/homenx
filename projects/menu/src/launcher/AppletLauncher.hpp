@@ -52,6 +52,8 @@ public:
     // HomeNX: restart into hekate (its payload handed to Atmosphère first).
     // The payload used ("" when there's none), and false if it couldn't start.
     static std::string hekatePayload();
+    // Erista (the first Switch) only: newer ones can't boot a payload from a reboot.
+    static bool canRebootToPayload();
     bool rebootToHekate();
 
     // Ask for the launch without closing the menu (the launch card keeps playing
