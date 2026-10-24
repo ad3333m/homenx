@@ -145,7 +145,9 @@ jobs:
           # The Toggle ships inside HomeNX's folder and the menu copies it into
           # switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
           mv dist/frontend/switch/HomeNX-Toggle/HomeNX-Toggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro
-          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader
+          # The Updater too: the menu copies it into switch/HomeNX-Updater/.
+          mv dist/frontend/switch/HomeNX-Updater/HomeNX-Updater.nro dist/frontend/switch/SwitchU/bin/homenx-updater.nro
+          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader dist/frontend/switch/HomeNX-Updater
           # HomeNX Toggle reads this to know which frontend build is installed.
           echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out

@@ -26,7 +26,8 @@ public:
         kButtonMiiMaker = 13, // HomeNX: Social > Miis, HomeNX's own Mii Maker
         kButtonToggle = 14,   // HomeNX: opens HomeNX Toggle (updates, turning HomeNX off)
         kButtonHekate = 15,   // HomeNX: restarts into hekate
-        kButtonCount = 16,
+        kButtonUpdater = 16,  // HomeNX: opens HomeNX Updater (updates the SD card's .nro apps)
+        kButtonCount = 17,
         kSlotCount = 10,
     };
     using Order = std::array<int, kSlotCount>; // left column top-down, then right
@@ -52,6 +53,7 @@ public:
         std::function<void()> onMiiMaker;
         std::function<void()> onToggle;
         std::function<void()> onHekate;
+        std::function<void()> onUpdater;
     };
 
     void build(nxui::GpuDevice& gpu, nxui::Renderer& ren,

@@ -759,8 +759,6 @@ void SocialScreen::showProfilePage() {
 
 void SocialScreen::startEdit(int index) {
     if (index < 0 || index >= (int)m_miis.size()) return;
-    if (m_editFace && m_gpu) m_gpu->waitIdle(); // the last preview may still be drawing
-    m_editFace.reset();
     m_editing = true;
     m_edit = m_miis[(size_t)index];
     m_editOriginal = m_edit;
@@ -773,12 +771,23 @@ void SocialScreen::startEdit(int index) {
     m_editGridScroll = 0.f;
     m_editChangedAt = 0;
     m_editFaceUrl.clear();
+    m_editRetryAt = 0;
     if (m_cb.onActivate) m_cb.onActivate();
 }
 
 void SocialScreen::endEdit() {
     m_editing = false;
-    m_editFaceJob.reset();
+    if (m_editWorker) {
+        {
+            std::lock_guard<std::mutex> lk(m_editWorker->mu);
+            m_editWorker->quit = true;
+        }
+        m_editWorker->cv.notify_one();
+        m_editWorker.reset();
+    }
+    if (!m_editFaces.empty() && m_gpu) m_gpu->waitIdle(); // the last preview may still be drawing
+    m_editFaces.clear();
+    m_editFaceOrder.clear();
 }
 
 // The Mii Maker's buttons, like the console's: the page list on the left
@@ -887,42 +896,78 @@ void SocialScreen::saveEdit() {
     startMiiJob(JobKind::MiiSave, [mii, index, info](Job& j) { j.rc = updateMii(mii, index, info); });
 }
 
-// The edited face from Mii Studio, asked for once the changes settle; one
-// picture at a time (each is a GPU texture).
+// The edited face from Mii Studio, asked for once the changes settle. The
+// last few looks stay as textures, so going back to one is instant.
 void SocialScreen::updateEditFace() {
-    if (m_editFaceJob) {
-        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> pngs;
+    constexpr size_t kKeep = 8;
+    const std::uint64_t now = armGetSystemTick();
+    if (m_editWorker) {
+        std::string url;
+        std::vector<std::uint8_t> png;
         {
-            std::lock_guard<std::mutex> lk(m_editFaceJob->mu);
-            if (!m_editFaceJob->done) return;
-            pngs = std::move(m_editFaceJob->pngs);
+            std::lock_guard<std::mutex> lk(m_editWorker->mu);
+            if (m_editWorker->fresh) {
+                url = std::move(m_editWorker->gotUrl);
+                png = std::move(m_editWorker->got);
+                m_editWorker->fresh = false;
+            }
         }
-        m_editFaceJob.reset();
-        if (!pngs.empty() && !pngs.front().second.empty() && m_gpu && m_ren) {
+        if (!url.empty() && !m_editFaces.count(url)) {
             auto tex = std::make_unique<nxui::Texture>();
-            if (tex->loadFromMemory(*m_gpu, *m_ren, pngs.front().second.data(), pngs.front().second.size(), 256)) {
-                if (m_editFace) m_gpu->waitIdle();
-                m_editFace = std::move(tex);
+            if (!png.empty() && m_gpu && m_ren && tex->loadFromMemory(*m_gpu, *m_ren, png.data(), png.size(), 256)) {
+                m_editFaces[url] = std::move(tex);
+                m_editFaceOrder.push_back(url);
+                if (m_editFaceOrder.size() > kKeep) { // least recently shown, so not on screen
+                    m_editFaces.erase(m_editFaceOrder.front());
+                    m_editFaceOrder.pop_front();
+                }
+            } else if (url == m_editFaceUrl) {
+                m_editFaceUrl.clear(); // ask again shortly
+                m_editRetryAt = now + armNsToTicks(1'000'000'000ULL);
             }
         }
     }
-    const bool settled = armTicksToNs(armGetSystemTick() - m_editChangedAt) > 350'000'000ULL;
-    if (!settled || m_edit.faceUrl == m_editFaceUrl || m_faces.count(m_edit.faceUrl)) return;
+    const std::string& want = m_edit.faceUrl;
+    auto hit = std::find(m_editFaceOrder.begin(), m_editFaceOrder.end(), want);
+    if (hit != m_editFaceOrder.end()) { // shown now: keep it longest
+        m_editFaceOrder.erase(hit);
+        m_editFaceOrder.push_back(want);
+        return;
+    }
+    if (want.empty() || want == m_editFaceUrl || m_faces.count(want) || now < m_editRetryAt) return;
+    if (armTicksToNs(now - m_editChangedAt) < 120'000'000ULL) return;
     if (!themeshop::http::initialize()) return;
-    m_editFaceUrl = m_edit.faceUrl;
-    auto job = std::make_shared<FaceJob>();
-    m_editFaceJob = job;
-    const std::string url = m_editFaceUrl;
-    runInBackground([job, url]() {
-        nxui::moveToWorkerCores();
-        std::string why;
-        std::vector<std::uint8_t> png = fetchFace(url, why);
-        Http::ThreadCleanup();
-        std::lock_guard<std::mutex> lk(job->mu);
-        job->pngs.emplace_back(url, std::move(png));
-        job->errors.push_back(std::move(why));
-        job->done = true;
-    });
+    if (!m_editWorker) {
+        auto w = std::make_shared<EditFaceWorker>();
+        m_editWorker = w;
+        runInBackground([w]() {
+            nxui::moveToWorkerCores();
+            for (;;) {
+                std::string url;
+                {
+                    std::unique_lock<std::mutex> lk(w->mu);
+                    w->cv.wait(lk, [&] { return w->quit || !w->want.empty(); });
+                    if (w->quit) break;
+                    url = std::move(w->want);
+                    w->want.clear();
+                }
+                std::string why;
+                std::vector<std::uint8_t> png = fetchFace(url, why); // same thread: the connection stays open
+                if (png.empty()) DebugLog::log("[mii] preview failed: %s", why.c_str());
+                std::lock_guard<std::mutex> lk(w->mu);
+                w->gotUrl = std::move(url);
+                w->got = std::move(png);
+                w->fresh = true;
+            }
+            Http::ThreadCleanup();
+        });
+    }
+    m_editFaceUrl = want;
+    {
+        std::lock_guard<std::mutex> lk(m_editWorker->mu);
+        m_editWorker->want = want;
+    }
+    m_editWorker->cv.notify_one();
 }
 
 // The Mii Maker's face, big, where the list was.
@@ -933,8 +978,15 @@ void SocialScreen::drawEditPreview(nxui::Renderer& ren, const nxui::Rect& r, flo
     const nxui::Vec2 c{big.x + big.width * 0.5f, big.y + big.height * 0.5f};
     ren.drawCircle(c, big.width * 0.5f, nxui::Color(0.93f, 0.95f, 0.98f, 0.9f * a), 48);
     const nxui::Texture* t = face(m_edit.faceUrl);
-    const bool current = t != nullptr || (m_editFace && m_editFaceUrl == m_edit.faceUrl && !m_editFaceJob);
-    if (!t && m_editFace && m_editFace->valid()) t = m_editFace.get();
+    if (!t) {
+        auto it = m_editFaces.find(m_edit.faceUrl);
+        if (it != m_editFaces.end() && it->second->valid()) t = it->second.get();
+    }
+    const bool current = t != nullptr;
+    if (!t && !m_editFaceOrder.empty()) { // the last look shown, dimmed, until this one arrives
+        auto it = m_editFaces.find(m_editFaceOrder.back());
+        if (it != m_editFaces.end() && it->second->valid()) t = it->second.get();
+    }
     if (!t) t = face(m_editOriginal.faceUrl);
     if (t) {
         ren.drawTexture(t, big.shrunk(big.width * 0.04f), nxui::Color::white().withAlpha(current ? a : 0.55f * a));

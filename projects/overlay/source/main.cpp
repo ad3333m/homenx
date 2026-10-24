@@ -50,6 +50,8 @@
 #include <cctype>
 #include <cstdarg>
 #include <malloc.h>
+#include <new>
+#include <switchu/control_cache.hpp>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -1856,13 +1858,22 @@ Game runningGame() {
     if (R_SUCCEEDED(serviceDispatchInOut(pminfoGetServiceSession(), 65000, pid, info)) && (info.flags & 1))
         return g;
     g.id = program & ~0xFFFULL;
-    std::unique_ptr<NsApplicationControlData> data(new NsApplicationControlData);
-    u64 size = 0;
-    NacpLanguageEntry* entry = nullptr;
-    if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, g.id, data.get(), sizeof(*data),
-                                                &size))
-        && R_SUCCEEDED(nacpGetLanguageEntry(&data->nacp, &entry)) && entry)
-        g.name = trimmed(std::string(entry->name, strnlen(entry->name, sizeof(entry->name))));
+    // HOME's cache of every game's details has the name already decoded: on
+    // 21.0.0+ many games keep their names compressed, which the plain NACP
+    // read below can't open (Discord said "Playing a game").
+    switchu::control_cache::Meta meta;
+    if (switchu::control_cache::readMeta(g.id, meta))
+        g.name = trimmed(meta.name[0] ? meta.name : meta.english_name);
+    if (g.name.empty()) {
+        std::unique_ptr<NsApplicationControlData> data(new (std::nothrow) NsApplicationControlData);
+        u64 size = 0;
+        NacpLanguageEntry* entry = nullptr;
+        if (data && R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, g.id, data.get(),
+                                                            sizeof(*data), &size))
+            && R_SUCCEEDED(nacpGetLanguageEntry(&data->nacp, &entry)) && entry)
+            g.name = trimmed(std::string(entry->name, strnlen(entry->name, sizeof(entry->name))));
+    }
+    logLine("presence: %016llX is '%s'", (unsigned long long)g.id, g.name.c_str());
     if (g.name.empty()) g.name = "a game";
     return g;
 }

@@ -291,6 +291,8 @@ void AppletLauncher::installBundledApps() {
     static const struct { const char* source; const char* dir; const char* target; } kApps[] = {
         {"sdmc:/switch/SwitchU/bin/homenx-toggle.nro", "sdmc:/switch/HomeNX-Toggle",
          "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro"},
+        {"sdmc:/switch/SwitchU/bin/homenx-updater.nro", "sdmc:/switch/HomeNX-Updater",
+         "sdmc:/switch/HomeNX-Updater/HomeNX-Updater.nro"},
         // Discord over games: a Tesla/Ultrahand overlay.
         {"sdmc:/switch/SwitchU/bin/homenx-discord.ovl", "sdmc:/switch/.overlays",
          "sdmc:/switch/.overlays/homenx-discord.ovl"},

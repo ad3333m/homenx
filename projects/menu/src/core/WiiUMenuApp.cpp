@@ -1487,15 +1487,50 @@ void WiiUMenuApp::activateNextendo() {
 }
 
 // HomeNX Toggle (updates, turning HomeNX off), the same .nro Settings > HomeNX updates with.
+// HomeNX: Settings > HomeNX > Sidebar buttons takes effect at once - the
+// buttons are made again in their new spots (it used to wait for a restart).
+void WiiUMenuApp::rebuildSidebar() {
+    if (!m_leftSidebar || !m_rightSidebar) return;
+    // Nothing may keep pointing at the buttons about to go.
+    auto isOldButton = [this](const nxui::Widget* w) {
+        for (const auto& b : m_sidebar.leftButtons())
+            if (b.get() == w) return true;
+        for (const auto& b : m_sidebar.rightButtons())
+            if (b.get() == w) return true;
+        return false;
+    };
+    if (isOldButton(m_dialogReturnFocus)) m_dialogReturnFocus = nullptr;
+    const bool focusWasOnSidebar = isOldButton(focusManager().current());
+    if (focusWasOnSidebar && m_grid && m_grid->focusManager().current())
+        focusManager().setFocus(m_grid->focusManager().current());
+    app().gpu().waitIdle(); // the old buttons may still be in a frame being drawn
+    m_leftSidebar->clearChildren();
+    m_rightSidebar->clearChildren();
+    m_sidebar.build(app().gpu(), app().renderer(), SD_ASSETS, m_sidebarActions, sidebarOrder());
+    configureDynamicLineNavigation();
+    m_sidebar.reloadAssets(app().gpu(), app().renderer(), SD_ASSETS,
+                           resolveThemeAssetPath(m_effectivePreset, m_effectivePreset.icons.basePath));
+    applyCustomButton();
+    for (auto& btn : m_sidebar.leftButtons()) m_leftSidebar->addChild(btn);
+    for (auto& btn : m_sidebar.rightButtons()) m_rightSidebar->addChild(btn);
+    m_sidebar.applyTheme(m_theme);
+    m_discordBadgeVersion = ~0ull; // the Discord button's dot, if it's still there
+    DebugLog::log("[sidebar] rebuilt for the new order");
+}
+
 void WiiUMenuApp::openToggle() {
-    static constexpr const char* kToggle = "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro";
+    openBundledApp("sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro", "HomeNX Toggle");
+}
+
+// HomeNX's own apps (Toggle, Updater), copied out of switch/SwitchU/bin at start.
+void WiiUMenuApp::openBundledApp(const std::string& path, const std::string& name) {
     std::error_code ec;
-    if (!std::filesystem::exists(kToggle, ec)) {
+    if (!std::filesystem::exists(path, ec)) {
         if (!m_dialog) return;
         auto& i18n = nxui::I18n::instance();
         m_audio.playSfx(Sfx::ModalShow);
-        m_dialog->show(i18n.tr("toggle.missing_title", "HomeNX Toggle isn't there"),
-                       i18n.tr("toggle.missing_body", "HomeNX looked for") + " " + kToggle + ". "
+        m_dialog->show(name + " " + i18n.tr("bundled.missing_title", "isn't there"),
+                       i18n.tr("toggle.missing_body", "HomeNX looked for") + " " + path + ". "
                            + i18n.tr("toggle.missing_fix", "Restart the console and HomeNX puts it back."),
                        {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
         focusManager().setFocus(m_dialog.get());
@@ -1503,10 +1538,10 @@ void WiiUMenuApp::openToggle() {
     }
 #ifdef SWITCHU_MENU
     if (!loaderReadyOrExplain()) return;
-    leaveThen([this] { m_launcher.launchNro(kToggle, homebrewHostTitleId(), activeProfileUid()); });
+    leaveThen([this, path] { m_launcher.launchNro(path, homebrewHostTitleId(), activeProfileUid()); });
 #else
     m_audio.playSfx(Sfx::LaunchGame);
-    fadeOutThen([this] { m_launcher.launchNro(kToggle); });
+    fadeOutThen([this, path] { m_launcher.launchNro(path); });
 #endif
 }
 
@@ -4843,6 +4878,9 @@ void WiiUMenuApp::buildGrid() {
     sidebarActions.onMiiMaker = [this]() { openMiis(); };
     sidebarActions.onToggle = [this]() { openToggle(); };
     sidebarActions.onHekate = [this]() { confirmRebootToHekate(); };
+    sidebarActions.onUpdater = [this]() {
+        openBundledApp("sdmc:/switch/HomeNX-Updater/HomeNX-Updater.nro", "HomeNX Updater");
+    };
     sidebarActions.onFriends = [this]() { openFriends(); };
     sidebarActions.onNews = [this]() { openNews(); };
     sidebarActions.onControllers = [this]() {
@@ -4935,6 +4973,7 @@ void WiiUMenuApp::buildGrid() {
         focusManager().setFocus(m_themeShop.get());
     };
 
+    m_sidebarActions = sidebarActions; // kept for rebuildSidebar()
     m_sidebar.build(app().gpu(), app().renderer(), SD_ASSETS, sidebarActions, sidebarOrder());
     configureDynamicLineNavigation();
     if (!fastReturn) {

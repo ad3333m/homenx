@@ -351,6 +351,21 @@ def hekate_button():
     return im
 
 
+def updater_button():
+    # green tile with a white download arrow into a tray (HomeNX Updater: app + sidebar button)
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(18, 128, 84))
+    top = canvas()
+    ImageDraw.Draw(top).rounded_rectangle([p(56), p(56), p(456), p(456)], radius=p(96), fill=(34, 168, 110))
+    half = top.crop((0, 0, N, p(256)))
+    im.paste(half, (0, 0), half)
+    d.rounded_rectangle([p(226), p(120), p(286), p(300)], radius=p(14), fill="white")  # shaft
+    d.polygon([(p(166), p(250)), (p(346), p(250)), (p(256), p(346))], fill="white")   # head
+    d.rounded_rectangle([p(140), p(330), p(372), p(386)], radius=p(18), outline="white", width=p(22))  # tray
+    d.rectangle([p(170), p(326), p(342), p(352)], fill=(18, 128, 84))
+    return im
+
+
 if __name__ == "__main__":
     save(sphaira(), "romfs/icons/sphaira.png", 512)  # sharp at the launch card's size too
     save(nextendo(), "romfs/icons/nextendo.png")
@@ -358,6 +373,9 @@ if __name__ == "__main__":
     save(storage(), "romfs/icons/storage.png")
     save(toggle_button(), "romfs/icons/toggle.png")
     save(hekate_button(), "romfs/icons/hekate.png")
+    save(updater_button(), "romfs/icons/updater.png")
+    _u = updater_button(); _bg = Image.new("RGB", _u.size, (10, 14, 24)); _bg.paste(_u, (0, 0), _u)
+    _bg.resize((256, 256), Image.LANCZOS).save("projects/updater/icon.jpg", quality=95)  # the .nro's icon
     for name, fn in [("eshop", eshop), ("news", news), ("homebrew", homebrew), ("friends", friends), ("discord", discord), ("discord_mark", discord_white)]:
         save(fn(), f"romfs/icons/{name}.png")
     app_icon()

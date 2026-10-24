@@ -9,6 +9,8 @@
 #include <nxui/widgets/Widget.hpp>
 
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -247,9 +249,21 @@ private:
     bool m_editAsk = false;            // "Save the changes?"
     float m_editGridScroll = 0.f;
     std::uint64_t m_editChangedAt = 0; // the face is asked for once changes settle
-    std::shared_ptr<FaceJob> m_editFaceJob;
-    std::string m_editFaceUrl;         // the face asked for last
-    std::unique_ptr<nxui::Texture> m_editFace;
+    // The Mii Maker's previews: one worker that keeps its connection to Mii
+    // Studio open and fetches the newest look asked for (older asks are dropped).
+    struct EditFaceWorker {
+        std::mutex mu;
+        std::condition_variable cv;
+        std::string want;              // the look to fetch next ("" = none)
+        std::string gotUrl;            // the last one fetched
+        std::vector<std::uint8_t> got; // its picture (empty = failed)
+        bool fresh = false, quit = false;
+    };
+    std::shared_ptr<EditFaceWorker> m_editWorker;
+    std::string m_editFaceUrl;         // the look asked for last
+    std::map<std::string, std::unique_ptr<nxui::Texture>> m_editFaces; // the last few looks
+    std::deque<std::string> m_editFaceOrder; // least recently shown first
+    std::uint64_t m_editRetryAt = 0;   // a failed look is asked for again from this tick
     bool m_historyByTime = false;      // your play history: most played first (Y)
 
     std::string m_notice;

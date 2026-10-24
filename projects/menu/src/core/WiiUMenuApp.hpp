@@ -212,6 +212,9 @@ private:
     void openNextendoAppPicker();
     void activateNextendo();
     void openToggle();
+    void rebuildSidebar();
+    SidebarManager::Actions m_sidebarActions;
+    void openBundledApp(const std::string& path, const std::string& name);
     void confirmRebootToHekate();
     void startRebootToHekate();
     // A list of every .nro in sdmc:/switch; `choose` gets the picked path.

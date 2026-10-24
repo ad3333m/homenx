@@ -107,8 +107,7 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         SettingItem it;
         it.label = slotLabel(slot);
         it.description = i18n.tr("settings.homenx.order_desc",
-            "Choose the button for this spot; it swaps with the spot it was in. "
-            "Takes effect next time HomeNX opens.");
+            "Choose the button for this spot; it swaps with the spot it was in.");
         it.type = ItemType::Selector;
         it.options = screen.m_sidebarNames;
         it.intVal = screen.m_sidebarOrder[(std::size_t)slot];
