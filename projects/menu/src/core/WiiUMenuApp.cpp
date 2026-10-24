@@ -1,4 +1,5 @@
 #include "WiiUMenuApp.hpp"
+#include "FontChoice.hpp"
 #include <switchu/sd_commit.hpp>
 #include "widgets/GlossyIcon.hpp"
 #include "widgets/FolderPalette.hpp"
@@ -1178,8 +1179,15 @@ void WiiUMenuApp::loadResources() {
         }
     }
     DebugLog::log("[init] loadResources: regular font");
-    std::string fontPath = std::string(SD_ASSETS) + "/fonts/DejaVuSans.ttf";
-    if (m_fontNormal.load(app().gpu(), app().renderer(), fontPath, 24))
+    const std::string defaultFontPath = std::string(SD_ASSETS) + "/fonts/DejaVuSans.ttf";
+    const std::string homeFont = fontchoice::chosen("home"); // Settings > HomeNX > Fonts
+    std::string fontPath = homeFont.empty() ? defaultFontPath : std::string(SD_ASSETS) + "/fonts/" + homeFont;
+    bool fontLoaded = m_fontNormal.load(app().gpu(), app().renderer(), fontPath, 24);
+    if (!fontLoaded && fontPath != defaultFontPath) {
+        fontPath = defaultFontPath; // that font is gone: the usual one
+        fontLoaded = m_fontNormal.load(app().gpu(), app().renderer(), fontPath, 24);
+    }
+    if (fontLoaded)
         m_loadedRegularFontPath = fontPath;
     DebugLog::log("[init] loadResources: small font");
     if (m_fontSmall.load(app().gpu(), app().renderer(), fontPath, 18))
@@ -5743,6 +5751,11 @@ void WiiUMenuApp::pollSleepNotifications() {
 }
 
 void WiiUMenuApp::onUpdateAwake(float dt) {
+    if (m_fontsChanged) {
+        m_fontsChanged = false;
+        applyThemeResources(m_effectivePreset);
+        applyDiscordFont();
+    }
     updateLeaveSplashHandoff(dt);
     pollDeferredLeaveCapture();
     const float motionDt = m_leaveMotionFrozen ? 0.f : dt;

@@ -1,7 +1,9 @@
 #include "TabBuilders.hpp"
+#include "core/FontChoice.hpp"
 #include <nxui/core/I18n.hpp>
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <fstream>
 #include <string>
 
@@ -51,6 +53,43 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         };
         t.items.push_back(std::move(it));
     }
+    {
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.fonts", "Fonts");
+        it.type = ItemType::Section;
+        t.items.push_back(std::move(it));
+    }
+    // One choice each for HOME, Discord in HOME and the Discord overlay.
+    auto fontItem = [&](const char* which, std::string label, std::string usual, std::string desc) {
+        SettingItem it;
+        it.label = std::move(label);
+        it.description = std::move(desc);
+        it.type = ItemType::Selector;
+        it.options.push_back(std::move(usual));
+        const std::string current = fontchoice::chosen(which);
+        it.intVal = 0;
+        for (const auto& f : fontchoice::kFonts) {
+            if (current == f.file) it.intVal = (int)it.options.size();
+            it.options.push_back(f.name);
+        }
+        it.onChange = [&screen, which](SettingItem& self) {
+            const int i = self.intVal - 1;
+            fontchoice::choose(which, i >= 0 && i < (int)std::size(fontchoice::kFonts) ? fontchoice::kFonts[i].file : "");
+            if (screen.m_fontsCb) screen.m_fontsCb();
+        };
+        t.items.push_back(std::move(it));
+    };
+    fontItem("home", i18n.tr("settings.homenx.font_home", "HOME font"),
+             i18n.tr("settings.homenx.font_theme", "Theme's font"),
+             i18n.tr("settings.homenx.font_home_desc", "The font for the whole HOME menu, over the theme's own."));
+    fontItem("discord", i18n.tr("settings.homenx.font_discord", "Discord font"),
+             i18n.tr("settings.homenx.font_same", "Same as HOME"),
+             i18n.tr("settings.homenx.font_discord_desc", "The font for Discord in HOME."));
+    fontItem("overlay", i18n.tr("settings.homenx.font_overlay", "Discord overlay font"),
+             i18n.tr("settings.homenx.font_system", "Nintendo's font"),
+             i18n.tr("settings.homenx.font_overlay_desc",
+                     "The font for the Discord overlay in games. It changes the next time the overlay starts "
+                     "(after a restart)."));
     {
         SettingItem it;
         it.label = i18n.tr("settings.homenx.custom_app", "Custom button: app");

@@ -27,6 +27,7 @@
 
 #include <switch.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
 #include <math.h>
@@ -960,8 +961,10 @@ namespace tsl {
             stbtt_fontinfo m_cjkFonts[3]; // HomeNX: Chinese S/T and Korean, always
             int m_cjkCount = 0;
 
-            // HomeNX: Nintendo's symbols, then the standard font, then any CJK font that has it.
+            // HomeNX: the font chosen in HOME's settings, Nintendo's symbols, then the
+            // standard font, then any CJK font that has it.
             stbtt_fontinfo* fontFor(u32 c) {
+                if (this->m_hasCustomFont && stbtt_FindGlyphIndex(&this->m_customFont, c)) return &this->m_customFont;
                 if (stbtt_FindGlyphIndex(&this->m_extFont, c)) return &this->m_extFont;
                 if (stbtt_FindGlyphIndex(&this->m_stdFont, c)) return &this->m_stdFont;
                 if (this->m_hasLocalFont && stbtt_FindGlyphIndex(&this->m_localFont, c)) return &this->m_localFont;
@@ -970,6 +973,8 @@ namespace tsl {
                 return &this->m_stdFont;
             }
             bool m_hasLocalFont = false;
+            stbtt_fontinfo m_customFont;
+            bool m_hasCustomFont = false;
 
             static inline float s_opacity = 1.0F;
 
@@ -1184,6 +1189,36 @@ namespace tsl {
 
                 fontBuffer = reinterpret_cast<u8*>(extFontData.address);
                 stbtt_InitFont(&this->m_extFont, fontBuffer, stbtt_GetFontOffsetForIndex(fontBuffer, 0));
+
+                // HomeNX: Settings > HomeNX > Discord overlay font (one of HOME's
+                // fonts, Latin only, so a small file in the 4 MB heap).
+                static u8* customFontData = nullptr;
+                if (!customFontData) {
+                    char file[64] = {};
+                    if (FILE* f = fopen("sdmc:/config/SwitchU/font_overlay.txt", "r")) {
+                        if (!fgets(file, sizeof(file), f)) file[0] = '\0';
+                        fclose(f);
+                    }
+                    file[strcspn(file, "\r\n")] = '\0';
+                    if (file[0] && !strchr(file, '/')) {
+                        const std::string path = std::string("sdmc:/switch/SwitchU/fonts/") + file;
+                        if (FILE* f = fopen(path.c_str(), "rb")) {
+                            fseek(f, 0, SEEK_END);
+                            const long size = ftell(f);
+                            fseek(f, 0, SEEK_SET);
+                            if (size > 0 && size <= 160 * 1024) {
+                                customFontData = static_cast<u8*>(malloc(size));
+                                if (customFontData && fread(customFontData, 1, size, f) != (size_t)size) {
+                                    free(customFontData);
+                                    customFontData = nullptr;
+                                }
+                            }
+                            fclose(f);
+                        }
+                    }
+                }
+                this->m_hasCustomFont = customFontData
+                    && stbtt_InitFont(&this->m_customFont, customFontData, stbtt_GetFontOffsetForIndex(customFontData, 0));
 
                 return 0;
             }

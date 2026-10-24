@@ -423,6 +423,7 @@ private:
     void openQuickSettings();
     void openDiscordPanel();
     void ensureDiscordPanel();
+    void applyDiscordFont();
     void persistMusicPlaybackState(bool updateEnabledFlag = false);
     void resumeMenuMusicAfterReturn();
     // Console sleep: the daemon announces the sleep before the system goes
@@ -496,6 +497,11 @@ private:
     nxui::Font  m_fontNormal;
     nxui::Font  m_fontSmall;
     nxui::Font  m_fontIcons;
+    // Settings > HomeNX > Fonts: Discord's own (unloaded while it's HOME's).
+    nxui::Font  m_discordFont;
+    nxui::Font  m_discordSmallFont;
+    std::string m_loadedDiscordFont;
+    bool m_fontsChanged = false; // applied next frame (the settings row is still running)
 
     GridModel    m_model;
     nxui::Theme  m_theme;

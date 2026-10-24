@@ -1,4 +1,5 @@
 #include "WiiUMenuApp.hpp"
+#include "FontChoice.hpp"
 #include "themeshop/ThemePackageInstaller.hpp"
 #include "themeshop/ThemeHttp.hpp"
 #include "widgets/GlossyIcon.hpp"
@@ -478,6 +479,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->onNextendoApp([this]() { openNextendoAppPicker(); });
     m_settings->onHomePages([this]() { openHomePagesPicker(); });
     m_settings->onDiagnostics([this]() { showDiagnostics(); });
+    m_settings->onFontsChange([this]() { m_fontsChanged = true; });
     m_settings->onDiscordAppId([this]() {
         // Read and written as the overlay reads it (config/SwitchU/discord_app_id.txt).
         static constexpr const char* kPath = "sdmc:/config/SwitchU/discord_app_id.txt";
@@ -924,12 +926,29 @@ void WiiUMenuApp::openDiscordPanel() {
     m_audio.playSfx(Sfx::ModalShow);
 }
 
+// Settings > HomeNX > Fonts: Discord in HOME's own font, else HOME's.
+void WiiUMenuApp::applyDiscordFont() {
+    const std::string file = fontchoice::chosen("discord");
+    if (file != m_loadedDiscordFont) {
+        auto& gpu = app().gpu();
+        auto& ren = app().renderer();
+        gpu.waitIdle(); // the old font's letters may still be drawing
+        const std::string path = std::string(SD_ASSETS) + "/fonts/" + file;
+        const bool ok = !file.empty() && m_discordFont.load(gpu, ren, path, 24)
+                     && m_discordSmallFont.load(gpu, ren, path, 18);
+        m_loadedDiscordFont = ok ? file : std::string();
+    }
+    if (!m_discordPanel) return;
+    const bool own = !m_loadedDiscordFont.empty();
+    m_discordPanel->setFont(own ? &m_discordFont : &m_fontNormal);
+    m_discordPanel->setSmallFont(own ? &m_discordSmallFont : &m_fontSmall);
+}
+
 // Made the first time it's opened or HOME shows a Discord alert (its pictures).
 void WiiUMenuApp::ensureDiscordPanel() {
     if (!m_discordPanel) {
         m_discordPanel = std::make_shared<DiscordPanel>();
-        m_discordPanel->setFont(&m_fontNormal);
-        m_discordPanel->setSmallFont(&m_fontSmall);
+        applyDiscordFont();
         m_discordPanel->setGpu(&app().gpu(), &app().renderer());
         m_discordPanel->setLogoPath(std::string(SD_ASSETS) + "/icons/discord.png");
         m_discordPanel->setService(&m_discord);
@@ -2959,8 +2978,12 @@ void WiiUMenuApp::applyThemeResources(const ThemePreset& preset) {
     const bool forceResourceReload = m_forceThemeResourceReload;
 
     const std::string fallbackFontPath = std::string(SD_ASSETS) + "/fonts/DejaVuSans.ttf";
-    const std::string regularFontPath = resolveThemeAssetPath(preset, preset.fonts.regularPath);
-    const std::string smallFontPath = resolveThemeAssetPath(
+    // Settings > HomeNX > Fonts wins over the theme's own font.
+    const std::string homeFont = fontchoice::chosen("home");
+    const std::string chosenFontPath = homeFont.empty() ? std::string() : std::string(SD_ASSETS) + "/fonts/" + homeFont;
+    const std::string regularFontPath = !chosenFontPath.empty() ? chosenFontPath
+        : resolveThemeAssetPath(preset, preset.fonts.regularPath);
+    const std::string smallFontPath = !chosenFontPath.empty() ? chosenFontPath : resolveThemeAssetPath(
         preset,
         !preset.fonts.smallPath.empty() ? preset.fonts.smallPath : preset.fonts.regularPath);
     const std::string themeIconsBase = resolveThemeAssetPath(preset, preset.icons.basePath);
