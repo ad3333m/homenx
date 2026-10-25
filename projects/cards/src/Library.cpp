@@ -13,6 +13,7 @@
 #include <fstream>
 #include <memory>
 #include <new>
+#include <unordered_map>
 
 namespace cards {
 namespace {
@@ -123,6 +124,62 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
     return body;
 }
 
+// A game's name as GameTDB's index has it (tools/make_gametdb_index.py does the
+// same): letters and digits, accents folded, lower case, single spaces.
+std::string nameKey(const std::string& name) {
+    static const char kFold[] = // U+00C0..U+017F
+        "aaaaaa ceeeeiiii nooooo  uuuuy  aaaaaa ceeeeiiii nooooo  uuuuy yaaaaaaccccccccdd  eeeeeeeeeegggggggghh  "
+        "iiiiiiiii iijjkk llllllll  nnnnnnn  oooooo  rrrrrrsssssssstttt  uuuuuuuuuuuuwwyyyzzzzzzs";
+    std::string out;
+    for (size_t i = 0; i < name.size();) {
+        const unsigned char c = static_cast<unsigned char>(name[i]);
+        std::uint32_t cp = c;
+        size_t len = 1;
+        if (c >= 0xF0) { cp = c & 0x07; len = 4; }
+        else if (c >= 0xE0) { cp = c & 0x0F; len = 3; }
+        else if (c >= 0xC0) { cp = c & 0x1F; len = 2; }
+        for (size_t k = 1; k < len && i + k < name.size(); ++k)
+            cp = (cp << 6) | (static_cast<unsigned char>(name[i + k]) & 0x3F);
+        i += len;
+        char ch = ' ';
+        if (cp < 128 && std::isalnum(static_cast<int>(cp))) ch = static_cast<char>(std::tolower(static_cast<int>(cp)));
+        else if (cp >= 0xC0 && cp < 0x180) ch = kFold[cp - 0xC0];
+        if (ch == ' ' && (out.empty() || out.back() == ' ')) continue;
+        out += ch;
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+
+// GameTDB's box covers: the index CI builds (romfs:/gametdb.tsv), then the
+// cover in the region that has it first. Only the worker thread asks.
+std::string gametdbCover(const Game& game) {
+    static std::unordered_map<std::string, std::pair<std::string, char>> index;
+    static bool loaded = false;
+    if (!loaded) {
+        loaded = true;
+        std::ifstream in("romfs:/gametdb.tsv");
+        std::string line;
+        while (std::getline(in, line)) {
+            const size_t a = line.find('\t'), b = a == std::string::npos ? a : line.find('\t', a + 1);
+            if (b == std::string::npos || b + 1 >= line.size()) continue;
+            index[line.substr(0, a)] = {line.substr(a + 1, b - a - 1), line[b + 1]};
+        }
+    }
+    auto it = index.find(nameKey(game.name));
+    if (it == index.end()) return {};
+    const char region = it->second.second;
+    const char* const order[3][3] = {{"US", "EN", "JA"}, {"EN", "US", "JA"}, {"JA", "US", "EN"}};
+    const int pick = region == 'E' ? 1 : region == 'J' ? 2 : 0;
+    std::string body;
+    for (const char* r : order[pick]) {
+        if (get(std::string("https://art.gametdb.com/switch/coverM/") + r + "/" + it->second.first + ".jpg", body) == 200
+            && isPicture(body))
+            return body;
+    }
+    return {};
+}
+
 // nlib.cc's copy of the game's eShop banner (no key needed).
 std::string eshopBanner(const Game& game, int w, int h) {
     std::string body;
@@ -199,10 +256,10 @@ std::string steamGridDbKey() {
     }
 }
 
-std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool& tall) {
-    const std::string grid = std::string(kCacheDir) + "/" + hexId(game.id) + ".grid";
-    const std::string banner = std::string(kCacheDir) + "/" + hexId(game.id) + ".card";
-    tall = true;
+std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtKind& kind) {
+    const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
+    const std::string grid = base + ".grid", box = base + ".box", banner = base + ".card";
+    kind = ArtKind::Grid;
     if (std::filesystem::exists(grid)) return readFile(grid);
     if (!key.empty()) {
         const std::string got = steamGridDbPicture(game, key, "grids",
@@ -212,7 +269,16 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
             return std::vector<std::uint8_t>(got.begin(), got.end());
         }
     }
-    tall = false;
+    kind = ArtKind::Box;
+    if (std::filesystem::exists(box)) return readFile(box);
+    {
+        const std::string got = gametdbCover(game);
+        if (!got.empty()) {
+            writeFile(box, got);
+            return std::vector<std::uint8_t>(got.begin(), got.end());
+        }
+    }
+    kind = ArtKind::Banner;
     if (std::filesystem::exists(banner)) return readFile(banner);
     const std::string got = eshopBanner(game, 640, 360);
     if (!got.empty()) writeFile(banner, got);
@@ -232,7 +298,7 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
 
 void forgetArt(std::uint64_t id) {
     std::error_code ec;
-    for (const char* ext : {".grid", ".card", ".bg"})
+    for (const char* ext : {".grid", ".box", ".card", ".bg"})
         std::filesystem::remove(std::string(kCacheDir) + "/" + hexId(id) + ext, ec);
 }
 

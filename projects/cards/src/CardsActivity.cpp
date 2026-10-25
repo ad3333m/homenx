@@ -30,8 +30,8 @@ constexpr float kPanelRadius = 31.f;
 
 const nxui::Color kWhite(1.f, 1.f, 1.f, 1.f);
 const nxui::Color kMuted(1.f, 1.f, 1.f, 0.82f);
-const nxui::Color kGlass(0.42f, 0.46f, 0.56f, 0.55f);
-const nxui::Color kGlassEdge(1.f, 1.f, 1.f, 0.22f);
+const nxui::Color kGlass(0.17f, 0.20f, 0.27f, 0.30f);     // over the blurred frame
+const nxui::Color kGlassEdge(1.f, 1.f, 1.f, 0.20f);
 const nxui::Color kGreen(0.204f, 0.78f, 0.349f, 1.f); // #34C759
 const nxui::Color kRed(1.f, 0.231f, 0.188f, 1.f);     // #FF3B30
 
@@ -109,12 +109,16 @@ void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
     }
 }
 
-// A picture drawn to fill `dst`, cropped to its shape (centred).
-void drawCover(nxui::Renderer& r, const nxui::Texture* tex, const nxui::Rect& dst, float radius, const nxui::Color& tint) {
-    const float tw = static_cast<float>(tex->width()), th = static_cast<float>(tex->height());
+// A picture drawn to fill `dst`, cropped to its shape (centred). trimTop /
+// trimBottom: fractions of it left out first.
+void drawCover(nxui::Renderer& r, const nxui::Texture* tex, const nxui::Rect& dst, float radius, const nxui::Color& tint,
+               float trimTop = 0.f, float trimBottom = 0.f) {
+    const float tw = static_cast<float>(tex->width());
+    const float top = static_cast<float>(tex->height()) * trimTop;
+    const float th = static_cast<float>(tex->height()) * (1.f - trimTop - trimBottom);
     const float scale = std::max(dst.width / tw, dst.height / th);
     const float sw = dst.width / scale, sh = dst.height / scale;
-    const nxui::Rect src{(tw - sw) * 0.5f, (th - sh) * 0.5f, sw, sh};
+    const nxui::Rect src{(tw - sw) * 0.5f, top + (th - sh) * 0.5f, sw, sh};
     if (radius > 0.f) r.drawTextureSubRounded(tex, src, dst, radius, tint);
     else r.drawTextureSub(tex, src, dst, tint);
 }
@@ -223,7 +227,7 @@ void CardsActivity::worker() {
         done.id = job.game.id;
         done.background = job.background;
         const std::vector<std::uint8_t> data =
-            job.background ? backgroundArt(job.game, m_key) : cardArt(job.game, m_key, done.tall);
+            job.background ? backgroundArt(job.game, m_key) : cardArt(job.game, m_key, done.kind);
         if (!data.empty()) {
             int w = 0, h = 0, ch = 0;
             if (stbi_uc* px = stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4)) {
@@ -300,7 +304,7 @@ void CardsActivity::takeArt() {
             }
         } else {
             it->second.card = std::move(tex);
-            it->second.tall = d.tall;
+            it->second.kind = d.kind;
         }
     }
 
@@ -576,6 +580,12 @@ void CardsActivity::onRender(nxui::Renderer&) {}
 void CardsActivity::draw(nxui::Renderer& r) {
     drawBackground(r);
     drawCards(r);
+    // One blurred copy of the frame for every glass shape on top of it.
+    m_frosted = r.gpu().offscreenReady();
+    if (m_frosted) {
+        r.captureToOffscreen(false);
+        r.applyBlur(2.5f, 3);
+    }
     drawTopBar(r);
     drawPanel(r);
     if (m_messageFor > 0.f && !m_message.empty()) {
@@ -597,11 +607,15 @@ void CardsActivity::icon(nxui::Renderer& r, const char* name, float cx, float cy
     r.drawTexture(it->second.get(), {cx - size * 0.5f, cy - size * 0.5f, size, size}, tint);
 }
 
+void CardsActivity::frost(nxui::Renderer& r, const nxui::Rect& rect, float radius, const nxui::Color& tint) {
+    if (m_frosted) r.drawOffscreenRounded(0, rect, radius, kWhite);
+    r.drawRoundedRect(rect, tint, radius);
+}
+
 void CardsActivity::glassCircle(nxui::Renderer& r, float cx, float cy, float d, bool focused, const char* name,
                                 float iconSize) {
-    const nxui::Vec2 c{cx, cy};
-    r.drawCircle(c, d * 0.5f, focused ? nxui::Color(0.55f, 0.59f, 0.68f, 0.7f) : kGlass, 48);
     const nxui::Rect box{cx - d * 0.5f, cy - d * 0.5f, d, d};
+    frost(r, box, d * 0.5f, focused ? nxui::Color(1.f, 1.f, 1.f, 0.22f) : kGlass);
     r.drawRoundedRectOutline(box, focused ? kWhite : kGlassEdge, d * 0.5f, focused ? 3.f : 1.5f);
     icon(r, name, cx, cy, iconSize, kWhite);
 }
@@ -618,7 +632,7 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
         if (const nxui::Texture* prev = bgOf(m_bgPrevId)) drawCover(r, prev, screen, 0.f, kWhite);
     if (const nxui::Texture* cur = bgOf(m_bgId)) drawCover(r, cur, screen, 0.f, kWhite.withAlpha(m_bgFade));
     // The haze over it: the art shows, but softly, like the reference.
-    r.drawRect(screen, nxui::Color(0.60f, 0.65f, 0.78f, 0.40f));
+    r.drawRect(screen, nxui::Color(0.38f, 0.43f, 0.56f, 0.45f));
 }
 
 void CardsActivity::drawTopBar(nxui::Renderer& r) {
@@ -635,7 +649,7 @@ void CardsActivity::drawTopBar(nxui::Renderer& r) {
     const float wBattery = m_fPill.measure(m_battery).x, wFree = m_fPill.measure(m_free).x;
     const float width = 12.f + avatar + 12.f + wWord + gap + wClock + gap + wBattery + gap + 18.f + 8.f + wFree + 18.f;
     const nxui::Rect pill{640.f - width * 0.5f, 21.f, width, 52.f};
-    r.drawRoundedRect(pill, kGlass, 26.f);
+    frost(r, pill, 26.f, kGlass);
     r.drawRoundedRectOutline(pill, kGlassEdge, 26.f, 1.5f);
     float x = pill.x + 12.f;
     const nxui::Rect face{x, kTopY - avatar * 0.5f, avatar, avatar};
@@ -691,7 +705,10 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         const nxui::Texture* tex = it != m_art.end() && it->second.card && it->second.card->valid() ? it->second.card.get()
                                                                                                     : nullptr;
         if (tex) {
-            drawCover(r, tex, card, kCardRadius, kWhite);
+            // A Switch case cover: without the red Nintendo Switch band on top
+            // and the rating in the corner below, like the reference's art.
+            const bool box = it->second.kind == ArtKind::Box;
+            drawCover(r, tex, card, kCardRadius, kWhite, box ? 0.125f : 0.f, box ? 0.06f : 0.f);
         } else { // still coming: the name on glass
             r.drawRoundedRect(card, nxui::Color(0.28f, 0.31f, 0.40f, 0.85f), kCardRadius);
             const std::string name = fit(m_fLabel, g.name, card.width - 28.f, 0.9f);
@@ -732,8 +749,8 @@ const nxui::Texture* CardsActivity::gameIconTexture() {
 }
 
 void CardsActivity::drawPanel(nxui::Renderer& r) {
-    r.drawRoundedRect(kPanel, nxui::Color(0.40f, 0.45f, 0.56f, 0.50f), kPanelRadius);
-    r.drawRoundedRectOutline(kPanel, nxui::Color(1.f, 1.f, 1.f, 0.25f), kPanelRadius, 1.5f);
+    frost(r, kPanel, kPanelRadius, nxui::Color(0.16f, 0.19f, 0.26f, 0.34f));
+    r.drawRoundedRectOutline(kPanel, nxui::Color(1.f, 1.f, 1.f, 0.22f), kPanelRadius, 1.5f);
     if (m_games.empty()) return;
     const Game& g = m_games[(size_t)m_sel];
 

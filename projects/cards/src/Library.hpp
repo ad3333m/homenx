@@ -29,10 +29,11 @@ void stopNetwork();
 std::string steamGridDbKey();
 
 // Pictures, from the SD card cache (sdmc:/config/SwitchU/cards) or downloaded:
-// the card's box art (SteamGridDB 600x900 with a key, else the eShop banner from
-// nlib.cc, shown cropped) and the background (SteamGridDB hero or the banner).
-// `tall` says whether the card's picture is real box art.
-std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool& tall);
+// the card's box art (SteamGridDB 600x900 with a key, else GameTDB's box cover
+// matched by name, else the eShop banner from nlib.cc) and the background
+// (SteamGridDB hero or the banner).
+enum class ArtKind { Grid, Box, Banner };
+std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtKind& kind);
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
 

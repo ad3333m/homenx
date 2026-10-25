@@ -36,7 +36,7 @@ private:
     enum class Sort { LastPlayed, Title, MostPlayed };
     struct Art {
         std::unique_ptr<nxui::Texture> card, bg;
-        bool tall = false;          // real box art (else the banner, cropped)
+        ArtKind kind = ArtKind::Banner; // what the card shows (a box cover is trimmed)
         bool cardAsked = false, bgAsked = false;
     };
     struct Job {
@@ -45,7 +45,8 @@ private:
     };
     struct Done {
         std::uint64_t id = 0;
-        bool background = false, tall = false;
+        bool background = false;
+        ArtKind kind = ArtKind::Banner;
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
     };
@@ -74,6 +75,9 @@ private:
     void drawPanel(nxui::Renderer& r);
     void drawPopup(nxui::Renderer& r);
     void glassCircle(nxui::Renderer& r, float cx, float cy, float d, bool focused, const char* icon, float iconSize);
+    // Frosted glass: the blurred frame behind it (captured once a frame), tinted.
+    void frost(nxui::Renderer& r, const nxui::Rect& rect, float radius, const nxui::Color& tint);
+    bool m_frosted = false;
     void icon(nxui::Renderer& r, const char* name, float cx, float cy, float size, const nxui::Color& tint);
     const nxui::Texture* gameIconTexture();
 

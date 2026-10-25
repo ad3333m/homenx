@@ -54,6 +54,11 @@ jobs:
       - name: Configure (homebrew .nro)
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y -vD --root
 
+      - name: GameTDB box-art index for HomeNX Cards
+        run: |
+          mkdir -p build/cards-romfs
+          python3 tools/make_gametdb_index.py build/cards-romfs/gametdb.tsv || echo "GameTDB index skipped"
+
       - name: Build
         run: |
           xmake build -vD --root SwitchU
@@ -124,6 +129,11 @@ jobs:
 
       - name: Configure frontend (replaces the HOME menu)
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root
+
+      - name: GameTDB box-art index for HomeNX Cards
+        run: |
+          mkdir -p build/cards-romfs
+          python3 tools/make_gametdb_index.py build/cards-romfs/gametdb.tsv || echo "GameTDB index skipped"
 
       - name: Build
         run: |
