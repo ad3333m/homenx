@@ -54,7 +54,7 @@ jobs:
       - name: Configure (homebrew .nro)
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y -vD --root
 
-      - name: GameTDB box-art index for HomeNX Cards
+      - name: GameTDB box-art index for CardsNX
         run: |
           mkdir -p build/cards-romfs
           python3 tools/make_gametdb_index.py build/cards-romfs/gametdb.tsv || echo "GameTDB index skipped"
@@ -63,14 +63,14 @@ jobs:
         run: |
           xmake build -vD --root SwitchU
           xmake build -vD --root SwitchU-Manager
-          xmake build -vD --root HomeNX-Cards
+          xmake build -vD --root CardsNX
 
       - name: Collect
         run: |
           mkdir -p out
           cp build/cross/aarch64/release/HomeNX.nro out/
           cp build/cross/aarch64/release/HomeNX-Toggle.nro out/
-          cp "build/cross/aarch64/release/HomeNX Cards.nro" out/HomeNX-Cards.nro
+          cp build/cross/aarch64/release/CardsNX.nro out/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -84,7 +84,12 @@ jobs:
           (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master." || true
-          gh release upload latest out/* -R "$GITHUB_REPOSITORY" --clobber
+          gh release upload latest out/HomeNX.nro out/HomeNX-Toggle.nro -R "$GITHUB_REPOSITORY" --clobber
+          # CardsNX: its own release, the .nro replaced on every build.
+          gh release view cardsnx -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create cardsnx -R "$GITHUB_REPOSITORY" --title "CardsNX" --notes-file .github/cardsnx-release.md || true
+          gh release edit cardsnx -R "$GITHUB_REPOSITORY" --title "CardsNX (build $HOMENX_BUILD)" --notes-file .github/cardsnx-release.md || true
+          gh release upload cardsnx out/CardsNX.nro -R "$GITHUB_REPOSITORY" --clobber
 
   frontend:
     runs-on: ubuntu-latest
@@ -130,7 +135,7 @@ jobs:
       - name: Configure frontend (replaces the HOME menu)
         run: xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 -vD --root
 
-      - name: GameTDB box-art index for HomeNX Cards
+      - name: GameTDB box-art index for CardsNX
         run: |
           mkdir -p build/cards-romfs
           python3 tools/make_gametdb_index.py build/cards-romfs/gametdb.tsv || echo "GameTDB index skipped"
@@ -159,9 +164,9 @@ jobs:
           mv dist/frontend/switch/HomeNX-Toggle/HomeNX-Toggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro
           # The Homebrew Manager too: the menu copies it into switch/Homebrew-Manager/.
           mv "dist/frontend/switch/Homebrew Manager/Homebrew Manager.nro" dist/frontend/switch/SwitchU/bin/homebrew-manager.nro
-          # HomeNX Cards (the test HOME screen) too: switch/HomeNX-Cards/.
-          mv "dist/frontend/switch/HomeNX Cards/HomeNX Cards.nro" dist/frontend/switch/SwitchU/bin/homenx-cards.nro
-          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader "dist/frontend/switch/Homebrew Manager" "dist/frontend/switch/HomeNX Cards"
+          # CardsNX (the card-row HOME screen) too: switch/CardsNX/.
+          mv dist/frontend/switch/CardsNX/CardsNX.nro dist/frontend/switch/SwitchU/bin/cardsnx.nro
+          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader "dist/frontend/switch/Homebrew Manager" dist/frontend/switch/CardsNX
           # HomeNX Toggle reads this to know which frontend build is installed.
           echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out

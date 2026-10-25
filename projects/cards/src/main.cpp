@@ -1,4 +1,4 @@
-// HomeNX Cards: a test HOME screen with box-art cards (see CardsActivity).
+// CardsNX: a HOME screen with box-art cards (see CardsActivity).
 #include "CardsActivity.hpp"
 
 #include <nxui/Application.hpp>

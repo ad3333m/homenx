@@ -376,9 +376,10 @@ target("Homebrew-Manager")
     set_values("switch.format",  "nro")
 target_end()
 
--- HomeNX Cards: a test HOME screen with box-art cards (projects/cards). The
--- frontend ships it in switch/SwitchU/bin; HOME copies it out.
-target("HomeNX-Cards")
+-- CardsNX: a HOME screen with box-art cards (projects/cards), released on its
+-- own (release "cardsnx"). The frontend also ships it in switch/SwitchU/bin;
+-- HOME copies it out.
+target("CardsNX")
     set_kind("binary")
     if not is_plat("cross") then return end
 
@@ -411,7 +412,7 @@ target("HomeNX-Cards")
         os.cp(path.join(os.projectdir(), "projects/cards/romfs/icons/*.png"), path.join(romfs_dir, "icons"))
     end)
 
-    set_values("switch.name",    "HomeNX Cards")
+    set_values("switch.name",    "CardsNX")
     set_values("switch.author",  "Adam")
     set_values("switch.version", version)
     set_values("switch.romfs",   "build/cards-romfs")

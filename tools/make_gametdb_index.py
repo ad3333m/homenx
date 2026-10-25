@@ -1,4 +1,4 @@
-"""HomeNX Cards: GameTDB's Switch box-art IDs by game name (gametdb.com, made for
+"""CardsNX: GameTDB's Switch box-art IDs by game name (gametdb.com, made for
 homebrew launchers), from switchtdb.zip. CI runs this before building; the app
 matches each game's name the same way (cards::nameKey in Library.cpp) and gets
 its cover from art.gametdb.com.
@@ -34,7 +34,7 @@ def name_key(name):
 
 def main():
     dest = sys.argv[1] if len(sys.argv) > 1 else "gametdb.tsv"
-    req = urllib.request.Request("https://www.gametdb.com/switchtdb.zip", headers={"User-Agent": "HomeNX-Cards"})
+    req = urllib.request.Request("https://www.gametdb.com/switchtdb.zip", headers={"User-Agent": "CardsNX"})
     data = urllib.request.urlopen(req, timeout=120).read()
     xml = zipfile.ZipFile(io.BytesIO(data)).read("switchtdb.xml")
     best = {}  # key -> (rank, id, region): one cover per name, all-region and US first

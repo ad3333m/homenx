@@ -293,8 +293,8 @@ void AppletLauncher::installBundledApps() {
          "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro"},
         {"sdmc:/switch/SwitchU/bin/homebrew-manager.nro", "sdmc:/switch/Homebrew-Manager",
          "sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro"},
-        {"sdmc:/switch/SwitchU/bin/homenx-cards.nro", "sdmc:/switch/HomeNX-Cards",
-         "sdmc:/switch/HomeNX-Cards/HomeNX-Cards.nro"},
+        {"sdmc:/switch/SwitchU/bin/cardsnx.nro", "sdmc:/switch/CardsNX",
+         "sdmc:/switch/CardsNX/CardsNX.nro"},
         // Discord over games: a Tesla/Ultrahand overlay.
         {"sdmc:/switch/SwitchU/bin/homenx-discord.ovl", "sdmc:/switch/.overlays",
          "sdmc:/switch/.overlays/homenx-discord.ovl"},
@@ -321,6 +321,8 @@ void AppletLauncher::installBundledApps() {
         std::error_code ec;
         std::filesystem::remove_all("sdmc:/switch/HomeNX-Updater", ec);
         std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-updater.nro", ec);
+        std::filesystem::remove_all("sdmc:/switch/HomeNX-Cards", ec); // CardsNX's first name
+        std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-cards.nro", ec);
     }
     for (const auto& app : kApps) {
         std::error_code ec;

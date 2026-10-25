@@ -19,7 +19,7 @@
 
 namespace cards {
 
-// HomeNX Cards: a test HOME screen. A row of box-art cards over the chosen
+// CardsNX: a HOME screen. A row of box-art cards over the chosen
 // game's art, a status bar on top (menu, sort, you, the time, battery, free
 // space, Nextendo players, notifications, settings) and a glass panel with
 // the game's details and Play below. Green dots: players online in Nextendo.

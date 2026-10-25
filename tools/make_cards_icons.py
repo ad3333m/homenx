@@ -1,4 +1,4 @@
-"""HomeNX Cards: the white glyphs its buttons draw (projects/cards/romfs/icons) and
+"""CardsNX: the white glyphs its buttons draw (projects/cards/romfs/icons) and
 its app icon (projects/cards/icon.jpg). Drawn 4x and scaled down, so the edges
 are smooth.
 

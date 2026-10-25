@@ -407,7 +407,7 @@ void CardsActivity::play() {
     const Game& g = m_games[(size_t)m_sel];
     if (!g.path.empty()) { // a .nro: it replaces this app, as hbmenu starts it
         if (!envHasNextLoad()) {
-            say("Apps can't be opened from here: start HomeNX Cards from HOME or the homebrew menu.");
+            say("Apps can't be opened from here: start CardsNX from HOME or the homebrew menu.");
             return;
         }
         envSetNextLoad(g.path.c_str(), ("\"" + g.path + "\"").c_str());
@@ -418,7 +418,7 @@ void CardsActivity::play() {
         app().requestExit(); // the system starts it once this has closed
         return;
     }
-    say("Games start from here only when HomeNX Cards runs as an application (open it from HOME, "
+    say("Games start from here only when CardsNX runs as an application (open it from HOME, "
         "or hold R while starting a game).");
 }
 
@@ -477,12 +477,12 @@ void CardsActivity::activateTop(int index) {
     switch (index) {
         case 0:
         case 4:
-            openMenu("HomeNX Cards", {
+            openMenu("CardsNX", {
                 {"Sort by last played", [this]() { sortGames(Sort::LastPlayed); }},
                 {"Sort by title", [this]() { sortGames(Sort::Title); }},
                 {"Sort by most played", [this]() { sortGames(Sort::MostPlayed); }},
                 {m_key.empty() ? "Box art: add a SteamGridDB key in HomeNX" : "Box art: SteamGridDB", [] {}},
-                {"Close HomeNX Cards", [this]() { app().requestExit(); }},
+                {"Close CardsNX", [this]() { app().requestExit(); }},
             });
             break;
         case 1:

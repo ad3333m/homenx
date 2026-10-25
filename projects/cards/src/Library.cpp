@@ -45,7 +45,7 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
     curl_slist* list = nullptr;
     for (const std::string& h : headers) list = curl_slist_append(list, h.c_str());
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(c, CURLOPT_USERAGENT, "HomeNX-Cards");
+    curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 10L);
@@ -237,7 +237,7 @@ std::vector<Game> listGames() {
 
 std::vector<Game> listHomebrew() {
     std::vector<Game> apps;
-    for (HomebrewApp& hb : scanHomebrew("sdmc:/switch/HomeNX-Cards/HomeNX-Cards.nro", false)) {
+    for (HomebrewApp& hb : scanHomebrew("sdmc:/switch/CardsNX/CardsNX.nro", false)) {
         Game g;
         g.path = std::move(hb.path);
         g.name = hb.name.empty() ? std::filesystem::path(g.path).stem().string() : std::move(hb.name);
