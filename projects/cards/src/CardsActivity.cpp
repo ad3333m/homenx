@@ -456,6 +456,7 @@ bool CardsActivity::onCreate() {
 
     m_settings.load();
     m_boxArt = m_settings.boxArt;
+    m_titleArt = m_settings.titlePics;
     m_clock24 = m_settings.clock24;
     if (m_settings.perfLog) { // a new part of the log (the last one kept as perf.old.log once it's big)
         std::error_code ec;
@@ -854,7 +855,12 @@ void CardsActivity::worker(int index) {
             std::ifstream in(systemIconPath(job.game.action), std::ios::binary);
             data.assign(std::istreambuf_iterator<char>(in), {});
         } else {
-            data = gameIcon(job.game);
+            done.kind = ArtKind::Title;
+            if (m_titleArt && !job.game.homebrew) data = titleArt(job.game, m_key);
+            if (data.empty()) {
+                done.kind = ArtKind::Icon;
+                data = gameIcon(job.game);
+            }
         }
         if (!data.empty()) {
             int w = 0, h = 0, ch = 0;
@@ -1000,6 +1006,7 @@ void CardsActivity::takeArt() {
             }
         } else if (d.what == kIcon) {
             it->second.icon = std::move(tex);
+            it->second.iconKind = d.kind;
         } else if (d.what == kBackground) {
             it->second.bg = std::move(tex);
             it->second.bgKind = d.kind;
@@ -1317,7 +1324,7 @@ void CardsActivity::openPageOrder(int select) {
         }));
     items.push_back(action("Done", [] {}));
     openMenu("Page order  (< > moves a page)", std::move(items));
-    m_menuSel = std::clamp(select, 0, kPageCount);
+    m_menuSel = std::clamp(select, 0, static_cast<int>(kPageCount));
 }
 
 bool CardsActivity::glassCard(const Game& g) {
@@ -2992,9 +2999,16 @@ void CardsActivity::buildSettings() {
             m_clock24 = m_settings.clock24;
             save();
         }));
-    look.rows.push_back(toggle("Title pictures", [this]() { return m_settings.titlePics; },
-        [this, save]() { m_settings.titlePics = !m_settings.titlePics; save(); },
-        "A 3D picture by the game's name: a kart for Mario Kart"));
+    look.rows.push_back(toggle("Title pictures", [this]() { return m_settings.titlePics; }, [this, save]() {
+        m_settings.titlePics = !m_settings.titlePics;
+        m_titleArt = m_settings.titlePics;
+        save();
+        for (auto& [id, a] : m_art) { // the icons again, the other kind
+            a.icon.reset();
+            a.iconAsked = false;
+        }
+        wantArt();
+    }, "The game's own picture, no background (SteamGridDB)"));
     look.rows.push_back(toggle("Free space in the bar", [this]() { return m_settings.showFree; },
         [this, save]() { m_settings.showFree = !m_settings.showFree; save(); }));
     m_sheet.push_back(std::move(look));
@@ -3247,24 +3261,6 @@ void CardsActivity::findControllersNow() {
         switchu::findControllers();
     });
     say("Every controller rumbles now.");
-}
-
-const nxui::Texture* CardsActivity::titlePictureTexture(const Game& g) {
-    if (!m_settings.titlePics || g.homebrew || !g.action.empty()) return nullptr;
-    if (g.id != m_titlePicId) {
-        m_titlePicId = g.id;
-        m_titlePic = nullptr;
-        const std::string path = titlePicture(g.name);
-        if (!path.empty()) {
-            auto& tex = m_titlePics[path];
-            if (!tex) { // a small PNG: one that didn't load stays empty
-                tex = std::make_shared<nxui::Texture>();
-                tex->loadFromFile(app().gpu(), app().renderer(), path, 128);
-            }
-            if (tex->valid()) m_titlePic = tex.get();
-        }
-    }
-    return m_titlePic;
 }
 
 #ifdef SWITCHU_MENU
@@ -5039,11 +5035,12 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     const float da = a * d, dx = 14.f * (1.f - d);
 
     const nxui::Rect iconRect{panel.x + 25.f + dx, panel.y + 20.f, 78.f, 78.f};
-    if (const nxui::Texture* pic = titlePictureTexture(g)) { // no background: drawn a little bigger
-        r.drawTexture(pic, {iconRect.x - 6.f, iconRect.y - 6.f, iconRect.width + 12.f, iconRect.height + 12.f},
-                      kWhite.withAlpha(da));
-    } else if (const nxui::Texture* ic = gameIconTexture()) {
-        if (!g.action.empty()) r.drawTexture(ic, iconRect, kWhite.withAlpha(da)); // HomeNX's icon as it's drawn
+    if (const nxui::Texture* ic = gameIconTexture()) {
+        auto art = m_art.find(g.id);
+        if (art != m_art.end() && art->second.iconKind == ArtKind::Title) // its own picture, no background: a little bigger
+            r.drawTexture(ic, {iconRect.x - 6.f, iconRect.y - 6.f, iconRect.width + 12.f, iconRect.height + 12.f},
+                          kWhite.withAlpha(da));
+        else if (!g.action.empty()) r.drawTexture(ic, iconRect, kWhite.withAlpha(da)); // HomeNX's icon as it's drawn
         else r.drawTextureRounded(ic, iconRect, 18.f, kWhite.withAlpha(da));
     }
     const float tx = iconRect.x + iconRect.width + 15.f;

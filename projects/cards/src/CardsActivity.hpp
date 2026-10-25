@@ -25,7 +25,6 @@
 #include <functional>
 #include <future>
 #include <map>
-#include <unordered_map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -63,7 +62,7 @@ private:
                kTopCount };
     struct Art {
         std::unique_ptr<nxui::Texture> card, bg, icon;
-        ArtKind kind = ArtKind::Banner, bgKind = ArtKind::Banner;
+        ArtKind kind = ArtKind::Banner, bgKind = ArtKind::Banner, iconKind = ArtKind::Icon;
         bool cardAsked = false, bgAsked = false, iconAsked = false;
         float cardIn = -10.f; // when it arrived (it fades in)
         float retryAt = 0.f;  // nothing came: asked again after this
@@ -370,11 +369,7 @@ private:
     void startConnectionTest();
     std::string netTestText(int row); // 0 the test, 1 ping, 2 download, 3 upload, 4 signal
     void findControllersNow();
-    // The game's picture by its name, in the panel (Settings > Look > Title pictures).
-    std::unordered_map<std::string, std::shared_ptr<nxui::Texture>> m_titlePics;
-    std::uint64_t m_titlePicId = ~0ull;
-    const nxui::Texture* m_titlePic = nullptr;
-    const nxui::Texture* titlePictureTexture(const Game& g);
+
 
     // Settings: sections on the left, their rows on the right.
     std::vector<Section> m_sheet;
@@ -407,6 +402,7 @@ private:
     float m_perfWindow = 0.f, m_perfWorst = 0.f;
     bool m_perfFirstCard = false;
     std::atomic<bool> m_boxArt{true};
+    std::atomic<bool> m_titleArt{true}; // Settings > Look > Title pictures
     std::atomic<bool> m_clock24{true};
     std::atomic<bool> m_downloading{false}; // BrowseNX
     float m_evictIn = 0.f;

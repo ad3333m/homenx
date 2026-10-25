@@ -115,7 +115,9 @@ std::string percentEncode(const std::string& s) {
 }
 
 // The first picture SteamGridDB has of `kind` ("grids" or "heroes") for the game.
-std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const char* query) {
+// clear: only one with see-through edges (an icon with no background). answered: the list came.
+std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const char* query,
+                               bool clear = false, bool* answered = nullptr) {
     const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
     std::string body;
     if (get(std::string(kSteamGridDb) + "/search/autocomplete/" + percentEncode(game.name), body, headers) != 200)
@@ -130,6 +132,7 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
     if (gameId <= 0) return {};
     if (get(std::string(kSteamGridDb) + "/" + kind + "/game/" + std::to_string(gameId) + "?" + query, body, headers) != 200)
         return {};
+    if (answered) *answered = true;
     std::vector<std::string> urls;
     try {
         const auto j = nlohmann::json::parse(body);
@@ -140,15 +143,25 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
             }
     } catch (...) {
     }
+    // Nine in ten points along its edges see-through.
+    auto clearEdges = [](const stbi_uc* px, int w, int h) {
+        int seen = 0;
+        for (int i = 0; i < 16; ++i) {
+            const int x = i * (w - 1) / 15, y = i * (h - 1) / 15;
+            for (const auto& [cx, cy] : {std::pair{x, 0}, std::pair{x, h - 1}, std::pair{0, y}, std::pair{w - 1, y}})
+                seen += px[(static_cast<size_t>(cy) * w + cx) * 4 + 3] < 40;
+        }
+        return seen * 10 >= 64 * 9;
+    };
     // The first that came and isn't the notice for one taken down.
     for (const std::string& url : urls) {
         if (url.empty() || get(url, body) != 200 || !isPicture(body)) continue;
         int w = 0, h = 0, ch = 0;
         stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
                                             &w, &h, &ch, 4);
-        const bool removed = px && removedNotice(px, w, h);
+        const bool good = px && (clear ? clearEdges(px, w, h) : !removedNotice(px, w, h));
         stbi_image_free(px);
-        if (px && !removed) return body;
+        if (good) return body;
     }
     return {};
 }
@@ -534,8 +547,20 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
 
 void forgetArt(std::uint64_t id) {
     std::error_code ec;
-    for (const char* ext : {".grid", ".box", ".card", ".bg"})
+    for (const char* ext : {".grid", ".box", ".card", ".bg", ".title"})
         std::filesystem::remove(std::string(kCacheDir) + "/" + hexId(id) + ext, ec);
+}
+
+std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
+    const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".title";
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec)) return readFile(path); // empty: SteamGridDB had none
+    if (key.empty()) return {};
+    bool answered = false;
+    const std::string got = steamGridDbPicture(game, key, "icons", "types=static&mimes=image/png&nsfw=false&humor=false",
+                                               true, &answered);
+    if (answered) writeFile(path, got); // none: not asked again until its pictures are downloaded again
+    return std::vector<std::uint8_t>(got.begin(), got.end());
 }
 
 void forgetPicture(std::uint64_t id, bool background) {
@@ -565,63 +590,6 @@ bool removedNotice(const std::uint8_t* rgba, int w, int h) {
             near += std::abs(p[0] - r) <= 10 && std::abs(p[1] - g) <= 10 && std::abs(p[2] - b) <= 10;
         }
     return near * 10 > kSteps * kSteps * 8;
-}
-
-// Whole words of the name (lower case), most particular first.
-std::string titlePicture(const std::string& name) {
-    // tools/make_title_pictures.py downloads the pictures this table names.
-    static const std::pair<const char*, const char*> kPictures[] = { // TITLE PICTURES
-        {"mario kart", "racing_car"}, {"mario bros. wonder", "blossom"}, {"paper mario", "page_facing_up"},
-        {"mario party", "game_die"}, {"mario golf", "flag_in_hole"}, {"mario tennis", "tennis"},
-        {"mario strikers", "soccer_ball"}, {"rabbids", "rabbit_face"}, {"luigi", "ghost"}, {"princess peach", "crown"},
-        {"captain toad", "mushroom"}, {"yoshi", "egg"}, {"wario", "garlic"}, {"donkey kong", "banana"},
-        {"bowser", "turtle"}, {"mario", "mushroom"}, {"zelda", "shield"}, {"pokémon", "high_voltage"},
-        {"pokemon", "high_voltage"}, {"kirby", "glowing_star"}, {"metroid", "alien"}, {"splatoon", "squid"},
-        {"animal crossing", "leaf_fluttering_in_wind"}, {"smash bros", "collision"}, {"pikmin", "seedling"},
-        {"fire emblem", "crossed_swords"}, {"xenoblade", "dagger"}, {"star fox", "fox"}, {"f-zero", "racing_car"},
-        {"minecraft", "pick"}, {"fortnite", "parachute"}, {"rocket league", "automobile"}, {"fifa", "soccer_ball"},
-        {"ea sports fc", "soccer_ball"}, {"football", "soccer_ball"}, {"nba", "basketball"}, {"tetris", "brick"},
-        {"lego", "brick"}, {"sonic", "hedgehog"}, {"stray", "cat"}, {"hollow knight", "bug"}, {"celeste", "strawberry"},
-        {"stardew", "sheaf_of_rice"}, {"among us", "rocket"}, {"overcooked", "cooking"}, {"cuphead", "hot_beverage"},
-        {"goose", "duck"}, {"doom", "skull"}, {"witcher", "wolf"}, {"skyrim", "dragon"}, {"monster hunter", "dragon"},
-        {"dark souls", "fire"}, {"hades", "fire"}, {"ring fit", "running_shoe"}, {"just dance", "mirror_ball"},
-        {"switch sports", "badminton"}, {"terraria", "evergreen_tree"}, {"story of seasons", "cow_face"},
-        {"harvest moon", "cow_face"}, {"fall guys", "crown"}, {"portal", "birthday_cake"}, {"undertale", "red_heart"},
-        {"deltarune", "red_heart"}, {"katamari", "rainbow"}, {"octopath", "compass"}, {"dragon quest", "dragon"},
-        {"final fantasy", "crystal_ball"}, {"kingdom hearts", "key"}, {"persona", "performing_arts"},
-        {"pac-man", "ghost"}, {"hogwarts", "magic_wand"}, {"harry potter", "magic_wand"}, {"star wars", "milky_way"},
-        {"spider-man", "spider"}, {"batman", "bat"}, {"jurassic", "t-rex"}, {"five nights", "teddy_bear"},
-        {"balatro", "joker"}, {"solitaire", "joker"}, {"chess", "chess_pawn"}, {"puzzle", "puzzle_piece"},
-        {"youtube", "television"}, {"golf", "flag_in_hole"}, {"tennis", "tennis"}, {"hockey", "ice_hockey"},
-        {"baseball", "baseball"}, {"bowling", "bowling"}, {"boxing", "boxing_glove"}, {"fishing", "fishing_pole"},
-        {"guitar", "guitar"}, {"racing", "racing_car"}, {"rally", "racing_car"}, {"kart", "racing_car"},
-        {"skate", "skateboard"}, {"farm", "tractor"}, {"farming", "tractor"}, {"train", "locomotive"},
-        {"flight", "airplane"}, {"pirate", "pirate_flag"}, {"pirates", "pirate_flag"}, {"zombie", "skull"},
-        {"zombies", "skull"}, {"ghost", "ghost"}, {"robot", "robot"}, {"robots", "robot"}, {"dragon", "dragon"},
-        {"dragons", "dragon"}, {"pizza", "pizza"}, {"cat", "cat"}, {"cats", "cat"}, {"dog", "dog_face"},
-        {"dogs", "dog_face"}, {"horse", "horse_face"}, {"space", "rocket"}, {"music", "musical_notes"},
-        {"rhythm", "musical_notes"}, {"snake", "snake"}, {"shark", "shark"}, {"fish", "tropical_fish"},
-        {"frog", "frog"}, {"penguin", "penguin"}, {"owl", "owl"}, {"panda", "panda"}, {"unicorn", "unicorn"},
-        {"monkey", "monkey_face"}, {"lion", "lion"}, {"tiger", "tiger_face"}, {"bear", "bear"}, {"castle", "castle"},
-        {"magic", "magic_wand"}, {"wizard", "magic_wand"}, {"sword", "crossed_swords"}, {"knight", "shield"},
-        {"ninja", "dagger"}, {"bomb", "bomb"}, {"chef", "cooking"}, {"cooking", "cooking"}, {"cake", "birthday_cake"},
-        {"sushi", "sushi"}, {"burger", "hamburger"}, {"casino", "slot_machine"}, {"poker", "joker"},
-        {"alien", "alien"}, {"aliens", "alien"}, {"ufo", "flying_saucer"}, {"planet", "ringed_planet"},
-    };
-    std::string low; // lower case, without the marks names carry (Mario Kart™ 8)
-    for (size_t i = 0; i < name.size(); ++i) {
-        if (name.compare(i, 3, "\xE2\x84\xA2") == 0) i += 2;                                     // TM
-        else if (name.compare(i, 2, "\xC2\xAE") == 0 || name.compare(i, 2, "\xC2\xA9") == 0) ++i; // (R) (C)
-        else low += static_cast<char>(std::tolower(static_cast<unsigned char>(name[i])));
-    }
-    auto letter = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || (c & 0x80); };
-    for (const auto& [words, picture] : kPictures)
-        for (size_t at = low.find(words); at != std::string::npos; at = low.find(words, at + 1)) {
-            const size_t end = at + std::strlen(words);
-            if ((at == 0 || !letter(low[at - 1])) && (end >= low.size() || !letter(low[end])))
-                return std::string(kAssets) + "titles/" + picture + ".png";
-        }
-    return {};
 }
 
 // As nextendo.network's own pages count them (assets/js/*-counts.js): the

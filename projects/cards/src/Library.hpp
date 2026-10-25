@@ -70,20 +70,19 @@ bool download(const std::string& url, const std::string& path);
 // the card's box art (SteamGridDB 600x900 with a key, else GameTDB's box cover
 // matched by name, else the eShop banner from nlib.cc) and the background
 // (SteamGridDB hero or the banner).
-enum class ArtKind { Grid, Box, Banner, Icon }; // Icon: a homebrew app's own icon
+enum class ArtKind { Grid, Box, Banner, Icon, Title }; // Icon: a homebrew app's own icon; Title: see titleArt
 std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool boxArt, ArtKind& kind);
 // The background: SteamGridDB hero, the eShop banner, the box cover, the icon.
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
+// The game's own picture with no background (the Wonder Flower for Super Mario
+// Bros. Wonder): the first SteamGridDB icon with clear edges. Empty: none.
+std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key);
 // SteamGridDB swaps a picture taken down (DMCA) for a flat notice: one mostly
 // of a single colour. Those are passed over for the next picture it has.
 bool removedNotice(const std::uint8_t* rgba, int w, int h);
 void forgetPicture(std::uint64_t id, bool background); // that one comes again
 
-// A 3D picture for the game's title in the panel, picked by its name (a kart
-// for Mario Kart, a cat for Stray): Microsoft's Fluent emoji in romfs titles/.
-// "" when nothing fits.
-std::string titlePicture(const std::string& name);
 
 // Players online in Nextendo (nextendo.network) by title, as its site counts them.
 bool nextendoOnline(std::map<std::uint64_t, int>& out);
