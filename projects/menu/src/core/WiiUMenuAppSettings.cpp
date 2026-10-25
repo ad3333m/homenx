@@ -1959,7 +1959,7 @@ void WiiUMenuApp::checkHomeNXUpdate() {
     if (!m_dialog) return;
     m_dialog->show(i18n.tr("settings.homenx.update_title", "Update available"),
                    i18n.tr("settings.homenx.update_body", "Install HomeNX") + " " + release.version + "? "
-                   + i18n.tr("settings.homenx.update_keep", "HomeNX Toggle opens and installs it; your settings and themes are kept."),
+                   + i18n.tr("settings.homenx.update_keep", "NXToggle opens and installs it; your settings and themes are kept."),
                    {{i18n.tr("settings.homenx.install", "Install"), [this]() { startHomeNXUpdate(); }, true},
                     {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
                    0, {});
@@ -1974,7 +1974,7 @@ void WiiUMenuApp::startHomeNXUpdate() {
     std::filesystem::create_directories("sdmc:/config/SwitchU/update", ec);
     std::ofstream("sdmc:/config/SwitchU/update/autostart") << "1";
     leaveThen([this] {
-        m_launcher.launchNro("sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro",
+        m_launcher.launchNro("sdmc:/switch/NXToggle/NXToggle.nro",
                              homebrewHostTitleId(), activeProfileUid());
     });
 }
@@ -1996,7 +1996,7 @@ void WiiUMenuApp::confirmTurnOffHomeNX() {
                              m_launcher.reboot();
                          } else if (m_settings) {
                              m_settings->requestToast(nxui::I18n::instance().tr("settings.homenx_off_failed",
-                                 "Couldn't turn it off. Open HomeNX Toggle from homebrew instead."), 4.f);
+                                 "Couldn't turn it off. Open NXToggle from homebrew instead."), 4.f);
                          }
                      }, true},
                     {i18n.tr("button.cancel", "Cancel"), [] {}, true}},

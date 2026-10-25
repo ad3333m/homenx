@@ -145,6 +145,45 @@ def power():
     return im
 
 
+def music():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.polygon([(q(36), q(24)), (q(76), q(14)), (q(76), q(24)), (q(36), q(34))], fill=W)   # the beam
+    d.rectangle([q(36), q(24), q(42), q(68)], fill=W)                                    # the stems
+    d.rectangle([q(70), q(14), q(76), q(60)], fill=W)
+    d.ellipse([q(20), q(60), q(42), q(78)], fill=W)                                      # the heads
+    d.ellipse([q(54), q(52), q(76), q(70)], fill=W)
+    return im
+
+
+def news():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(16), q(20), q(80), q(78)], radius=q(8), outline=W, width=q(6))
+    d.rectangle([q(26), q(30), q(70), q(42)], fill=W)            # the headline
+    for y in (52, 62):
+        d.rectangle([q(26), q(y - 2), q(70), q(y + 2)], fill=W)
+    d.rectangle([q(26), q(70), q(52), q(73)], fill=W)
+    return im
+
+
+def discord():
+    # HomeNX's white Discord mark (romfs/icons/discord_mark.png), as a button glyph
+    mark = Image.open(os.path.join(ROOT, "..", "..", "romfs", "icons", "discord_mark.png")).convert("RGBA")
+    im = canvas()
+    m = mark.resize((q(72), q(72)), Image.LANCZOS)
+    im.alpha_composite(m, (q(12), q(12)))
+    return im
+
+
+def arrows():
+    im = canvas(); d = ImageDraw.Draw(im)
+    w = q(7)
+    d.line([(q(34), q(26)), (q(14), q(48)), (q(34), q(70))], fill=W, width=w, joint="curve")
+    d.line([(q(62), q(26)), (q(82), q(48)), (q(62), q(70))], fill=W, width=w, joint="curve")
+    for x, y in ((34, 26), (34, 70), (62, 26), (62, 70), (14, 48), (82, 48)):
+        d.ellipse([q(x) - w // 2, q(y) - w // 2, q(x) + w // 2, q(y) + w // 2], fill=W)
+    return im
+
+
 # The Nintendo page's icons, in the style of the Switch HOME's round buttons:
 # a white disc with a coloured drawing (Switch Online: a red disc). 256 px.
 T = 256 * 4
@@ -275,7 +314,7 @@ def app_icon():
 if __name__ == "__main__":
     for name, fn in [("dots", dots), ("sort", sort), ("friends", friends), ("bell", bell), ("gear", gear_outline),
                      ("thermo", thermo), ("tag", tag), ("play", play), ("copy", copy), ("home", home),
-                     ("power", power)]:
+                     ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

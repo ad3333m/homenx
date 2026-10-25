@@ -7,11 +7,22 @@
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
 
+#ifdef SWITCHU_MENU
+#include "ReleaseUpdater.hpp"
+#include "launcher/AppletLauncher.hpp"
+#include "settings/ListDetailScreen.hpp"
+#include "settings/TextEntryScreen.hpp"
+#include "social/DiscordService.hpp"
+#include "widgets/DiscordPanel.hpp"
+#include <nxui/Theme.hpp>
+#endif
+
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -22,21 +33,31 @@
 namespace cards {
 
 // CardsNX: a HOME screen. A row of box-art cards over the chosen game's art, a
-// status bar on top (menu, sort, you, the time, battery, free space, Nextendo
-// players, notifications, power, settings) and a glass panel with the game's
-// details and Play below. Three pages: Games, Homebrew (.nro apps and NRO
-// forwarders) and Nintendo (eShop, Switch Online, Album, ...).
+// status bar on top (menu, Discord, sort, a pill with you, the time, battery,
+// free space and Nextendo players, notifications, music, power, settings) and
+// a glass panel with the game's details and Play below. Three pages: Games,
+// Homebrew (.nro apps and NRO forwarders) and Nintendo (News or Switch Online,
+// eShop, Album, ...).
+//
+// As an .nro it runs over hbl. Built into HomeNX's menu (SWITCHU_MENU) it is
+// HOME itself, chosen in NXToggle: games, applets and power go through HomeNX's
+// daemon, and Discord (L), News and updates come from HomeNX.
 class CardsActivity final : public nxui::Activity {
 public:
+    // As HOME: what the daemon said at start (a game suspended, one running).
+    explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false);
     bool onCreate() override;
     void onDestroy() override;
     void onUpdate(float dt) override;
     void onRender(nxui::Renderer&) override {}
-    nxui::Widget* focusRoot() override { return nullptr; } // reads the buttons itself
+    nxui::Widget* focusRoot() override; // HomeNX's screens when one is open; else it reads the buttons itself
 
 private:
     enum class Zone { Top, Cards, Bottom };
     enum Page { kGames, kHomebrew, kNintendo, kPageCount };
+    // The top bar's buttons, left to right.
+    enum Top { kTopMenu, kTopDiscord, kTopSort, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
+               kTopCount };
     struct Art {
         std::unique_ptr<nxui::Texture> card, bg, icon;
         ArtKind kind = ArtKind::Banner, bgKind = ArtKind::Banner;
@@ -55,13 +76,34 @@ private:
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
     };
-    // A popup row: an action (run), or a setting (value shown, left/right change it).
+    // A row in a popup or in Settings.
     struct MenuItem {
-        std::string label;
-        std::function<void()> run;
-        std::function<std::string()> value;
-        std::function<void(int)> change;
+        enum Kind { Action, Toggle, Choice, Slider, Info };
+        Kind kind = Action;
+        std::string label, detail;              // detail: a line under it (Settings)
+        std::function<void()> run;              // Action
+        std::function<std::string()> value;     // Choice / Info (and an Action's note)
+        std::function<void(int)> change;        // Choice, Slider: -1 / +1; Toggle: flip
+        std::function<float()> level;           // Toggle 0 / 1, Slider 0..1
+        const nxui::Texture* picture = nullptr; // a user's picture
+        bool danger = false;                    // red (Delete)
+        bool stay = false;                      // an action that keeps the popup open
+        float anim = -1.f;                      // a toggle's knob, easing
     };
+    struct Section {
+        std::string name;
+        const char* icon;
+        std::vector<MenuItem> rows;
+    };
+
+    static MenuItem action(std::string label, std::function<void()> run, bool danger = false);
+    static MenuItem toggle(std::string label, std::function<bool()> get, std::function<void()> flip,
+                           std::string detail = {});
+    static MenuItem choice(std::string label, std::function<std::string()> value, std::function<void(int)> change,
+                           std::string detail = {});
+    static MenuItem slider(std::string label, std::function<int()> get, std::function<void(int)> set,
+                           std::string detail = {});
+    static MenuItem info(std::string label, std::function<std::string()> value);
 
     std::vector<Game>& games() { return m_pages[m_page]; }
     int& sel() { return m_sels[m_page]; }
@@ -74,31 +116,70 @@ private:
     void select(int index);
     void switchPage(int dir);
     void sortGames(int sort, bool keepChoice = true);
+    void applyOrder(int page);
+    void saveOrder(int page);
+    void reloadGames();
+
+    // Starting things.
     void play();
+    void launchGame(const Game& g);
+    void openNro(const std::string& path);
+    void openNintendo(const Game& g);
+    void openDiscord();
+    void openBrowser();
+    std::string findNro(const char* nameHas);
+    // The launch: the card grows to fill the screen, the rest falls away, then
+    // black; `then` runs at the end (index -1: no card, only the fade).
+    void leave(int index, float seconds, std::function<void()> then);
+    void comeBack(); // it didn't happen: the screen as it was
+    void handleHome();
+    bool closeEverything();
+
+    // Popups and screens.
     void openMenu(std::string title, std::vector<MenuItem> items);
-    void openSettings();
+    void openOptions();
+    void openSettings(int section = 0);
+    void buildSettings();
     void openPower();
+    void openMusic();
+    void openUsers();
     void openNotifications();
+    void startMove();
+    void finishMove(bool keep);
     void say(const std::string& message);
-    void refreshStatus();
     void activateTop(int index);
     void activateBottom(int index);
     void press(int zone, int index);
     void keepTextCachesSmall();
+    void setUser(AccountUidLike uid);
+    void loadAvatar();
+    std::string updateRowLabel();
+    void runUpdate();
 
     void draw(nxui::Renderer& r);
     void drawBackground(nxui::Renderer& r);
     void drawTopBar(nxui::Renderer& r, float a);
     void drawCards(nxui::Renderer& r);
-    void drawCardExtras(nxui::Renderer& r); // after the blur: badges, the sheen
+    void drawCardExtras(nxui::Renderer& r); // after the blur: glass cards, badges, the sheen
+    void drawLaunch(nxui::Renderer& r);
     void drawPanel(nxui::Renderer& r, float a);
     void drawPopup(nxui::Renderer& r);
+    void drawSheet(nxui::Renderer& r);
+    void drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect& row, bool chosen, float a, bool wide);
     void glassCircle(nxui::Renderer& r, float cx, float cy, float d, bool focused, const char* icon, float iconSize,
                      float a, float pressed);
     void frost(nxui::Renderer& r, const nxui::Rect& rect, float radius, const nxui::Color& tint);
     void icon(nxui::Renderer& r, const char* name, float cx, float cy, float size, const nxui::Color& tint);
     bool cardRect(int index, nxui::Rect& card, float& chosen);
     const nxui::Texture* gameIconTexture();
+    nxui::Color accent(float a = 1.f) const;
+    nxui::Color glassTint(float a = 1.f) const;
+    bool isRunning(std::uint64_t id) const;
+    std::uint64_t runningId() const;
+
+    bool updateSheet(float dt);
+    bool updatePopup();
+    bool handleTouch();
 
     Settings m_settings;
     Audio m_audio;
@@ -129,20 +210,42 @@ private:
     int m_pressZone = -1, m_pressIndex = -1;
     float m_pressT = 1.f;         // 0 -> 1 after a button is pressed
 
+    // The launch (see leave()).
+    bool m_leaving = false;
+    float m_leaveT = 0.f, m_leaveFor = 0.9f;
+    int m_leaveIndex = -1;
+    std::uint64_t m_leaveId = 0;
+    nxui::Rect m_leaveFrom{};
+    std::function<void()> m_leaveThen;
+    bool m_left = false; // `then` ran: hold the black frame until the app closes
+
+    // Plus > Move: the chosen card moves with left / right.
+    bool m_moving = false;
+    std::vector<Game> m_moveBefore;
+    int m_moveBeforeSel = 0;
+
     // The background: the chosen game's art, faded in over the last one.
     std::uint64_t m_bgId = 0, m_bgPrevId = 0;
     float m_bgFade = 1.f;
 
-    // The status bar.
+    // The status bar (numbers from worker 1: the SD card and network calls
+    // took the screen's time once a second).
     std::unique_ptr<nxui::Texture> m_avatar;
     std::string m_clock, m_battery, m_free;
     bool m_online = false;
-    float m_statusIn = 0.f;
+    struct Status {
+        std::string clock, battery, free;
+        bool online = false;
+    };
+    Status m_statusIn;
+    bool m_statusFresh = false;
     int m_unread = 0;
     std::map<std::uint64_t, int> m_players; // Nextendo, by title
     int m_playersTotal = -1;                 // -1: not known yet
+    nxui::Rect m_userHit{}, m_playersHit{};  // in the pill, for touch
+    std::future<bool> m_browserJob;          // BrowseNX downloading
 
-    // Popups: a list (menu, settings, power), or the notifications.
+    // Popups: a list (menu, power, music, users, a game's options), or the notifications.
     std::string m_menuTitle;
     std::vector<MenuItem> m_menu;
     int m_menuSel = 0;
@@ -150,8 +253,15 @@ private:
     std::vector<std::pair<std::string, std::string>> m_notifRows; // title, detail
     std::string m_message;
     float m_messageFor = 0.f;
+    std::vector<std::unique_ptr<nxui::Texture>> m_userPictures;
 
-    // The workers: pictures (three at a time) and Nextendo's counts.
+    // Settings: sections on the left, their rows on the right.
+    std::vector<Section> m_sheet;
+    bool m_sheetOpen = false, m_sheetOnRows = false;
+    int m_sheetSec = 0, m_sheetRow = 0;
+    float m_sheetIn = 0.f, m_sheetRowsIn = 1.f, m_sheetScroll = 0.f;
+
+    // The workers: pictures (three at a time), Nextendo's counts, the status bar.
     std::vector<std::thread> m_threads;
     std::mutex m_mu;
     std::condition_variable m_cv;
@@ -163,12 +273,49 @@ private:
     std::string m_key;        // SteamGridDB
     bool m_netUp = false;
     std::atomic<bool> m_boxArt{true};
+    std::atomic<bool> m_clock24{true};
+    std::atomic<bool> m_downloading{false}; // BrowseNX
     float m_evictIn = 0.f;
 
     // Touch: drag the row, tap a card (again to play), tap any button.
     bool m_dragging = false, m_touchOnCards = false;
     float m_touchScroll = 0.f;
-    bool handleTouch();
+
+#ifdef SWITCHU_MENU
+    // As HOME.
+    std::uint64_t m_startSuspended = 0;
+    bool m_startRunning = false;
+    AppletLauncher m_launcher;
+    std::uint64_t m_pendingLaunch = 0; // starts once the open game has closed
+    bool m_asleep = false;
+    void pumpDaemon();
+    std::uint64_t hostTitleId() const;
+    AccountUid launchUid() const;
+
+    // HomeNX's own screens, in its font.
+    nxui::Theme m_theme = nxui::Theme::dark();
+    nxui::Font m_hxFont, m_hxSmall;
+    DiscordService m_discord;
+    std::shared_ptr<DiscordPanel> m_discordPanel;
+    std::shared_ptr<TextEntryScreen> m_textEntry;
+    std::shared_ptr<ListDetailScreen> m_news;
+    float m_discordStartIn = 4.f;
+    bool m_discordStarted = false;
+    void openNews();
+    std::future<void> m_newsJob;
+    std::vector<ListDetailScreen::Entry> m_newsReady;
+    std::string m_newsEmpty;
+    bool m_newsWanted = false;
+
+    // Settings > Updates: HomeNX's release, installed from here.
+    enum class Update { Idle, Checking, UpToDate, Available, Installing, Installed, Failed };
+    std::atomic<int> m_update{static_cast<int>(Update::Idle)};
+    std::future<void> m_updateJob;
+    switchu::manager::ReleaseInfo m_release;
+    std::string m_updateError;
+    std::atomic<float> m_updateDownload{0.f}, m_updateInstall{0.f};
+    std::atomic<int> m_updateStage{0};
+#endif
 };
 
 } // namespace cards

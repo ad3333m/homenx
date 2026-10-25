@@ -1531,7 +1531,7 @@ void WiiUMenuApp::rebuildSidebar() {
 }
 
 void WiiUMenuApp::openToggle() {
-    openBundledApp("sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro", "HomeNX Toggle");
+    openBundledApp("sdmc:/switch/NXToggle/NXToggle.nro", "NXToggle");
 }
 
 // HomeNX's own apps (Toggle, Updater), copied out of switch/SwitchU/bin at start.

@@ -93,7 +93,7 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
         {kButtonMusic, "sidebar.music", "Music", actions.onMusic},
         {kButtonStorage, "sidebar.storage", "Storage", actions.onStorage},
         {kButtonMiiMaker, "sidebar.mii_maker", "Mii Maker", actions.onMiiMaker},
-        {kButtonToggle, "sidebar.toggle", "HomeNX Toggle", actions.onToggle},
+        {kButtonToggle, "sidebar.toggle", "NXToggle", actions.onToggle},
         {kButtonHekate, "sidebar.hekate", "Reboot to Hekate", actions.onHekate},
         {kButtonUpdater, "sidebar.updater", "Homebrew Manager", actions.onUpdater},
     };

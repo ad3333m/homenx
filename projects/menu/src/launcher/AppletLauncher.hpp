@@ -26,8 +26,8 @@ public:
     // as hbmenu.nro.homenx-original). Call when the menu starts.
     static bool installLoader(); // false if the Loader file is missing or the copy failed
     static const std::string& loaderError(); // why installLoader() failed
-    // Frontend: copies the HomeNX Toggle shipped in switch/SwitchU/bin/ to
-    // switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
+    // Frontend: copies NXToggle shipped in switch/SwitchU/bin/ to
+    // switch/NXToggle/ (a running Toggle can't replace its own .nro).
     static void installBundledApps(); // the Toggle and the Discord overlay
     // Frontend: unpacks Atmosphere's sdmc:/atmosphere/hbl.nsp into
     // switch/SwitchU/bin/hbl/ (main + main.npdm) for application-mode homebrew.

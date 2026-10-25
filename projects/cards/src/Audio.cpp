@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <filesystem>
 
 namespace cards {
@@ -31,6 +32,7 @@ bool Audio::start() {
         if (Mix_Chunk* c = Mix_LoadWAV((std::string(kSounds) + "/sfx/" + name + ".wav").c_str()))
             m_chunks.push_back({name, c});
     }
+    Mix_Volume(-1, MIX_MAX_VOLUME * m_soundVolume / 100);
     Mix_HookMusicFinished(onTrackEnded);
     return true;
 }
@@ -55,20 +57,52 @@ void Audio::setMusic(bool on, int volume) {
     Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
     if (!on) {
         Mix_HaltMusic();
+        m_playing = -1;
+        g_trackEnded = false;
         return;
     }
     if (!Mix_PlayingMusic()) g_trackEnded = true; // start one now (update)
 }
 
-void Audio::update() {
-    if (!m_open || !m_music || m_tracks.empty() || !g_trackEnded.exchange(false)) return;
+void Audio::startTrack(size_t index) {
+    if (m_tracks.empty()) return;
+    index %= m_tracks.size();
+    Mix_HookMusicFinished(nullptr); // halting the old one isn't "it ended"
+    Mix_HaltMusic();
+    Mix_HookMusicFinished(onTrackEnded);
+    g_trackEnded = false;
     if (m_current) Mix_FreeMusic(m_current);
-    m_current = Mix_LoadMUS(m_tracks[m_track % m_tracks.size()].c_str());
-    ++m_track;
+    m_current = Mix_LoadMUS(m_tracks[index].c_str());
+    m_playing = static_cast<long>(index);
+    m_track = index + 1;
     if (m_current) {
         Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
         Mix_FadeInMusic(m_current, 1, 600);
     }
+}
+
+void Audio::update() {
+    if (!m_open || !m_music || m_tracks.empty() || !g_trackEnded.exchange(false)) return;
+    startTrack(m_shuffle && m_tracks.size() > 1 ? static_cast<size_t>(std::rand()) % m_tracks.size() : m_track);
+}
+
+void Audio::skip(int dir) {
+    if (!m_open || m_tracks.empty()) return;
+    m_music = true;
+    const long n = static_cast<long>(m_tracks.size());
+    const long from = m_playing < 0 ? 0 : m_playing;
+    startTrack(static_cast<size_t>(((from + dir) % n + n) % n));
+}
+
+std::string Audio::trackName() const {
+    if (m_playing < 0 || m_playing >= static_cast<long>(m_tracks.size())) return {};
+    return std::filesystem::path(m_tracks[(size_t)m_playing]).stem().string();
+}
+
+void Audio::setSounds(bool on, int volume) {
+    m_sounds = on;
+    if (volume >= 0) m_soundVolume = std::clamp(volume, 0, 100);
+    if (m_open) Mix_Volume(-1, MIX_MAX_VOLUME * m_soundVolume / 100);
 }
 
 void Audio::play(const char* sound) {
@@ -82,6 +116,14 @@ void Audio::play(const char* sound) {
 
 void Audio::fadeOut(int ms) {
     if (m_open && Mix_PlayingMusic()) Mix_FadeOutMusic(ms);
+}
+
+void Audio::pause() {
+    if (m_open) Mix_PauseMusic();
+}
+
+void Audio::resume() {
+    if (m_open) Mix_ResumeMusic();
 }
 
 } // namespace cards

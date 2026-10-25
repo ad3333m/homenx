@@ -29,7 +29,7 @@ extern "C" void userAppExit(void) {
 
 int main(int, char**) {
     switchu::FileLog::open("manager");
-    switchu::FileLog::log("[main] HomeNX Toggle starting");
+    switchu::FileLog::log("[main] NXToggle starting");
     // Finish an update that left files waiting (our own .nro stays pending
     // while we run; the HomeNX menu swaps it in next time it starts).
     switchu::manager::ReleaseUpdater::applyPending();

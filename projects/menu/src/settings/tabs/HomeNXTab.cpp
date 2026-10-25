@@ -254,7 +254,7 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         it.label = i18n.tr("settings.homenx_off", "Turn Off HomeNX");
         it.buttonLabel = i18n.tr("settings.homenx_off_button", "Turn off");
         it.description = i18n.tr("settings.homenx_off_desc",
-            "Go back to the normal HOME menu. Open HomeNX Toggle from homebrew to turn it on again.");
+            "Go back to the normal HOME menu. Open NXToggle from homebrew to turn it on again.");
         it.type = ItemType::Action;
         it.onChange = [&screen](SettingItem&) {
             if (screen.m_homenxOffCb) screen.m_homenxOffCb();

@@ -289,8 +289,8 @@ bool AppletLauncher::installLoader() {
 // ship in switch/SwitchU/bin and are copied out here.
 void AppletLauncher::installBundledApps() {
     static const struct { const char* source; const char* dir; const char* target; } kApps[] = {
-        {"sdmc:/switch/SwitchU/bin/homenx-toggle.nro", "sdmc:/switch/HomeNX-Toggle",
-         "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro"},
+        {"sdmc:/switch/SwitchU/bin/homenx-toggle.nro", "sdmc:/switch/NXToggle",
+         "sdmc:/switch/NXToggle/NXToggle.nro"},
         {"sdmc:/switch/SwitchU/bin/homebrew-manager.nro", "sdmc:/switch/Homebrew-Manager",
          "sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro"},
         {"sdmc:/switch/SwitchU/bin/cardsnx.nro", "sdmc:/switch/CardsNX",
@@ -323,6 +323,7 @@ void AppletLauncher::installBundledApps() {
         std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-updater.nro", ec);
         std::filesystem::remove_all("sdmc:/switch/HomeNX-Cards", ec); // CardsNX's first name
         std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-cards.nro", ec);
+        std::filesystem::remove_all("sdmc:/switch/HomeNX-Toggle", ec); // NXToggle's first name
     }
     for (const auto& app : kApps) {
         std::error_code ec;

@@ -137,7 +137,7 @@ void configureCurl(CURL* curl, const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L); // slow Switch Wi-Fi / DNS
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "HomeNX-Toggle/" HOMENX_BUILD);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "NXToggle/" HOMENX_BUILD);
 }
 
 size_t appendResponse(char* data, size_t size, size_t count, void* user) {
@@ -399,6 +399,7 @@ std::string safeRelativePath(std::string raw) {
     const bool menu = raw.rfind("switch/SwitchU/", 0) == 0;
     const bool manager = raw.rfind("switch/SwitchU-Manager/", 0) == 0
         || raw.rfind("switch/HomeNX-Toggle/", 0) == 0
+        || raw.rfind("switch/NXToggle/", 0) == 0
         || raw.rfind("switch/HomeNX-Loader/", 0) == 0;
     return daemon || menu || manager ? raw : std::string();
 }

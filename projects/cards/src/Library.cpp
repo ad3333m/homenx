@@ -2,7 +2,11 @@
 
 #include <switch.h>
 #include <switchu/control_cache.hpp>
+#include <switchu/ns_ext.hpp>
 #include "homebrew/HomebrewStore.hpp"
+#ifdef SWITCHU_MENU
+#include "themeshop/ThemeHttp.hpp"
+#endif
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
@@ -51,8 +55,8 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
     for (const std::string& h : headers) list = curl_slist_append(list, h.c_str());
     // art.gametdb.com is on Let's Encrypt's newest chain (ISRG Root X1), which
     // the console's own store may not have: its root ships with the app.
-    if (url.find("gametdb.com") != std::string::npos)
-        curl_easy_setopt(c, CURLOPT_CAINFO, "romfs:/certs/isrg-root-x1.pem");
+    const std::string ca = std::string(kAssets) + "certs/isrg-root-x1.pem";
+    if (url.find("gametdb.com") != std::string::npos) curl_easy_setopt(c, CURLOPT_CAINFO, ca.c_str());
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
     curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
@@ -167,7 +171,7 @@ std::string gametdbCover(const Game& game) {
     static bool loaded = false;
     if (!loaded) {
         loaded = true;
-        std::ifstream in("romfs:/gametdb.tsv");
+        std::ifstream in(std::string(kAssets) + "gametdb.tsv");
         std::string line;
         while (std::getline(in, line)) {
             const size_t a = line.find('\t'), b = a == std::string::npos ? a : line.find('\t', a + 1);
@@ -224,6 +228,15 @@ std::vector<Game> listGames() {
         }
         offset += got;
         if (got < 30) break;
+    }
+
+    // Game cards, what can start now (HOME's AppListLoader asks the same).
+    if (!games.empty()) {
+        std::vector<std::uint64_t> ids;
+        for (const Game& g : games) ids.push_back(g.id);
+        std::vector<switchu::ns::ExtApplicationView> views(ids.size());
+        if (R_SUCCEEDED(switchu::ns::queryApplicationViews(ids.data(), static_cast<int>(ids.size()), views.data())))
+            for (size_t i = 0; i < games.size(); ++i) games[i].flags = views[i].flags;
     }
 
     std::unique_ptr<NsApplicationControlData> control;
@@ -284,13 +297,19 @@ std::vector<std::uint8_t> gameIcon(const Game& game) {
 }
 
 bool startNetwork() {
+#ifdef SWITCHU_MENU
+    return themeshop::http::initialize(); // HOME's sockets and curl (Discord and updates use them too)
+#else
     if (R_FAILED(socketInitializeDefault())) return false;
     return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+#endif
 }
 
 void stopNetwork() {
+#ifndef SWITCHU_MENU
     curl_global_cleanup();
     socketExit();
+#endif
 }
 
 void threadDone() {
@@ -308,10 +327,63 @@ std::string steamGridDbKey() {
     }
 }
 
+std::string idText(std::uint64_t id) { return hexId(id); }
+
+std::string systemIconPath(const std::string& action) {
+    static const std::pair<const char*, const char*> kHomeNX[] = {
+        {"news", "news"}, {"eshop", "eshop"}, {"controllers", "controller"},
+        {"mii", "mii_editor"}, {"friends", "friends"}, {"settings", "settings"},
+    };
+    for (const auto& [a, file] : kHomeNX)
+        if (action == a)
+#ifdef SWITCHU_MENU
+            return std::string("sdmc:/switch/SwitchU/icons/") + file + ".png";
+#else
+            return std::string("romfs:/icons/hx/") + file + ".png"; // copied from HomeNX's at build
+#endif
+    return std::string(kAssets) + "icons/sys_" + action + ".png"; // tools/make_cards_icons.py
+}
+
+namespace {
+size_t toFile(char* p, size_t size, size_t n, void* user) {
+    return std::fwrite(p, size, n, static_cast<FILE*>(user)) * size;
+}
+} // namespace
+
+bool download(const std::string& url, const std::string& path) {
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+    const std::string part = path + ".part";
+    FILE* f = std::fopen(part.c_str(), "wb");
+    if (!f) return false;
+    if (!t_curl) t_curl = curl_easy_init();
+    long status = 0;
+    if (CURL* c = t_curl) {
+        curl_easy_reset(c);
+        curl_easy_setopt(c, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
+        curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 10L);
+        curl_easy_setopt(c, CURLOPT_TIMEOUT, 300L);
+        curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, toFile);
+        curl_easy_setopt(c, CURLOPT_WRITEDATA, f);
+        if (curl_easy_perform(c) == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+    }
+    std::fclose(f);
+    if (status != 200 || std::filesystem::file_size(part, ec) < 1024) {
+        std::filesystem::remove(part, ec);
+        return false;
+    }
+    std::filesystem::remove(path, ec);
+    std::filesystem::rename(part, path, ec);
+    return !ec;
+}
+
 std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool boxArt, ArtKind& kind) {
-    if (!game.action.empty()) { // the Nintendo page: drawn by tools/make_cards_icons.py
+    if (!game.action.empty()) { // the Nintendo page
         kind = ArtKind::Icon;
-        return readFile("romfs:/icons/sys_" + game.action + ".png");
+        return readFile(systemIconPath(game.action));
     }
     if (game.homebrew) { // apps have no box art: their icon makes the card
         kind = ArtKind::Icon;
@@ -347,7 +419,7 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
 
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind) {
     kind = ArtKind::Icon;
-    if (!game.action.empty()) return readFile("romfs:/icons/sys_" + game.action + ".png");
+    if (!game.action.empty()) return readFile(systemIconPath(game.action));
     if (game.homebrew) return gameIcon(game); // drawn huge and soft: its colours
     kind = ArtKind::Banner;
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bg";
@@ -478,9 +550,6 @@ Result showWeb(const char* url, AccountUid uid, bool shop) {
     webConfigSetBootDisplayKind(&cfg, WebBootDisplayKind_Black);
     webConfigSetPointer(&cfg, true);
     webConfigSetLeftStickMode(&cfg, WebLeftStickMode_Pointer);
-    webConfigSetJsExtension(&cfg, true);
-    webConfigSetPageCache(&cfg, true);
-    webConfigSetTransferMemory(&cfg, true);
     webConfigSetTouchEnabledOnContents(&cfg, true);
     WebCommonReply reply{};
     return webConfigShow(&cfg, &reply);
@@ -501,14 +570,18 @@ bool launch(std::uint64_t id, AccountUidLike user) {
 std::vector<Game> listSystem() {
     struct Entry { const char* action; const char* name; const char* about; };
     static const Entry kEntries[] = {
+#ifdef SWITCHU_MENU
+        {"news", "News", "What's new"}, // as HOME's frontend: News instead of the online page
+#else
         {"nso", "Switch Online", "Online and classics"},
+#endif
         {"eshop", "eShop", "Games and add-ons"},
         {"album", "Album", "Screenshots, videos"},
         {"controllers", "Controllers", "Pair controllers"},
         {"mii", "Mii Maker", "Make your Miis"},
         {"friends", "Friends", "Your friend list"},
-        {"browser", "Browser", "Search the web"},
-        {"settings", "Settings", "Music, art, pages"},
+        {"browser", "Browser", "BrowseNX"},
+        {"settings", "Settings", "Look, sound, updates"},
     };
     std::vector<Game> out;
     for (const Entry& e : kEntries) {
@@ -552,6 +625,54 @@ bool openSystem(const std::string& action, AccountUidLike user, std::string& err
         return false;
     }
     return true;
+}
+
+std::vector<User> listUsers() {
+    std::vector<User> out;
+    AccountUid uids[8] = {};
+    s32 count = 0;
+    if (R_FAILED(accountListAllUsers(uids, 8, &count))) return out;
+    for (s32 i = 0; i < count; ++i) {
+        User u;
+        u.uid.uid[0] = uids[i].uid[0];
+        u.uid.uid[1] = uids[i].uid[1];
+        AccountProfile profile{};
+        if (R_SUCCEEDED(accountGetProfile(&profile, uids[i]))) {
+            AccountProfileBase base{};
+            AccountUserData data{};
+            if (R_SUCCEEDED(accountProfileGet(&profile, &data, &base))) u.name = base.nickname;
+            u32 size = 0;
+            if (R_SUCCEEDED(accountProfileGetImageSize(&profile, &size)) && size > 0 && size < (1u << 20)) {
+                u.picture.resize(size);
+                u32 got = 0;
+                if (R_FAILED(accountProfileLoadImage(&profile, u.picture.data(), size, &got))) u.picture.clear();
+                else u.picture.resize(got);
+            }
+            accountProfileClose(&profile);
+        }
+        if (u.name.empty()) u.name = "User " + std::to_string(i + 1);
+        out.push_back(std::move(u));
+    }
+    return out;
+}
+
+bool deleteUser(AccountUidLike user, std::string& error) {
+    AccountUid uid{};
+    uid.uid[0] = user.uid[0];
+    uid.uid[1] = user.uid[1];
+    // acc:su (the administrator's account service, which System Settings uses):
+    // 203 DeleteUser.
+    Service su{};
+    Result rc = smGetService(&su, "acc:su");
+    if (R_SUCCEEDED(rc)) {
+        rc = serviceDispatchIn(&su, 203, uid);
+        serviceClose(&su);
+    }
+    if (R_SUCCEEDED(rc)) return true;
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "The console didn't remove that user (0x%X).", rc);
+    error = buf;
+    return false;
 }
 
 bool canRebootToPayload() {

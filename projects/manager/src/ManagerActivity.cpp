@@ -15,6 +15,9 @@
 #include <functional>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <string>
 
 namespace switchu::manager {
 namespace {
@@ -70,6 +73,24 @@ void drawArc(nxui::Renderer& r, nxui::Vec2 c, float radius, float from, float to
 
 std::string tr(const char* key, const char* fallback) {
     return nxui::I18n::instance().tr(key, fallback);
+}
+
+// HOME's look, read by the menu when it starts: "cards" = CardsNX's card row.
+constexpr const char* kHomeStyle = "sdmc:/config/SwitchU/frontend.txt";
+
+// "HomeNX" in a line about turning HOME on or off, as "CardsNX" when that's the look.
+std::string named(std::string s, bool cards) {
+    if (!cards) return s;
+    for (size_t at = s.find("HomeNX"); at != std::string::npos; at = s.find("HomeNX", at + 7))
+        s.replace(at, 6, "CardsNX");
+    return s;
+}
+
+bool cardsStyle() {
+    std::string line;
+    std::ifstream in(kHomeStyle);
+    std::getline(in, line);
+    return line.rfind("cards", 0) == 0;
 }
 
 } // namespace
@@ -138,7 +159,7 @@ bool ManagerActivity::onCreate() {
     m_decor = std::make_shared<Painter>([this](nxui::Renderer& r) { drawDecor(r); });
     rootBox().addChild(m_decor);
 
-    m_titleLabel = std::make_shared<nxui::Label>(tr("manager.title", "HomeNX Toggle"));
+    m_titleLabel = std::make_shared<nxui::Label>(tr("manager.title", "NXToggle"));
     m_titleLabel->setFont(&m_titleFont);
     m_titleLabel->setTextColor(m_theme.textPrimary);
     m_titleLabel->setHAlign(nxui::Label::HAlign::Left);
@@ -147,7 +168,7 @@ bool ManagerActivity::onCreate() {
     rootBox().addChild(m_titleLabel);
 
     m_subtitleLabel = std::make_shared<nxui::Label>(
-        tr("manager.subtitle2", "Switch between HomeNX and Nintendo's HOME menu, and keep HomeNX up to date."));
+        tr("manager.subtitle2", "Turn HOME on or off, pick HomeNX or CardsNX as HOME, and keep them up to date."));
     m_subtitleLabel->setFont(&m_smallFont);
     m_subtitleLabel->setScale(0.86f);
     m_subtitleLabel->setTextColor(m_theme.textSecondary);
@@ -202,6 +223,10 @@ bool ManagerActivity::onCreate() {
     });
     m_updateButton = createButton({676.f, 300.f, 500.f, 58.f}, "", [this]() {
         requestUpdate();
+    });
+    m_cardsStyle = cardsStyle();
+    m_styleButton = createButton({676.f, 540.f, 500.f, 58.f}, "", [this]() {
+        requestHomeStyle();
     });
     m_rebootButton = createButton({100.f, 544.f, 236.f, 62.f},
         tr("manager.reboot_now", "Restart now"), [this]() { requestReboot(); });
@@ -289,11 +314,11 @@ void ManagerActivity::refreshPresentation() {
     const bool configuredEnabled = m_snapshot.state == InstallationState::Enabled;
 
     if (m_runtimeState == InstallationState::Enabled) {
-        m_statusLabel->setText(tr("manager.status_on", "HomeNX is on"));
+        m_statusLabel->setText(named(tr("manager.status_on", "HomeNX is on"), m_cardsStyle));
         m_stateColor = nxui::Color(0.30f, 0.90f, 0.55f, 1.f);
         m_statusLabel->setTextColor(m_stateColor);
     } else if (m_runtimeState == InstallationState::Disabled) {
-        m_statusLabel->setText(tr("manager.status_off", "HomeNX is off"));
+        m_statusLabel->setText(named(tr("manager.status_off", "HomeNX is off"), m_cardsStyle));
         m_stateColor = nxui::Color(0.55f, 0.6f, 0.68f, 1.f);
         m_statusLabel->setTextColor(m_theme.textPrimary);
     } else {
@@ -318,10 +343,15 @@ void ManagerActivity::refreshPresentation() {
     } else if (!m_errorMessage.empty()) {
         m_detailLabel->setText(m_errorMessage);
         m_noticeLabel->setText(tr("manager.no_change", "No unrelated data was modified."));
+    } else if (m_restartRequired && m_styleChanged) {
+        m_detailLabel->setText(m_cardsStyle
+            ? tr("manager.next_boot_cards", "CardsNX will be your HOME after the restart.")
+            : tr("manager.next_boot_homenx", "HomeNX's own HOME comes back after the restart."));
+        m_noticeLabel->setText(tr("manager.restart_required", "Restart required"));
     } else if (m_restartRequired) {
-        m_detailLabel->setText(configuredEnabled
+        m_detailLabel->setText(named(configuredEnabled
             ? tr("manager.next_boot_enabled", "HomeNX will be enabled after the next restart.")
-            : tr("manager.next_boot_disabled", "HomeNX will be disabled after the next restart."));
+            : tr("manager.next_boot_disabled", "HomeNX will be disabled after the next restart."), m_cardsStyle));
         m_noticeLabel->setText(tr("manager.restart_required", "Restart required"));
     } else if (m_snapshot.state == InstallationState::Conflict) {
         m_detailLabel->setText(tr("manager.conflict",
@@ -332,9 +362,9 @@ void ManagerActivity::refreshPresentation() {
             "HomeNX's Atmosphere override was not found on the SD card."));
         m_noticeLabel->setText(tr("manager.operation_blocked", "Operation blocked for safety"));
     } else {
-        m_detailLabel->setText(runtimeEnabled
+        m_detailLabel->setText(named(runtimeEnabled
             ? tr("manager.enabled_detail", "The HomeNX HOME menu is configured for this boot.")
-            : tr("manager.disabled_detail", "The original Nintendo HOME menu is configured for this boot."));
+            : tr("manager.disabled_detail", "The original Nintendo HOME menu is configured for this boot."), m_cardsStyle));
         m_noticeLabel->setText("");
     }
 
@@ -349,9 +379,9 @@ void ManagerActivity::refreshPresentation() {
         }
     }
 
-    const std::string toggleText = configuredEnabled
+    const std::string toggleText = named(configuredEnabled
         ? tr("manager.disable", "Disable HomeNX")
-        : tr("manager.enable", "Enable HomeNX");
+        : tr("manager.enable", "Enable HomeNX"), m_cardsStyle);
     m_toggleButton.label->setText(toggleText);
     m_toggleButton.button->setAccessibilityLabel(toggleText);
 
@@ -396,6 +426,11 @@ void ManagerActivity::refreshPresentation() {
                      validState && !m_loading && !updaterBusy);
     setButtonVisible(m_updateButton, !m_restartRequired,
                      !m_loading && !updaterBusy);
+    const std::string styleText = m_cardsStyle ? tr("manager.use_homenx", "Use HomeNX's HOME")
+                                               : tr("manager.use_cards", "Use CardsNX as HOME");
+    m_styleButton.label->setText(styleText);
+    m_styleButton.button->setAccessibilityLabel(styleText);
+    setButtonVisible(m_styleButton, !m_restartRequired, !m_loading && !updaterBusy);
     setButtonVisible(m_rebootButton, m_restartRequired,
                      !m_loading && !m_rebooting && !updaterBusy);
     setButtonVisible(m_laterButton, m_restartRequired,
@@ -591,22 +626,59 @@ void ManagerActivity::requestToggle() {
     if (m_loading || m_restartRequired)
         return;
     const bool enable = m_snapshot.state == InstallationState::Disabled;
-    const std::string title = enable
+    const std::string title = named(enable
         ? tr("manager.confirm_enable_title", "Enable HomeNX?")
-        : tr("manager.confirm_disable_title", "Disable HomeNX?");
+        : tr("manager.confirm_disable_title", "Disable HomeNX?"), m_cardsStyle);
     const std::string message = tr("manager.confirm_toggle_message",
         "The change will take effect after a restart.");
     m_dialog->show(title, message,
         {
             {tr("manager.cancel", "Cancel"), {}, true},
-            {enable ? tr("manager.enable", "Enable HomeNX")
-                    : tr("manager.disable", "Disable HomeNX"),
+            {named(enable ? tr("manager.enable", "Enable HomeNX")
+                          : tr("manager.disable", "Disable HomeNX"), m_cardsStyle),
              [this, enable]() {
                  m_pendingTargetEnabled = enable;
                  m_loading = true;
                  m_errorMessage.clear();
                  m_operationDelayFrames = 2;
                  refreshPresentation();
+             }, true},
+        }, 0);
+    focusManager().setFocus(m_dialog.get());
+}
+
+// Home screen: HomeNX's (folders, sidebar) or CardsNX's (a row of box-art
+// cards). The menu reads the choice when it starts, so it takes a restart.
+void ManagerActivity::requestHomeStyle() {
+    if (m_loading || m_restartRequired)
+        return;
+    const bool toCards = !m_cardsStyle;
+    m_dialog->show(
+        toCards ? tr("manager.cards_title", "Use CardsNX as HOME?")
+                : tr("manager.homenx_title", "Use HomeNX's HOME?"),
+        toCards ? tr("manager.cards_message", "HOME becomes CardsNX's row of game cards, with Discord, News and updates. It changes after a restart.")
+                : tr("manager.homenx_message", "HOME goes back to HomeNX's folders and sidebar. It changes after a restart."),
+        {
+            {tr("manager.cancel", "Cancel"), {}, true},
+            {toCards ? tr("manager.use_cards", "Use CardsNX as HOME") : tr("manager.use_homenx", "Use HomeNX's HOME"),
+             [this, toCards]() {
+                 std::error_code ec;
+                 std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+                 {
+                     std::ofstream out(kHomeStyle, std::ios::trunc);
+                     out << (toCards ? "cards" : "homenx") << '\n';
+                 }
+                 if (cardsStyle() != toCards) {
+                     m_errorMessage = tr("manager.style_failed", "The choice couldn't be saved on the SD card.");
+                     refreshPresentation();
+                     return;
+                 }
+                 switchu::FileLog::log("[style] home screen -> %s", toCards ? "cards" : "homenx");
+                 m_cardsStyle = toCards;
+                 m_styleChanged = true;
+                 m_restartRequired = true;
+                 refreshPresentation();
+                 focusFirstAvailable();
              }, true},
         }, 0);
     focusManager().setFocus(m_dialog.get());
@@ -695,7 +767,7 @@ void ManagerActivity::requestReboot() {
 void ManagerActivity::rebootNow() {
     switchu::FileLog::log("[power] reboot requested");
     switchu::FileLog::close();
-    if (!switchu::commitSdCard("HomeNX Toggle reboot")) {
+    if (!switchu::commitSdCard("NXToggle reboot")) {
         switchu::FileLog::open("manager");
         m_rebooting = false;
         showError(ToggleError::CommitFailed, 0);
@@ -758,6 +830,7 @@ void ManagerActivity::onUpdate(float dt) {
     };
     syncButton(m_toggleButton);
     syncButton(m_updateButton);
+    syncButton(m_styleButton);
     syncButton(m_rebootButton);
     syncButton(m_laterButton);
 
@@ -812,19 +885,28 @@ void ManagerActivity::drawDecor(nxui::Renderer& r) {
         r.drawCircle({u.x + 22.f, u.y - 22.f}, 7.f, nxui::Color(0.95f, 0.3f, 0.32f, 1.f), 20);
     r.drawText(tr("manager.updates", "Updates"), {752.f, 178.f}, &m_bodyFont, text, 1.f);
 
-    r.drawText(tr("manager.how", "How it works"), {676.f, 422.f}, &m_bodyFont, text, 1.f);
-    struct Line { nxui::Color dot; const char* key; const char* fallback; };
-    const Line lines[] = {
-        {{0.30f, 0.90f, 0.55f, 1.f}, "manager.how_on", "On: HomeNX is your HOME menu."},
-        {{0.55f, 0.60f, 0.68f, 1.f}, "manager.how_off", "Off: Nintendo's HOME menu comes back."},
-        {{1.00f, 0.72f, 0.30f, 1.f}, "manager.how_restart", "Either way, it changes after a restart."},
-        {{0.30f, 0.62f, 1.00f, 1.f}, "manager.how_update", "Updates come from GitHub and install here."},
-    };
-    float y = 470.f;
-    for (const Line& l : lines) {
-        r.drawCircle({688.f, y + 11.f}, 6.f, l.dot, 16);
-        r.drawText(tr(l.key, l.fallback), {706.f, y}, &m_smallFont, muted, 0.86f);
-        y += 36.f;
+    // Home screen: which look HOME has, the two side by side as little cards.
+    r.drawText(tr("manager.home_screen", "Home screen"), {676.f, 418.f}, &m_bodyFont, text, 1.f);
+    struct Look { const char* name; bool cards; float x; };
+    const Look looks[] = {{"HomeNX", false, 676.f}, {"CardsNX", true, 932.f}};
+    for (const Look& l : looks) {
+        const bool now = l.cards == m_cardsStyle;
+        const nxui::Rect box{l.x, 456.f, 244.f, 70.f};
+        r.drawRoundedRect(box, text.withAlpha(now ? 0.10f : 0.04f), 16.f);
+        r.drawRoundedRectOutline(box, now ? nxui::Color(0.30f, 0.62f, 1.f, 1.f) : m_theme.panelBorder.withAlpha(0.5f), 16.f,
+                                 now ? 2.5f : 1.2f);
+        if (l.cards) { // three little cards
+            for (int i = 0; i < 3; ++i)
+                r.drawRoundedRect({box.x + 14.f + i * 18.f, box.y + 14.f, 14.f, 42.f},
+                                  nxui::Color(0.95f, 0.55f + 0.15f * i, 0.4f + 0.2f * i, 0.9f), 4.f);
+        } else { // a grid of icons
+            for (int i = 0; i < 6; ++i)
+                r.drawRoundedRect({box.x + 14.f + (i % 3) * 18.f, box.y + 16.f + (i / 3) * 20.f, 14.f, 14.f},
+                                  nxui::Color(0.3f, 0.62f, 1.f, 0.85f), 4.f);
+        }
+        r.drawText(l.name, {box.x + 86.f, box.y + 12.f}, &m_smallFont, text, 1.f);
+        r.drawText(now ? tr("manager.style_now", "Now") : tr("manager.style_other", "After a restart"),
+                   {box.x + 86.f, box.y + 40.f}, &m_smallFont, muted, 0.78f);
     }
 }
 

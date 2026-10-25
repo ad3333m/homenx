@@ -185,6 +185,10 @@ target("SwitchU")
     -- HomeNX: Settings > HomeNX updates the frontend with the Toggle's updater.
     add_files("projects/manager/src/ReleaseUpdater.cpp")
     add_includedirs("projects/manager/src", {public = false})
+    -- CardsNX as HOME (NXToggle > Home screen): its screen, built in; its files
+    -- (fonts, icons, the GameTDB index) ship in switch/SwitchU/cards/.
+    add_files("projects/cards/src/Audio.cpp", "projects/cards/src/CardsActivity.cpp", "projects/cards/src/Library.cpp")
+    add_includedirs("projects/cards/src", {public = false})
     add_defines("HOMENX_UPDATER_SHARED_NETWORK", homenx_build_define)
     add_links("minizip")
     add_packages("nlohmann_json", "fmt", "libsdl", "libsdl_mixer", "libsdl_ttf", "zlib", "libwebp", "libcurl", "curlpp")
@@ -320,7 +324,7 @@ target("SwitchU-Manager")
         os.cp(path.join(os.projectdir(), "projects/manager/icon.jpg"), romfs_dir) -- header icon
     end)
 
-    set_values("switch.name",    "HomeNX-Toggle")
+    set_values("switch.name",    "NXToggle")
     set_values("switch.author",  "Adam (based on SwitchU Manager by PoloNX)")
     set_values("switch.version", version)
     set_values("switch.romfs",   "build/manager-romfs")
@@ -413,6 +417,11 @@ target("CardsNX")
         os.cp(path.join(os.projectdir(), "projects/cards/romfs/icons/*.png"), path.join(romfs_dir, "icons"))
         os.mkdir(path.join(romfs_dir, "certs"))
         os.cp(path.join(os.projectdir(), "projects/cards/romfs/certs/*.pem"), path.join(romfs_dir, "certs"))
+        -- The Nintendo page shows HomeNX's own icons (as HOME, from switch/SwitchU/icons).
+        os.mkdir(path.join(romfs_dir, "icons/hx"))
+        for _, name in ipairs({"news", "eshop", "controller", "mii_editor", "friends", "settings"}) do
+            os.cp(path.join(os.projectdir(), "romfs/icons/" .. name .. ".png"), path.join(romfs_dir, "icons/hx"))
+        end
     end)
 
     set_values("switch.name",    "CardsNX")

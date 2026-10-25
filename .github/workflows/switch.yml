@@ -69,7 +69,7 @@ jobs:
         run: |
           mkdir -p out
           cp build/cross/aarch64/release/HomeNX.nro out/
-          cp build/cross/aarch64/release/HomeNX-Toggle.nro out/
+          cp build/cross/aarch64/release/NXToggle.nro out/
           cp build/cross/aarch64/release/CardsNX.nro out/
 
       - uses: actions/upload-artifact@v4
@@ -84,7 +84,7 @@ jobs:
           (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           gh release view latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||             gh release create latest -R "$GITHUB_REPOSITORY" --title "HomeNX (latest build)" --notes "Built from master." || true
-          gh release upload latest out/HomeNX.nro out/HomeNX-Toggle.nro -R "$GITHUB_REPOSITORY" --clobber
+          gh release upload latest out/HomeNX.nro out/NXToggle.nro -R "$GITHUB_REPOSITORY" --clobber
           # CardsNX: its own release, the .nro replaced on every build.
           gh release view cardsnx -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create cardsnx -R "$GITHUB_REPOSITORY" --title "CardsNX" --latest=false --notes-file .github/cardsnx-release.md || true
@@ -159,14 +159,18 @@ jobs:
           cp romfs/bin/sphaira.nro dist/frontend/switch/SwitchU/bin/sphaira.nro
           # The menu copies it to switch/.overlays/ (the updaters only write HomeNX's folders).
           cp projects/overlay/homenx-discord.ovl dist/frontend/switch/SwitchU/bin/homenx-discord.ovl
-          # The Toggle ships inside HomeNX's folder and the menu copies it into
-          # switch/HomeNX-Toggle/ (a running Toggle can't replace its own .nro).
-          mv dist/frontend/switch/HomeNX-Toggle/HomeNX-Toggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro
+          # NXToggle ships inside HomeNX's folder and the menu copies it into
+          # switch/NXToggle/ (a running Toggle can't replace its own .nro).
+          mv dist/frontend/switch/NXToggle/NXToggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro
           # The Homebrew Manager too: the menu copies it into switch/Homebrew-Manager/.
           mv "dist/frontend/switch/Homebrew Manager/Homebrew Manager.nro" dist/frontend/switch/SwitchU/bin/homebrew-manager.nro
           # CardsNX (the card-row HOME screen) too: switch/CardsNX/.
           mv dist/frontend/switch/CardsNX/CardsNX.nro dist/frontend/switch/SwitchU/bin/cardsnx.nro
-          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader "dist/frontend/switch/Homebrew Manager" dist/frontend/switch/CardsNX
+          rm -rf dist/frontend/switch/NXToggle dist/frontend/switch/HomeNX-Loader "dist/frontend/switch/Homebrew Manager" dist/frontend/switch/CardsNX
+          # CardsNX as HOME (NXToggle > Home screen): its fonts, icons, certificate
+          # and GameTDB index, where the menu looks for them.
+          mkdir -p dist/frontend/switch/SwitchU/cards
+          cp -r build/cards-romfs/. dist/frontend/switch/SwitchU/cards/
           # HomeNX Toggle reads this to know which frontend build is installed.
           echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out

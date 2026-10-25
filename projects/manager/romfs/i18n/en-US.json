@@ -1,6 +1,6 @@
 {
   "manager": {
-    "title": "HomeNX Toggle",
+    "title": "NXToggle",
     "subtitle": "Manage the HOME menu used on the next boot.",
     "status_enabled": "HomeNX enabled",
     "status_disabled": "HomeNX disabled",

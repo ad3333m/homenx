@@ -42,6 +42,7 @@ private:
     void refreshPresentation();
     void requestToggle();
     void performPendingToggle();
+    void requestHomeStyle();
     void requestReboot();
     void rebootNow();
     void requestUpdate();
@@ -80,6 +81,9 @@ private:
     std::shared_ptr<nxui::Label> m_helpLabel;
     ButtonView m_toggleButton;
     ButtonView m_updateButton;
+    ButtonView m_styleButton;   // Home screen: HomeNX or CardsNX
+    bool m_cardsStyle = false;  // what sdmc:/config/SwitchU/frontend.txt says
+    bool m_styleChanged = false;
     ButtonView m_rebootButton;
     ButtonView m_laterButton;
     std::shared_ptr<OverlayDialog> m_dialog;

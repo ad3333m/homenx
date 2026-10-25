@@ -7,9 +7,12 @@
 #include <nxui/core/GpuDevice.hpp>
 #include <fmt/format.h>
 #ifdef SWITCHU_MENU
+#include "CardsActivity.hpp"
 #include <nxui/core/Renderer.hpp>
 #include <switchu/smi_protocol.hpp>
 #include <switchu/file_log.hpp>
+#include <fstream>
+#include <string>
 #endif
 #include <switch.h>
 #include <SDL2/SDL.h>
@@ -305,7 +308,12 @@ int main(int argc, char* argv[]) {
         };
         AppConfig startupConfig;
         startupConfig.load();
-        if (startupConfig.tutorialCompleted)
+        // NXToggle's Home screen choice: CardsNX's card row instead of HomeNX's.
+        std::string homeStyle;
+        std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), homeStyle);
+        if (homeStyle.rfind("cards", 0) == 0)
+            app.setActivity(std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running));
+        else if (startupConfig.tutorialCompleted)
             app.setActivity(makeMenuActivity(false));
         else
             app.setActivity(std::make_unique<TutorialActivity>(makeMenuActivity));

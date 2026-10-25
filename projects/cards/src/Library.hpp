@@ -6,6 +6,14 @@
 
 namespace cards {
 
+// Where CardsNX's own files are (fonts/, icons/, certs/, gametdb.tsv): its
+// romfs as an .nro; HomeNX's install as HOME's frontend.
+#ifdef SWITCHU_MENU
+inline constexpr const char* kAssets = "sdmc:/switch/SwitchU/cards/";
+#else
+inline constexpr const char* kAssets = "romfs:/";
+#endif
+
 // An account's id (AccountUid), without <switch.h> here.
 struct AccountUidLike {
     std::uint64_t uid[2] = {0, 0};
@@ -22,6 +30,7 @@ struct Game {
     std::uint64_t lastPlayed = 0;  // seconds since 1970 (0: never)
     std::uint64_t playSeconds = 0;
     std::uint32_t launches = 0;
+    std::uint32_t flags = 0;       // ns's view flags (game card, can launch, ...); 0 = not known
     int order = 0;                 // the system's order (most recent first)
 };
 
@@ -42,6 +51,15 @@ void threadDone();
 // HomeNX's SteamGridDB key (Settings > SteamGridDB), "" = none.
 std::string steamGridDbKey();
 
+std::string idText(std::uint64_t id); // 16 hex digits
+
+// A Nintendo page entry's picture: HomeNX's own icon where HOME has one
+// (eShop, News, Controllers, Mii Maker, Friends, Settings), else CardsNX's.
+std::string systemIconPath(const std::string& action);
+
+// Saves `url` to `path` (made through a .part file); false if it didn't arrive.
+bool download(const std::string& url, const std::string& path);
+
 // Pictures, from the SD card cache (sdmc:/config/SwitchU/cards) or downloaded:
 // the card's box art (SteamGridDB 600x900 with a key, else GameTDB's box cover
 // matched by name, else the eShop banner from nlib.cc) and the background
@@ -59,6 +77,16 @@ bool nextendoOnline(std::map<std::uint64_t, int>& out);
 // system; as an applet (from the homebrew menu), HomeNX's HOME starts it
 // (asked on the general channel, the way the system's own HOME is asked).
 bool launch(std::uint64_t id, AccountUidLike uid);
+
+// The console's users, their pictures (JPEG) and names.
+struct User {
+    AccountUidLike uid;
+    std::string name;
+    std::vector<std::uint8_t> picture;
+};
+std::vector<User> listUsers();
+// Removes a user from the console (as System Settings > Users does).
+bool deleteUser(AccountUidLike uid, std::string& error);
 
 // The Nintendo page: what's on it, and opening one (blocks while it's open).
 std::vector<Game> listSystem();
