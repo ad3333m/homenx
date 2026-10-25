@@ -43,8 +43,9 @@ namespace cards {
 // daemon, and Discord (L), News and updates come from HomeNX.
 class CardsActivity final : public nxui::Activity {
 public:
-    // As HOME: what the daemon said at start (a game suspended, one running).
-    explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false);
+    // As HOME: what the daemon said at start (a game suspended, one running,
+    // the console just booted).
+    explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false, bool atBoot = true);
     bool onCreate() override;
     void onDestroy() override;
     void onUpdate(float dt) override;
@@ -120,6 +121,8 @@ private:
     void select(int index);
     void switchPage(int dir);
     void sortGames(int sort, bool keepChoice = true);
+    void selectById(std::uint64_t id); // its page and card, straight away
+    std::uint64_t m_backTo = 0;        // back from this game: it stays chosen until you move
     void takeLists(Lists lists);
     bool glassCard(const Game& g); // an app or a game without box art: its icon on glass
     void applyOrder(int page);
@@ -316,6 +319,7 @@ private:
     // As HOME.
     std::uint64_t m_startSuspended = 0;
     bool m_startRunning = false;
+    bool m_atBoot = true;
     AppletLauncher m_launcher;
     std::uint64_t m_pendingLaunch = 0; // starts once the open game has closed
     bool m_asleep = false;

@@ -68,13 +68,20 @@ void Texture::retireGpuResources() {
     const bool holdsMemory = m_gpu && m_mem && m_allocSize > 0;
     if (m_slot < 0 && !holdsMemory)
         return;
-    if (m_gpu)
-        m_gpu->waitIdle();
-    if (m_renderer && m_slot >= 0)
-        m_renderer->releaseTextureSlot(m_slot);
+    if (m_renderer) {
+        // No waiting: the slot and the pixels go back a few frames from now,
+        // once no frame in flight can read them (Renderer::beginFrame).
+        if (m_slot >= 0)
+            m_renderer->releaseTextureSlot(m_slot);
+        if (holdsMemory)
+            m_renderer->retireImageMemory(static_cast<dk::UniqueMemBlock&&>(m_mem), m_allocSize);
+    } else {
+        if (m_gpu)
+            m_gpu->waitIdle();
+        if (holdsMemory)
+            m_gpu->freeImageMemory(m_allocSize);
+    }
     m_slot = -1;
-    if (holdsMemory)
-        m_gpu->freeImageMemory(m_allocSize);
     m_allocSize = 0;
     m_valid = false;
 }

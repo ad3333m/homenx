@@ -426,6 +426,11 @@ void GpuDevice::freeImageMemory(uint32_t size) {
         m_imageMemUsed = 0;
 }
 
+void GpuDevice::forgetImageMemory(uint32_t size) {
+    size = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
+    m_imageMemUsed = size <= m_imageMemUsed ? m_imageMemUsed - size : 0;
+}
+
 GpuDevice::ImageAlloc GpuDevice::allocImageFromPool(uint32_t size, uint32_t alignment) {
     if (alignment < kGpuAlign) alignment = kGpuAlign;
     size = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);

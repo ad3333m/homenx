@@ -269,6 +269,13 @@ std::vector<std::string> wrap(nxui::Font& font, const std::string& text, float m
     return out;
 }
 
+// A background job's thread: off the screen's core and below it (std::async
+// threads start on core 0 at the screen's own priority, and took its frames).
+void offScreenCore() {
+    nxui::moveToWorkerCores();
+    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3B);
+}
+
 bool parseUid(const std::string& hex, AccountUidLike& out) {
     if (hex.size() != 32) return false;
     out.uid[0] = std::strtoull(hex.substr(0, 16).c_str(), nullptr, 16);
@@ -351,13 +358,15 @@ CardsActivity::MenuItem CardsActivity::info(std::string label, std::function<std
 
 // ---------------------------------------------------------------- set up
 
-CardsActivity::CardsActivity(std::uint64_t suspendedId, bool appRunning) {
+CardsActivity::CardsActivity(std::uint64_t suspendedId, bool appRunning, bool atBoot) {
 #ifdef SWITCHU_MENU
     m_startSuspended = suspendedId;
     m_startRunning = appRunning;
+    m_atBoot = atBoot;
 #else
     (void)suspendedId;
     (void)appRunning;
+    (void)atBoot;
 #endif
 }
 
@@ -417,6 +426,7 @@ bool CardsActivity::onCreate() {
     // Last time's lists show at once and the real ones are read on a thread
     // (reading every game and .nro made coming back from a game slow).
     auto readLists = []() {
+        offScreenCore();
         Lists l;
         for (Game& g : listGames()) (g.homebrew ? l.homebrew : l.games).push_back(std::move(g));
         std::vector<Game> nros = listHomebrew();
@@ -485,8 +495,15 @@ bool CardsActivity::onCreate() {
     sortGames(m_settings.sort == 3 ? 3 : 1, false);
     for (int& s : m_sels) s = 0;
     m_scroll = 0.f;
+#ifdef SWITCHU_MENU
+    // Back from a game (not at boot): the game you were playing is chosen.
+    if (!m_atBoot) {
+        m_backTo = m_startSuspended ? m_startSuspended : std::strtoull(m_settings.lastGame.c_str(), nullptr, 16);
+        if (m_backTo) selectById(m_backTo);
+    }
+#endif
     m_netUp = startNetwork();
-    for (int i = 0; i < 3; ++i) m_threads.emplace_back([this, i]() { worker(i); });
+    for (int i = 0; i < 5; ++i) m_threads.emplace_back([this, i]() { worker(i); });
     wantArt();
     m_intro = m_settings.motion ? 0.f : 1.f;
     return true;
@@ -721,7 +738,10 @@ void CardsActivity::wantArt() {
             add(s - 1, kBackground);
         }
     }
-    for (int d = 7; d <= 9; ++d) add(s + d, kCard);
+    for (int d = 7; d <= 12; ++d) { // further ahead, both ways (scrolling fast)
+        add(s + d, kCard);
+        if (d <= 9) add(s - d, kCard);
+    }
     if (jobs.empty()) return;
     {
         std::lock_guard<std::mutex> lk(m_mu); // what's near the selection now goes first
@@ -734,7 +754,7 @@ void CardsActivity::takeArt() {
     std::vector<Done> done;
     {
         std::lock_guard<std::mutex> lk(m_mu);
-        const size_t n = std::min<size_t>(1, m_done.size()); // one upload a frame
+        const size_t n = std::min<size_t>(3, m_done.size()); // a few a frame (uploads don't wait any more)
         for (size_t i = 0; i < n; ++i) done.push_back(std::move(m_done[i]));
         m_done.erase(m_done.begin(), m_done.begin() + static_cast<std::ptrdiff_t>(n));
         if (m_playersFresh) {
@@ -753,7 +773,13 @@ void CardsActivity::takeArt() {
     }
     const Game* cur = current();
     const std::uint64_t selected = cur ? cur->id : 0;
+    const std::uint64_t until = armGetSystemTick() + armNsToTicks(4'000'000ULL);
     for (Done& d : done) {
+        if (armGetSystemTick() > until) { // the rest next frame
+            std::lock_guard<std::mutex> lk(m_mu);
+            m_done.insert(m_done.begin(), std::make_move_iterator(&d), std::make_move_iterator(done.data() + done.size()));
+            break;
+        }
         auto it = m_art.find(d.id);
         if (it == m_art.end()) continue;
         bool* asked = d.what == kBackground ? &it->second.bgAsked
@@ -841,7 +867,19 @@ void CardsActivity::forgetAllArt() {
 
 // ---------------------------------------------------------------- the lists
 
+void CardsActivity::selectById(std::uint64_t id) {
+    for (int p = 0; p < kPageCount; ++p)
+        for (size_t i = 0; i < m_pages[p].size(); ++i)
+            if (m_pages[p][i].id == id) {
+                m_page = p;
+                m_sels[p] = static_cast<int>(i);
+                m_scroll = static_cast<float>(i);
+                return;
+            }
+}
+
 void CardsActivity::select(int index) {
+    m_backTo = 0; // you've moved on
     auto& page = games();
     if (page.empty()) return;
     index = std::clamp(index, 0, static_cast<int>(page.size()) - 1);
@@ -861,6 +899,7 @@ void CardsActivity::select(int index) {
 }
 
 void CardsActivity::switchPage(int dir) {
+    m_backTo = 0;
     if (m_moving) finishMove(true);
     m_page = (m_page + dir + kPageCount) % kPageCount;
     m_pageDir = dir > 0 ? 1 : -1;
@@ -983,6 +1022,7 @@ void CardsActivity::takeLists(Lists lists) {
             if (m_pages[p][i].id == keep[p]) m_sels[p] = static_cast<int>(i);
     }
     m_scroll = static_cast<float>(sel());
+    if (m_backTo) selectById(m_backTo);
     saveLists(m_pages[kGames], m_pages[kHomebrew]);
     wantArt();
 }
@@ -1062,6 +1102,7 @@ void CardsActivity::play() {
 void CardsActivity::launchGame(const Game& g) {
     using namespace switchu::ns;
     const std::uint64_t id = g.id;
+    m_settings.lastGame = idText(id); // back from it, it's chosen
     if (!isRunning(id) && g.flags && !(g.flags & AppViewFlag_CanLaunch)) {
         if ((g.flags & AppViewFlag_IsGameCard) && !(g.flags & AppViewFlag_IsGameCardInserted))
             say("Put the game card in to play " + g.name + ".");
@@ -1124,6 +1165,7 @@ void CardsActivity::openNro(const std::string& path) {
     int index = -1;
     for (size_t i = 0; i < games().size(); ++i)
         if (games()[i].path == path) index = static_cast<int>(i);
+    if (index >= 0) m_settings.lastGame = idText(games()[(size_t)index].id);
 #ifdef SWITCHU_MENU
     leave(index, 0.85f, [this, path]() {
         m_discord.beginShutdown();
@@ -1175,6 +1217,7 @@ void CardsActivity::openBrowser() {
     }
     say("Getting BrowseNX from GitHub...");
     m_browserJob = std::async(std::launch::async, []() {
+        offScreenCore();
         const bool ok = download(kBrowseNxUrl, kBrowseNxPath);
         threadDone();
         return ok;
@@ -1517,6 +1560,7 @@ void CardsActivity::openOptions() {
                     m_deleteName = name;
                     say("Deleting " + name + "...");
                     m_deleteJob = std::async(std::launch::async, [id]() {
+                        offScreenCore();
                         return static_cast<std::uint32_t>(nsDeleteApplicationCompletely(id));
                     });
                 }, true),
@@ -2020,6 +2064,7 @@ void CardsActivity::runUpdate() {
         m_updateDownload = 0.f;
         m_updateInstall = 0.f;
         m_updateJob = std::async(std::launch::async, [this]() {
+            offScreenCore();
             switchu::manager::ReleaseInfo release;
             {
                 std::lock_guard<std::mutex> lk(m_mu);
@@ -2034,6 +2079,7 @@ void CardsActivity::runUpdate() {
     }
     m_update = static_cast<int>(Update::Checking);
     m_updateJob = std::async(std::launch::async, [this]() {
+        offScreenCore();
         try {
             const auto release = ReleaseUpdater::checkLatest();
             std::lock_guard<std::mutex> lk(m_mu);
@@ -2074,6 +2120,7 @@ void CardsActivity::openNews() {
     say("Opening News...");
     // Reading ~40 articles takes a second or two: not on the screen's thread.
     m_newsJob = std::async(std::launch::async, [this]() {
+        offScreenCore();
         requestNewsUpdate(120);
         Result rc = 0;
         NewsLoadStats stats;
@@ -2342,16 +2389,11 @@ void CardsActivity::activateBottom(int index) {
 }
 
 // Text is cached per font as pictures. When a font's cache is full it stops
-// making new ones (text went missing): half of it goes, once the GPU is done.
+// making new ones (text went missing): half of it goes. Freed textures wait
+// out the frames in flight themselves (nxui), so nothing waits for the GPU.
 void CardsActivity::keepTextCachesSmall() {
-    bool waited = false;
-    for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount}) {
-        if (!f->maintenanceRequested()) continue;
-        if (!waited) app().gpu().waitIdle();
-        waited = true;
-        f->trimCache(f->cacheEntryCount() / 2, f->cacheBytes() / 2);
-    }
-    if (waited) app().renderer().reclaimReleasedTextureSlotsAfterIdle();
+    for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount})
+        if (f->maintenanceRequested()) f->trimCache(f->cacheEntryCount() / 2, f->cacheBytes() / 2);
 }
 
 // ---------------------------------------------------------------- input: popups and settings

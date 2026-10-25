@@ -312,7 +312,8 @@ int main(int argc, char* argv[]) {
         std::string homeStyle;
         std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), homeStyle);
         if (homeStyle.rfind("cards", 0) == 0)
-            app.setActivity(std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running));
+            app.setActivity(std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running,
+                startMode == switchu::smi::MenuStartMode::StartupBoot));
         else if (startupConfig.tutorialCompleted)
             app.setActivity(makeMenuActivity(false));
         else

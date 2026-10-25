@@ -30,6 +30,7 @@ struct Settings {
     bool clock24 = true;
     bool showFree = true;     // free space in the status pill
     std::string user;         // who games start as (hex), "" = the last one who played
+    std::string lastGame;     // the last game (or app) started from here, hex
     std::vector<std::string> order[3]; // My order, per page: ids (hex)
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
@@ -58,6 +59,7 @@ struct Settings {
             clock24 = j.value("clock24", clock24);
             showFree = j.value("showFree", showFree);
             user = j.value("user", user);
+            lastGame = j.value("lastGame", lastGame);
             const char* const keys[3] = {"orderGames", "orderHomebrew", "orderNintendo"};
             for (int p = 0; p < 3; ++p) order[p] = j.value(keys[p], order[p]);
         } catch (...) {
@@ -71,7 +73,7 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"user", user},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"user", user}, {"lastGame", lastGame},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]}};
         std::ofstream(kPath, std::ios::trunc) << j.dump(2);
     }

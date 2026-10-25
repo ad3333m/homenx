@@ -140,6 +140,9 @@ public:
     void resetImagePool();
     dk::UniqueMemBlock allocImageMemory(uint32_t size);
     void freeImageMemory(uint32_t size);
+    // The budget's side only: the caller has made sure the GPU is done with it
+    // (Renderer::retireImageMemory frees it frames later, without waiting).
+    void forgetImageMemory(uint32_t size);
 
     // The menu applet reserves a 224 MiB heap. Keep the dynamic image cache
     // well below that process ceiling so CPU-side decodes, audio and Deko's
