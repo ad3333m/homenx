@@ -127,6 +127,10 @@ private:
     float m_scroll = 0.f;
     bool m_followSel = true; // D-pad keeps the selection in view; a finger drag doesn't
     uint64_t m_builtVersion = ~0ull;
+    // Discord's own changes (messages, typing, presences) rebuild the lists at
+    // most this often: a big server sends them all the time, and rebuilding
+    // (wrapping 50 messages) on every one kept the panel from ever settling.
+    float m_rebuildIn = 0.f;
     int m_builtState = -1;
     View m_builtView = View::Home;
     Snowflake m_chat = 0;

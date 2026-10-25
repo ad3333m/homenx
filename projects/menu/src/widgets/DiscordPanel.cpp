@@ -483,6 +483,10 @@ void DiscordPanel::rebuildRows() {
     const uint64_t version = m_service->version();
     if ((int)st == m_builtState && version == m_builtVersion && m_view == m_builtView && m_guild == m_builtGuild)
         return;
+    // Only Discord's data changed (not what's shown): now and then, not every frame.
+    if ((int)st == m_builtState && m_view == m_builtView && m_guild == m_builtGuild && m_rebuildIn > 0.f)
+        return;
+    m_rebuildIn = 0.3f;
     m_builtState = (int)st;
     m_builtVersion = version;
     m_builtView = m_view;
@@ -599,6 +603,8 @@ void DiscordPanel::rebuildChat() {
     if (!m_service) return;
     const uint64_t version = m_service->version();
     if (m_chatBuiltFor == m_chat && m_chatVersion == version) return;
+    if (m_chatBuiltFor == m_chat && m_rebuildIn > 0.f) return; // the same chat: now and then (see m_rebuildIn)
+    m_rebuildIn = 0.25f;
     m_chatBuiltFor = m_chat;
     m_chatVersion = version;
     m_chatItems.clear();
@@ -643,6 +649,7 @@ void DiscordPanel::onUpdate(float dt) {
         if (m_anim <= 0.f && !m_active) setVisible(false);
     }
     if (!m_active || !m_service) return;
+    m_rebuildIn -= dt;
     const auto st = m_service->state();
     // Signed out or switching accounts: the chat or account list no longer applies.
     if (m_view == View::Chat && st != DiscordService::State::Ready) m_view = View::Home;
