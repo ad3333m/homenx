@@ -87,7 +87,7 @@ jobs:
           gh release upload latest out/HomeNX.nro out/HomeNX-Toggle.nro -R "$GITHUB_REPOSITORY" --clobber
           # CardsNX: its own release, the .nro replaced on every build.
           gh release view cardsnx -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create cardsnx -R "$GITHUB_REPOSITORY" --title "CardsNX" --notes-file .github/cardsnx-release.md || true
+            gh release create cardsnx -R "$GITHUB_REPOSITORY" --title "CardsNX" --latest=false --notes-file .github/cardsnx-release.md || true
           gh release edit cardsnx -R "$GITHUB_REPOSITORY" --title "CardsNX (build $HOMENX_BUILD)" --notes-file .github/cardsnx-release.md || true
           gh release upload cardsnx out/CardsNX.nro -R "$GITHUB_REPOSITORY" --clobber
 
