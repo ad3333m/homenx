@@ -208,19 +208,22 @@ std::string eshopBanner(const Game& game, int w, int h) {
 } // namespace
 
 std::vector<Game> listGames() {
+    // As HOME reads it (launcher/AppListLoader.cpp): 30 at a time, up to 1024.
     std::vector<Game> games;
-    std::vector<NsApplicationRecord> records(64);
-    for (s32 offset = 0;;) {
+    NsApplicationRecord records[30] = {};
+    for (s32 offset = 0; offset < 1024;) {
         s32 got = 0;
-        if (R_FAILED(nsListApplicationRecord(records.data(), static_cast<s32>(records.size()), offset, &got)) || got <= 0)
-            break;
+        if (R_FAILED(nsListApplicationRecord(records, 30, offset, &got)) || got <= 0) break;
         for (s32 i = 0; i < got; ++i) {
+            const u64 id = records[i].application_id;
+            if (!id || std::any_of(games.begin(), games.end(), [id](const Game& g) { return g.id == id; })) continue;
             Game g;
-            g.id = records[(size_t)i].application_id;
+            g.id = id;
             g.order = static_cast<int>(games.size());
             games.push_back(std::move(g));
         }
         offset += got;
+        if (got < 30) break;
     }
 
     std::unique_ptr<NsApplicationControlData> control;
@@ -498,14 +501,14 @@ bool launch(std::uint64_t id, AccountUidLike user) {
 std::vector<Game> listSystem() {
     struct Entry { const char* action; const char* name; const char* about; };
     static const Entry kEntries[] = {
-        {"eshop", "Nintendo eShop", "Games, add-ons and deals"},
-        {"nso", "Nintendo Switch Online", "Online play and classic games"},
-        {"album", "Album", "Your screenshots and videos"},
-        {"mii", "Mii Maker", "Make and edit Miis"},
+        {"nso", "Switch Online", "Online and classics"},
+        {"eshop", "eShop", "Games and add-ons"},
+        {"album", "Album", "Screenshots, videos"},
+        {"controllers", "Controllers", "Pair controllers"},
+        {"mii", "Mii Maker", "Make your Miis"},
         {"friends", "Friends", "Your friend list"},
-        {"controllers", "Controllers", "Pair and order controllers"},
-        {"browser", "Web Browser", "Search the web"},
-        {"settings", "CardsNX Settings", "Music, pictures and pages"},
+        {"browser", "Browser", "Search the web"},
+        {"settings", "Settings", "Music, art, pages"},
     };
     std::vector<Game> out;
     for (const Entry& e : kEntries) {
@@ -544,8 +547,7 @@ bool openSystem(const std::string& action, AccountUidLike user, std::string& err
     }
     if (R_FAILED(rc)) {
         char buf[120];
-        std::snprintf(buf, sizeof(buf), "That couldn't open here (0x%X). The eShop and the browser need CardsNX "
-                      "opened over a game.", rc);
+        std::snprintf(buf, sizeof(buf), "Couldn't open that here (0x%X). Start CardsNX over a game.", rc);
         error = buf;
         return false;
     }
@@ -565,7 +567,7 @@ bool power(Power what, std::string& error) {
     switch (what) {
         case Power::Sleep:
             if (askHome(3)) return true;
-            error = "Sleep can only be asked from the homebrew menu: press the POWER button.";
+            error = "Use the POWER button to sleep.";
             return false;
         case Power::Shutdown:
         case Power::Restart: {
@@ -582,8 +584,7 @@ bool power(Power what, std::string& error) {
         }
         case Power::Hekate: {
             if (!canRebootToPayload()) {
-                error = "This Switch model can't restart into a payload (only the first, unpatched model can). "
-                        "Hekate shows on its own if your modchip starts it without autoboot.";
+                error = "Hekate needs an unpatched Switch.";
                 return false;
             }
             static constexpr size_t kPayloadMax = 0x24000; // what fits in IRAM
@@ -595,7 +596,7 @@ bool power(Power what, std::string& error) {
                     break;
                 }
             if (!path) {
-                error = "Hekate isn't on the SD card (sdmc:/bootloader/update.bin).";
+                error = "Hekate isn't on the SD card.";
                 return false;
             }
             std::memset(payload, 0, sizeof(payload));

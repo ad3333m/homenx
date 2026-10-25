@@ -1242,6 +1242,27 @@ static bool handleAppletMessages() {
     return true;
 }
 
+// HomeNX: an application asked to start another one (appletRequestLaunchApplication,
+// as CardsNX does when it runs over a game). AM keeps the request for the
+// system applet: Nintendo's HOME takes it; this one never did, so nothing
+// started. It goes through the same queue as HOME's launches.
+static void takeLaunchRequests() {
+    AppletApplication requested{};
+    while (R_SUCCEEDED(appletPopLaunchRequestedApplication(&requested))) {
+        u64 titleId = 0;
+        appletApplicationGetApplicationId(&requested, &titleId);
+        appletApplicationClose(&requested);
+        if (!titleId) continue;
+        daemon::SystemAction action{};
+        action.type = daemon::SystemActionType::LaunchApplication;
+        action.titleId = titleId;
+        AccountUid uid{};
+        if (R_SUCCEEDED(accountGetLastOpenedUser(&uid)) && accountUidIsValid(&uid)) action.uid = uid;
+        const Result rc = g_actionQueue.enqueue(action);
+        switchu::FileLog::log("[ae] launch requested 0x%016lX rc=0x%X", titleId, rc);
+    }
+}
+
 static void pumpForegroundAppletMessages() {
     handleGeneralChannel();
     handleAppletMessages();
@@ -1974,6 +1995,7 @@ static void drainMenuCommands() {
 static void mainLoop() {
     for (int i = 0; i < 16 && handleGeneralChannel(); ++i) {}
     for (int i = 0; i < 16 && handleAppletMessages(); ++i) {}
+    takeLaunchRequests();
     drainMenuCommands();
 
     // SPSM terminates the process asynchronously. Do not schedule catalogue,

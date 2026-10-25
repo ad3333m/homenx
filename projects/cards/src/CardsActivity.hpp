@@ -38,18 +38,19 @@ private:
     enum class Zone { Top, Cards, Bottom };
     enum Page { kGames, kHomebrew, kNintendo, kPageCount };
     struct Art {
-        std::unique_ptr<nxui::Texture> card, bg;
+        std::unique_ptr<nxui::Texture> card, bg, icon;
         ArtKind kind = ArtKind::Banner, bgKind = ArtKind::Banner;
-        bool cardAsked = false, bgAsked = false;
+        bool cardAsked = false, bgAsked = false, iconAsked = false;
         float cardIn = -10.f; // when it arrived (it fades in)
     };
+    enum What { kCard, kBackground, kIcon };
     struct Job {
         Game game;
-        bool background = false;
+        int what = kCard;
     };
     struct Done {
         std::uint64_t id = 0;
-        bool background = false;
+        int what = kCard;
         ArtKind kind = ArtKind::Banner;
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
@@ -72,7 +73,7 @@ private:
     void forgetAllArt();
     void select(int index);
     void switchPage(int dir);
-    void sortGames(int sort);
+    void sortGames(int sort, bool keepChoice = true);
     void play();
     void openMenu(std::string title, std::vector<MenuItem> items);
     void openSettings();
@@ -131,8 +132,6 @@ private:
     // The background: the chosen game's art, faded in over the last one.
     std::uint64_t m_bgId = 0, m_bgPrevId = 0;
     float m_bgFade = 1.f;
-    std::unique_ptr<nxui::Texture> m_gameIcon;
-    std::uint64_t m_gameIconId = 0;
 
     // The status bar.
     std::unique_ptr<nxui::Texture> m_avatar;

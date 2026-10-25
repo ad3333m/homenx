@@ -145,103 +145,105 @@ def power():
     return im
 
 
-# The Nintendo page's tiles: coloured squares with a white drawing, 256 px.
+# The Nintendo page's icons, in the style of the Switch HOME's round buttons:
+# a white disc with a coloured drawing (Switch Online: a red disc). 256 px.
 T = 256 * 4
-
-
-def tile(top, bottom):
-    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
-    grad = Image.new("RGBA", (T, T))
-    gd = ImageDraw.Draw(grad)
-    for y in range(T):
-        t = y / (T - 1)
-        gd.line([(0, y), (T, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom)) + (255,))
-    mask = Image.new("L", (T, T), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, T - 1, T - 1], radius=T // 5, fill=255)
-    im.paste(grad, (0, 0), mask)
-    return im
 
 
 def u(v):
     return int(v * T / 256)
 
 
-def sys_eshop():
-    im = tile((255, 140, 60), (230, 80, 30)); d = ImageDraw.Draw(im)
-    d.rounded_rectangle([u(60), u(96), u(196), u(206)], radius=u(18), fill=W)          # the bag
-    d.arc([u(92), u(52), u(164), u(130)], 180, 360, fill=W, width=u(14))              # its handle
-    d.ellipse([u(108), u(132), u(148), u(172)], fill=(240, 105, 40))
-    return im
+def disc(fill=(248, 248, 250)):
+    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.ellipse([u(4), u(8), u(252), u(256)], fill=(0, 0, 0, 40))       # a soft shadow below
+    d.ellipse([u(4), u(2), u(252), u(250)], fill=fill)
+    return im, d
 
 
 def sys_nso():
-    im = tile((240, 70, 80), (190, 25, 45)); d = ImageDraw.Draw(im)
-    d.rounded_rectangle([u(50), u(92), u(206), u(172)], radius=u(40), fill=W)          # a pad
-    c = (210, 40, 60)
-    d.rectangle([u(78), u(124), u(110), u(138)], fill=c)
-    d.rectangle([u(87), u(115), u(101), u(147)], fill=c)
-    d.ellipse([u(150), u(112), u(166), u(128)], fill=c)
-    d.ellipse([u(170), u(130), u(186), u(146)], fill=c)
+    im, d = disc((230, 0, 18))
+    w = (255, 255, 255)
+    d.rounded_rectangle([u(58), u(92), u(198), u(164)], radius=u(36), fill=w)     # a pad
+    c = (230, 0, 18)
+    d.rectangle([u(82), u(121), u(112), u(135)], fill=c)
+    d.rectangle([u(90), u(113), u(104), u(143)], fill=c)
+    d.ellipse([u(146), u(110), u(162), u(126)], fill=c)
+    d.ellipse([u(166), u(128), u(182), u(144)], fill=c)
+    return im
+
+
+def sys_eshop():
+    im, d = disc()
+    o = (245, 120, 30)
+    d.arc([u(96), u(52), u(160), u(124)], 180, 360, fill=o, width=u(14))           # the handle
+    d.line([u(96), u(88), u(96), u(104)], fill=o, width=u(14))
+    d.line([u(160), u(88), u(160), u(104)], fill=o, width=u(14))
+    d.rounded_rectangle([u(66), u(98), u(190), u(198)], radius=u(18), fill=o)        # the bag
     return im
 
 
 def sys_album():
-    im = tile((80, 170, 255), (40, 110, 220)); d = ImageDraw.Draw(im)
-    d.rounded_rectangle([u(58), u(70), u(198), u(186)], radius=u(16), outline=W, width=u(12))
-    d.polygon([(u(72), u(172)), (u(118), u(118)), (u(150), u(150)), (u(166), u(134)), (u(186), u(172))], fill=W)
-    d.ellipse([u(144), u(88), u(170), u(114)], fill=W)
-    return im
-
-
-def sys_mii():
-    im = tile((120, 210, 90), (60, 160, 60)); d = ImageDraw.Draw(im)
-    d.ellipse([u(84), u(56), u(172), u(150)], fill=W)                                 # a head
-    d.chord([u(56), u(150), u(200), u(270)], 180, 360, fill=W)                        # shoulders
-    c = (80, 170, 70)
-    d.ellipse([u(106), u(92), u(118), u(108)], fill=c)
-    d.ellipse([u(138), u(92), u(150), u(108)], fill=c)
-    d.arc([u(108), u(104), u(148), u(132)], 20, 160, fill=c, width=u(6))
-    return im
-
-
-def sys_friends():
-    im = tile((255, 170, 70), (240, 120, 40)); d = ImageDraw.Draw(im)
-    d.ellipse([u(132), u(70), u(184), u(122)], fill=(255, 255, 255, 190))
-    d.chord([u(112), u(130), u(208), u(226)], 180, 360, fill=(255, 255, 255, 190))
-    d.ellipse([u(70), u(64), u(130), u(124)], fill=W)
-    d.chord([u(46), u(134), u(156), u(244)], 180, 360, fill=W)
+    im, d = disc()
+    b = (35, 150, 225)
+    d.rounded_rectangle([u(62), u(70), u(194), u(184)], radius=u(14), outline=b, width=u(12))
+    d.polygon([(u(76), u(172)), (u(118), u(118)), (u(146), u(148)), (u(162), u(132)), (u(182), u(172))], fill=b)
+    d.ellipse([u(146), u(88), u(170), u(112)], fill=b)
     return im
 
 
 def sys_controllers():
-    im = tile((110, 120, 140), (70, 78, 96)); d = ImageDraw.Draw(im)
-    d.rounded_rectangle([u(66), u(56), u(122), u(200)], radius=u(26), fill=(70, 200, 255))   # left
-    d.rounded_rectangle([u(134), u(56), u(190), u(200)], radius=u(26), fill=(255, 90, 90))   # right
-    d.ellipse([u(84), u(86), u(104), u(106)], fill=W)
-    d.ellipse([u(152), u(138), u(172), u(158)], fill=W)
+    im, d = disc()
+    g = (90, 92, 98)
+    d.rounded_rectangle([u(70), u(62), u(122), u(194)], radius=u(24), outline=g, width=u(11))   # left Joy-Con
+    d.rounded_rectangle([u(134), u(62), u(186), u(194)], radius=u(24), outline=g, width=u(11))  # right Joy-Con
+    d.ellipse([u(88), u(92), u(104), u(108)], fill=g)
+    d.ellipse([u(152), u(140), u(168), u(156)], fill=g)
+    return im
+
+
+def sys_mii():
+    im, d = disc()
+    gr = (90, 180, 70)
+    d.ellipse([u(90), u(58), u(166), u(138)], fill=gr)
+    d.chord([u(62), u(146), u(194), u(262)], 180, 360, fill=gr)
+    d.ellipse([u(4), u(2), u(252), u(250)], outline=(248, 248, 250), width=u(8))  # keep the disc round at the bottom
+    return im
+
+
+def sys_friends():
+    im, d = disc()
+    o = (240, 130, 40)
+    d.ellipse([u(134), u(78), u(176), u(120)], fill=(o[0], o[1], o[2], 150))
+    d.chord([u(116), u(130), u(196), u(210)], 180, 360, fill=(o[0], o[1], o[2], 150))
+    d.ellipse([u(76), u(70), u(128), u(122)], fill=o)
+    d.chord([u(56), u(132), u(148), u(224)], 180, 360, fill=o)
     return im
 
 
 def sys_browser():
-    im = tile((70, 200, 220), (30, 140, 190)); d = ImageDraw.Draw(im)
-    d.ellipse([u(56), u(56), u(200), u(200)], outline=W, width=u(12))
-    d.ellipse([u(100), u(56), u(156), u(200)], outline=W, width=u(10))
-    d.line([u(56), u(128), u(200), u(128)], fill=W, width=u(10))
-    d.line([u(68), u(92), u(188), u(92)], fill=W, width=u(8))
-    d.line([u(68), u(164), u(188), u(164)], fill=W, width=u(8))
+    im, d = disc()
+    t = (30, 160, 190)
+    d.ellipse([u(64), u(64), u(192), u(192)], outline=t, width=u(11))
+    d.ellipse([u(104), u(64), u(152), u(192)], outline=t, width=u(9))
+    d.line([u(64), u(128), u(192), u(128)], fill=t, width=u(9))
+    d.line([u(74), u(96), u(182), u(96)], fill=t, width=u(7))
+    d.line([u(74), u(160), u(182), u(160)], fill=t, width=u(7))
     return im
 
 
 def sys_settings():
-    im = tile((150, 120, 255), (100, 70, 220)); d = ImageDraw.Draw(im)
-    c, ro, ri = u(128), u(78), u(58)
+    im, d = disc()
+    g = (110, 112, 118)
+    c, ro, ri = u(128), u(70), u(52)
     pts = []
     for i in range(8 * 4):
         a = (i / 32) * 2 * math.pi
         r = ro if (i % 4) in (1, 2) else ri
         pts.append((c + r * math.cos(a), c + r * math.sin(a)))
-    d.polygon(pts, fill=W)
-    d.ellipse([c - u(26), c - u(26), c + u(26), c + u(26)], fill=(125, 95, 240))
+    d.polygon(pts, fill=g)
+    d.ellipse([c - u(24), c - u(24), c + u(24), c + u(24)], fill=(248, 248, 250))
     return im
 
 

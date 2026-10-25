@@ -19,6 +19,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <unordered_map>
 
 namespace cards {
 namespace {
@@ -66,20 +67,49 @@ float easeOutBack(float t) { // a small overshoot, then settles
     return 1.f + c3 * std::pow(t - 1.f, 3.f) + c1 * std::pow(t - 1.f, 2.f);
 }
 
-std::string fit(nxui::Font& font, std::string text, float maxW, float scale = 1.f) {
-    if (font.measure(text).x * scale <= maxW) return text;
-    while (!text.empty() && font.measure(text + "...").x * scale > maxW) {
-        size_t cut = text.size() - 1;
-        while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
-        text.erase(cut);
+// Text sizes, measured once: measuring is shaping the text again, and the
+// Games page measured every long name letter by letter every frame (it lagged).
+nxui::Vec2 measured(nxui::Font& font, const std::string& s) {
+    static std::unordered_map<std::string, nxui::Vec2> cache;
+    std::string key = std::to_string(reinterpret_cast<std::uintptr_t>(&font)) + '|' + s;
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    if (cache.size() > 6000) cache.clear();
+    return cache[key] = font.measure(s);
+}
+
+// As much of `text` as fits in maxW (cut between letters, "..." added), remembered.
+std::string fit(nxui::Font& font, const std::string& text, float maxW, float scale = 1.f) {
+    static std::unordered_map<std::string, std::string> cache;
+    std::string key = std::to_string(reinterpret_cast<std::uintptr_t>(&font)) + '|' + std::to_string(int(maxW)) + '|'
+                    + std::to_string(int(scale * 100.f)) + '|' + text;
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    if (cache.size() > 3000) cache.clear();
+    if (measured(font, text).x * scale <= maxW) return cache[key] = text;
+    std::vector<size_t> cuts; // where letters start
+    for (size_t i = 1; i < text.size(); ++i)
+        if ((static_cast<unsigned char>(text[i]) & 0xC0) != 0x80) cuts.push_back(i);
+    size_t lo = 0, hi = cuts.size(); // the longest start that fits
+    while (lo < hi) {
+        const size_t mid = (lo + hi + 1) / 2;
+        if (measured(font, text.substr(0, cuts[mid - 1]) + "...").x * scale <= maxW) lo = mid;
+        else hi = mid - 1;
     }
-    return text + "...";
+    return cache[key] = (lo == 0 ? std::string() : text.substr(0, cuts[lo - 1])) + "...";
+}
+
+// The scale (down to minScale) that fits `text` in maxW: long names shrink a
+// little before they're cut.
+float fitScale(nxui::Font& font, const std::string& text, float maxW, float minScale = 0.78f) {
+    const float w = measured(font, text).x;
+    return w <= maxW ? 1.f : std::max(minScale, maxW / w);
 }
 
 // Text drawn with its middle at y.
 void textMid(nxui::Renderer& r, nxui::Font& font, const std::string& s, float x, float y, const nxui::Color& c,
              float scale = 1.f) {
-    r.drawText(s, {x, y - font.measure(s.empty() ? std::string("A") : s).y * scale * 0.5f}, &font, c, scale);
+    r.drawText(s, {x, y - measured(font, s.empty() ? std::string("A") : s).y * scale * 0.5f}, &font, c, scale);
 }
 
 std::string playTime(std::uint64_t seconds) {
@@ -226,7 +256,7 @@ bool CardsActivity::onCreate() {
     rootBox().addChild(m_painter);
 
     m_page = std::clamp(m_settings.startPage, 0, kPageCount - 1);
-    sortGames(m_settings.sort);
+    sortGames(m_settings.sort, false); // opens on the first game
     m_netUp = startNetwork();
     for (int i = 0; i < 3; ++i) m_threads.emplace_back([this, i]() { worker(i); });
     wantArt();
@@ -288,16 +318,26 @@ void CardsActivity::worker(int index) {
         }
         Done done;
         done.id = job.game.id;
-        done.background = job.background;
-        const std::vector<std::uint8_t> data = job.background ? backgroundArt(job.game, m_key, done.kind)
-                                                              : cardArt(job.game, m_key, m_boxArt.load(), done.kind);
+        done.what = job.what;
+        std::vector<std::uint8_t> data;
+        if (job.what == kBackground) {
+            data = backgroundArt(job.game, m_key, done.kind);
+        } else if (job.what == kCard) {
+            data = cardArt(job.game, m_key, m_boxArt.load(), done.kind);
+        } else if (!job.game.action.empty()) {
+            std::ifstream in("romfs:/icons/sys_" + job.game.action + ".png", std::ios::binary);
+            data.assign(std::istreambuf_iterator<char>(in), {});
+        } else {
+            data = gameIcon(job.game);
+        }
         if (!data.empty()) {
             int w = 0, h = 0, ch = 0;
             if (stbi_uc* px = stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4)) {
                 done.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
                 stbi_image_free(px);
                 // Backgrounds sharp (a box cover softer, an icon a wash of its colours); cards as drawn.
-                const int maxW = !job.background ? 400
+                const int maxW = job.what == kIcon ? 160
+                               : job.what == kCard ? 400
                                : done.kind == ArtKind::Icon ? 32
                                : done.kind == ArtKind::Box ? 400
                                                            : 960;
@@ -315,26 +355,31 @@ void CardsActivity::worker(int index) {
 void CardsActivity::wantArt() {
     auto& page = games();
     std::vector<Job> jobs;
-    auto add = [&](int i, bool background) {
+    auto add = [&](int i, int what) {
         if (i < 0 || i >= static_cast<int>(page.size())) return;
         Art& a = m_art[page[(size_t)i].id];
-        bool& asked = background ? a.bgAsked : a.cardAsked;
+        bool& asked = what == kBackground ? a.bgAsked : what == kIcon ? a.iconAsked : a.cardAsked;
         if (asked) return;
         asked = true;
-        jobs.push_back({page[(size_t)i], background});
+        jobs.push_back({page[(size_t)i], what});
     };
     const int s = sel();
-    add(s, false);
-    add(s, true);
+    add(s, kIcon);
+    add(s, kCard);
+    add(s, kBackground);
     for (int d = 1; d <= 6; ++d) {
-        add(s + d, false);
-        add(s - d, false);
+        add(s + d, kCard);
+        add(s - d, kCard);
+        if (d <= 2) {
+            add(s + d, kIcon);
+            add(s - d, kIcon);
+        }
         if (d == 1) {
-            add(s + 1, true);
-            add(s - 1, true);
+            add(s + 1, kBackground);
+            add(s - 1, kBackground);
         }
     }
-    for (int d = 7; d <= 9; ++d) add(s + d, false);
+    for (int d = 7; d <= 9; ++d) add(s + d, kCard);
     if (jobs.empty()) return;
     {
         std::lock_guard<std::mutex> lk(m_mu); // what's near the selection now goes first
@@ -364,10 +409,13 @@ void CardsActivity::takeArt() {
         if (it == m_art.end() || d.rgba.empty()) continue;
         auto tex = std::make_unique<nxui::Texture>();
         if (!tex->loadFromPixels(app().gpu(), app().renderer(), d.rgba.data(), d.w, d.h)) {
-            (d.background ? it->second.bgAsked : it->second.cardAsked) = false; // no room now: asked again later
+            (d.what == kBackground ? it->second.bgAsked : d.what == kIcon ? it->second.iconAsked : it->second.cardAsked) =
+                false; // no room now: asked again later
             continue;
         }
-        if (d.background) {
+        if (d.what == kIcon) {
+            it->second.icon = std::move(tex);
+        } else if (d.what == kBackground) {
             it->second.bg = std::move(tex);
             it->second.bgKind = d.kind;
             if (d.id == selected && m_bgId != d.id) {
@@ -385,7 +433,10 @@ void CardsActivity::takeArt() {
     // Far from the selection, on any page: let the pictures go, now and then and
     // all together (freeing one waits for the GPU; the rest are then free).
     if ((m_evictIn -= 1.f / 60.f) > 0.f) return;
-    m_evictIn = 0.5f;
+    m_evictIn = 2.f;
+    int loaded = 0;
+    for (const auto& [id, a] : m_art) loaded += (a.card ? 1 : 0) + (a.bg ? 3 : 0);
+    if (loaded < 56) return;
     std::map<std::uint64_t, int> distance;
     for (int p = 0; p < kPageCount; ++p) {
         const auto& page = m_pages[p];
@@ -396,11 +447,15 @@ void CardsActivity::takeArt() {
     for (auto& [id, a] : m_art) {
         auto d = distance.find(id);
         const int dist = d == distance.end() ? 1000 : d->second;
-        if (a.card && dist > 20) {
+        if (a.card && dist > 24) {
             a.card.reset();
             a.cardAsked = false;
         }
-        if (a.bg && dist > 3 && id != m_bgId && id != m_bgPrevId) {
+        if (a.icon && dist > 24) {
+            a.icon.reset();
+            a.iconAsked = false;
+        }
+        if (a.bg && dist > 4 && id != m_bgId && id != m_bgPrevId) {
             a.bg.reset();
             a.bgAsked = false;
         }
@@ -461,11 +516,12 @@ void CardsActivity::switchPage(int dir) {
     for (auto& [id, art] : m_art) {
         if (!art.card) art.cardAsked = false;
         if (!art.bg) art.bgAsked = false;
+        if (!art.icon) art.iconAsked = false;
     }
     wantArt();
 }
 
-void CardsActivity::sortGames(int sort) {
+void CardsActivity::sortGames(int sort, bool keepChoice) {
     auto& page = m_pages[kGames];
     const std::uint64_t keep = page.empty() ? 0 : page[(size_t)std::clamp(m_sels[kGames], 0, (int)page.size() - 1)].id;
     m_settings.sort = std::clamp(sort, 0, 2);
@@ -481,7 +537,7 @@ void CardsActivity::sortGames(int sort) {
         }
     });
     m_sels[kGames] = 0;
-    for (size_t i = 0; i < page.size(); ++i)
+    for (size_t i = 0; keepChoice && i < page.size(); ++i)
         if (page[i].id == keep) m_sels[kGames] = static_cast<int>(i);
     if (m_page == kGames) m_scroll = static_cast<float>(m_sels[kGames]);
     for (auto& [id, art] : m_art) {
@@ -513,7 +569,7 @@ void CardsActivity::play() {
     }
     if (!g->path.empty()) { // a .nro: it replaces this app, as hbmenu starts it
         if (!envHasNextLoad()) {
-            say("Apps can't be opened from here: start CardsNX from HOME or the homebrew menu.");
+            say("Open CardsNX from HOME to start apps.");
             return;
         }
         m_audio.play("launch_game");
@@ -530,7 +586,7 @@ void CardsActivity::play() {
         app().requestExit(); // the game starts once this has closed
         return;
     }
-    say("The game didn't start. From the homebrew menu, HomeNX's HOME starts it; otherwise open CardsNX over a game.");
+    say("Couldn't start it: update HomeNX, then try again.");
 }
 
 void CardsActivity::openMenu(std::string title, std::vector<MenuItem> items) {
@@ -590,7 +646,7 @@ void CardsActivity::openSettings() {
          }},
         {"Download all pictures again", [this]() {
              forgetAllArt();
-             say("Pictures cleared: they download again as you look.");
+             say("Pictures will download again.");
          }, nullptr, nullptr},
         {std::string("About: CardsNX ") + HOMENX_BUILD, nullptr, nullptr, nullptr},
     });
@@ -611,7 +667,7 @@ void CardsActivity::openPower() {
         {"Restart", doPower(Power::Restart), nullptr, nullptr},
         {"Shut down", doPower(Power::Shutdown), nullptr, nullptr},
     };
-    items.push_back({canRebootToPayload() ? "Reboot to Hekate" : "Reboot to Hekate (not on this model)",
+    items.push_back({canRebootToPayload() ? "Reboot to Hekate" : "Hekate: not on this model",
                      doPower(Power::Hekate), nullptr, nullptr});
     items.push_back({"Cancel", [] {}, nullptr, nullptr});
     openMenu("Power", std::move(items));
@@ -691,8 +747,8 @@ void CardsActivity::activateTop(int index) {
             }
             break;
         case 2:
-            say(m_playersTotal < 0 ? "Counting the players online in Nextendo..."
-                                   : std::to_string(m_playersTotal) + " players online in Nextendo right now.");
+            say(m_playersTotal < 0 ? "Counting Nextendo players..."
+                                   : std::to_string(m_playersTotal) + " players online in Nextendo.");
             break;
         case 3: openNotifications(); break;
         case 4: openPower(); break;
@@ -996,7 +1052,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     m_frosted = r.gpu().offscreenReady();
     if (m_frosted) {
         r.captureToOffscreen(false);
-        r.applyBlur(2.5f, 3);
+        r.applyBlur(2.5f, 2);
     }
     drawCardExtras(r);
     const float barIn = easeOut(m_intro * 2.2f);
@@ -1004,12 +1060,26 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f));
     if (m_messageFor > 0.f && !m_message.empty()) {
         const float a = std::min(1.f, m_messageFor * 3.f) * easeOut((4.5f - m_messageFor) * 5.f);
-        const std::string s = fit(m_fBody, m_message, 880.f);
-        const float w = m_fBody.measure(s).x + 44.f;
-        const nxui::Rect pill{640.f - w * 0.5f, 450.f + 10.f * (1.f - a), w, 42.f};
+        // Two lines when it's long: words up to the width, then the rest.
+        std::string first = m_message, second;
+        if (measured(m_fBody, m_message).x > 820.f) {
+            size_t cut = m_message.size();
+            while (cut != std::string::npos && cut > 0 && measured(m_fBody, m_message.substr(0, cut)).x > 820.f)
+                cut = m_message.rfind(' ', cut - 1);
+            if (cut != std::string::npos && cut > 0) {
+                first = m_message.substr(0, cut);
+                second = fit(m_fBody, m_message.substr(cut + 1), 820.f);
+            } else {
+                first = fit(m_fBody, m_message, 820.f);
+            }
+        }
+        const float w = std::max(measured(m_fBody, first).x, measured(m_fBody, second).x) + 44.f;
+        const float h = second.empty() ? 42.f : 68.f;
+        const nxui::Rect pill{640.f - w * 0.5f, 450.f + 10.f * (1.f - a) - (h - 42.f) * 0.5f, w, h};
         frost(r, pill, 21.f, nxui::Color(0.06f, 0.07f, 0.10f, 0.75f * a));
         r.drawRoundedRectOutline(pill, nxui::Color(1.f, 1.f, 1.f, 0.15f * a), 21.f, 1.5f);
-        textMid(r, m_fBody, s, pill.x + 22.f, pill.y + 21.f, kWhite.withAlpha(a));
+        textMid(r, m_fBody, first, pill.x + 22.f, pill.y + (second.empty() ? 21.f : 22.f), kWhite.withAlpha(a));
+        if (!second.empty()) textMid(r, m_fBody, second, pill.x + 22.f, pill.y + 46.f, kWhite.withAlpha(a));
     }
     drawPopup(r);
 }
@@ -1072,14 +1142,15 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     };
     glassCircle(r, 134.f, y, kCircle, top && m_topSel == 0, "dots", 34.f, a, pressedOf(0));
     glassCircle(r, 219.f, y, kCircle, top && m_topSel == 1, "sort", 34.f, a, pressedOf(1));
-    const std::string label = m_page == kGames ? kSortNames[m_settings.sort] : kPageNames[m_page];
+    const std::string label = (m_page == kGames ? std::string(kSortNames[m_settings.sort]) : std::string(kPageNames[m_page]))
+                            + "  " + std::to_string(games().size());
     textMid(r, m_fLabel, label, 268.f, y, kWhite.withAlpha(a));
 
     // The pill: you, online, the time, battery, free space.
     const std::string word = m_online ? "Online" : "Offline";
     const float avatar = 32.f, gap = 16.f;
-    const float wWord = m_fPill.measure(word).x, wClock = m_fPill.measure(m_clock).x;
-    const float wBattery = m_fPill.measure(m_battery).x, wFree = m_fPill.measure(m_free).x;
+    const float wWord = measured(m_fPill, word).x, wClock = measured(m_fPill, m_clock).x;
+    const float wBattery = measured(m_fPill, m_battery).x, wFree = measured(m_fPill, m_free).x;
     const float width = 12.f + avatar + 12.f + wWord + gap + wClock + gap + wBattery + gap + 18.f + 8.f + wFree + 18.f;
     const nxui::Rect pill{600.f - width * 0.5f, y - 26.f, width, 52.f};
     frost(r, pill, 26.f, kGlass.withAlpha(kGlass.a * a));
@@ -1110,11 +1181,11 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     if (top && m_topSel == 3) r.drawRoundedRectOutline({kBellX - 26.f, y - 26.f, 52.f, 52.f}, kWhite.withAlpha(ring * a), 26.f, 3.f);
     if (m_unread > 0) {
         const std::string n = m_unread > 99 ? "99+" : std::to_string(m_unread);
-        const float bw = std::max(24.f, m_fBadge.measure(n).x + 14.f);
+        const float bw = std::max(24.f, measured(m_fBadge, n).x + 14.f);
         const float s = 1.f + (m_settings.motion ? 0.06f * std::sin(m_time * 4.f) : 0.f);
         const nxui::Rect badge = scaled({kBellX + 6.f, y - 37.f, bw, 24.f}, s);
         r.drawRoundedRect(badge, kRed.withAlpha(a), badge.height * 0.5f);
-        textMid(r, m_fBadge, n, badge.x + (badge.width - m_fBadge.measure(n).x) * 0.5f, badge.y + badge.height * 0.5f,
+        textMid(r, m_fBadge, n, badge.x + (badge.width - measured(m_fBadge, n).x) * 0.5f, badge.y + badge.height * 0.5f,
                 kWhite.withAlpha(a));
     }
     glassCircle(r, kPowerX, y, kCircle, top && m_topSel == 4, "power", 34.f, a, pressedOf(4));
@@ -1169,7 +1240,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         if (artIn < 1.f) {
             r.drawRoundedRect(card, nxui::Color(0.28f, 0.31f, 0.40f, 0.85f * alpha), kCardRadius);
             const std::string name = fit(m_fLabel, g.name, card.width - 28.f, 0.9f);
-            textMid(r, m_fLabel, name, card.x + (card.width - m_fLabel.measure(name).x * 0.9f) * 0.5f,
+            textMid(r, m_fLabel, name, card.x + (card.width - measured(m_fLabel, name).x * 0.9f) * 0.5f,
                     card.y + card.height * 0.5f, kMuted.withAlpha(alpha * (1.f - artIn)), 0.9f);
         }
         if (tex) {
@@ -1227,12 +1298,13 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             } else {
                 r.drawRoundedRect(iconRect, nxui::Color(1.f, 1.f, 1.f, 0.08f * alpha), 34.f);
             }
-            const std::string name = fit(m_fLabel, g.name, card.width - 28.f);
-            r.drawText(name, {card.x + (card.width - m_fLabel.measure(name).x) * 0.5f, iconRect.y + side + 26.f}, &m_fLabel,
-                       kWhite.withAlpha(alpha));
+            const float ns = fitScale(m_fLabel, g.name, card.width - 24.f);
+            const std::string name = fit(m_fLabel, g.name, card.width - 24.f, ns);
+            r.drawText(name, {card.x + (card.width - measured(m_fLabel, name).x * ns) * 0.5f, iconRect.y + side + 26.f},
+                       &m_fLabel, kWhite.withAlpha(alpha), ns);
             const std::string about = !g.author.empty() ? g.author : (g.path.empty() ? "NRO forwarder" : "Homebrew");
             const std::string by = fit(m_fBody, about, card.width - 28.f);
-            r.drawText(by, {card.x + (card.width - m_fBody.measure(by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
+            r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
                        kMuted.withAlpha(alpha));
             r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.20f * alpha), kCardRadius, 1.5f);
             if (i < sel()) r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.22f * (1.f - t) * alpha), kCardRadius);
@@ -1260,7 +1332,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         auto p = m_players.find(page[(size_t)i].id);
         if (p == m_players.end() || p->second <= 0) continue;
         const std::string n = std::to_string(p->second);
-        const nxui::Rect badge{card.x + 14.f, card.y + 14.f, 34.f + m_fCount.measure(n).x + 14.f, 34.f};
+        const nxui::Rect badge{card.x + 14.f, card.y + 14.f, 34.f + measured(m_fCount, n).x + 14.f, 34.f};
         frost(r, badge, 17.f, nxui::Color(0.05f, 0.07f, 0.09f, 0.42f * alpha));
         r.drawRoundedRectOutline(badge, nxui::Color(1.f, 1.f, 1.f, 0.16f * alpha), 17.f, 1.5f);
         const float breathe = m_settings.motion ? 0.5f + 0.5f * std::sin(m_time * 3.f) : 0.5f;
@@ -1274,22 +1346,8 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
 const nxui::Texture* CardsActivity::gameIconTexture() {
     const Game* g = current();
     if (!g) return nullptr;
-    if (g->id != m_gameIconId) {
-        m_gameIconId = g->id;
-        std::vector<std::uint8_t> jpeg;
-        if (!g->action.empty()) {
-            std::ifstream in("romfs:/icons/sys_" + g->action + ".png", std::ios::binary);
-            jpeg.assign(std::istreambuf_iterator<char>(in), {});
-        } else {
-            jpeg = gameIcon(*g);
-        }
-        if (m_gameIcon) app().gpu().waitIdle(); // the last one may still be drawing
-        m_gameIcon = std::make_unique<nxui::Texture>();
-        nxui::GpuDevice::EssentialScope essential;
-        if (jpeg.empty() || !m_gameIcon->loadFromMemory(app().gpu(), app().renderer(), jpeg.data(), jpeg.size(), 160))
-            m_gameIcon.reset();
-    }
-    return m_gameIcon.get();
+    auto it = m_art.find(g->id);
+    return it != m_art.end() && it->second.icon && it->second.icon->valid() ? it->second.icon.get() : nullptr;
 }
 
 void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
@@ -1308,7 +1366,8 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     if (const nxui::Texture* ic = gameIconTexture()) r.drawTextureRounded(ic, iconRect, 18.f, kWhite.withAlpha(da));
     const float tx = iconRect.x + iconRect.width + 15.f;
     const float maxW = panel.x + panel.width - 30.f - tx;
-    r.drawText(fit(m_fTitle, g.name, maxW), {tx, panel.y + 20.f}, &m_fTitle, kWhite.withAlpha(da));
+    const float ts = fitScale(m_fTitle, g.name, maxW);
+    r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, panel.y + 20.f + (1.f - ts) * 14.f}, &m_fTitle, kWhite.withAlpha(da), ts);
     std::string about;
     if (!g.action.empty()) about = g.author;
     else if (g.homebrew) about = g.path.empty() ? "NRO forwarder" : (g.author.empty() ? "Homebrew" : "Homebrew by " + g.author);
@@ -1335,7 +1394,7 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     }
     const nxui::Color ink(0.f, 0.f, 0.f, a);
     const char* word = g.path.empty() && g.action.empty() && !g.homebrew ? "Play" : "Open";
-    const float playW = 24.f + 10.f + m_fPlay.measure(word).x;
+    const float playW = 24.f + 10.f + measured(m_fPlay, word).x;
     const float px = playRect.x + (playRect.width - playW) * 0.5f;
     icon(r, "play", px + 12.f, playRect.y + playRect.height * 0.5f, 24.f, ink);
     textMid(r, m_fPlay, word, px + 34.f, playRect.y + playRect.height * 0.5f, ink);
@@ -1392,7 +1451,7 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
                 (info ? kMuted : kWhite).withAlpha(a));
         if (item.value) {
             const std::string v = item.change ? "<  " + item.value() + "  >" : item.value();
-            textMid(r, m_fPill, v, row.x + row.width - 18.f - m_fPill.measure(v).x, row.y + row.height * 0.5f,
+            textMid(r, m_fPill, v, row.x + row.width - 18.f - measured(m_fPill, v).x, row.y + row.height * 0.5f,
                     nxui::Color(0.55f, 0.75f, 1.f, a));
         }
     }
