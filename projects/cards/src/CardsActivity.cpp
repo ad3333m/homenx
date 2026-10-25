@@ -78,9 +78,9 @@ const Accent kAccents[] = {
 };
 constexpr int kAccentCount = sizeof(kAccents) / sizeof(kAccents[0]);
 const char* const kGlassNames[] = {"Clear", "Frosted", "Dark"};
-const char* const kLaunchNames[] = {"Simple fade", "Splash screen", "Card zoom", "Card flip", "Dive in", "Off"};
+const char* const kLaunchNames[] = {"Card jump", "Splash screen", "Card zoom", "Card flip", "Dive in", "Off"};
 // Each style's length against the zoom's (callers give the zoom's seconds).
-constexpr float kLaunchPace[] = {0.6f, 1.1f, 1.f, 0.95f, 0.8f, 0.15f};
+constexpr float kLaunchPace[] = {0.75f, 1.1f, 1.f, 0.95f, 0.8f, 0.15f};
 
 constexpr const char* kBrowseNxUrl = "https://github.com/ad3333m/browsenx/releases/download/latest/BrowseNX.nro";
 constexpr const char* kBrowseNxPath = "sdmc:/switch/BrowseNX/BrowseNX.nro";
@@ -2971,7 +2971,8 @@ void CardsActivity::draw(nxui::Renderer& r) {
     }
     drawCardExtras(r);
     // Launching: the bar and the panel go first.
-    const float ui = m_leaving && launchStyle() != kNoAnimation ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
+    const int leaveStyle = launchStyle();
+    const float ui = m_leaving && leaveStyle != kNoAnimation && leaveStyle != kFade ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
     drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
     if (m_moving) { // what Move does
@@ -3182,8 +3183,11 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     card = {x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f - lift + 60.f * rise, w, h};
     if (m_leaving) {
         const int style = launchStyle();
-        if (style == kFade && index == m_leaveIndex) // a quick press
-            card = scaled(card, 1.f - 0.07f * std::sin(3.14159f * clamp01(m_leaveT / 0.25f)));
+        if (style == kFade && index == m_leaveIndex) { // a smooth hop: up, a little bigger, and back down
+            const float hop = 0.5f - 0.5f * std::cos(6.28318f * clamp01(m_leaveT / 0.62f));
+            card = scaled(card, 1.f + 0.05f * hop);
+            card.y -= 34.f * hop;
+        }
         if (style == kDive) { // the whole row rushes at you
             const float k = 1.f + 2.4f * easeIn(m_leaveT / 0.8f);
             card = {640.f + (card.x - 640.f) * k, 330.f + (card.y - 330.f) * k, card.width * k, card.height * k};
@@ -3374,7 +3378,7 @@ float CardsActivity::othersAlpha() const {
 }
 
 // Starting a game (Settings > Look > Launch animation):
-//  Simple fade   the card is pressed, the screen dims, the game's icon pulses once.
+//  Card jump     the card hops, then the screen fades into the game.
 //  Splash screen the screen goes soft, the game's art fills it with its icon and name.
 //  Card zoom     the card lifts and opens out to the whole screen.
 //  Card flip     the card turns over to the game's banner, which fills the screen.
@@ -3423,14 +3427,8 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
     if (!g) {
         black = smoothstep(0.1f, 1.f, t); // nothing to show (power, a system applet): a fade
     } else if (style == kFade) {
-        r.drawRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.92f * smoothstep(0.12f, 0.55f, t)));
-        if (const nxui::Texture* ic = iconOf()) {
-            const float a = smoothstep(0.3f, 0.45f, t) * (1.f - smoothstep(0.8f, 0.97f, t));
-            const float pulse = 1.f + 0.10f * std::sin(3.14159f * clamp01((t - 0.4f) / 0.3f));
-            const float side = 150.f * pulse;
-            drawIcon(ic, {640.f - side * 0.5f, 340.f - side * 0.5f, side, side}, a);
-        }
-        black = smoothstep(0.85f, 1.f, t);
+        // Card jump: the card hops (cardRect), then everything fades into the game.
+        black = smoothstep(0.45f, 1.f, t);
     } else if (style == kSplash) {
         // The screen goes soft and dark; the game's art comes up through it.
         const float soft = smoothstep(0.f, 0.3f, t);
