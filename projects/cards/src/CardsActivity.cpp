@@ -7,6 +7,7 @@
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/ThreadPool.hpp>
 #include <nxui/third_party/stb/stb_image.h>
+#include <switchu/find_controllers.hpp>
 #include <nxui/widgets/Widget.hpp>
 #include <switch.h>
 #include "../../updater/src/Catalog.hpp"
@@ -35,6 +36,7 @@
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace cards {
 namespace {
@@ -55,7 +57,7 @@ constexpr float kMenuX = 134.f, kDiscordX = 219.f, kSortX = 304.f, kLabelX = 352
 constexpr float kBellX = 908.f, kMusicX = 976.f, kPowerX = 1061.f, kGearX = 1146.f;
 // Settings: sections on the left, rows on the right.
 const nxui::Rect kSheet{120.f, 52.f, 1040.f, 616.f};
-constexpr float kSecX = 142.f, kSecW = 236.f, kSecH = 58.f, kSheetTop = 146.f;
+constexpr float kSecX = 142.f, kSecW = 236.f, kSecH = 54.f, kSheetTop = 146.f;
 constexpr float kRowsX = 400.f, kRowsW = 736.f, kRowH = 72.f, kRowsBottom = 612.f;
 // News: the list on the left, the article on the right.
 constexpr float kNewsListW = 300.f, kNewsRowH = 72.f, kNewsTextX = 482.f, kNewsTextW = 640.f;
@@ -492,7 +494,7 @@ bool CardsActivity::onCreate() {
     for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
                              "power", "music", "news", "discord", "arrows", "wifi", "airplane", "sun", "speaker",
                              "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate",
-                             "download", "trash"}) {
+                             "download", "trash", "pad"}) {
         auto tex = std::make_unique<nxui::Texture>();
         nxui::GpuDevice::EssentialScope essential; // the buttons always draw
         if (tex->loadFromFile(gpu, ren, std::string(kAssets) + "icons/" + name + ".png", 96))
@@ -655,7 +657,11 @@ void CardsActivity::onDestroy() {
         std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << m_perfOut;
     }
     if (m_deleteJob.valid()) m_deleteJob.wait();
+    if (m_netTest) m_netTest->stop = true;
+    if (m_netTestJob.valid()) m_netTestJob.wait();
+    if (m_findJob.valid()) m_findJob.wait();
 #ifdef SWITCHU_MENU
+    stopPairing();
     if (m_newsJob.valid()) m_newsJob.wait();
     if (m_updateJob.valid()) m_updateJob.wait();
     // Discord's threads use the sockets: they stop before the sockets go.
@@ -675,6 +681,7 @@ nxui::Widget* CardsActivity::focusRoot() {
     if (m_textEntry && m_textEntry->isActive()) return m_textEntry.get();
     if (m_discordPanel && m_discordPanel->isActive()) return m_discordPanel.get();
     if (m_social && m_social->isActive()) return m_social.get();
+    if (m_padTest && m_padTest->isActive()) return m_padTest.get();
 #endif
     return nullptr;
 }
@@ -851,7 +858,21 @@ void CardsActivity::worker(int index) {
         }
         if (!data.empty()) {
             int w = 0, h = 0, ch = 0;
-            if (stbi_uc* px = stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4)) {
+            stbi_uc* px = stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4);
+            // SteamGridDB's notice for a picture taken down (DMCA), saved before:
+            // its next picture instead (once a session, as an eShop banner can be plain too).
+            static thread_local std::unordered_set<std::uint64_t> rechecked;
+            const bool fromSgdb = !m_key.empty() && ((job.what == kCard && done.kind == ArtKind::Grid)
+                                  || ((job.what == kBackground || job.what == kLaunch) && done.kind == ArtKind::Banner));
+            if (px && fromSgdb && removedNotice(px, w, h) && rechecked.insert(job.game.id ^ (job.what == kCard)).second) {
+                stbi_image_free(px);
+                forgetPicture(job.game.id, job.what != kCard);
+                data = job.what == kCard ? cardArt(job.game, m_key, m_boxArt.load(), done.kind)
+                                         : backgroundArt(job.game, m_key, done.kind);
+                px = data.empty() ? nullptr
+                                  : stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4);
+            }
+            if (px) {
                 done.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
                 stbi_image_free(px);
                 // Backgrounds sharp (a box cover softer, an icon a wash of its colours); cards as drawn.
@@ -1937,6 +1958,10 @@ bool CardsActivity::closeEverything() {
         m_social->hide();
         any = true;
     }
+    if (m_padTest && m_padTest->isActive()) {
+        m_padTest->hide();
+        any = true;
+    }
     if (m_newsOpen) {
         m_newsOpen = false;
         any = true;
@@ -2967,6 +2992,9 @@ void CardsActivity::buildSettings() {
             m_clock24 = m_settings.clock24;
             save();
         }));
+    look.rows.push_back(toggle("Title pictures", [this]() { return m_settings.titlePics; },
+        [this, save]() { m_settings.titlePics = !m_settings.titlePics; save(); },
+        "A 3D picture by the game's name: a kart for Mario Kart"));
     look.rows.push_back(toggle("Free space in the bar", [this]() { return m_settings.showFree; },
         [this, save]() { m_settings.showFree = !m_settings.showFree; save(); }));
     m_sheet.push_back(std::move(look));
@@ -3010,6 +3038,109 @@ void CardsActivity::buildSettings() {
         save();
     }));
     m_sheet.push_back(std::move(sound));
+
+    // The console's own settings, as HomeNX's Settings has them (Storage stays there).
+    Section net{"Internet", "wifi", {}};
+    net.rows.push_back(toggle("Wi-Fi", [this]() { return m_quick.wifi; }, [this]() {
+        if (setWifi(!m_quick.wifi)) m_quick.wifi = !m_quick.wifi;
+    }));
+#ifdef SWITCHU_MENU
+    MenuItem network = action("Network", [this]() {
+        m_sheetOpen = false;
+        leave(sel(), 0.75f, [this]() {
+            m_discord.beginShutdown();
+            m_launcher.launchNetConnect();
+        });
+    });
+    network.detail = "Choose another in Nintendo's Internet settings";
+#else
+    MenuItem network = info("Network", nullptr);
+#endif
+    network.value = [this]() { return m_console.network.empty() ? std::string("Not connected") : m_console.network; };
+    net.rows.push_back(std::move(network));
+    net.rows.push_back(info("IP address", [this]() { return m_console.ip.empty() ? std::string("None") : m_console.ip; }));
+    MenuItem netTest = action("Connection test", [this]() { startConnectionTest(); });
+    netTest.value = [this]() { return netTestText(0); };
+    netTest.detail = "Ping, download and upload speed";
+    net.rows.push_back(std::move(netTest));
+    for (int row : {4, 1, 2, 3})
+        net.rows.push_back(info(row == 4 ? "Signal" : row == 1 ? "Ping" : row == 2 ? "Download" : "Upload",
+                                [this, row]() { return netTestText(row); }));
+    m_sheet.push_back(std::move(net));
+
+    Section pads{"Controllers", "pad", {}};
+#ifdef SWITCHU_MENU
+    MenuItem pair = action("Pair a controller", [this]() { startPairing(); });
+    pair.value = [this]() {
+        return m_pairing ? "Looking... " + std::to_string(static_cast<int>(m_pairingLeft + 0.99f)) + " s" : std::string();
+    };
+    pair.detail = "Then hold the SYNC button on the controller";
+    pads.rows.push_back(std::move(pair));
+#endif
+    MenuItem find = action("Find controllers", [this]() { findControllersNow(); });
+    find.detail = "Every controller rumbles three times";
+    pads.rows.push_back(std::move(find));
+#ifdef SWITCHU_MENU
+    MenuItem padTest = action("Test buttons and sticks", [this]() { openPadTest(); });
+    padTest.detail = "Sticks, buttons and the touch screen";
+    pads.rows.push_back(std::move(padTest));
+    auto nintendo = [this](void (AppletLauncher::*open)()) -> std::function<void()> {
+        return [this, open]() {
+            m_sheetOpen = false;
+            leave(sel(), 0.75f, [this, open]() {
+                m_discord.beginShutdown();
+                (m_launcher.*open)();
+            });
+        };
+    };
+    MenuItem grip = action("Change grip/order", nintendo(&AppletLauncher::launchControllerPairing));
+    MenuItem remap = action("Button mapping", nintendo(&AppletLauncher::launchControllerRemapping));
+#else
+    auto nintendo = [this](const char* what) -> std::function<void()> {
+        return [this, what]() {
+            m_audio.pause();
+            std::string error;
+            if (!openSystem(what, m_user, error)) say(error);
+            m_audio.resume();
+        };
+    };
+    MenuItem grip = action("Pair, grip and order", nintendo("controllers"));
+    MenuItem remap = action("Button mapping", nintendo("remap"));
+#endif
+    grip.detail = remap.detail = "Nintendo's screen";
+    pads.rows.push_back(std::move(grip));
+    pads.rows.push_back(std::move(remap));
+    pads.rows.push_back(slider("Vibration", [this]() { return static_cast<int>(m_console.vibration * 100.f + 0.5f); },
+        [this](int v) {
+            m_console.vibration = static_cast<float>(v) / 100.f;
+            writeConsoleSettings(m_console);
+        }));
+    pads.rows.push_back(toggle("Pro Controller over USB", [this]() { return m_console.proWired; }, [this]() {
+        m_console.proWired = !m_console.proWired;
+        writeConsoleSettings(m_console);
+    }, "Wired when it's plugged in"));
+    m_sheet.push_back(std::move(pads));
+
+    Section console{"Console", "moon", {}};
+    static const char* const kHandheldSleep[] = {"1 minute", "3 minutes", "5 minutes", "10 minutes", "30 minutes", "Never"};
+    static const char* const kTvSleep[] = {"1 hour", "2 hours", "3 hours", "6 hours", "12 hours", "Never"};
+    console.rows.push_back(choice("Sleep in handheld", [this]() { return std::string(kHandheldSleep[m_console.handheldSleep]); },
+        [this](int d) {
+            m_console.handheldSleep = (m_console.handheldSleep + d + 6) % 6;
+            writeConsoleSettings(m_console);
+        }, "After this long with nothing pressed"));
+    console.rows.push_back(choice("Sleep on the TV", [this]() { return std::string(kTvSleep[m_console.tvSleep]); },
+        [this](int d) {
+            m_console.tvSleep = (m_console.tvSleep + d + 6) % 6;
+            writeConsoleSettings(m_console);
+        }));
+    console.rows.push_back(toggle("Auto-brightness", [this]() { return m_console.autoBrightness; }, [this]() {
+        m_console.autoBrightness = !m_console.autoBrightness;
+        writeConsoleSettings(m_console);
+    }, "In handheld it follows the room's light"));
+    console.rows.push_back(info("System version", [this]() { return m_console.firmware.empty() ? std::string("-") : m_console.firmware; }));
+    console.rows.push_back(info("Atmosphere", [this]() { return m_console.atmosphere.empty() ? std::string("-") : m_console.atmosphere; }));
+    m_sheet.push_back(std::move(console));
 
     Section pictures{"Pictures", "tag", {}};
     pictures.rows.push_back(action("Download all pictures again", [this]() {
@@ -3071,7 +3202,144 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(about));
 }
 
+void CardsActivity::startConnectionTest() {
+    if (m_netTestJob.valid() && m_netTestJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    if (!m_netReady) {
+        say("The network isn't up yet.");
+        return;
+    }
+    m_netTest = std::make_shared<NetTest>();
+    m_netTestJob = std::async(std::launch::async, [t = m_netTest]() {
+        offScreenCore();
+        testConnection(*t);
+    });
+    m_audio.play("activation");
+}
+
+std::string CardsActivity::netTestText(int row) {
+    if (!m_netTest) return row == 0 ? "Test" : "-";
+    const NetTest& t = *m_netTest;
+    const int stage = t.stage;
+    auto mbps = [](int kbps) {
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), "%.1f Mbps", static_cast<float>(kbps) / 1000.f);
+        return std::string(buf);
+    };
+    switch (row) {
+    case 0: {
+        static const char* const kStages[] = {"Looking...", "Reaching the Internet...", "Downloading...", "Uploading..."};
+        return stage < 4 ? kStages[stage] : t.internet ? "Test again" : "No Internet: test again";
+    }
+    case 1: return t.pingMs >= 0 ? std::to_string(t.pingMs.load()) + " ms" : stage <= 1 ? "..." : "-";
+    case 2: return t.downKbps > 0 ? mbps(t.downKbps) : stage == 2 ? "..." : stage > 2 && t.internet ? "Couldn't test" : "-";
+    case 3: return t.upKbps > 0 ? mbps(t.upKbps) : stage == 3 ? "..." : stage > 3 && t.internet ? "Couldn't test" : "-";
+    default: {
+        static const char* const kBars[] = {"Weak", "Fair", "Good", "Strong"};
+        return t.signal >= 0 ? kBars[std::min(t.signal.load(), 3)] : stage == 0 ? "..." : "-";
+    }
+    }
+}
+
+void CardsActivity::findControllersNow() {
+    if (m_findJob.valid() && m_findJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    m_findJob = std::async(std::launch::async, []() {
+        offScreenCore();
+        switchu::findControllers();
+    });
+    say("Every controller rumbles now.");
+}
+
+const nxui::Texture* CardsActivity::titlePictureTexture(const Game& g) {
+    if (!m_settings.titlePics || g.homebrew || !g.action.empty()) return nullptr;
+    if (g.id != m_titlePicId) {
+        m_titlePicId = g.id;
+        m_titlePic = nullptr;
+        const std::string path = titlePicture(g.name);
+        if (!path.empty()) {
+            auto& tex = m_titlePics[path];
+            if (!tex) { // a small PNG: one that didn't load stays empty
+                tex = std::make_shared<nxui::Texture>();
+                tex->loadFromFile(app().gpu(), app().renderer(), path, 128);
+            }
+            if (tex->valid()) m_titlePic = tex.get();
+        }
+    }
+    return m_titlePic;
+}
+
+#ifdef SWITCHU_MENU
+void CardsActivity::openPadTest() {
+    ensureHxFonts();
+    if (!m_padTest) {
+        m_padTest = std::make_shared<ControllerTestScreen>();
+        m_padTest->setFont(&m_hxFont);
+        m_padTest->setSmallFont(&m_hxSmall);
+        m_padTest->setTheme(&m_theme);
+        m_padTest->setInput(&app().input());
+        m_padTest->onCloseSfx([this]() { m_audio.play("hide_modal"); });
+        rootBox().addChild(m_padTest);
+    }
+    if (m_padTest->isActive()) return;
+    m_audio.play("show_modal");
+    m_padTest->show();
+    focusManager().setFocus(m_padTest.get());
+}
+
+// As HomeNX pairs: the console looks for a controller holding SYNC for 30 s.
+void CardsActivity::startPairing() {
+    if (m_pairing) {
+        stopPairing();
+        say("Stopped looking for controllers.");
+        return;
+    }
+    u8 paired = 0;
+    Result rc = btmsysInitialize();
+    if (R_SUCCEEDED(rc)) {
+        btmsysGetPairedGamepadCount(&paired);
+        rc = btmsysStartGamepadPairing();
+        if (R_FAILED(rc)) btmsysExit();
+    }
+    if (R_FAILED(rc)) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "Pairing couldn't start (0x%X).", rc);
+        say(buf);
+        return;
+    }
+    m_pairing = true;
+    m_pairedBefore = paired;
+    m_pairingLeft = 30.f;
+    m_pairingPoll = 0.5f;
+    m_audio.play("show_modal");
+    say("Hold the SYNC button on the controller until its lights move.");
+}
+
+void CardsActivity::stopPairing() {
+    if (!m_pairing) return;
+    m_pairing = false;
+    btmsysCancelGamepadPairing();
+    btmsysExit();
+}
+
+void CardsActivity::updatePairing(float dt) {
+    if (!m_pairing) return;
+    m_pairingLeft -= dt;
+    if ((m_pairingPoll -= dt) > 0.f && m_pairingLeft > 0.f) return;
+    m_pairingPoll = 0.5f;
+    u8 paired = 0;
+    if (R_SUCCEEDED(btmsysGetPairedGamepadCount(&paired)) && paired > m_pairedBefore) {
+        stopPairing();
+        m_audio.play("toggle_on");
+        say("The controller is paired.");
+    } else if (m_pairingLeft <= 0.f) {
+        stopPairing();
+        say("No controller paired: try again and hold SYNC a little longer.");
+    }
+}
+#endif
+
 void CardsActivity::openSettings(int section) {
+    m_console = readConsoleSettings();
+    m_quick = readQuickStatus();
     buildSettings();
     m_sheetOpen = true;
     m_sheetSec = std::clamp(section, 0, static_cast<int>(m_sheet.size()) - 1);
@@ -4027,6 +4295,7 @@ void CardsActivity::onUpdate(float dt) {
             lastUpdate = now;
         }
     }
+    updatePairing(dt);
     // HomeNX's screens have the buttons while they're open.
     if (m_textEntry && m_textEntry->isActive()) { // the keyboard: buttons and touch
         m_textEntry->handleTouch(app().input());
@@ -4038,6 +4307,10 @@ void CardsActivity::onUpdate(float dt) {
     }
     if (m_social && m_social->isActive()) {
         m_social->handleTouch(app().input());
+        return;
+    }
+    if (m_padTest && m_padTest->isActive()) {
+        m_padTest->handleTouch(app().input());
         return;
     }
 #endif
@@ -4766,7 +5039,10 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     const float da = a * d, dx = 14.f * (1.f - d);
 
     const nxui::Rect iconRect{panel.x + 25.f + dx, panel.y + 20.f, 78.f, 78.f};
-    if (const nxui::Texture* ic = gameIconTexture()) {
+    if (const nxui::Texture* pic = titlePictureTexture(g)) { // no background: drawn a little bigger
+        r.drawTexture(pic, {iconRect.x - 6.f, iconRect.y - 6.f, iconRect.width + 12.f, iconRect.height + 12.f},
+                      kWhite.withAlpha(da));
+    } else if (const nxui::Texture* ic = gameIconTexture()) {
         if (!g.action.empty()) r.drawTexture(ic, iconRect, kWhite.withAlpha(da)); // HomeNX's icon as it's drawn
         else r.drawTextureRounded(ic, iconRect, 18.f, kWhite.withAlpha(da));
     }

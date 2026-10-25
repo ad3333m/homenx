@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -74,6 +75,15 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
 // The background: SteamGridDB hero, the eShop banner, the box cover, the icon.
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
+// SteamGridDB swaps a picture taken down (DMCA) for a flat notice: one mostly
+// of a single colour. Those are passed over for the next picture it has.
+bool removedNotice(const std::uint8_t* rgba, int w, int h);
+void forgetPicture(std::uint64_t id, bool background); // that one comes again
+
+// A 3D picture for the game's title in the panel, picked by its name (a kart
+// for Mario Kart, a cat for Stray): Microsoft's Fluent emoji in romfs titles/.
+// "" when nothing fits.
+std::string titlePicture(const std::string& name);
 
 // Players online in Nextendo (nextendo.network) by title, as its site counts them.
 bool nextendoOnline(std::map<std::uint64_t, int>& out);
@@ -114,5 +124,24 @@ void setBrightness(float level); // 0..1
 enum class Power { Sleep, Shutdown, Restart, Hekate };
 bool power(Power what, std::string& error);
 bool canRebootToPayload();
+
+// Settings > Internet, Controllers, Console: the console's own settings.
+struct ConsoleSettings {
+    std::string network, ip;             // the Wi-Fi's name, this console's address ("" = none)
+    float vibration = 1.f;               // 0..1
+    bool proWired = false, autoBrightness = false;
+    int handheldSleep = 1, tvSleep = 1;  // the system's plans, 0..5 (5 = never)
+    std::string firmware, atmosphere;
+};
+ConsoleSettings readConsoleSettings();
+void writeConsoleSettings(const ConsoleSettings& s); // the switches and the sleep times
+
+// Settings > Internet > Connection test, on a worker: the numbers fill in as it goes.
+struct NetTest {
+    std::atomic<int> stage{0}; // 0 the network, 1 the Internet, 2 download, 3 upload, 4 done
+    std::atomic<bool> internet{false}, stop{false};
+    std::atomic<int> signal{-1}, pingMs{-1}, downKbps{-1}, upKbps{-1};
+};
+void testConnection(NetTest& t);
 
 } // namespace cards

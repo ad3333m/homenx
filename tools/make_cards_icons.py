@@ -298,6 +298,19 @@ def trash():
     return im
 
 
+def pad():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(10), q(28), q(86), q(64)], radius=q(18), fill=W)   # the body
+    d.ellipse([q(8), q(40), q(38), q(82)], fill=W)                           # its grips
+    d.ellipse([q(58), q(40), q(88), q(82)], fill=W)
+    clear = (0, 0, 0, 0)
+    d.rectangle([q(20), q(43), q(38), q(49)], fill=clear)                    # the d-pad
+    d.rectangle([q(26), q(37), q(32), q(55)], fill=clear)
+    d.ellipse([q(60), q(36), q(68), q(44)], fill=clear)                      # two buttons
+    d.ellipse([q(68), q(46), q(76), q(54)], fill=clear)
+    return im
+
+
 def hekate():
     im = canvas(); d = ImageDraw.Draw(im)
     d.rounded_rectangle([q(14), q(14), q(82), q(82)], radius=q(16), outline=W, width=q(6))
@@ -440,7 +453,7 @@ if __name__ == "__main__":
                      ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows),
                      ("wifi", wifi), ("airplane", airplane), ("sun", sun), ("speaker", speaker), ("prev", prev),
                      ("next", next_), ("pause", pause), ("repeat", repeat), ("shuffle", shuffle),
-                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash)]:
+                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

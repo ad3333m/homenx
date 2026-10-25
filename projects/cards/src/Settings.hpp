@@ -31,6 +31,7 @@ struct Settings {
     int launchStyle = 0;      // starting a game: 0 simple fade, 1 splash, 2 card zoom, 3 card flip, 4 dive in, 5 off
     bool clock24 = true;
     bool showFree = true;     // free space in the status pill
+    bool titlePics = true;    // a 3D picture by the game's name in the panel
     std::string user;         // who games start as (hex), "" = the last one who played
     std::string lastGame;     // the last game (or app) started from here, hex
     long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
@@ -67,6 +68,7 @@ struct Settings {
             launchStyle = j.value("launchStyle", launchStyle);
             clock24 = j.value("clock24", clock24);
             showFree = j.value("showFree", showFree);
+            titlePics = j.value("titlePics", titlePics);
             user = j.value("user", user);
             lastGame = j.value("lastGame", lastGame);
             listsAt = j.value("listsAt", listsAt);
@@ -84,7 +86,7 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
         std::ofstream(kPath, std::ios::trunc) << j.dump(2);

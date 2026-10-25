@@ -14,6 +14,7 @@
 #include "social/DiscordService.hpp"
 #include "widgets/DiscordPanel.hpp"
 #include "widgets/SocialScreen.hpp"
+#include "settings/ControllerTestScreen.hpp"
 #include <nxui/Theme.hpp>
 #endif
 
@@ -24,6 +25,7 @@
 #include <functional>
 #include <future>
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -361,6 +363,18 @@ private:
     int m_quickRow = kQPlayer, m_quickCol = 1, m_quickListSel = 0;
     std::vector<MenuItem> m_quickPower;  // Sleep, Restart, Shut down, Reboot to Hekate
     QuickStatus m_quick;
+    // Settings > Internet, Controllers, Console.
+    ConsoleSettings m_console;
+    std::shared_ptr<NetTest> m_netTest;
+    std::future<void> m_netTestJob, m_findJob;
+    void startConnectionTest();
+    std::string netTestText(int row); // 0 the test, 1 ping, 2 download, 3 upload, 4 signal
+    void findControllersNow();
+    // The game's picture by its name, in the panel (Settings > Look > Title pictures).
+    std::unordered_map<std::string, std::shared_ptr<nxui::Texture>> m_titlePics;
+    std::uint64_t m_titlePicId = ~0ull;
+    const nxui::Texture* m_titlePic = nullptr;
+    const nxui::Texture* titlePictureTexture(const Game& g);
 
     // Settings: sections on the left, their rows on the right.
     std::vector<Section> m_sheet;
@@ -427,6 +441,14 @@ private:
     void enterText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
                    std::function<void(const std::string&)> done, nxui::Widget* back);
     void openSocial(bool miis);
+    std::shared_ptr<ControllerTestScreen> m_padTest; // Settings > Controllers: HomeNX's test screen
+    void openPadTest();
+    bool m_pairing = false;                          // HomeNX's own pairing, 30 s
+    std::uint8_t m_pairedBefore = 0;
+    float m_pairingLeft = 0.f, m_pairingPoll = 0.f;
+    void startPairing();
+    void stopPairing();
+    void updatePairing(float dt);
     float m_discordStartIn = 4.f;
     bool m_discordStarted = false;
 

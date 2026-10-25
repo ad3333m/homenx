@@ -10,14 +10,17 @@
 #endif
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
+#include <nxui/third_party/stb/stb_image.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <new>
 #include <unordered_map>
@@ -127,15 +130,27 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
     if (gameId <= 0) return {};
     if (get(std::string(kSteamGridDb) + "/" + kind + "/game/" + std::to_string(gameId) + "?" + query, body, headers) != 200)
         return {};
-    std::string url;
+    std::vector<std::string> urls;
     try {
         const auto j = nlohmann::json::parse(body);
-        if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
-            url = j["data"][0].value("url", std::string());
+        if (j.contains("data") && j["data"].is_array())
+            for (const auto& a : j["data"]) {
+                if (a.is_object()) urls.push_back(a.value("url", std::string()));
+                if (urls.size() == 6) break;
+            }
     } catch (...) {
     }
-    if (url.empty() || get(url, body) != 200 || !isPicture(body)) return {};
-    return body;
+    // The first that came and isn't the notice for one taken down.
+    for (const std::string& url : urls) {
+        if (url.empty() || get(url, body) != 200 || !isPicture(body)) continue;
+        int w = 0, h = 0, ch = 0;
+        stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
+                                            &w, &h, &ch, 4);
+        const bool removed = px && removedNotice(px, w, h);
+        stbi_image_free(px);
+        if (px && !removed) return body;
+    }
+    return {};
 }
 
 // A game's name as GameTDB's index has it (tools/make_gametdb_index.py does the
@@ -523,6 +538,92 @@ void forgetArt(std::uint64_t id) {
         std::filesystem::remove(std::string(kCacheDir) + "/" + hexId(id) + ext, ec);
 }
 
+void forgetPicture(std::uint64_t id, bool background) {
+    std::error_code ec;
+    std::filesystem::remove(std::string(kCacheDir) + "/" + hexId(id) + (background ? ".bg" : ".grid"), ec);
+}
+
+// Over 80% of it within a few steps of one colour: art has more going on.
+bool removedNotice(const std::uint8_t* rgba, int w, int h) {
+    if (!rgba || w < 16 || h < 16) return false;
+    constexpr int kSteps = 48;
+    static thread_local std::vector<std::uint16_t> bins(1u << 15);
+    std::fill(bins.begin(), bins.end(), 0);
+    auto at = [&](int i, int j) { return rgba + (static_cast<size_t>(j * h / kSteps) * w + i * w / kSteps) * 4; };
+    int best = 0;
+    for (int j = 0; j < kSteps; ++j)
+        for (int i = 0; i < kSteps; ++i) {
+            const std::uint8_t* p = at(i, j);
+            const int bin = (p[0] >> 3) << 10 | (p[1] >> 3) << 5 | p[2] >> 3;
+            if (++bins[(size_t)bin] > bins[(size_t)best]) best = bin;
+        }
+    const int r = (best >> 10 & 31) * 8 + 4, g = (best >> 5 & 31) * 8 + 4, b = (best & 31) * 8 + 4;
+    int near = 0;
+    for (int j = 0; j < kSteps; ++j)
+        for (int i = 0; i < kSteps; ++i) {
+            const std::uint8_t* p = at(i, j);
+            near += std::abs(p[0] - r) <= 10 && std::abs(p[1] - g) <= 10 && std::abs(p[2] - b) <= 10;
+        }
+    return near * 10 > kSteps * kSteps * 8;
+}
+
+// Whole words of the name (lower case), most particular first.
+std::string titlePicture(const std::string& name) {
+    // tools/make_title_pictures.py downloads the pictures this table names.
+    static const std::pair<const char*, const char*> kPictures[] = { // TITLE PICTURES
+        {"mario kart", "racing_car"}, {"mario bros. wonder", "blossom"}, {"paper mario", "page_facing_up"},
+        {"mario party", "game_die"}, {"mario golf", "flag_in_hole"}, {"mario tennis", "tennis"},
+        {"mario strikers", "soccer_ball"}, {"rabbids", "rabbit_face"}, {"luigi", "ghost"}, {"princess peach", "crown"},
+        {"captain toad", "mushroom"}, {"yoshi", "egg"}, {"wario", "garlic"}, {"donkey kong", "banana"},
+        {"bowser", "turtle"}, {"mario", "mushroom"}, {"zelda", "shield"}, {"pokémon", "high_voltage"},
+        {"pokemon", "high_voltage"}, {"kirby", "glowing_star"}, {"metroid", "alien"}, {"splatoon", "squid"},
+        {"animal crossing", "leaf_fluttering_in_wind"}, {"smash bros", "collision"}, {"pikmin", "seedling"},
+        {"fire emblem", "crossed_swords"}, {"xenoblade", "dagger"}, {"star fox", "fox"}, {"f-zero", "racing_car"},
+        {"minecraft", "pick"}, {"fortnite", "parachute"}, {"rocket league", "automobile"}, {"fifa", "soccer_ball"},
+        {"ea sports fc", "soccer_ball"}, {"football", "soccer_ball"}, {"nba", "basketball"}, {"tetris", "brick"},
+        {"lego", "brick"}, {"sonic", "hedgehog"}, {"stray", "cat"}, {"hollow knight", "bug"}, {"celeste", "strawberry"},
+        {"stardew", "sheaf_of_rice"}, {"among us", "rocket"}, {"overcooked", "cooking"}, {"cuphead", "hot_beverage"},
+        {"goose", "duck"}, {"doom", "skull"}, {"witcher", "wolf"}, {"skyrim", "dragon"}, {"monster hunter", "dragon"},
+        {"dark souls", "fire"}, {"hades", "fire"}, {"ring fit", "running_shoe"}, {"just dance", "mirror_ball"},
+        {"switch sports", "badminton"}, {"terraria", "evergreen_tree"}, {"story of seasons", "cow_face"},
+        {"harvest moon", "cow_face"}, {"fall guys", "crown"}, {"portal", "birthday_cake"}, {"undertale", "red_heart"},
+        {"deltarune", "red_heart"}, {"katamari", "rainbow"}, {"octopath", "compass"}, {"dragon quest", "dragon"},
+        {"final fantasy", "crystal_ball"}, {"kingdom hearts", "key"}, {"persona", "performing_arts"},
+        {"pac-man", "ghost"}, {"hogwarts", "magic_wand"}, {"harry potter", "magic_wand"}, {"star wars", "milky_way"},
+        {"spider-man", "spider"}, {"batman", "bat"}, {"jurassic", "t-rex"}, {"five nights", "teddy_bear"},
+        {"balatro", "joker"}, {"solitaire", "joker"}, {"chess", "chess_pawn"}, {"puzzle", "puzzle_piece"},
+        {"youtube", "television"}, {"golf", "flag_in_hole"}, {"tennis", "tennis"}, {"hockey", "ice_hockey"},
+        {"baseball", "baseball"}, {"bowling", "bowling"}, {"boxing", "boxing_glove"}, {"fishing", "fishing_pole"},
+        {"guitar", "guitar"}, {"racing", "racing_car"}, {"rally", "racing_car"}, {"kart", "racing_car"},
+        {"skate", "skateboard"}, {"farm", "tractor"}, {"farming", "tractor"}, {"train", "locomotive"},
+        {"flight", "airplane"}, {"pirate", "pirate_flag"}, {"pirates", "pirate_flag"}, {"zombie", "skull"},
+        {"zombies", "skull"}, {"ghost", "ghost"}, {"robot", "robot"}, {"robots", "robot"}, {"dragon", "dragon"},
+        {"dragons", "dragon"}, {"pizza", "pizza"}, {"cat", "cat"}, {"cats", "cat"}, {"dog", "dog_face"},
+        {"dogs", "dog_face"}, {"horse", "horse_face"}, {"space", "rocket"}, {"music", "musical_notes"},
+        {"rhythm", "musical_notes"}, {"snake", "snake"}, {"shark", "shark"}, {"fish", "tropical_fish"},
+        {"frog", "frog"}, {"penguin", "penguin"}, {"owl", "owl"}, {"panda", "panda"}, {"unicorn", "unicorn"},
+        {"monkey", "monkey_face"}, {"lion", "lion"}, {"tiger", "tiger_face"}, {"bear", "bear"}, {"castle", "castle"},
+        {"magic", "magic_wand"}, {"wizard", "magic_wand"}, {"sword", "crossed_swords"}, {"knight", "shield"},
+        {"ninja", "dagger"}, {"bomb", "bomb"}, {"chef", "cooking"}, {"cooking", "cooking"}, {"cake", "birthday_cake"},
+        {"sushi", "sushi"}, {"burger", "hamburger"}, {"casino", "slot_machine"}, {"poker", "joker"},
+        {"alien", "alien"}, {"aliens", "alien"}, {"ufo", "flying_saucer"}, {"planet", "ringed_planet"},
+    };
+    std::string low; // lower case, without the marks names carry (Mario Kart™ 8)
+    for (size_t i = 0; i < name.size(); ++i) {
+        if (name.compare(i, 3, "\xE2\x84\xA2") == 0) i += 2;                                     // TM
+        else if (name.compare(i, 2, "\xC2\xAE") == 0 || name.compare(i, 2, "\xC2\xA9") == 0) ++i; // (R) (C)
+        else low += static_cast<char>(std::tolower(static_cast<unsigned char>(name[i])));
+    }
+    auto letter = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || (c & 0x80); };
+    for (const auto& [words, picture] : kPictures)
+        for (size_t at = low.find(words); at != std::string::npos; at = low.find(words, at + 1)) {
+            const size_t end = at + std::strlen(words);
+            if ((at == 0 || !letter(low[at - 1])) && (end >= low.size() || !letter(low[end])))
+                return std::string(kAssets) + "titles/" + picture + ".png";
+        }
+    return {};
+}
+
 // As nextendo.network's own pages count them (assets/js/*-counts.js): the
 // service's list, Nintendo Classics from its catalogue, and the games with
 // their own servers.
@@ -687,6 +788,10 @@ bool openSystem(const std::string& action, AccountUidLike user, std::string& err
         HidLaControllerSupportArg arg;
         hidLaCreateControllerSupportArg(&arg);
         rc = hidLaShowControllerSupportForSystem(nullptr, &arg, false);
+    } else if (action == "remap") {
+        HidLaControllerKeyRemappingArg arg;
+        hidLaCreateControllerKeyRemappingArg(&arg);
+        rc = hidLaShowControllerKeyRemappingForSystem(&arg, HidLaControllerSupportCaller_System);
     } else if (action == "browser") {
         rc = showWeb("https://duckduckgo.com/?kae=d", uid, false);
     }
@@ -748,6 +853,183 @@ QuickStatus readQuickStatus() {
         tsExit();
     }
     return q;
+}
+
+ConsoleSettings readConsoleSettings() {
+    ConsoleSettings s;
+    if (R_SUCCEEDED(nifmInitialize(NifmServiceType_User))) {
+        u32 ip = 0;
+        if (R_SUCCEEDED(nifmGetCurrentIpAddress(&ip)) && ip) {
+            char buf[20];
+            std::snprintf(buf, sizeof(buf), "%u.%u.%u.%u", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, ip >> 24);
+            s.ip = buf;
+        }
+        NifmNetworkProfileData profile{};
+        if (R_SUCCEEDED(nifmGetCurrentNetworkProfile(&profile))) {
+            char ssid[33] = {};
+            std::memcpy(ssid, profile.wireless_setting_data.ssid, 32);
+            s.network = ssid;
+        }
+        nifmExit();
+    }
+    if (R_SUCCEEDED(setsysInitialize())) {
+        setsysGetVibrationMasterVolume(&s.vibration);
+        setsysGetUsbFullKeyEnableFlag(&s.proWired);
+        SetSysSleepSettings sleep{};
+        if (R_SUCCEEDED(setsysGetSleepSettings(&sleep))) {
+            s.handheldSleep = std::clamp(static_cast<int>(sleep.handheld_sleep_plan), 0, 5);
+            s.tvSleep = std::clamp(static_cast<int>(sleep.console_sleep_plan), 0, 5);
+        }
+        SetSysFirmwareVersion fw{};
+        if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) s.firmware = fw.display_version;
+        setsysExit();
+    }
+    if (R_SUCCEEDED(lblInitialize())) {
+        bool on = false;
+        if (R_SUCCEEDED(lblIsAutoBrightnessControlEnabled(&on))) s.autoBrightness = on;
+        lblExit();
+    }
+    if (R_SUCCEEDED(splInitialize())) {
+        u64 v = 0;
+        if (R_SUCCEEDED(splGetConfig(static_cast<SplConfigItem>(65000), &v))) { // Atmosphere's version
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "%u.%u.%u", unsigned(v >> 56 & 0xFF), unsigned(v >> 48 & 0xFF),
+                          unsigned(v >> 40 & 0xFF));
+            s.atmosphere = buf;
+        }
+        splExit();
+    }
+    return s;
+}
+
+void writeConsoleSettings(const ConsoleSettings& s) {
+    if (R_SUCCEEDED(setsysInitialize())) {
+        setsysSetVibrationMasterVolume(std::clamp(s.vibration, 0.f, 1.f));
+        setsysSetUsbFullKeyEnableFlag(s.proWired);
+        SetSysSleepSettings sleep{};
+        if (R_SUCCEEDED(setsysGetSleepSettings(&sleep))) {
+            sleep.handheld_sleep_plan = std::clamp(s.handheldSleep, 0, 5);
+            sleep.console_sleep_plan = std::clamp(s.tvSleep, 0, 5);
+            setsysSetSleepSettings(&sleep);
+        }
+        setsysExit();
+    }
+    if (R_SUCCEEDED(lblInitialize())) {
+        if (s.autoBrightness) lblEnableAutoBrightnessControl();
+        else lblDisableAutoBrightnessControl();
+        lblExit();
+    }
+}
+
+namespace {
+size_t testDiscard(char*, size_t size, size_t n, void* user) {
+    return static_cast<NetTest*>(user)->stop ? 0 : size * n;
+}
+
+int testStopped(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    return static_cast<NetTest*>(user)->stop ? 1 : 0;
+}
+
+struct Zeros {
+    NetTest* test;
+    curl_off_t left;
+};
+
+size_t testZeros(char* p, size_t size, size_t n, void* user) {
+    auto* z = static_cast<Zeros*>(user);
+    if (z->test->stop) return CURL_READFUNC_ABORT;
+    const size_t give = static_cast<size_t>(std::min<curl_off_t>(z->left, static_cast<curl_off_t>(size * n)));
+    std::memset(p, 0, give);
+    z->left -= static_cast<curl_off_t>(give);
+    return give;
+}
+
+CURL* testHandle(NetTest& t, const char* url, long seconds) {
+    CURL* c = curl_easy_init();
+    if (!c) return nullptr;
+    curl_easy_setopt(c, CURLOPT_URL, url);
+    curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
+    curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 8L);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, seconds);
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, testDiscard);
+    curl_easy_setopt(c, CURLOPT_WRITEDATA, &t);
+    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, testStopped);
+    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &t);
+    return c;
+}
+
+// Kilobits a second over the time the bytes moved (a run cut short by its time limit counts).
+int testSpeed(CURL* c, CURLcode rc, bool up) {
+    curl_off_t bytes = 0, total = 0, start = 0;
+    curl_easy_getinfo(c, up ? CURLINFO_SIZE_UPLOAD_T : CURLINFO_SIZE_DOWNLOAD_T, &bytes);
+    curl_easy_getinfo(c, CURLINFO_TOTAL_TIME_T, &total);
+    curl_easy_getinfo(c, CURLINFO_PRETRANSFER_TIME_T, &start);
+    if ((rc != CURLE_OK && rc != CURLE_OPERATION_TIMEDOUT) || bytes < 65536 || total <= start) return -1;
+    return static_cast<int>(bytes * 8 * 1000 / (total - start)); // bits per ms = kbit/s
+}
+} // namespace
+
+void testConnection(NetTest& t) {
+    if (R_SUCCEEDED(nifmInitialize(NifmServiceType_User))) {
+        NifmInternetConnectionType type{};
+        u32 strength = 0;
+        NifmInternetConnectionStatus status{};
+        if (R_SUCCEEDED(nifmGetInternetConnectionStatus(&type, &strength, &status)))
+            t.signal = type == NifmInternetConnectionType_WiFi ? static_cast<int>(strength) : 3;
+        nifmExit();
+    }
+    // The Internet: Cloudflare's "are you online" page, the quickest of three hellos.
+    t.stage = 1;
+    for (int i = 0; i < 3 && !t.stop; ++i) {
+        CURL* c = testHandle(t, "http://cp.cloudflare.com/generate_204", 8L);
+        if (!c) break;
+        curl_easy_setopt(c, CURLOPT_FRESH_CONNECT, 1L);
+        long code = 0;
+        curl_off_t lookup = 0, connect = 0;
+        if (curl_easy_perform(c) == CURLE_OK && curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &code) == CURLE_OK
+            && (code == 204 || code == 200)) {
+            curl_easy_getinfo(c, CURLINFO_NAMELOOKUP_TIME_T, &lookup);
+            curl_easy_getinfo(c, CURLINFO_CONNECT_TIME_T, &connect);
+            const int ms = static_cast<int>(std::max<curl_off_t>(1000, connect - lookup) / 1000);
+            t.internet = true;
+            if (t.pingMs < 0 || ms < t.pingMs) t.pingMs = ms;
+        }
+        curl_easy_cleanup(c);
+    }
+    if (!t.internet || t.stop) {
+        t.stage = 4;
+        return;
+    }
+    // Download and upload: as much as moves in 8 s (Cloudflare's speed test, else Tele2's).
+    t.stage = 2;
+    for (const char* url : {"https://speed.cloudflare.com/__down?bytes=50000000", "http://speedtest.tele2.net/100MB.zip"}) {
+        CURL* c = testHandle(t, url, 8L);
+        if (!c) break;
+        const CURLcode rc = curl_easy_perform(c);
+        t.downKbps = testSpeed(c, rc, false);
+        curl_easy_cleanup(c);
+        if (t.downKbps > 0 || t.stop) break;
+    }
+    t.stage = 3;
+    for (const char* url : {"https://speed.cloudflare.com/__up", "http://speedtest.tele2.net/upload.php"}) {
+        CURL* c = testHandle(t, url, 8L);
+        if (!c || t.stop) {
+            if (c) curl_easy_cleanup(c);
+            break;
+        }
+        Zeros z{&t, 25'000'000};
+        curl_easy_setopt(c, CURLOPT_POST, 1L);
+        curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE_LARGE, z.left);
+        curl_easy_setopt(c, CURLOPT_READFUNCTION, testZeros);
+        curl_easy_setopt(c, CURLOPT_READDATA, &z);
+        const CURLcode rc = curl_easy_perform(c);
+        t.upKbps = testSpeed(c, rc, true);
+        curl_easy_cleanup(c);
+        if (t.upKbps > 0) break;
+    }
+    t.stage = 4;
 }
 
 bool setAirplaneMode(bool on) {
