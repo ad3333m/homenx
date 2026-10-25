@@ -188,6 +188,7 @@ target("SwitchU")
     -- CardsNX as HOME (NXToggle > Home screen): its screen, built in; its files
     -- (fonts, icons, the GameTDB index) ship in switch/SwitchU/cards/.
     add_files("projects/cards/src/Audio.cpp", "projects/cards/src/CardsActivity.cpp", "projects/cards/src/Library.cpp")
+    add_files("projects/updater/src/Catalog.cpp") -- homebrew updates, as the Homebrew Manager finds them
     add_includedirs("projects/cards/src", {public = false})
     add_defines("HOMENX_UPDATER_SHARED_NETWORK", homenx_build_define)
     add_links("minizip")
@@ -397,6 +398,8 @@ target("CardsNX")
     add_includedirs("projects/cards/src", {public = false})
     add_files("projects/cards/src/*.cpp")
     add_files("projects/menu/src/homebrew/HomebrewStore.cpp") -- the Homebrew page's .nro list
+    add_files("projects/updater/src/Catalog.cpp") -- homebrew updates, as the Homebrew Manager finds them
+    add_links("minizip")
     add_packages("libsdl", "libsdl_mixer", "libsdl_ttf", "zlib", "libwebp", "libcurl", "nlohmann_json")
     add_linkgroups("SDL2_ttf", "harfbuzz-subset", "harfbuzz", "freetype", "png16", "bz2", "z", {group = true})
     add_linkgroups("SDL2_mixer", "FLAC++", "FLAC", "vorbisidec", "ogg", "modplug", "opusurl", "opusfile", "opus", {group = true})

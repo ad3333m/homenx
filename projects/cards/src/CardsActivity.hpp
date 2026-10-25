@@ -275,6 +275,25 @@ private:
     int m_playersTotal = -1;                 // -1: not known yet
     nxui::Rect m_userHit{}, m_playersHit{};  // in the pill, for touch
     std::future<bool> m_browserJob;          // BrowseNX downloading
+
+    // Homebrew updates, found as the Homebrew Manager finds them (GitHub
+    // releases, the HB App Store) and remembered for a few hours in
+    // sdmc:/config/CardsNX/updates.json. By .nro path; only newer versions.
+    struct NroUpdate {
+        std::string latest, source, url, zipEntry;
+        bool zip = false;
+    };
+    std::map<std::string, NroUpdate> m_updates;
+    std::future<std::map<std::string, NroUpdate>> m_updatesJob;
+    std::future<std::string> m_nroUpdateJob;   // one being installed: "" done, else what went wrong
+    std::string m_nroUpdating;                 // its path
+    std::vector<std::string> m_nroQueue;       // Update all: the ones after it
+    std::atomic<float> m_nroProgress{0.f};
+    bool m_updatesChecked = false;
+    void checkHomebrewUpdates(bool force);
+    void updateNro(const std::string& path);
+    const NroUpdate* nroUpdate(const Game& g) const;
+    void openHomebrewUpdates();
     std::future<std::uint32_t> m_deleteJob;  // an NRO forwarder being uninstalled (its Result)
     std::uint64_t m_deleteId = 0;
     std::string m_deleteName;

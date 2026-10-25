@@ -9,6 +9,8 @@
 #include <nxui/third_party/stb/stb_image.h>
 #include <nxui/widgets/Widget.hpp>
 #include <switch.h>
+#include "../../updater/src/Catalog.hpp"
+#include <nlohmann/json.hpp>
 #include <switchu/control_cache.hpp>
 #include <switchu/ns_ext.hpp>
 #include <SDL2/SDL_mixer.h>
@@ -613,6 +615,8 @@ void CardsActivity::onDestroy() {
         if (t.joinable()) t.join();
     if (m_browserJob.valid()) m_browserJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
+    if (m_updatesJob.valid()) m_updatesJob.wait();
+    if (m_nroUpdateJob.valid()) m_nroUpdateJob.wait();
     if (!m_perfOut.empty()) {
         std::error_code ec;
         std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
@@ -1465,6 +1469,140 @@ void CardsActivity::openNintendo(const Game& g) {
 #endif
 }
 
+// ---------------------------------------------------------------- homebrew updates
+
+namespace {
+constexpr const char* kUpdatesPath = "sdmc:/config/CardsNX/updates.json";
+
+// HomeNX's own apps come with HomeNX's updates.
+bool homenxOwn(const std::string& path) {
+    for (const char* own : {"/switch/NXToggle/", "/switch/Homebrew-Manager/", "/switch/CardsNX/", "/switch/SwitchU/",
+                            "/switch/HomeNX", "sdmc:/hbmenu.nro"})
+        if (path.find(own) != std::string::npos) return true;
+    return false;
+}
+} // namespace
+
+const CardsActivity::NroUpdate* CardsActivity::nroUpdate(const Game& g) const {
+    if (g.path.empty()) return nullptr;
+    auto it = m_updates.find(g.path);
+    if (it == m_updates.end() || !updater::isNewer(it->second.latest, g.version)) return nullptr;
+    return &it->second;
+}
+
+// What's newer: from the saved list when it's fresh (a few hours), else asked
+// again on a thread (a request per app to GitHub, which allows 60 an hour).
+void CardsActivity::checkHomebrewUpdates(bool force) {
+    if (m_updatesJob.valid()) return;
+    const long long now = static_cast<long long>(std::time(nullptr));
+    if (!force) {
+        try {
+            std::ifstream in(kUpdatesPath);
+            if (in) {
+                const auto j = nlohmann::json::parse(in);
+                const long long at = j.value("checkedAt", 0LL);
+                m_updates.clear();
+                const auto saved = j.value("apps", nlohmann::json::object());
+                for (auto it = saved.begin(); it != saved.end(); ++it) {
+                    NroUpdate u;
+                    u.latest = it.value().value("latest", std::string());
+                    u.source = it.value().value("source", std::string());
+                    u.url = it.value().value("url", std::string());
+                    u.zipEntry = it.value().value("zipEntry", std::string());
+                    u.zip = it.value().value("zip", false);
+                    m_updates[it.key()] = u;
+                }
+                if (now - at < 6 * 3600 && now >= at) return; // fresh enough
+            }
+        } catch (...) {
+        }
+    }
+    if (!m_netUp) return;
+    std::vector<updater::App> apps;
+    for (const Game& g : m_pages[kHomebrew])
+        if (!g.path.empty() && !homenxOwn(g.path)) {
+            updater::App a;
+            a.path = g.path;
+            a.name = g.name;
+            a.author = g.author;
+            a.version = g.version;
+            apps.push_back(std::move(a));
+        }
+    m_updatesJob = std::async(std::launch::async, [apps, now]() mutable {
+        offScreenCore();
+        std::atomic<int> done{0};
+        updater::findUpdates(apps, done);
+        std::map<std::string, NroUpdate> found;
+        nlohmann::json saved = {{"checkedAt", now}, {"apps", nlohmann::json::object()}};
+        for (const updater::App& a : apps) {
+            if (a.downloadUrl.empty() || !updater::isNewer(a.latest, a.version)) continue;
+            NroUpdate u{a.latest, a.source, a.downloadUrl, a.zipEntry, a.zip};
+            found[a.path] = u;
+            saved["apps"][a.path] = {{"latest", u.latest}, {"source", u.source}, {"url", u.url},
+                                     {"zipEntry", u.zipEntry}, {"zip", u.zip}};
+        }
+        std::error_code ec;
+        std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
+        std::ofstream(kUpdatesPath, std::ios::trunc) << saved.dump();
+        threadDone();
+        return found;
+    });
+}
+
+// One .nro to its newest version (the Homebrew Manager's way: the old one is
+// kept aside until the new one is in place).
+void CardsActivity::updateNro(const std::string& path) {
+    auto it = m_updates.find(path);
+    if (it == m_updates.end()) return;
+    if (m_nroUpdateJob.valid()) { // one at a time: it's next
+        if (std::find(m_nroQueue.begin(), m_nroQueue.end(), path) == m_nroQueue.end()) m_nroQueue.push_back(path);
+        return;
+    }
+    updater::App a;
+    a.path = path;
+    a.latest = it->second.latest;
+    a.source = it->second.source;
+    a.downloadUrl = it->second.url;
+    a.zipEntry = it->second.zipEntry;
+    a.zip = it->second.zip;
+    m_nroUpdating = path;
+    m_nroProgress = 0.f;
+    m_nroUpdateJob = std::async(std::launch::async, [this, a]() {
+        offScreenCore();
+        std::string error;
+        const bool ok = updater::installUpdate(a, m_nroProgress, error);
+        threadDone();
+        return ok ? std::string() : (error.empty() ? std::string("it didn't download") : error);
+    });
+}
+
+void CardsActivity::openHomebrewUpdates() {
+    std::vector<MenuItem> items;
+    std::vector<std::string> paths;
+    for (const Game& g : m_pages[kHomebrew])
+        if (const NroUpdate* u = nroUpdate(g)) {
+            const std::string path = g.path;
+            paths.push_back(path);
+            MenuItem row = action(g.name, [this, path]() { updateNro(path); });
+            const std::string latest = u->latest;
+            row.value = [latest]() { return "v" + latest; };
+            items.push_back(std::move(row));
+        }
+    if (paths.empty()) {
+        items.push_back(info("Everything is up to date", [] { return std::string(); }));
+    } else {
+        items.insert(items.begin(), action("Update all (" + std::to_string(paths.size()) + ")", [this, paths]() {
+            for (const std::string& p : paths) updateNro(p);
+        }));
+    }
+    items.push_back(action("Check again", [this]() {
+        checkHomebrewUpdates(true);
+        say(m_netUp ? "Checking for homebrew updates..." : "Connect to the internet to check.");
+    }));
+    items.push_back(action("Done", [] {}));
+    openMenu("Homebrew updates", std::move(items));
+}
+
 // ---------------------------------------------------------------- HOME (the daemon)
 
 #ifdef SWITCHU_MENU
@@ -1645,6 +1783,13 @@ void CardsActivity::openOptions() {
             }
             wantArt();
         }));
+    }
+    if (const NroUpdate* u = nroUpdate(g)) { // a newer version
+        const std::string path = g.path;
+        MenuItem up = action("Update to v" + u->latest, [this, path]() { updateNro(path); });
+        const std::string source = u->source;
+        up.value = [source]() { return source; };
+        items.insert(items.begin() + 1, std::move(up));
     }
     if (!g.path.empty()) { // a .nro: off the SD card
         const std::string path = g.path, name = g.name;
@@ -2250,6 +2395,18 @@ void CardsActivity::buildSettings() {
     upd.value = [this]() { return updateRowLabel(); };
     upd.detail = "Downloads the newest HomeNX and CardsNX";
     updates.rows.push_back(std::move(upd));
+    MenuItem hb = action("Homebrew updates", [this]() {
+        m_sheetOpen = false;
+        openHomebrewUpdates();
+    });
+    hb.value = [this]() {
+        if (m_updatesJob.valid()) return std::string("Checking...");
+        int n = 0;
+        for (const Game& g : m_pages[kHomebrew]) n += nroUpdate(g) ? 1 : 0;
+        return n ? std::to_string(n) + " to update" : std::string("Up to date");
+    };
+    hb.detail = "Newer versions of your .nro apps";
+    updates.rows.push_back(std::move(hb));
     updates.rows.push_back(action("Home style (NXToggle)", [this]() {
         std::error_code ec;
         if (!std::filesystem::exists(kToggle, ec)) {
@@ -3068,6 +3225,55 @@ void CardsActivity::onUpdate(float dt) {
         && m_listJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         takeLists(m_listJob.get());
 
+    // Homebrew updates: the saved list at once; asked again a little after start.
+    if (!m_updatesChecked && m_netReady && m_time > 6.f) {
+        m_updatesChecked = true;
+        checkHomebrewUpdates(false);
+    }
+    if (m_updatesJob.valid() && m_updatesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        m_updates = m_updatesJob.get();
+        int n = 0;
+        for (const Game& g : m_pages[kHomebrew]) n += nroUpdate(g) ? 1 : 0;
+        if (n > 0) say(std::to_string(n) + (n == 1 ? " homebrew app has" : " homebrew apps have") + " an update (+ on it, or Settings).");
+    }
+    if (m_nroUpdateJob.valid()) {
+        std::string name = m_nroUpdating;
+        for (const Game& g : m_pages[kHomebrew])
+            if (g.path == m_nroUpdating) name = g.name;
+        if (m_nroUpdateJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            const std::string error = m_nroUpdateJob.get();
+            if (error.empty()) {
+                const std::string latest = m_updates.count(m_nroUpdating) ? m_updates[m_nroUpdating].latest : std::string();
+                for (Game& g : m_pages[kHomebrew])
+                    if (g.path == m_nroUpdating) {
+                        g.version = latest;
+                        auto art = m_art.find(g.id); // its new icon
+                        if (art != m_art.end()) {
+                            art->second.card.reset();
+                            art->second.icon.reset();
+                            art->second.cardAsked = art->second.iconAsked = false;
+                        }
+                    }
+                m_updates.erase(m_nroUpdating);
+                saveLists(m_pages[kGames], m_pages[kHomebrew]);
+                m_audio.play("toggle_on");
+                say(name + " is updated" + (latest.empty() ? std::string(".") : " to v" + latest + "."));
+                wantArt();
+            } else {
+                say("Couldn't update " + name + ": " + error);
+            }
+            m_nroUpdating.clear();
+            if (!m_nroQueue.empty()) {
+                const std::string next = m_nroQueue.front();
+                m_nroQueue.erase(m_nroQueue.begin());
+                updateNro(next);
+            }
+        } else {
+            m_message = "Updating " + name + "  " + std::to_string(static_cast<int>(m_nroProgress.load() * 100.f)) + "%";
+            m_messageFor = std::max(m_messageFor, 1.f);
+        }
+    }
+
     // An NRO forwarder was uninstalled (or wasn't).
     if (m_deleteJob.valid() && m_deleteJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const std::uint32_t rc = m_deleteJob.get();
@@ -3651,6 +3857,14 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
                        kMuted.withAlpha(alpha));
             r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.20f * alpha), kCardRadius, 1.5f);
+            if (nroUpdate(g)) { // a newer version: a green "Update" tag in the corner
+                const bool busy = g.path == m_nroUpdating;
+                const std::string tag = busy ? std::to_string(static_cast<int>(m_nroProgress.load() * 100.f)) + "%" : "Update";
+                const float tw = measured(m_fBadge, tag).x + 22.f;
+                const nxui::Rect pill{card.x + card.width - tw - 12.f, card.y + 12.f, tw, 26.f};
+                r.drawRoundedRect(pill, kGreen.withAlpha(alpha), 13.f);
+                textMid(r, m_fBadge, tag, pill.x + 11.f, pill.y + 13.f, kWhite.withAlpha(alpha));
+            }
             if (i < sel() && !m_moving) r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.22f * (1.f - t) * alpha), kCardRadius);
             if (t > 0.01f) {
                 const float ring = m_zone == Zone::Cards ? 0.85f + 0.15f * std::sin(m_time * 4.f) : 0.55f;
@@ -3882,6 +4096,7 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     else if (g.homebrew) about = g.path.empty() ? "NRO forwarder" : (g.author.empty() ? "Homebrew" : "Homebrew by " + g.author);
     else if (running) about = playTime(g.playSeconds) + "    Open now: Resume carries on";
     else about = playTime(g.playSeconds) + "    " + lastPlayed(g.lastPlayed);
+    if (const NroUpdate* u = nroUpdate(g)) about += "    Update to v" + u->latest + " (+)";
     r.drawText(fit(m_fBody, about, maxW), {tx, panel.y + 60.f}, &m_fBody, kMuted.withAlpha(da));
     if (!g.version.empty()) {
         icon(r, "tag", tx + 8.f, panel.y + 95.f, 17.f, kMuted.withAlpha(da));
