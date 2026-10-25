@@ -1,6 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -20,7 +21,8 @@ struct Settings {
     bool players = true;      // Nextendo's green dots
     bool motion = true;       // animations (off: things move straight to place)
     bool bgMotion = true;     // the background art drifts
-    int startPage = 0;        // 0 games, 1 homebrew, 2 Nintendo
+    int startPage = 0;        // (old: the page order's first is where it opens now)
+    std::vector<int> pageOrder = {0, 1, 2, 3}; // the pages in order: 0 games, 1 homebrew, 2 Nintendo, 3 media
     int sort = 1;             // 0 last played, 1 title, 2 most played, 3 my order (Plus > Move)
     int haze = 45;            // how much the background art is softened, 0..80
     bool boxArt = true;       // box covers on cards (off: the eShop banner)
@@ -33,7 +35,7 @@ struct Settings {
     std::string lastGame;     // the last game (or app) started from here, hex
     long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
     bool perfLog = true;      // sdmc:/config/CardsNX/perf.log: start-up times and slow frames
-    std::vector<std::string> order[3]; // My order, per page: ids (hex)
+    std::vector<std::string> order[4]; // My order, per page: ids (hex)
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
 
@@ -52,6 +54,11 @@ struct Settings {
             motion = j.value("motion", motion);
             bgMotion = j.value("bgMotion", bgMotion);
             startPage = j.value("startPage", startPage);
+            pageOrder = j.value("pageOrder", pageOrder);
+            std::vector<int> check = pageOrder; // each page once, else the usual order
+            std::sort(check.begin(), check.end());
+            if (check == std::vector<int>{0, 1, 2}) pageOrder.push_back(3); // from before there was Media
+            else if (check != std::vector<int>{0, 1, 2, 3}) pageOrder = {0, 1, 2, 3};
             sort = j.value("sortOrder", sort);
             haze = j.value("haze", haze);
             boxArt = j.value("boxArt", boxArt);
@@ -64,8 +71,8 @@ struct Settings {
             lastGame = j.value("lastGame", lastGame);
             listsAt = j.value("listsAt", listsAt);
             perfLog = j.value("perfLog", perfLog);
-            const char* const keys[3] = {"orderGames", "orderHomebrew", "orderNintendo"};
-            for (int p = 0; p < 3; ++p) order[p] = j.value(keys[p], order[p]);
+            const char* const keys[4] = {"orderGames", "orderHomebrew", "orderNintendo", "orderMedia"};
+            for (int p = 0; p < 4; ++p) order[p] = j.value(keys[p], order[p]);
         } catch (...) {
         }
     }
@@ -75,10 +82,11 @@ struct Settings {
         std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
         nlohmann::json j = {{"music", music}, {"musicVolume", musicVolume}, {"shuffle", shuffle}, {"repeat", repeat},
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
-                            {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage},
+                            {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
-                            {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]}};
+                            {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
+                            {"orderMedia", order[3]}};
         std::ofstream(kPath, std::ios::trunc) << j.dump(2);
     }
 };

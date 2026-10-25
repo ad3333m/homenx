@@ -408,6 +408,7 @@ std::string systemIconPath(const std::string& action) {
 #else
             return std::string("romfs:/icons/hx/") + file + ".png"; // copied from HomeNX's at build
 #endif
+    if (action == "get") return std::string(kAssets) + "icons/download.png"; // a Media app to download
     return std::string(kAssets) + "icons/sys_" + action + ".png"; // tools/make_cards_icons.py
 }
 

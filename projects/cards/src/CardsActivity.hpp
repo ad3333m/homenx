@@ -54,7 +54,7 @@ public:
 
 private:
     enum class Zone { Top, Cards, Bottom };
-    enum Page { kGames, kHomebrew, kNintendo, kPageCount };
+    enum Page { kGames, kHomebrew, kNintendo, kMedia, kPageCount };
     // The top bar's buttons, left to right.
     enum Top { kTopMenu, kTopDiscord, kTopSort, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
                kTopCount };
@@ -121,11 +121,21 @@ private:
     void takeArt();
     void forgetAllArt();
     void select(int index);
-    void switchPage(int dir);
+    void switchPage(int dir);     // the next / previous page in your order
+    void goToPage(int page, int dir = 0);
+    int pagePos(int page) const;  // where it is in your order
     void sortGames(int sort, bool keepChoice = true);
     void selectById(std::uint64_t id); // its page and card, straight away
     std::uint64_t m_backTo = 0;        // back from this game: it stays chosen until you move
     void takeLists(Lists lists);
+    // The Media page: your media apps off the Homebrew page, and the ones
+    // GitHub has that aren't on the SD card yet ("Get").
+    void splitMedia();
+    std::vector<Game> homebrewToSave() const; // Homebrew and Media's .nro apps, for lists.json
+    void getMedia(const Game& g);
+    std::future<bool> m_getJob;
+    std::string m_getPath, m_getName;
+    void openPageOrder(int select);
     void startListRefresh(); // read the lists again on a thread (unless that's running)
     bool glassCard(const Game& g); // an app or a game without box art: its icon on glass
     void applyOrder(int page);
@@ -157,6 +167,30 @@ private:
     void openSettings(int section = 0);
     void buildSettings();
     void openPower();
+    // The three dots: a menu dropping from its button, the pages on top and
+    // tiles for everything else.
+    struct DotsTile {
+        const char* name;
+        const char* glyph;
+        nxui::Color tone;
+        std::function<void()> run;
+    };
+    bool m_dotsOpen = false;
+    int m_dotsRow = 1, m_dotsCol = 0;
+    float m_dotsIn = 0.f;
+    std::vector<DotsTile> m_dotsTiles;
+    void openDots();
+    void updateDots();
+    bool dotsTouch();
+    void drawDots(nxui::Renderer& r);
+    void drawPower(nxui::Renderer& r);
+    void updatePower();
+    bool powerTouch();
+    // Power: four big glass tiles (Sleep, Restart, Power Off, Hekate).
+    bool m_powerOpen = false;
+    int m_powerSel = 0;
+    float m_powerIn = 0.f, m_powerLift[4] = {0.f, 0.f, 0.f, 0.f};
+    std::vector<MenuItem> m_powerItems;
     std::vector<MenuItem> powerItems(); // Sleep, Restart, Shut down, Reboot to Hekate
     void openMusic();
     void openQuick();                   // R: Quick Settings, a glass panel on the right
@@ -216,7 +250,7 @@ private:
     bool m_frosted = false;
 
     std::vector<Game> m_pages[kPageCount];
-    int m_sels[kPageCount] = {0, 0, 0};
+    int m_sels[kPageCount] = {0, 0, 0, 0};
     int m_page = kGames;
     std::map<std::uint64_t, Art> m_art;
     float m_scroll = 0.f;  // the row's position, easing to sel()

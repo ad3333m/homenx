@@ -280,6 +280,14 @@ def restart():
     return im
 
 
+def download():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(43), q(10), q(53), q(56)], radius=q(4), fill=W)                  # the shaft
+    d.polygon([(q(26), q(42)), (q(70), q(42)), (q(48), q(66))], fill=W)                     # the head
+    d.line([(q(16), q(60)), (q(16), q(80)), (q(80), q(80)), (q(80), q(60))], fill=W, width=q(7), joint="curve")
+    return im
+
+
 def hekate():
     im = canvas(); d = ImageDraw.Draw(im)
     d.rounded_rectangle([q(14), q(14), q(82), q(82)], radius=q(16), outline=W, width=q(6))
@@ -422,7 +430,7 @@ if __name__ == "__main__":
                      ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows),
                      ("wifi", wifi), ("airplane", airplane), ("sun", sun), ("speaker", speaker), ("prev", prev),
                      ("next", next_), ("pause", pause), ("repeat", repeat), ("shuffle", shuffle),
-                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate)]:
+                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

@@ -10,6 +10,7 @@
 #include <nxui/widgets/Widget.hpp>
 #include <switch.h>
 #include "../../updater/src/Catalog.hpp"
+#include "homebrew/HomebrewStore.hpp"
 #include <nlohmann/json.hpp>
 #include <switchu/control_cache.hpp>
 #include <switchu/ns_ext.hpp>
@@ -65,7 +66,25 @@ const nxui::Color kGlassEdge(1.f, 1.f, 1.f, 0.20f);
 const nxui::Color kGreen(0.204f, 0.78f, 0.349f, 1.f); // #34C759
 const nxui::Color kRed(1.f, 0.231f, 0.188f, 1.f);     // #FF3B30
 
-const char* const kPageNames[] = {"Games", "Homebrew", "Nintendo"};
+const char* const kPageNames[] = {"Games", "Homebrew", "Nintendo", "Media"};
+
+// The Media page: the media apps Adam made, found by name; the ones with a
+// public release can be downloaded from their card when they're not there.
+struct MediaApp {
+    const char* name;
+    const char* keys[2]; // in the name or path, lower case
+    const char* url;     // the .nro on GitHub (nullptr: shown only when it's on the SD card)
+    const char* path;    // where it's put
+};
+const MediaApp kMediaApps[] = {
+    {"SwitchTube", {"switchtube", "newpipe"}, nullptr, nullptr},
+    {"TikTok", {"tiktok", nullptr}, "https://github.com/ad3333m/tiktok-nx/releases/download/latest/TikTok.nro",
+     "sdmc:/switch/TikTok/TikTok.nro"},
+    {"AnikkuNX", {"anikku", nullptr}, nullptr, nullptr},
+    {"Cinejoy", {"cinejoy", nullptr}, nullptr, nullptr},
+    {"ForYou", {"foryou", "for you"}, "https://github.com/ad3333m/switch-fyp/releases/download/v1.0.0/ForYou.nro",
+     "sdmc:/switch/ForYou/ForYou.nro"},
+};
 const char* const kSortNames[] = {"Last Played", "Title", "Most Played", "My Order"};
 constexpr int kSortCycle[] = {1, 3, 0, 2}; // Y: Title, My Order, Last Played, Most Played
 struct Accent {
@@ -280,6 +299,16 @@ void offScreenCore() {
     svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3B);
 }
 
+const MediaApp* mediaAppOf(const std::string& name, const std::string& path) {
+    std::string n = name, p = path;
+    for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char& c : p) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const MediaApp& m : kMediaApps)
+        for (const char* k : m.keys)
+            if (k && (n.find(k) != std::string::npos || p.find(k) != std::string::npos)) return &m;
+    return nullptr;
+}
+
 bool parseUid(const std::string& hex, AccountUidLike& out) {
     if (hex.size() != 32) return false;
     out.uid[0] = std::strtoull(hex.substr(0, 16).c_str(), nullptr, 16);
@@ -488,10 +517,11 @@ bool CardsActivity::onCreate() {
         Lists l = readAllLists();
         m_pages[kGames] = std::move(l.games);
         m_pages[kHomebrew] = std::move(l.homebrew);
-        saveLists(m_pages[kGames], m_pages[kHomebrew]);
+        saveLists(m_pages[kGames], homebrewToSave());
         m_settings.listsAt = nowSec;
         scanned = true;
     }
+    splitMedia();
     m_pages[kNintendo] = listSystem();
     applyOrder(kHomebrew);
     applyOrder(kNintendo);
@@ -535,7 +565,7 @@ bool CardsActivity::onCreate() {
 
     // Always the first card on the list (the sort is Title or My Order:
     // never "last played" on the way in).
-    m_page = std::clamp(m_settings.startPage, 0, kPageCount - 1);
+    m_page = m_settings.pageOrder[0]; // the first page in your order
     sortGames(m_settings.sort == 3 ? 3 : 1, false);
     for (int& s : m_sels) s = 0;
     m_scroll = 0.f;
@@ -614,6 +644,7 @@ void CardsActivity::onDestroy() {
     for (std::thread& t : m_threads)
         if (t.joinable()) t.join();
     if (m_browserJob.valid()) m_browserJob.wait();
+    if (m_getJob.valid()) m_getJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
     if (m_updatesJob.valid()) m_updatesJob.wait();
     if (m_nroUpdateJob.valid()) m_nroUpdateJob.wait();
@@ -855,6 +886,7 @@ void CardsActivity::wantArt() {
         Art& a = m_art[page[(size_t)i].id];
         bool& asked = what == kBackground ? a.bgAsked : what == kIcon ? a.iconAsked : a.cardAsked;
         if (asked || m_time < a.retryAt) return;
+        if (what == kBackground && page[(size_t)i].action == "get") return; // a download glyph isn't a background
         asked = true;
         jobs.push_back({page[(size_t)i], what});
     };
@@ -1041,14 +1073,25 @@ void CardsActivity::select(int index) {
     wantArt();
 }
 
+int CardsActivity::pagePos(int page) const {
+    for (int i = 0; i < kPageCount; ++i)
+        if (m_settings.pageOrder[(size_t)i] == page) return i;
+    return 0;
+}
+
 void CardsActivity::switchPage(int dir) {
+    const int pos = (pagePos(m_page) + (dir > 0 ? 1 : -1) + kPageCount) % kPageCount;
+    goToPage(m_settings.pageOrder[(size_t)pos], dir > 0 ? 1 : -1);
+}
+
+void CardsActivity::goToPage(int page, int dir) {
+    if (page == m_page) return;
+    if (dir == 0) dir = pagePos(page) > pagePos(m_page) ? 1 : -1;
     m_backTo = 0;
     // The Homebrew page: .nro apps added a while ago show (read on a thread).
-    if ((m_page + dir + kPageCount) % kPageCount == kHomebrew
-        && static_cast<long long>(std::time(nullptr)) - m_settings.listsAt > 120)
-        startListRefresh();
+    if (page == kHomebrew && static_cast<long long>(std::time(nullptr)) - m_settings.listsAt > 120) startListRefresh();
     if (m_moving) finishMove(true);
-    m_page = (m_page + dir + kPageCount) % kPageCount;
+    m_page = page;
     m_pageDir = dir > 0 ? 1 : -1;
     m_pageIn = m_settings.motion ? 0.f : 1.f;
     m_detailIn = m_pageIn;
@@ -1148,6 +1191,7 @@ void CardsActivity::takeLists(Lists lists) {
     const std::uint64_t keep[2] = {chosen(kGames), chosen(kHomebrew)};
     m_pages[kGames] = std::move(lists.games);
     m_pages[kHomebrew] = std::move(lists.homebrew);
+    splitMedia();
     applyOrder(kHomebrew);
     sortGames(m_settings.sort, false);
     for (int p = kGames; p <= kHomebrew; ++p) {
@@ -1157,8 +1201,88 @@ void CardsActivity::takeLists(Lists lists) {
     }
     m_scroll = static_cast<float>(sel());
     if (m_backTo) selectById(m_backTo);
-    saveLists(m_pages[kGames], m_pages[kHomebrew]);
+    saveLists(m_pages[kGames], homebrewToSave());
     wantArt();
+}
+
+void CardsActivity::splitMedia() {
+    auto& homebrew = m_pages[kHomebrew];
+    std::vector<Game> media;
+    for (auto it = homebrew.begin(); it != homebrew.end();) {
+        if (!it->path.empty() && mediaAppOf(it->name, it->path)) {
+            media.push_back(std::move(*it));
+            it = homebrew.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (const MediaApp& m : kMediaApps) { // not on the SD card, but on GitHub: a card to get it
+        if (!m.url) continue;
+        bool have = false;
+        for (const Game& g : media) have |= mediaAppOf(g.name, g.path) == &m;
+        if (have) continue;
+        Game g;
+        g.name = m.name;
+        g.author = "Get it from GitHub";
+        g.path = m.path;
+        g.action = "get";
+        g.homebrew = true;
+        g.id = 0xFD00000000000000ULL | (std::hash<std::string>{}(g.path) & 0x00FFFFFFFFFFFFFFULL);
+        media.push_back(std::move(g));
+    }
+    for (size_t i = 0; i < media.size(); ++i) media[i].order = static_cast<int>(i);
+    m_pages[kMedia] = std::move(media);
+    applyOrder(kMedia);
+    m_sels[kMedia] = std::clamp(m_sels[kMedia], 0, std::max(0, static_cast<int>(m_pages[kMedia].size()) - 1));
+}
+
+std::vector<Game> CardsActivity::homebrewToSave() const {
+    std::vector<Game> all = m_pages[kHomebrew];
+    for (const Game& g : m_pages[kMedia])
+        if (g.action.empty()) all.push_back(g);
+    return all;
+}
+
+void CardsActivity::getMedia(const Game& g) {
+    const MediaApp* m = mediaAppOf(g.name, g.path);
+    if (!m || !m->url) return;
+    if (m_getJob.valid()) {
+        say("Still getting " + m_getName + "...");
+        return;
+    }
+    if (!m_netUp) {
+        say("Connect to the internet to get " + g.name + ".");
+        return;
+    }
+    say("Getting " + g.name + " from GitHub...");
+    m_getPath = g.path;
+    m_getName = g.name;
+    const std::string url = m->url, path = g.path;
+    m_getJob = std::async(std::launch::async, [url, path]() {
+        offScreenCore();
+        const bool ok = download(url, path);
+        threadDone();
+        return ok;
+    });
+}
+
+void CardsActivity::openPageOrder(int select) {
+    std::vector<MenuItem> items;
+    auto label = [this](int pos) {
+        return std::to_string(pos + 1) + ".  " + kPageNames[m_settings.pageOrder[(size_t)pos]];
+    };
+    for (int pos = 0; pos < kPageCount; ++pos)
+        items.push_back(choice(label(pos), []() { return std::string("Move"); }, [this, pos, label](int d) {
+            const int to = pos + d;
+            if (to < 0 || to >= kPageCount) return;
+            std::swap(m_settings.pageOrder[(size_t)pos], m_settings.pageOrder[(size_t)to]);
+            m_settings.save();
+            for (int i = 0; i < kPageCount && i < static_cast<int>(m_menu.size()); ++i) m_menu[(size_t)i].label = label(i);
+            m_menuSel = to; // the page you're moving stays chosen
+        }));
+    items.push_back(action("Done", [] {}));
+    openMenu("Page order  (< > moves a page)", std::move(items));
+    m_menuSel = std::clamp(select, 0, kPageCount);
 }
 
 bool CardsActivity::glassCard(const Game& g) {
@@ -1202,6 +1326,8 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     m_notifOpen = false;
     m_sheetOpen = false;
     m_quickOpen = false;
+    m_powerOpen = false;
+    m_dotsOpen = false;
     m_moving = false;
 #ifdef SWITCHU_MENU
     m_newsOpen = false;
@@ -1322,7 +1448,8 @@ void CardsActivity::openNro(const std::string& path) {
 }
 
 std::string CardsActivity::findNro(const char* nameHas) {
-    for (const Game& g : m_pages[kHomebrew])
+    for (int p : {static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
+        for (const Game& g : m_pages[p])
         if (!g.path.empty()
             && (lower(g.name).find(nameHas) != std::string::npos || lower(g.path).find(nameHas) != std::string::npos))
             return g.path;
@@ -1430,6 +1557,10 @@ void CardsActivity::openDiscord() {
 
 void CardsActivity::openNintendo(const Game& g) {
     const std::string& a = g.action;
+    if (a == "get") { // a Media app that isn't on the SD card yet
+        getMedia(g);
+        return;
+    }
     if (a == "settings") {
         openSettings();
         return;
@@ -1519,8 +1650,9 @@ void CardsActivity::checkHomebrewUpdates(bool force) {
     }
     if (!m_netUp) return;
     std::vector<updater::App> apps;
-    for (const Game& g : m_pages[kHomebrew])
-        if (!g.path.empty() && !homenxOwn(g.path)) {
+    for (Page p : {kHomebrew, kMedia})
+        for (const Game& g : m_pages[p])
+        if (!g.path.empty() && g.action.empty() && !homenxOwn(g.path)) {
             updater::App a;
             a.path = g.path;
             a.name = g.name;
@@ -1579,7 +1711,8 @@ void CardsActivity::updateNro(const std::string& path) {
 void CardsActivity::openHomebrewUpdates() {
     std::vector<MenuItem> items;
     std::vector<std::string> paths;
-    for (const Game& g : m_pages[kHomebrew])
+    for (Page p : {kHomebrew, kMedia})
+        for (const Game& g : m_pages[p])
         if (const NroUpdate* u = nroUpdate(g)) {
             const std::string path = g.path;
             paths.push_back(path);
@@ -1697,7 +1830,9 @@ void CardsActivity::pumpDaemon() {
 
 // Everything open closes; true if something was.
 bool CardsActivity::closeEverything() {
-    bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen;
+    bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen || m_powerOpen || m_dotsOpen;
+    m_powerOpen = false;
+    m_dotsOpen = false;
     if (m_moving) finishMove(false);
     m_menu.clear();
     m_notifOpen = false;
@@ -1738,7 +1873,7 @@ void CardsActivity::handleHome() {
                 }
         return;
     }
-    if (m_page != kGames) switchPage(kGames - m_page);
+    goToPage(m_settings.pageOrder[0]);
     m_zone = Zone::Cards;
     select(0);
 }
@@ -1791,24 +1926,25 @@ void CardsActivity::openOptions() {
         up.value = [source]() { return source; };
         items.insert(items.begin() + 1, std::move(up));
     }
-    if (!g.path.empty()) { // a .nro: off the SD card
+    if (!g.path.empty() && g.action.empty()) { // a .nro: off the SD card
         const std::string path = g.path, name = g.name;
         const std::uint64_t id = g.id;
-        items.push_back(action("Delete", [this, path, name, id]() {
+        const int pg = m_page;
+        items.push_back(action("Delete", [this, path, name, id, pg]() {
             openMenu("Delete " + name + "?", {
-                action("Delete it from the SD card", [this, path, name, id]() {
+                action("Delete it from the SD card", [this, path, name, id, pg]() {
                     std::error_code ec;
                     if (!std::filesystem::remove(path, ec) || ec) {
                         say("Couldn't delete " + name + ".");
                         return;
                     }
-                    auto& page = m_pages[kHomebrew];
+                    auto& page = m_pages[pg];
                     page.erase(std::remove_if(page.begin(), page.end(), [id](const Game& x) { return x.id == id; }),
                                page.end());
-                    m_sels[kHomebrew] = std::clamp(m_sels[kHomebrew], 0, std::max(0, (int)page.size() - 1));
-                    if (m_page == kHomebrew) m_scroll = static_cast<float>(sel());
-                    saveOrder(kHomebrew);
-                    saveLists(m_pages[kGames], m_pages[kHomebrew]);
+                    m_sels[pg] = std::clamp(m_sels[pg], 0, std::max(0, (int)page.size() - 1));
+                    if (m_page == pg) m_scroll = static_cast<float>(sel());
+                    saveOrder(pg);
+                    saveLists(m_pages[kGames], homebrewToSave());
                     m_audio.play("toggle_off");
                     say(name + " was deleted.");
                     wantArt();
@@ -1930,10 +2066,275 @@ std::vector<CardsActivity::MenuItem> CardsActivity::powerItems() {
     return items;
 }
 
+// ---------------------------------------------------------------- the three dots
+
+namespace {
+constexpr float kDotsX = 96.f, kDotsY = 92.f, kDotsW = 470.f, kDotsPad = 18.f;
+constexpr float kDotsPagesH = 52.f, kDotsTileW = 102.f, kDotsTileH = 104.f, kDotsGap = 10.f;
+constexpr int kDotsCols = 4;
+nxui::Rect dotsPanel(size_t tiles) {
+    const int rows = static_cast<int>((tiles + kDotsCols - 1) / kDotsCols);
+    return {kDotsX, kDotsY, kDotsW, kDotsPad + 30.f + kDotsPagesH + 14.f + rows * (kDotsTileH + kDotsGap) - kDotsGap + kDotsPad};
+}
+nxui::Rect dotsPage(const nxui::Rect& p, int pos) {
+    const float w = (p.width - kDotsPad * 2.f - 8.f * 3.f) / 4.f;
+    return {p.x + kDotsPad + (w + 8.f) * static_cast<float>(pos), p.y + kDotsPad + 30.f, w, kDotsPagesH};
+}
+nxui::Rect dotsTile(const nxui::Rect& p, int i) {
+    const float x0 = p.x + (p.width - (kDotsTileW * kDotsCols + kDotsGap * (kDotsCols - 1))) * 0.5f;
+    return {x0 + (kDotsTileW + kDotsGap) * static_cast<float>(i % kDotsCols),
+            p.y + kDotsPad + 30.f + kDotsPagesH + 14.f + (kDotsTileH + kDotsGap) * static_cast<float>(i / kDotsCols), kDotsTileW,
+            kDotsTileH};
+}
+} // namespace
+
+void CardsActivity::openDots() {
+    m_dotsTiles.clear();
+#ifdef SWITCHU_MENU
+    m_dotsTiles.push_back({"News", "news", nxui::Color(0.95f, 0.25f, 0.25f, 1.f), [this]() { openNews(); }});
+#endif
+    m_dotsTiles.push_back({"Discord", "discord", nxui::Color(0.35f, 0.40f, 0.95f, 1.f), [this]() { openDiscord(); }});
+    m_dotsTiles.push_back({"Users", "friends", nxui::Color(1.f, 0.6f, 0.2f, 1.f), [this]() { openUsers(); }});
+    m_dotsTiles.push_back({"Music", "music", nxui::Color(0.95f, 0.35f, 0.6f, 1.f), [this]() { openMusic(); }});
+    m_dotsTiles.push_back({"Quick", "sun", nxui::Color(1.f, 0.78f, 0.25f, 1.f), [this]() { openQuick(); }});
+    m_dotsTiles.push_back({"Updates", "sort", nxui::Color(0.25f, 0.8f, 0.5f, 1.f), [this]() { openHomebrewUpdates(); }});
+    m_dotsTiles.push_back({"Settings", "gear", nxui::Color(0.55f, 0.6f, 0.68f, 1.f), [this]() { openSettings(); }});
+    m_dotsTiles.push_back({"Power", "power", nxui::Color(1.f, 0.36f, 0.36f, 1.f), [this]() { openPower(); }});
+#ifndef SWITCHU_MENU
+    m_dotsTiles.push_back({"Close", "home", nxui::Color(0.5f, 0.55f, 0.62f, 1.f), [this]() {
+        m_settings.save();
+        app().requestExit();
+    }});
+#endif
+    m_dotsOpen = true;
+    m_dotsRow = 1;
+    m_dotsCol = 0;
+    m_dotsIn = m_settings.motion ? 0.f : 1.f;
+    m_audio.play("show_modal");
+}
+
+void CardsActivity::updateDots() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    const int tiles = static_cast<int>(m_dotsTiles.size());
+    const int rows = 1 + (tiles + kDotsCols - 1) / kDotsCols; // the pages, then the tiles
+    auto colsIn = [&](int row) { return row == 0 ? kPageCount : std::min(kDotsCols, tiles - (row - 1) * kDotsCols); };
+    const bool up = in.isDown(B::DUp) || in.isDown(B::LStickU), down = in.isDown(B::DDown) || in.isDown(B::LStickD);
+    const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
+    if (in.isDown(B::B) || in.isDown(B::Plus)) {
+        m_dotsOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    if (up && m_dotsRow > 0) { --m_dotsRow; m_audio.play("navigation"); }
+    if (down && m_dotsRow < rows - 1) { ++m_dotsRow; m_audio.play("navigation"); }
+    m_dotsCol = std::clamp(m_dotsCol, 0, colsIn(m_dotsRow) - 1);
+    if (left && m_dotsCol > 0) { --m_dotsCol; m_audio.play("navigation"); }
+    if (right && m_dotsCol < colsIn(m_dotsRow) - 1) { ++m_dotsCol; m_audio.play("navigation"); }
+    if (!in.isDown(B::A)) return;
+    m_dotsOpen = false;
+    if (m_dotsRow == 0) {
+        goToPage(m_settings.pageOrder[(size_t)m_dotsCol]);
+        return;
+    }
+    const int i = (m_dotsRow - 1) * kDotsCols + m_dotsCol;
+    if (i >= 0 && i < tiles && m_dotsTiles[(size_t)i].run) {
+        auto run = m_dotsTiles[(size_t)i].run;
+        m_audio.play("activation");
+        run();
+    }
+}
+
+bool CardsActivity::dotsTouch() {
+    auto& in = app().input();
+    if (!in.touchUp()) return in.isTouching();
+    const float x = in.touchX(), y = in.touchY();
+    const nxui::Rect p = dotsPanel(m_dotsTiles.size());
+    m_dotsOpen = false;
+    if (!p.contains(x, y)) {
+        m_audio.play("hide_modal");
+        return true;
+    }
+    for (int pos = 0; pos < kPageCount; ++pos)
+        if (dotsPage(p, pos).contains(x, y)) {
+            goToPage(m_settings.pageOrder[(size_t)pos]);
+            return true;
+        }
+    for (size_t i = 0; i < m_dotsTiles.size(); ++i)
+        if (dotsTile(p, static_cast<int>(i)).contains(x, y) && m_dotsTiles[i].run) {
+            auto run = m_dotsTiles[i].run;
+            m_audio.play("activation");
+            run();
+            return true;
+        }
+    m_dotsOpen = true; // between the tiles: it stays open
+    return true;
+}
+
+void CardsActivity::drawDots(nxui::Renderer& r) {
+    if (!m_dotsOpen) return;
+    const float a = easeOut(m_dotsIn);
+    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.32f * a));
+    const nxui::Rect full = dotsPanel(m_dotsTiles.size());
+    // It drops from the dots button: grows from its top-left corner.
+    const float s = 0.92f + 0.08f * easeOutBack(m_dotsIn);
+    const nxui::Rect p{full.x, full.y - 10.f * (1.f - a), full.width * s, full.height * s};
+    frost(r, p, 28.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
+    r.drawRoundedRectOutline(p, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 28.f, 1.5f);
+    r.drawGradientRect({p.x + 2.f, p.y + 2.f, p.width - 4.f, 70.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+                       nxui::Color(1.f, 1.f, 1.f, 0.f));
+    r.drawTriangle({kMenuX - 10.f, kDotsY + 1.f}, {kMenuX + 10.f, kDotsY + 1.f}, {kMenuX, kDotsY - 9.f},
+                   nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a)); // pointing at the button
+    if (s < 0.999f) r.pushClipRect(p);
+    textMid(r, m_fPill, "Pages", full.x + kDotsPad + 4.f, full.y + kDotsPad + 12.f - 10.f * (1.f - a), kMuted.withAlpha(a), 0.9f);
+    // The pages, in your order: the one you're on filled.
+    for (int pos = 0; pos < kPageCount; ++pos) {
+        nxui::Rect b = dotsPage(full, pos);
+        b.y -= 10.f * (1.f - a);
+        const int page = m_settings.pageOrder[(size_t)pos];
+        const bool here = page == m_page, focused = m_dotsRow == 0 && m_dotsCol == pos;
+        r.drawRoundedRect(b, here ? kWhite.withAlpha(0.92f * a) : nxui::Color(1.f, 1.f, 1.f, 0.08f * a), b.height * 0.5f);
+        if (focused) r.drawRoundedRectOutline({b.x - 4.f, b.y - 4.f, b.width + 8.f, b.height + 8.f}, accent(ring * a),
+                                              b.height * 0.5f + 4.f, 2.5f);
+        const std::string n = kPageNames[page];
+        const float ns = fitScale(m_fPill, n, b.width - 14.f, 0.75f);
+        textMid(r, m_fPill, n, b.x + (b.width - measured(m_fPill, n).x * ns) * 0.5f, b.y + b.height * 0.5f,
+                here ? nxui::Color(0.f, 0.f, 0.f, a) : kWhite.withAlpha(a), ns);
+    }
+    // The tiles: an icon on a disc of its colour, its name below; they drop in one by one.
+    for (size_t i = 0; i < m_dotsTiles.size(); ++i) {
+        const DotsTile& t = m_dotsTiles[i];
+        const float ta = a * easeOut((m_dotsIn - 0.04f * static_cast<float>(i)) / 0.7f);
+        nxui::Rect b = dotsTile(full, static_cast<int>(i));
+        b.y -= 14.f * (1.f - ta);
+        const bool focused = m_dotsRow == 1 + static_cast<int>(i) / kDotsCols && m_dotsCol == static_cast<int>(i) % kDotsCols;
+        if (focused) b = scaled(b, 1.05f);
+        r.drawRoundedRect(b, nxui::Color(1.f, 1.f, 1.f, (focused ? 0.14f : 0.06f) * ta), 20.f);
+        r.drawRoundedRectOutline(b, focused ? accent(ring * ta) : nxui::Color(1.f, 1.f, 1.f, 0.10f * ta), 20.f, focused ? 2.5f : 1.f);
+        const nxui::Vec2 c{b.x + b.width * 0.5f, b.y + 40.f};
+        r.drawCircle(c, 25.f, t.tone.withAlpha(0.9f * ta), 36);
+        icon(r, t.glyph, c.x, c.y, 26.f, kWhite.withAlpha(ta));
+        const std::string n = t.name;
+        textMid(r, m_fBody, n, b.x + (b.width - measured(m_fBody, n).x * 0.9f) * 0.5f, b.y + 84.f, kWhite.withAlpha(ta), 0.9f);
+    }
+    if (s < 0.999f) r.popClipRect();
+}
+
 void CardsActivity::openPower() {
-    std::vector<MenuItem> items = powerItems();
-    items.push_back(action("Cancel", [] {}));
-    openMenu("Power", std::move(items));
+    m_powerItems = powerItems();
+    m_powerSel = 0;
+    m_powerOpen = true;
+    m_powerIn = m_settings.motion ? 0.f : 1.f;
+    for (float& l : m_powerLift) l = 0.f;
+    m_audio.play("show_modal");
+}
+
+namespace {
+const nxui::Rect kPowerCard{208.f, 200.f, 864.f, 320.f};
+constexpr float kPowerTileW = 192.f, kPowerTileH = 212.f, kPowerTileGap = 16.f;
+nxui::Rect powerTile(int i) {
+    const float x0 = kPowerCard.x + (kPowerCard.width - (kPowerTileW * 4.f + kPowerTileGap * 3.f)) * 0.5f;
+    return {x0 + (kPowerTileW + kPowerTileGap) * static_cast<float>(i), kPowerCard.y + 82.f, kPowerTileW, kPowerTileH};
+}
+struct PowerLook {
+    const char* name;
+    const char* about;
+    const char* glyph;
+    nxui::Color tone;
+};
+const PowerLook kPowerLooks[4] = {
+    {"Sleep", "Rest, back where you were", "moon", nxui::Color(0.38f, 0.56f, 1.f, 1.f)},
+    {"Restart", "Off and on again", "restart", nxui::Color(0.25f, 0.82f, 0.68f, 1.f)},
+    {"Power Off", "Turn the console off", "power", nxui::Color(1.f, 0.36f, 0.36f, 1.f)},
+    {"Hekate", "Hekate's menu", "hekate", nxui::Color(0.70f, 0.50f, 1.f, 1.f)},
+};
+} // namespace
+
+void CardsActivity::updatePower() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    const int n = std::min<int>(4, static_cast<int>(m_powerItems.size()));
+    const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
+    if (left && m_powerSel > 0) { --m_powerSel; m_audio.play("navigation"); }
+    if (right && m_powerSel < n - 1) { ++m_powerSel; m_audio.play("navigation"); }
+    if (in.isDown(B::B) || in.isDown(B::Plus)) {
+        m_powerOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    if (in.isDown(B::A) && m_powerSel < n) {
+        auto run = m_powerItems[(size_t)m_powerSel].run;
+        m_powerOpen = false;
+        m_audio.play("activation");
+        if (run) run();
+    }
+}
+
+bool CardsActivity::powerTouch() {
+    auto& in = app().input();
+    if (!in.touchUp()) return in.isTouching();
+    const float x = in.touchX(), y = in.touchY();
+    for (int i = 0; i < std::min<int>(4, static_cast<int>(m_powerItems.size())); ++i)
+        if (powerTile(i).contains(x, y)) {
+            m_powerSel = i;
+            auto run = m_powerItems[(size_t)i].run;
+            m_powerOpen = false;
+            m_audio.play("activation");
+            if (run) run();
+            return true;
+        }
+    if (!kPowerCard.contains(x, y)) {
+        m_powerOpen = false;
+        m_audio.play("hide_modal");
+    }
+    return true;
+}
+
+void CardsActivity::drawPower(nxui::Renderer& r) {
+    if (!m_powerOpen) return;
+    const float a = easeOut(m_powerIn);
+    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    const nxui::Rect card = scaled(kPowerCard, 0.94f + 0.06f * easeOutBack(m_powerIn));
+    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
+    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    r.drawGradientRect({card.x + 2.f, card.y + 2.f, card.width - 4.f, 90.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
+                       nxui::Color(1.f, 1.f, 1.f, 0.f));
+    const float dy = card.y - kPowerCard.y;
+    icon(r, "power", kPowerCard.x + 46.f, kPowerCard.y + 44.f + dy, 30.f, kWhite.withAlpha(a));
+    textMid(r, m_fTitle, "Power", kPowerCard.x + 72.f, kPowerCard.y + 44.f + dy, kWhite.withAlpha(a));
+    const std::string hint = "A Choose    B Back";
+    textMid(r, m_fBody, hint, kPowerCard.x + kPowerCard.width - 36.f - measured(m_fBody, hint).x, kPowerCard.y + 44.f + dy,
+            kMuted.withAlpha(0.8f * a));
+    const int n = std::min<int>(4, static_cast<int>(m_powerItems.size()));
+    for (int i = 0; i < n; ++i) {
+        // The chosen one rises a little and glows in its colour.
+        float& lift = m_powerLift[i];
+        const float want = i == m_powerSel ? 1.f : 0.f;
+        lift += (want - lift) * (m_settings.motion ? 0.25f : 1.f);
+        const PowerLook& look = kPowerLooks[i];
+        nxui::Rect tile = scaled(powerTile(i), 1.f + 0.05f * lift);
+        tile.y += dy - 8.f * lift + 30.f * (1.f - easeOut((m_powerIn - 0.06f * i) / 0.8f)); // they rise in, one by one
+        const float ta = a * easeOut((m_powerIn - 0.06f * i) / 0.8f);
+        r.drawRoundedRect({tile.x - 2.f, tile.y + 8.f + 6.f * lift, tile.width + 4.f, tile.height + 4.f},
+                          nxui::Color(0.f, 0.f, 0.f, (0.18f + 0.12f * lift) * ta), 28.f);
+        frost(r, tile, 26.f, nxui::Color(0.12f, 0.14f, 0.19f, (0.6f + 0.15f * lift) * ta));
+        r.drawGradientRect({tile.x + 2.f, tile.y + 2.f, tile.width - 4.f, tile.height * 0.55f},
+                           look.tone.withAlpha(0.20f * lift * ta), look.tone.withAlpha(0.f));
+        r.drawRoundedRectOutline(tile, lift > 0.5f ? accent(ring * ta) : nxui::Color(1.f, 1.f, 1.f, 0.12f * ta), 26.f,
+                                 lift > 0.5f ? 3.f : 1.2f);
+        // Its icon on a disc of its colour.
+        const nxui::Vec2 c{tile.x + tile.width * 0.5f, tile.y + 78.f};
+        r.drawCircle(c, 44.f + 4.f * lift, look.tone.withAlpha((0.22f + 0.15f * lift) * ta), 40);
+        r.drawCircle(c, 34.f, look.tone.withAlpha(0.9f * ta), 40);
+        icon(r, look.glyph, c.x, c.y, 34.f, kWhite.withAlpha(ta));
+        const std::string name = look.name;
+        textMid(r, m_fLabel, name, tile.x + (tile.width - measured(m_fLabel, name).x) * 0.5f, tile.y + 150.f, kWhite.withAlpha(ta));
+        const std::string about = fit(m_fBody, look.about, tile.width - 20.f, 0.85f);
+        textMid(r, m_fBody, about, tile.x + (tile.width - measured(m_fBody, about).x * 0.85f) * 0.5f, tile.y + 180.f,
+                kMuted.withAlpha(0.85f * ta), 0.85f);
+    }
 }
 
 // R: Quick Settings, as HomeNX's (the status, the music player, volumes and
@@ -2271,11 +2672,17 @@ void CardsActivity::buildSettings() {
     m_sheet.clear();
 
     Section home{"Home", "home", {}};
-    home.rows.push_back(choice("Start on", [this]() { return std::string(kPageNames[m_settings.startPage]); },
-        [this, save](int d) {
-            m_settings.startPage = (m_settings.startPage + d + kPageCount) % kPageCount;
-            save();
-        }, "The page CardsNX opens on"));
+    MenuItem order = action("Page order", [this]() {
+        m_sheetOpen = false;
+        openPageOrder(0);
+    });
+    order.value = [this]() {
+        std::string s;
+        for (int p : m_settings.pageOrder) s += (s.empty() ? "" : ", ") + std::string(kPageNames[p]);
+        return s;
+    };
+    order.detail = "CardsNX opens on the first; ZL / ZR go in this order";
+    home.rows.push_back(std::move(order));
     home.rows.push_back(choice("Sort games", [this]() { return std::string(kSortNames[m_settings.sort]); },
         [this, save](int d) {
             int at = 0;
@@ -2402,7 +2809,7 @@ void CardsActivity::buildSettings() {
     hb.value = [this]() {
         if (m_updatesJob.valid()) return std::string("Checking...");
         int n = 0;
-        for (const Game& g : m_pages[kHomebrew]) n += nroUpdate(g) ? 1 : 0;
+        for (Page p : {kHomebrew, kMedia}) for (const Game& g : m_pages[p]) n += nroUpdate(g) ? 1 : 0;
         return n ? std::to_string(n) + " to update" : std::string("Up to date");
     };
     hb.detail = "Newer versions of your .nro apps";
@@ -2746,27 +3153,7 @@ void CardsActivity::drawNews(nxui::Renderer& r) {
 void CardsActivity::activateTop(int index) {
     press(0, index);
     switch (index) {
-        case kTopMenu: {
-            std::vector<MenuItem> items = {
-                action("Games", [this]() { if (m_page != kGames) switchPage(kGames - m_page); }),
-                action("Homebrew", [this]() { if (m_page != kHomebrew) switchPage(kHomebrew - m_page); }),
-                action("Nintendo", [this]() { if (m_page != kNintendo) switchPage(kNintendo - m_page); }),
-#ifdef SWITCHU_MENU
-                action("News", [this]() { openNews(); }),
-#endif
-                action("Discord", [this]() { openDiscord(); }),
-                action("Who's playing?", [this]() { openUsers(); }),
-                action("Settings", [this]() { openSettings(); }),
-            };
-#ifndef SWITCHU_MENU
-            items.push_back(action("Close CardsNX", [this]() {
-                m_settings.save();
-                app().requestExit();
-            }));
-#endif
-            openMenu("CardsNX", std::move(items));
-            break;
-        }
+        case kTopMenu: openDots(); break;
         case kTopDiscord: openDiscord(); break;
         case kTopSort:
             if (m_page == kGames) {
@@ -3018,6 +3405,8 @@ bool CardsActivity::handleTouch() {
         return true;
     }
     if (m_quickOpen) return quickTouch();
+    if (m_powerOpen) return powerTouch();
+    if (m_dotsOpen) return dotsTouch();
     if (!m_menu.empty()) {
         if (!in.touchUp()) return in.isTouching();
         nxui::Rect box;
@@ -3204,6 +3593,8 @@ void CardsActivity::onUpdate(float dt) {
     step(m_sheetIn, 0.24f);
     step(m_sheetRowsIn, 0.22f);
     step(m_quickIn, 0.22f);
+    step(m_powerIn, 0.28f);
+    step(m_dotsIn, 0.26f);
     step(m_quickListIn, 0.2f);
 #ifdef SWITCHU_MENU
     step(m_newsIn, 0.24f);
@@ -3233,18 +3624,20 @@ void CardsActivity::onUpdate(float dt) {
     if (m_updatesJob.valid() && m_updatesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_updates = m_updatesJob.get();
         int n = 0;
-        for (const Game& g : m_pages[kHomebrew]) n += nroUpdate(g) ? 1 : 0;
+        for (Page p : {kHomebrew, kMedia}) for (const Game& g : m_pages[p]) n += nroUpdate(g) ? 1 : 0;
         if (n > 0) say(std::to_string(n) + (n == 1 ? " homebrew app has" : " homebrew apps have") + " an update (+ on it, or Settings).");
     }
     if (m_nroUpdateJob.valid()) {
         std::string name = m_nroUpdating;
-        for (const Game& g : m_pages[kHomebrew])
-            if (g.path == m_nroUpdating) name = g.name;
+        for (Page p : {kHomebrew, kMedia})
+            for (const Game& g : m_pages[p])
+                if (g.path == m_nroUpdating) name = g.name;
         if (m_nroUpdateJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             const std::string error = m_nroUpdateJob.get();
             if (error.empty()) {
                 const std::string latest = m_updates.count(m_nroUpdating) ? m_updates[m_nroUpdating].latest : std::string();
-                for (Game& g : m_pages[kHomebrew])
+                for (Page p : {kHomebrew, kMedia})
+                    for (Game& g : m_pages[p])
                     if (g.path == m_nroUpdating) {
                         g.version = latest;
                         auto art = m_art.find(g.id); // its new icon
@@ -3255,7 +3648,7 @@ void CardsActivity::onUpdate(float dt) {
                         }
                     }
                 m_updates.erase(m_nroUpdating);
-                saveLists(m_pages[kGames], m_pages[kHomebrew]);
+                saveLists(m_pages[kGames], homebrewToSave());
                 m_audio.play("toggle_on");
                 say(name + " is updated" + (latest.empty() ? std::string(".") : " to v" + latest + "."));
                 wantArt();
@@ -3285,7 +3678,7 @@ void CardsActivity::onUpdate(float dt) {
             m_sels[kHomebrew] = std::clamp(m_sels[kHomebrew], 0, std::max(0, static_cast<int>(page.size()) - 1));
             if (m_page == kHomebrew) m_scroll = static_cast<float>(sel());
             saveOrder(kHomebrew);
-            saveLists(m_pages[kGames], m_pages[kHomebrew]);
+            saveLists(m_pages[kGames], homebrewToSave());
             m_audio.play("toggle_off");
             say(m_deleteName + " was deleted.");
             wantArt();
@@ -3293,6 +3686,31 @@ void CardsActivity::onUpdate(float dt) {
             char buf[32];
             std::snprintf(buf, sizeof(buf), " (0x%X).", rc);
             say("Couldn't delete " + m_deleteName + buf);
+        }
+    }
+
+    // A Media app arrived (or didn't): its card becomes the app's.
+    if (m_getJob.valid() && m_getJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        if (m_getJob.get()) {
+            for (Game& g : m_pages[kMedia])
+                if (g.path == m_getPath && g.action == "get") {
+                    HomebrewApp app;
+                    if (readHomebrew(g.path, app, false)) {
+                        if (!app.name.empty()) g.name = app.name;
+                        g.author = app.author;
+                        g.version = app.version;
+                    } else {
+                        g.author.clear();
+                    }
+                    g.action.clear();
+                    g.id = 0xFF00000000000000ULL | (std::hash<std::string>{}(g.path) & 0x00FFFFFFFFFFFFFFULL);
+                }
+            saveLists(m_pages[kGames], homebrewToSave());
+            m_audio.play("toggle_on");
+            say(m_getName + " is ready: A to open it.");
+            wantArt();
+        } else {
+            say(m_getName + " didn't download. Check the internet connection.");
         }
     }
 
@@ -3423,6 +3841,14 @@ void CardsActivity::onUpdate(float dt) {
     }
     if (m_quickOpen) {
         updateQuick();
+        return;
+    }
+    if (m_powerOpen) {
+        updatePower();
+        return;
+    }
+    if (m_dotsOpen) {
+        updateDots();
         return;
     }
     if (!m_menu.empty()) {
@@ -3561,6 +3987,8 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawPopup(r);
     drawSheet(r);
     drawQuick(r);
+    drawDots(r);
+    drawPower(r);
 #ifdef SWITCHU_MENU
     drawNews(r);
 #endif
@@ -3751,7 +4179,9 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
 void CardsActivity::drawCards(nxui::Renderer& r) {
     auto& page = games();
     if (page.empty()) {
-        textMid(r, m_fLabel, m_page == kHomebrew ? "No homebrew in sdmc:/switch" : "No games installed", 480.f, kCardMidY,
+        textMid(r, m_fLabel, m_page == kHomebrew ? "No homebrew in sdmc:/switch"
+                             : m_page == kMedia  ? "No media apps yet"
+                                                 : "No games installed", 480.f, kCardMidY,
                 kWhite);
         return;
     }
@@ -4118,7 +4548,7 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
                                  accent(ring * a), playRect.height * 0.5f + 4.f, 3.f);
     }
     const nxui::Color ink(0.f, 0.f, 0.f, a);
-    const char* word = running ? "Resume" : g.path.empty() && g.action.empty() && !g.homebrew ? "Play" : "Open";
+    const char* word = running ? "Resume" : g.action == "get" ? "Get" : g.path.empty() && g.action.empty() && !g.homebrew ? "Play" : "Open";
     const float playW = 24.f + 10.f + measured(m_fPlay, word).x;
     const float px = playRect.x + (playRect.width - playW) * 0.5f;
     icon(r, "play", px + 12.f, playRect.y + playRect.height * 0.5f, 24.f, ink);
@@ -4132,10 +4562,11 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
 #else
     glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 3, "home", 34.f, a, pressedOf(3));
 #endif
-    // Which page this is: three dots under the page button.
+    // Which page this is: three dots under the page button, in your order.
     for (int p = 0; p < kPageCount; ++p) {
+        const bool here = m_settings.pageOrder[(size_t)p] == m_page;
         const float cx = right - 77.f - 8.f - 38.5f + (static_cast<float>(p) - 1.f) * 12.f;
-        r.drawCircle({cx, by + 77.f + 9.f}, p == m_page ? 3.5f : 2.5f, kWhite.withAlpha((p == m_page ? 0.95f : 0.4f) * a), 12);
+        r.drawCircle({cx, by + 77.f + 9.f}, here ? 3.5f : 2.5f, kWhite.withAlpha((here ? 0.95f : 0.4f) * a), 12);
     }
 }
 
