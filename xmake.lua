@@ -391,6 +391,7 @@ target("HomeNX-Cards")
     add_includedirs("projects/menu/src", {public = false})
     add_includedirs("projects/cards/src", {public = false})
     add_files("projects/cards/src/*.cpp")
+    add_files("projects/menu/src/homebrew/HomebrewStore.cpp") -- the Homebrew page's .nro list
     add_packages("libsdl", "libsdl_ttf", "zlib", "libwebp", "libcurl", "nlohmann_json")
     add_linkgroups("SDL2_ttf", "harfbuzz-subset", "harfbuzz", "freetype", "png16", "bz2", "z", {group = true})
 
