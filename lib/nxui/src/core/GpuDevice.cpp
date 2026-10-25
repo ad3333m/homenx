@@ -575,7 +575,10 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
     // No waitIdle: that waited for every frame in flight as well, once per
     // picture, and the screen stuttered while pictures arrived (scrolling a
     // row of game cards). The queue runs the copy before anything drawn after it.
+    // flush() hands it to the GPU now: a fence on work still sitting in the
+    // queue never signals, and the next upload's wait hung HOME at start.
     m_queue.submitCommands(m_uploadCmdbuf.finishList());
+    m_queue.flush();
     m_uploadInFlight = true;
     return true;
 }
@@ -608,6 +611,7 @@ void GpuDevice::endTextureUploadBatch() {
 
     m_uploadCmdbuf.signalFence(m_uploadFence);
     m_queue.submitCommands(m_uploadCmdbuf.finishList());
+    m_queue.flush(); // see uploadTexture: the fence only signals once the GPU has the work
     m_uploadInFlight = true;
     m_uploadBatchCount = 0;
 }
