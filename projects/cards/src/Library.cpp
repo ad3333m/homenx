@@ -2,6 +2,7 @@
 
 #include <switch.h>
 #include <switchu/control_cache.hpp>
+#include "homebrew/HomebrewStore.hpp"
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
@@ -220,6 +221,8 @@ std::vector<Game> listGames() {
         }
         g.name = meta.name[0] ? meta.name : meta.english_name;
         g.version = meta.display_version;
+        g.author = meta.publisher;
+        g.homebrew = (g.id >> 56) == 0x05; // NRO forwarders' title IDs
         if (g.name.empty()) g.name = hexId(g.id);
 
         PdmPlayStatistics st{};
@@ -232,8 +235,33 @@ std::vector<Game> listGames() {
     return games;
 }
 
-std::vector<std::uint8_t> gameIcon(std::uint64_t id) {
-    return switchu::control_cache::readIcon(id);
+std::vector<Game> listHomebrew() {
+    std::vector<Game> apps;
+    for (HomebrewApp& hb : scanHomebrew("sdmc:/switch/HomeNX-Cards/HomeNX-Cards.nro", false)) {
+        Game g;
+        g.path = std::move(hb.path);
+        g.name = hb.name.empty() ? std::filesystem::path(g.path).stem().string() : std::move(hb.name);
+        g.author = std::move(hb.author);
+        g.version = std::move(hb.version);
+        g.homebrew = true;
+        g.id = 0xFF00000000000000ULL | (std::hash<std::string>{}(g.path) & 0x00FFFFFFFFFFFFFFULL);
+        apps.push_back(std::move(g));
+    }
+    auto pin = [](const Game& g) {
+        std::string n = g.name;
+        for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (n.find("sphaira") != std::string::npos) return 0;
+        if (n.find("switchcord") != std::string::npos || n.find("discord") != std::string::npos) return 1;
+        if (n.find("homebrew manager") != std::string::npos) return 2;
+        if (n.find("homenx") != std::string::npos) return 3;
+        return 4;
+    };
+    std::stable_sort(apps.begin(), apps.end(), [&](const Game& a, const Game& b) { return pin(a) < pin(b); });
+    return apps;
+}
+
+std::vector<std::uint8_t> gameIcon(const Game& game) {
+    return game.path.empty() ? switchu::control_cache::readIcon(game.id) : readHomebrewIcon(game.path);
 }
 
 bool startNetwork() {
@@ -257,6 +285,10 @@ std::string steamGridDbKey() {
 }
 
 std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtKind& kind) {
+    if (game.homebrew) { // apps have no box art: their icon makes the card
+        kind = ArtKind::Icon;
+        return gameIcon(game);
+    }
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     const std::string grid = base + ".grid", box = base + ".box", banner = base + ".card";
     kind = ArtKind::Grid;
@@ -286,6 +318,7 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtK
 }
 
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key) {
+    if (game.homebrew) return gameIcon(game); // drawn huge and soft: its colours
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bg";
     if (std::filesystem::exists(path)) return readFile(path);
     std::string got;

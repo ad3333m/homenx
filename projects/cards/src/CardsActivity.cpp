@@ -154,7 +154,11 @@ bool CardsActivity::onCreate() {
         if (tex->loadFromFile(gpu, ren, std::string("romfs:/icons/") + name + ".png", 96)) m_icons[name] = std::move(tex);
     }
 
-    m_games = listGames();
+    // Games, and Homebrew: NRO forwarders (installed, ID 05...) and the .nro apps.
+    for (Game& g : listGames()) (g.homebrew ? m_otherPage : m_games).push_back(std::move(g));
+    std::vector<Game> nros = listHomebrew();
+    m_otherPage.insert(m_otherPage.begin(), std::make_move_iterator(nros.begin()), std::make_move_iterator(nros.end()));
+    for (size_t i = 0; i < m_otherPage.size(); ++i) m_otherPage[i].order = static_cast<int>(i);
     sortGames(Sort::LastPlayed);
 
     // You: the last account that played.
@@ -236,7 +240,8 @@ void CardsActivity::worker() {
             if (stbi_uc* px = stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4)) {
                 done.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
                 stbi_image_free(px);
-                shrink(done.rgba, w, h, job.background ? 640 : 400);
+                // An app's icon as a background: tiny, so drawn full screen it's a soft wash of its colours.
+                shrink(done.rgba, w, h, job.background ? (job.game.homebrew ? 32 : 640) : 400);
                 done.w = w;
                 done.h = h;
             }
@@ -347,6 +352,26 @@ void CardsActivity::select(int index) {
     wantArt();
 }
 
+void CardsActivity::switchPage() {
+    std::swap(m_games, m_otherPage);
+    std::swap(m_sel, m_otherSel);
+    m_homebrewPage = !m_homebrewPage;
+    m_scroll = static_cast<float>(m_sel);
+    m_zone = Zone::Cards;
+    m_bgPrevId = m_bgId; // the new page's art fades in over the old
+    m_bgFade = 0.f;
+    m_bgId = m_games.empty() ? 0 : m_games[(size_t)m_sel].id;
+    {
+        std::lock_guard<std::mutex> lk(m_mu);
+        m_jobs.clear(); // what's near has changed
+    }
+    for (auto& [id, art] : m_art) {
+        if (!art.card) art.cardAsked = false;
+        if (!art.bg) art.bgAsked = false;
+    }
+    wantArt();
+}
+
 void CardsActivity::sortGames(Sort sort) {
     const std::uint64_t keep = m_games.empty() ? 0 : m_games[(size_t)m_sel].id;
     m_sort = sort;
@@ -380,6 +405,15 @@ void CardsActivity::sortGames(Sort sort) {
 void CardsActivity::play() {
     if (m_games.empty()) return;
     const Game& g = m_games[(size_t)m_sel];
+    if (!g.path.empty()) { // a .nro: it replaces this app, as hbmenu starts it
+        if (!envHasNextLoad()) {
+            say("Apps can't be opened from here: start HomeNX Cards from HOME or the homebrew menu.");
+            return;
+        }
+        envSetNextLoad(g.path.c_str(), ("\"" + g.path + "\"").c_str());
+        app().requestExit();
+        return;
+    }
     if (launch(g.id)) {
         app().requestExit(); // the system starts it once this has closed
         return;
@@ -486,17 +520,7 @@ void CardsActivity::activateBottom(int index) {
             });
             break;
         }
-        case 2: { // the Homebrew Manager, if HOME has put it there
-            static constexpr const char* kManager = "sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro";
-            std::error_code ec;
-            if (!std::filesystem::exists(kManager, ec) || !envHasNextLoad()) {
-                say("The Homebrew Manager isn't on the SD card yet (HomeNX puts it there).");
-                break;
-            }
-            envSetNextLoad(kManager, "\"sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro\"");
-            app().requestExit();
-            break;
-        }
+        case 2: switchPage(); break;
         case 3: app().requestExit(); break;
         default: break;
     }
@@ -573,8 +597,9 @@ void CardsActivity::onUpdate(float dt) {
     if (in.isDown(B::X)) activateBottom(1);
     if (in.isDown(B::Y)) activateTop(1);
     if (in.isDown(B::Minus)) openNotifications();
-    if (in.isDown(B::L) || in.isDown(B::ZL)) select(m_sel - 5);
-    if (in.isDown(B::R) || in.isDown(B::ZR)) select(m_sel + 5);
+    if (in.isDown(B::L)) select(m_sel - 5);
+    if (in.isDown(B::R)) select(m_sel + 5);
+    if (in.isDown(B::ZL) || in.isDown(B::ZR)) switchPage();
     if (in.isDown(B::Plus)) app().requestExit();
 }
 
@@ -644,7 +669,8 @@ void CardsActivity::drawTopBar(nxui::Renderer& r) {
     glassCircle(r, 134.f, kTopY, kCircle, top && m_topSel == 0, "dots", 34.f);
     glassCircle(r, 219.f, kTopY, kCircle, top && m_topSel == 1, "sort", 34.f);
     static const char* const kSortNames[] = {"Last Played", "Title", "Most Played"};
-    textMid(r, m_fLabel, kSortNames[static_cast<int>(m_sort)], 268.f, kTopY, kWhite);
+    textMid(r, m_fLabel, m_homebrewPage ? std::string("Homebrew") : std::string(kSortNames[static_cast<int>(m_sort)]),
+            268.f, kTopY, kWhite);
 
     // The pill: you, online, the time, battery, free space.
     const std::string word = m_online ? "Online" : "Offline";
@@ -690,7 +716,8 @@ void CardsActivity::drawTopBar(nxui::Renderer& r) {
 
 void CardsActivity::drawCards(nxui::Renderer& r) {
     if (m_games.empty()) {
-        textMid(r, m_fLabel, "No games installed", 520.f, kCardMidY, kWhite);
+        textMid(r, m_fLabel, m_homebrewPage ? "No homebrew in sdmc:/switch" : "No games installed", 480.f, kCardMidY,
+                kWhite);
         return;
     }
     const bool cardsFocused = m_zone == Zone::Cards;
@@ -705,7 +732,21 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         auto it = m_art.find(g.id);
         const nxui::Texture* tex = it != m_art.end() && it->second.card && it->second.card->valid() ? it->second.card.get()
                                                                                                     : nullptr;
-        if (tex) {
+        if (tex && it->second.kind == ArtKind::Icon) {
+            // An app: its icon over a dimmed, enlarged copy of itself, its name below.
+            drawCover(r, tex, card, kCardRadius, nxui::Color(0.55f, 0.55f, 0.55f, 1.f));
+            r.drawRoundedRect(card, nxui::Color(0.05f, 0.06f, 0.08f, 0.35f), kCardRadius);
+            const float side = card.width - 48.f;
+            r.drawTextureRounded(tex, {card.x + 24.f, card.y + 30.f, side, side}, 26.f, kWhite);
+            const std::string name = fit(m_fLabel, g.name, card.width - 28.f);
+            r.drawText(name, {card.x + (card.width - m_fLabel.measure(name).x) * 0.5f, card.y + 46.f + side}, &m_fLabel,
+                       kWhite);
+            if (!g.author.empty()) {
+                const std::string by = fit(m_fBody, g.author, card.width - 28.f);
+                r.drawText(by, {card.x + (card.width - m_fBody.measure(by).x) * 0.5f, card.y + 78.f + side}, &m_fBody,
+                           kMuted);
+            }
+        } else if (tex) {
             // A Switch case cover without the red Nintendo Switch band on top:
             // the rest is the card's own shape, so all of it shows.
             const bool box = it->second.kind == ArtKind::Box;
@@ -758,7 +799,7 @@ const nxui::Texture* CardsActivity::gameIconTexture() {
     const std::uint64_t id = m_games[(size_t)m_sel].id;
     if (id != m_gameIconId) {
         m_gameIconId = id;
-        const std::vector<std::uint8_t> jpeg = gameIcon(id);
+        const std::vector<std::uint8_t> jpeg = gameIcon(m_games[(size_t)m_sel]);
         if (m_gameIcon) app().gpu().waitIdle(); // the last one may still be drawing
         m_gameIcon = std::make_unique<nxui::Texture>();
         if (jpeg.empty() || !m_gameIcon->loadFromMemory(app().gpu(), app().renderer(), jpeg.data(), jpeg.size(), 160))
@@ -778,8 +819,9 @@ void CardsActivity::drawPanel(nxui::Renderer& r) {
     const float tx = iconRect.x + iconRect.width + 15.f;
     const float maxW = kPanel.x + kPanel.width - 30.f - tx;
     r.drawText(fit(m_fTitle, g.name, maxW), {tx, kPanel.y + 20.f}, &m_fTitle, kWhite);
-    r.drawText(fit(m_fBody, playTime(g.playSeconds) + "    " + lastPlayed(g.lastPlayed), maxW), {tx, kPanel.y + 60.f},
-               &m_fBody, kMuted);
+    const std::string about = !g.path.empty() ? (g.author.empty() ? std::string("Homebrew") : "Homebrew by " + g.author)
+                              : playTime(g.playSeconds) + "    " + lastPlayed(g.lastPlayed);
+    r.drawText(fit(m_fBody, about, maxW), {tx, kPanel.y + 60.f}, &m_fBody, kMuted);
     if (!g.version.empty()) {
         icon(r, "tag", tx + 8.f, kPanel.y + 95.f, 17.f, kMuted);
         const std::string v = (g.version[0] == 'v' || g.version[0] == 'V') ? g.version : "v" + g.version;
@@ -795,10 +837,11 @@ void CardsActivity::drawPanel(nxui::Renderer& r) {
         r.drawRoundedRectOutline({playRect.x - 4.f, playRect.y - 4.f, playRect.width + 8.f, playRect.height + 8.f},
                                  kWhite, 42.5f, 3.f);
     const nxui::Color ink(0.f, 0.f, 0.f, 1.f);
-    const float playW = 24.f + 10.f + m_fPlay.measure("Play").x;
+    const char* playWord = g.path.empty() ? "Play" : "Open";
+    const float playW = 24.f + 10.f + m_fPlay.measure(playWord).x;
     const float px = playRect.x + (playRect.width - playW) * 0.5f;
     icon(r, "play", px + 12.f, playRect.y + playRect.height * 0.5f, 24.f, ink);
-    textMid(r, m_fPlay, "Play", px + 34.f, playRect.y + playRect.height * 0.5f, ink);
+    textMid(r, m_fPlay, playWord, px + 34.f, playRect.y + playRect.height * 0.5f, ink);
     glassCircle(r, playRect.x + playRect.width + 8.f + 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 1, "dots", 32.f);
     const float right = kPanel.x + kPanel.width - 22.f;
     glassCircle(r, right - 77.f - 8.f - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 2, "copy", 32.f);

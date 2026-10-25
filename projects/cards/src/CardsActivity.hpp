@@ -59,6 +59,7 @@ private:
     void wantArt();          // what the worker fetches next: around the selection first
     void takeArt();          // its results onto the GPU, a couple a frame
     void select(int index);
+    void switchPage(); // Games <-> Homebrew (the bottom page button, ZL / ZR)
     void sortGames(Sort sort);
     void play();
     void openMenu(std::string title, std::vector<MenuItem> items);
@@ -87,7 +88,10 @@ private:
     std::map<std::string, std::unique_ptr<nxui::Texture>> m_icons;
     std::shared_ptr<nxui::Widget> m_painter;
 
-    std::vector<Game> m_games;
+    std::vector<Game> m_games;       // the page on screen
+    std::vector<Game> m_otherPage;   // the other one, as it was left
+    int m_otherSel = 0;
+    bool m_homebrewPage = false;
     std::map<std::uint64_t, Art> m_art;
     int m_sel = 0;
     float m_scroll = 0.f;      // the row's position, easing to m_sel

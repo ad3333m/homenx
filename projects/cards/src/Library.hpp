@@ -6,10 +6,13 @@
 
 namespace cards {
 
-// One installed game.
+// One installed game, or a homebrew app: an NRO forwarder (an installed title,
+// ID 05...) or a .nro on the SD card (`path`; its `id` is made from the path).
 struct Game {
     std::uint64_t id = 0;
-    std::string name, version;
+    std::string name, version, author;
+    std::string path;              // a .nro (else it's an installed title)
+    bool homebrew = false;
     std::uint64_t lastPlayed = 0;  // seconds since 1970 (0: never)
     std::uint64_t playSeconds = 0;
     std::uint32_t launches = 0;
@@ -19,7 +22,10 @@ struct Game {
 // Installed games in the system's order, names and versions from HOME's cache
 // (sdmc:/config/SwitchU/control_cache) or the system, with play time from pdm.
 std::vector<Game> listGames();
-std::vector<std::uint8_t> gameIcon(std::uint64_t id); // JPEG
+// The .nro apps in sdmc:/switch (and one folder below), Sphaira, Discord
+// (SwitchCord) and the Homebrew Manager first.
+std::vector<Game> listHomebrew();
+std::vector<std::uint8_t> gameIcon(const Game& game); // JPEG
 
 // The network, for the worker thread.
 bool startNetwork();
@@ -32,7 +38,7 @@ std::string steamGridDbKey();
 // the card's box art (SteamGridDB 600x900 with a key, else GameTDB's box cover
 // matched by name, else the eShop banner from nlib.cc) and the background
 // (SteamGridDB hero or the banner).
-enum class ArtKind { Grid, Box, Banner };
+enum class ArtKind { Grid, Box, Banner, Icon }; // Icon: a homebrew app's own icon
 std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtKind& kind);
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
