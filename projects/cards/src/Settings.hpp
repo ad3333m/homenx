@@ -26,6 +26,7 @@ struct Settings {
     bool boxArt = true;       // box covers on cards (off: the eShop banner)
     int accent = 0;           // the focus colour (see kAccents)
     int glass = 1;            // 0 clear, 1 frosted, 2 dark
+    int launchStyle = 0;      // starting a game: 0 simple fade, 1 splash, 2 card zoom, 3 card flip, 4 dive in, 5 off
     bool clock24 = true;
     bool showFree = true;     // free space in the status pill
     std::string user;         // who games start as (hex), "" = the last one who played
@@ -53,6 +54,7 @@ struct Settings {
             boxArt = j.value("boxArt", boxArt);
             accent = j.value("accent", accent);
             glass = j.value("glass", glass);
+            launchStyle = j.value("launchStyle", launchStyle);
             clock24 = j.value("clock24", clock24);
             showFree = j.value("showFree", showFree);
             user = j.value("user", user);
@@ -69,7 +71,7 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"clock24", clock24}, {"showFree", showFree}, {"user", user},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"user", user},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]}};
         std::ofstream(kPath, std::ios::trunc) << j.dump(2);
     }

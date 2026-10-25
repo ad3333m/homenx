@@ -137,6 +137,10 @@ private:
     // The launch: the card grows to fill the screen, the rest falls away, then
     // black; `then` runs at the end (index -1: no card, only the fade).
     void leave(int index, float seconds, std::function<void()> then);
+    enum LaunchStyle { kFade, kSplash, kZoom, kFlip, kDive, kNoAnimation, kLaunchStyles };
+    int launchStyle() const;
+    bool launchDrawsCard() const; // the chosen card is drawn by drawLaunch (zoom, flip)
+    float othersAlpha() const;    // the rest of the row while launching
     void comeBack(); // it didn't happen: the screen as it was
     void handleHome();
     bool closeEverything();

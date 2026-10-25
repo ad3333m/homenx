@@ -78,6 +78,9 @@ const Accent kAccents[] = {
 };
 constexpr int kAccentCount = sizeof(kAccents) / sizeof(kAccents[0]);
 const char* const kGlassNames[] = {"Clear", "Frosted", "Dark"};
+const char* const kLaunchNames[] = {"Simple fade", "Splash screen", "Card zoom", "Card flip", "Dive in", "Off"};
+// Each style's length against the zoom's (callers give the zoom's seconds).
+constexpr float kLaunchPace[] = {0.6f, 1.1f, 1.f, 0.95f, 0.8f, 0.15f};
 
 constexpr const char* kBrowseNxUrl = "https://github.com/ad3333m/browsenx/releases/download/latest/BrowseNX.nro";
 constexpr const char* kBrowseNxPath = "sdmc:/switch/BrowseNX/BrowseNX.nro";
@@ -1003,14 +1006,16 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     m_leaving = true;
     m_left = false;
     m_leaveT = m_settings.motion ? 0.f : 0.98f;
-    m_leaveFor = seconds;
+    m_leaveFor = seconds * kLaunchPace[launchStyle()];
     m_leaveIndex = -1;
     m_leaveId = 0;
     float t = 0.f;
     if (index >= 0 && index < static_cast<int>(games().size()) && cardRect(index, m_leaveFrom, t)) {
         m_leaveIndex = index;
         m_leaveId = games()[(size_t)index].id;
-        if (!glassCard(games()[(size_t)index])) { // its art at full size for the end, first in line
+        const int style = launchStyle();
+        if (!glassCard(games()[(size_t)index]) && (style == kSplash || style == kZoom || style == kFlip)) {
+            // its art at full size for the end, first in line
             {
                 std::lock_guard<std::mutex> lk(m_mu);
                 m_jobs.push_front({games()[(size_t)index], kLaunch});
@@ -1849,6 +1854,12 @@ void CardsActivity::buildSettings() {
         [this]() { return std::string(kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].name); },
         [this, save](int d) { m_settings.accent = (m_settings.accent + d + kAccentCount) % kAccentCount; save(); },
         "The ring around what's chosen"));
+    look.rows.push_back(choice("Launch animation",
+        [this]() { return std::string(kLaunchNames[std::clamp(m_settings.launchStyle, 0, kLaunchStyles - 1)]); },
+        [this, save](int d) {
+            m_settings.launchStyle = (m_settings.launchStyle + d + kLaunchStyles) % kLaunchStyles;
+            save();
+        }, "When a game starts"));
     look.rows.push_back(choice("Glass", [this]() { return std::string(kGlassNames[std::clamp(m_settings.glass, 0, 2)]); },
         [this, save](int d) { m_settings.glass = (m_settings.glass + d + 3) % 3; save(); }, "Buttons, the bar and the panel"));
     look.rows.push_back(slider("Background softness", [this]() { return m_settings.haze * 100 / 80; },
@@ -2960,7 +2971,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     }
     drawCardExtras(r);
     // Launching: the bar and the panel go first.
-    const float ui = m_leaving ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
+    const float ui = m_leaving && launchStyle() != kNoAnimation ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
     drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
     if (m_moving) { // what Move does
@@ -3038,7 +3049,10 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
     const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
     // A slow drift (zoom and pan), so the art feels alive; launching, it leans in.
     const bool motion = m_settings.motion && m_settings.bgMotion;
-    const float lean = m_leaving ? 0.10f * easeInOut(m_leaveT) : 0.f;
+    const int style = launchStyle();
+    const float lean = !m_leaving ? 0.f
+                     : style == kDive ? 0.45f * easeIn(m_leaveT)
+                     : style == kZoom || style == kFlip ? 0.10f * easeInOut(m_leaveT) : 0.f;
     const float zoom = (motion ? 1.06f + 0.03f * std::sin(m_time * 0.11f) : 1.04f) + lean;
     const float panX = motion ? 0.25f * std::sin(m_time * 0.07f) : 0.f;
     const float panY = motion ? 0.2f * std::cos(m_time * 0.05f) : 0.f;
@@ -3047,7 +3061,8 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
     if (const nxui::Texture* cur = bgOf(m_bgId))
         drawCover(r, cur, screen, 0.f, kWhite.withAlpha(easeOut(m_bgFade)), 0.f, 0.f, zoom, panX, panY);
     // The haze over it (Settings > Background softness), and a little depth at the edges.
-    const float haze = static_cast<float>(m_settings.haze) / 100.f * (1.f - (m_leaving ? easeOut(m_leaveT * 2.f) : 0.f));
+    const float haze = static_cast<float>(m_settings.haze) / 100.f
+                     * (1.f - (m_leaving && (style == kZoom || style == kFlip) ? easeOut(m_leaveT * 2.f) : 0.f));
     r.drawRect(screen, nxui::Color(0.38f, 0.43f, 0.56f, haze));
     r.drawGradientRect({0.f, 0.f, 1280.f, 140.f}, nxui::Color(0.05f, 0.06f, 0.10f, 0.35f), nxui::Color(0.05f, 0.06f, 0.10f, 0.f));
     r.drawGradientRect({0.f, 560.f, 1280.f, 160.f}, nxui::Color(0.05f, 0.06f, 0.10f, 0.f), nxui::Color(0.05f, 0.06f, 0.10f, 0.40f));
@@ -3148,7 +3163,7 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     // A page switch slides the row in from the side.
     float slide = (1.f - easeOut(m_pageIn)) * 160.f * static_cast<float>(m_pageDir);
     // Launching: the others make way.
-    if (m_leaving && m_leaveIndex >= 0 && index != m_leaveIndex)
+    if (m_leaving && m_leaveIndex >= 0 && index != m_leaveIndex && launchStyle() == kZoom)
         slide += (index < m_leaveIndex ? -1.f : 1.f) * 420.f * easeIn(m_leaveT / 0.5f);
     const float x0 = kCardFirstX + rel * kCardPitch + slide;
     if (x0 > 1290.f || x0 + kCardPitch < -10.f) return false;
@@ -3165,6 +3180,15 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
         lift += 22.f + 3.f * std::sin(m_time * 6.f);
     }
     card = {x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f - lift + 60.f * rise, w, h};
+    if (m_leaving) {
+        const int style = launchStyle();
+        if (style == kFade && index == m_leaveIndex) // a quick press
+            card = scaled(card, 1.f - 0.07f * std::sin(3.14159f * clamp01(m_leaveT / 0.25f)));
+        if (style == kDive) { // the whole row rushes at you
+            const float k = 1.f + 2.4f * easeIn(m_leaveT / 0.8f);
+            card = {640.f + (card.x - 640.f) * k, 330.f + (card.y - 330.f) * k, card.width * k, card.height * k};
+        }
+    }
     return true;
 }
 
@@ -3177,9 +3201,9 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
     }
     const bool cardsFocused = m_zone == Zone::Cards;
     const float pageAlpha = easeOut(m_pageIn);
-    const float making = m_leaving ? 1.f - easeIn(m_leaveT / 0.5f) : 1.f; // launching: the others fade
+    const float making = othersAlpha(); // launching: the others fade
     for (int i = 0; i < static_cast<int>(page.size()); ++i) {
-        if (m_leaving && i == m_leaveIndex) continue; // drawn on top (drawLaunch)
+        if (launchDrawsCard() && i == m_leaveIndex) continue; // drawn on top (drawLaunch)
         nxui::Rect card;
         float t = 0.f;
         if (!cardRect(i, card, t)) continue;
@@ -3224,9 +3248,9 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
 // what's open now; and the light that crosses the card just chosen.
 void CardsActivity::drawCardExtras(nxui::Renderer& r) {
     auto& page = games();
-    const float making = m_leaving ? 1.f - easeIn(m_leaveT / 0.5f) : 1.f;
+    const float making = othersAlpha();
     for (int i = 0; i < static_cast<int>(page.size()); ++i) {
-        if (m_leaving && i == m_leaveIndex) continue;
+        if (launchDrawsCard() && i == m_leaveIndex) continue;
         nxui::Rect card;
         float t = 0.f;
         if (!cardRect(i, card, t)) continue;
@@ -3330,15 +3354,104 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
     }
 }
 
-// The launch: the chosen card lifts, everything else falls away and the card
-// opens out to the whole screen, showing the game's art; then it fades to black.
+int CardsActivity::launchStyle() const {
+    return m_settings.motion ? std::clamp(m_settings.launchStyle, 0, kLaunchStyles - 1) : kNoAnimation;
+}
+
+bool CardsActivity::launchDrawsCard() const {
+    const int style = launchStyle();
+    return m_leaving && m_leaveIndex >= 0 && (style == kZoom || style == kFlip);
+}
+
+float CardsActivity::othersAlpha() const {
+    if (!m_leaving) return 1.f;
+    switch (launchStyle()) {
+        case kFade:
+        case kNoAnimation: return 1.f; // the screen dims over them
+        case kDive: return 1.f - smoothstep(0.45f, 0.85f, m_leaveT);
+        default: return 1.f - easeIn(m_leaveT / 0.5f);
+    }
+}
+
+// Starting a game (Settings > Look > Launch animation):
+//  Simple fade   the card is pressed, the screen dims, the game's icon pulses once.
+//  Splash screen the screen goes soft, the game's art fills it with its icon and name.
+//  Card zoom     the card lifts and opens out to the whole screen.
+//  Card flip     the card turns over to the game's banner, which fills the screen.
+//  Dive in       the row rushes at you, a flash, then black.
 void CardsActivity::drawLaunch(nxui::Renderer& r) {
     if (!m_leaving) return;
     const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
     const float t = clamp01(m_leaveT);
+    const int style = launchStyle();
     const Game* g = m_leaveIndex >= 0 && m_leaveIndex < static_cast<int>(games().size()) ? &games()[(size_t)m_leaveIndex]
                                                                                         : nullptr;
-    if (g) {
+    auto it = g ? m_art.find(g->id) : m_art.end();
+    const Art* art = it != m_art.end() ? &it->second : nullptr;
+    const bool glass = g && glassCard(*g);
+    auto valid = [](const std::unique_ptr<nxui::Texture>& tex) { return tex && tex->valid(); };
+    // The game's art: at full size once it's here, else the background's.
+    auto bigArt = [&]() -> const nxui::Texture* {
+        if (g && valid(m_launchTex) && m_launchTexId == g->id) return m_launchTex.get();
+        if (art && valid(art->bg) && art->bgKind != ArtKind::Icon) return art->bg.get();
+        return nullptr;
+    };
+    auto iconOf = [&]() -> const nxui::Texture* {
+        if (art && valid(art->icon)) return art->icon.get();
+        if (glass && art && valid(art->card)) return art->card.get();
+        return nullptr;
+    };
+    auto drawIcon = [&](const nxui::Texture* ic, const nxui::Rect& rect, float a) {
+        if (g && !g->action.empty()) r.drawTexture(ic, rect, kWhite.withAlpha(a)); // HomeNX's icon as it's drawn
+        else r.drawTextureRounded(ic, rect, rect.width * 0.22f, kWhite.withAlpha(a));
+    };
+    // The card's face (box art, or an app's icon on glass) in a rect.
+    auto drawFace = [&](const nxui::Rect& rect, float radius) {
+        if (glass) {
+            frost(r, rect, radius, nxui::Color(0.10f, 0.12f, 0.17f, 0.55f));
+            if (const nxui::Texture* ic = art && valid(art->card) ? art->card.get() : nullptr) {
+                const float side = std::min(rect.width, rect.height) * 0.6f;
+                drawIcon(ic, {rect.x + (rect.width - side) * 0.5f, rect.y + (rect.height - side) * 0.42f, side, side}, 1.f);
+            }
+        } else if (art && valid(art->card)) {
+            drawCover(r, art->card.get(), rect, radius, kWhite, art->kind == ArtKind::Box ? 0.125f : 0.f, 0.f);
+        } else {
+            r.drawRoundedRect(rect, nxui::Color(0.28f, 0.31f, 0.40f, 1.f), radius);
+        }
+    };
+    float black = 0.f;
+    if (!g) {
+        black = smoothstep(0.1f, 1.f, t); // nothing to show (power, a system applet): a fade
+    } else if (style == kFade) {
+        r.drawRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.92f * smoothstep(0.12f, 0.55f, t)));
+        if (const nxui::Texture* ic = iconOf()) {
+            const float a = smoothstep(0.3f, 0.45f, t) * (1.f - smoothstep(0.8f, 0.97f, t));
+            const float pulse = 1.f + 0.10f * std::sin(3.14159f * clamp01((t - 0.4f) / 0.3f));
+            const float side = 150.f * pulse;
+            drawIcon(ic, {640.f - side * 0.5f, 340.f - side * 0.5f, side, side}, a);
+        }
+        black = smoothstep(0.85f, 1.f, t);
+    } else if (style == kSplash) {
+        // The screen goes soft and dark; the game's art comes up through it.
+        const float soft = smoothstep(0.f, 0.3f, t);
+        if (m_frosted) r.drawOffscreenRounded(0, screen, 0.f, kWhite.withAlpha(soft));
+        r.drawRect(screen, nxui::Color(0.03f, 0.04f, 0.06f, 0.6f * soft));
+        const float in = smoothstep(0.18f, 0.5f, t);
+        if (const nxui::Texture* big = bigArt())
+            drawCover(r, big, screen, 0.f, kWhite.withAlpha(in), 0.f, 0.f, 1.10f - 0.06f * easeOut(t));
+        r.drawGradientRect({0.f, 300.f, 1280.f, 420.f}, nxui::Color(0.f, 0.f, 0.f, 0.f), nxui::Color(0.f, 0.f, 0.f, 0.6f * in));
+        const float show = smoothstep(0.3f, 0.55f, t);
+        if (const nxui::Texture* ic = iconOf()) {
+            const float side = 140.f * (0.92f + 0.08f * easeOut((t - 0.3f) / 0.4f));
+            drawIcon(ic, {640.f - side * 0.5f, 300.f - side * 0.5f, side, side}, show);
+        }
+        const float ts = fitScale(m_fTitle, g->name, 1000.f);
+        const std::string name = fit(m_fTitle, g->name, 1000.f, ts);
+        textMid(r, m_fTitle, name, 640.f - measured(m_fTitle, name).x * ts * 0.5f, 410.f, kWhite.withAlpha(show), ts);
+        const std::string starting = std::string("Starting") + std::string(1 + static_cast<int>(m_time * 3.f) % 3, '.');
+        textMid(r, m_fBody, starting, 640.f - measured(m_fBody, "Starting..").x * 0.5f, 450.f, kMuted.withAlpha(show));
+        black = smoothstep(0.8f, 1.f, t);
+    } else if (style == kZoom) {
         const float lift = easeOut(t / 0.14f);
         const float open = easeInOut((t - 0.12f) / 0.6f);
         nxui::Rect from = scaled(m_leaveFrom, 1.f + 0.06f * lift);
@@ -3347,48 +3460,47 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
         const float radius = kCardRadius * (1.f - open);
         r.drawRoundedRect({rect.x - 8.f, rect.y + 12.f, rect.width + 16.f, rect.height + 16.f},
                           nxui::Color(0.f, 0.f, 0.f, 0.35f * (1.f - open)), radius + 8.f);
-        auto it = m_art.find(g->id);
-        const Art* art = it != m_art.end() ? &it->second : nullptr;
-        const bool glass = glassCard(*g);
-        if (glass) {
-            // An app: its glass fills the screen around its icon.
-            frost(r, rect, radius, nxui::Color(0.10f, 0.12f, 0.17f, 0.45f + 0.5f * open));
-            if (art && art->bg && art->bg->valid())
-                drawCover(r, art->bg.get(), rect, radius, kWhite.withAlpha(0.35f * open));
-            if (art && art->card && art->card->valid()) {
-                const float side = 150.f + 110.f * open;
-                const nxui::Rect ic{rect.x + (rect.width - side) * 0.5f, rect.y + (rect.height - side) * 0.5f - 20.f * (1.f - open),
-                                    side, side};
-                if (!g->action.empty()) r.drawTexture(art->card.get(), ic, kWhite);
-                else r.drawTextureRounded(art->card.get(), ic, 34.f + 20.f * open, kWhite);
-            }
-        } else {
-            if (art && art->card && art->card->valid())
-                drawCover(r, art->card.get(), rect, radius, kWhite, art->kind == ArtKind::Box ? 0.125f : 0.f, 0.f);
-            else
-                r.drawRoundedRect(rect, nxui::Color(0.28f, 0.31f, 0.40f, 1.f), radius);
-            // The game's own art takes over as it opens out, at full size once it's here.
-            const float artA = smoothstep(0.f, 0.45f, open);
-            if (art && art->bg && art->bg->valid() && artA > 0.f)
-                drawCover(r, art->bg.get(), rect, radius, kWhite.withAlpha(artA), 0.f, 0.f, 1.f + 0.06f * open);
-            if (m_launchTex && m_launchTex->valid() && m_launchTexId == g->id && artA > 0.f)
-                drawCover(r, m_launchTex.get(), rect, radius,
-                          kWhite.withAlpha(artA * clamp01((m_time - m_launchTexIn) / 0.25f)), 0.f, 0.f, 1.f + 0.06f * open);
-        }
-        // Light runs across it as it opens.
-        if (open > 0.f && open < 1.f) {
-            const float x = rect.x - 300.f + (rect.width + 600.f) * open;
-            const float fade = std::sin(open * 3.14159f) * 0.18f;
-            r.pushClipRect(rect);
-            r.drawTriangle({x, rect.y}, {x + 140.f, rect.y}, {x - 220.f, rect.y + rect.height}, nxui::Color(1.f, 1.f, 1.f, fade));
-            r.drawTriangle({x + 140.f, rect.y}, {x - 80.f, rect.y + rect.height}, {x - 220.f, rect.y + rect.height},
-                           nxui::Color(1.f, 1.f, 1.f, fade));
-            r.popClipRect();
-        }
+        drawFace(rect, radius);
+        // The game's own art takes over as it opens out.
+        const float artA = smoothstep(0.f, 0.45f, open);
+        if (!glass && artA > 0.f)
+            if (const nxui::Texture* big = bigArt()) drawCover(r, big, rect, radius, kWhite.withAlpha(artA), 0.f, 0.f, 1.f + 0.06f * open);
         if (rect.width > 1100.f) // its name, briefly, before black
             textMid(r, m_fTitle, g->name, 64.f, 650.f, kWhite.withAlpha(smoothstep(0.55f, 0.7f, t) * (1.f - smoothstep(0.8f, 0.95f, t))));
+        black = smoothstep(0.62f, 1.f, t);
+    } else if (style == kFlip) {
+        const float turn = easeInOut(t / 0.45f);           // to the middle, turning over
+        const float open = easeInOut((t - 0.45f) / 0.38f); // the banner fills the screen
+        const nxui::Rect middle{320.f, 180.f, 640.f, 360.f};
+        nxui::Rect rect = open > 0.f ? lerpRect(middle, screen, open) : lerpRect(m_leaveFrom, middle, turn);
+        const float radius = 22.f * (1.f - open);
+        const bool back = turn >= 0.5f;
+        if (open <= 0.f) { // turning: narrow at the half-way point
+            const float w = rect.width * std::max(0.02f, std::abs(std::cos(3.14159f * turn)));
+            rect = {rect.x + (rect.width - w) * 0.5f, rect.y, w, rect.height};
+        }
+        r.drawRoundedRect({rect.x - 6.f, rect.y + 10.f, rect.width + 12.f, rect.height + 12.f},
+                          nxui::Color(0.f, 0.f, 0.f, 0.3f * (1.f - open)), radius + 6.f);
+        if (!back) {
+            drawFace(rect, radius);
+        } else if (const nxui::Texture* big = glass ? nullptr : bigArt()) {
+            drawCover(r, big, rect, radius, kWhite);
+        } else { // no banner: its icon on glass
+            frost(r, rect, radius, nxui::Color(0.10f, 0.12f, 0.17f, 0.7f));
+            if (const nxui::Texture* ic = iconOf()) {
+                const float side = std::min(rect.width, rect.height) * 0.5f;
+                drawIcon(ic, {rect.x + (rect.width - side) * 0.5f, rect.y + (rect.height - side) * 0.5f, side, side}, 1.f);
+            }
+        }
+        black = smoothstep(0.7f, 1.f, t);
+    } else if (style == kDive) {
+        const float flash = 0.85f * smoothstep(0.55f, 0.72f, t) * (1.f - smoothstep(0.72f, 0.9f, t));
+        if (flash > 0.f) r.drawRect(screen, nxui::Color(1.f, 1.f, 1.f, flash));
+        black = smoothstep(0.72f, 1.f, t);
+    } else {
+        black = t; // off: straight to black
     }
-    const float black = m_left ? 1.f : smoothstep(g ? 0.62f : 0.1f, 1.f, t);
+    if (m_left) black = 1.f;
     if (black > 0.f) r.drawRect(screen, nxui::Color(0.f, 0.f, 0.f, black));
 }
 
