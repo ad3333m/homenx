@@ -72,6 +72,8 @@ private:
     void drawBackground(nxui::Renderer& r);
     void drawTopBar(nxui::Renderer& r);
     void drawCards(nxui::Renderer& r);
+    void drawCardBadges(nxui::Renderer& r); // after the blur: they're glass over the art
+    bool cardRect(int index, nxui::Rect& card, float& chosen) const;
     void drawPanel(nxui::Renderer& r);
     void drawPopup(nxui::Renderer& r);
     void glassCircle(nxui::Renderer& r, float cx, float cy, float d, bool focused, const char* icon, float iconSize);
@@ -81,7 +83,7 @@ private:
     void icon(nxui::Renderer& r, const char* name, float cx, float cy, float size, const nxui::Color& tint);
     const nxui::Texture* gameIconTexture();
 
-    nxui::Font m_fTitle, m_fPlay, m_fLabel, m_fPill, m_fBody, m_fBadge;
+    nxui::Font m_fTitle, m_fPlay, m_fLabel, m_fPill, m_fBody, m_fBadge, m_fCount;
     std::map<std::string, std::unique_ptr<nxui::Texture>> m_icons;
     std::shared_ptr<nxui::Widget> m_painter;
 

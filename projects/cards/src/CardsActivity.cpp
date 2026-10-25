@@ -23,10 +23,12 @@ namespace {
 // The layout: the reference screenshot (2000x920) on 1280x720. Sizes follow
 // its height (x0.78), positions its width (x0.64).
 constexpr float kTopY = 47.f, kCircle = 77.f;
-constexpr float kCardW = 227.f, kCardH = 340.f, kCardGrowW = 9.f, kCardGrowH = 14.f;
-constexpr float kCardMidY = 291.f, kCardPitch = 236.f, kCardFirstX = 136.f, kCardRadius = 19.f;
+// Cards are the shape of a Switch case cover without its red band (352x499),
+// so its whole picture fits them exactly.
+constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 14.f;
+constexpr float kCardMidY = 291.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
 const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
-constexpr float kPanelRadius = 31.f;
+constexpr float kPanelRadius = 35.f;
 
 const nxui::Color kWhite(1.f, 1.f, 1.f, 1.f);
 const nxui::Color kMuted(1.f, 1.f, 1.f, 0.82f);
@@ -144,7 +146,8 @@ bool CardsActivity::onCreate() {
     const char* f6 = "romfs:/fonts/Inter-600.ttf";
     const char* f7 = "romfs:/fonts/Inter-700.ttf";
     if (!m_fTitle.load(gpu, ren, f7, 30) || !m_fPlay.load(gpu, ren, f7, 24) || !m_fLabel.load(gpu, ren, f6, 22)
-        || !m_fPill.load(gpu, ren, f6, 19) || !m_fBody.load(gpu, ren, f5, 17) || !m_fBadge.load(gpu, ren, f7, 15))
+        || !m_fPill.load(gpu, ren, f6, 19) || !m_fBody.load(gpu, ren, f5, 17) || !m_fBadge.load(gpu, ren, f7, 15)
+        || !m_fCount.load(gpu, ren, f7, 21))
         return false;
     for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home"}) {
         auto tex = std::make_unique<nxui::Texture>();
@@ -586,6 +589,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
         r.captureToOffscreen(false);
         r.applyBlur(2.5f, 3);
     }
+    drawCardBadges(r);
     drawTopBar(r);
     drawPanel(r);
     if (m_messageFor > 0.f && !m_message.empty()) {
@@ -691,12 +695,9 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
     }
     const bool cardsFocused = m_zone == Zone::Cards;
     for (int i = 0; i < static_cast<int>(m_games.size()); ++i) {
-        const float rel = static_cast<float>(i) - m_scroll;
-        const float x0 = kCardFirstX + rel * kCardPitch;
-        if (x0 > 1290.f || x0 + kCardPitch < -10.f) continue;
-        const float t = std::clamp(1.f - std::abs(rel), 0.f, 1.f); // how chosen it is
-        const float w = kCardW + kCardGrowW * t, h = kCardH + kCardGrowH * t;
-        const nxui::Rect card{x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f, w, h};
+        nxui::Rect card;
+        float t = 0.f;
+        if (!cardRect(i, card, t)) continue;
         const Game& g = m_games[(size_t)i];
 
         r.drawRoundedRect({card.x - 2.f, card.y + 6.f, card.width + 4.f, card.height + 4.f},
@@ -705,10 +706,10 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         const nxui::Texture* tex = it != m_art.end() && it->second.card && it->second.card->valid() ? it->second.card.get()
                                                                                                     : nullptr;
         if (tex) {
-            // A Switch case cover: without the red Nintendo Switch band on top
-            // and the rating in the corner below, like the reference's art.
+            // A Switch case cover without the red Nintendo Switch band on top:
+            // the rest is the card's own shape, so all of it shows.
             const bool box = it->second.kind == ArtKind::Box;
-            drawCover(r, tex, card, kCardRadius, kWhite, box ? 0.125f : 0.f, box ? 0.06f : 0.f);
+            drawCover(r, tex, card, kCardRadius, kWhite, box ? 0.125f : 0.f, 0.f);
         } else { // still coming: the name on glass
             r.drawRoundedRect(card, nxui::Color(0.28f, 0.31f, 0.40f, 0.85f), kCardRadius);
             const std::string name = fit(m_fLabel, g.name, card.width - 28.f, 0.9f);
@@ -720,17 +721,35 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         if (t > 0.01f) {
             r.drawRoundedRectOutline(card, kWhite.withAlpha((cardsFocused ? 1.f : 0.55f) * t), kCardRadius, 3.5f);
         }
+    }
+}
 
-        // Nextendo: players online in it now.
-        auto p = m_players.find(g.id);
-        if (p != m_players.end() && p->second > 0) {
-            const std::string n = std::to_string(p->second);
-            const float bw = 30.f + m_fBadge.measure(n).x + 10.f;
-            const nxui::Rect badge{card.x + 12.f, card.y + 12.f, bw, 28.f};
-            r.drawRoundedRect(badge, nxui::Color(0.08f, 0.10f, 0.13f, 0.72f), 14.f);
-            r.drawCircle({badge.x + 15.f, badge.y + 14.f}, 6.f, kGreen, 20);
-            textMid(r, m_fBadge, n, badge.x + 28.f, badge.y + 14.f, kWhite);
-        }
+bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) const {
+    const float rel = static_cast<float>(index) - m_scroll;
+    const float x0 = kCardFirstX + rel * kCardPitch;
+    if (x0 > 1290.f || x0 + kCardPitch < -10.f) return false;
+    chosen = std::clamp(1.f - std::abs(rel), 0.f, 1.f);
+    const float w = kCardW + kCardGrowW * chosen, h = kCardH + kCardGrowH * chosen;
+    card = {x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f, w, h};
+    return true;
+}
+
+// Nextendo: players online in each game now, a glass pill with a green dot.
+void CardsActivity::drawCardBadges(nxui::Renderer& r) {
+    for (int i = 0; i < static_cast<int>(m_games.size()); ++i) {
+        auto p = m_players.find(m_games[(size_t)i].id);
+        if (p == m_players.end() || p->second <= 0) continue;
+        nxui::Rect card;
+        float t = 0.f;
+        if (!cardRect(i, card, t)) continue;
+        const std::string n = std::to_string(p->second);
+        const nxui::Rect badge{card.x + 14.f, card.y + 14.f, 34.f + m_fCount.measure(n).x + 14.f, 34.f};
+        frost(r, badge, 17.f, nxui::Color(0.05f, 0.07f, 0.09f, 0.42f));
+        r.drawRoundedRectOutline(badge, nxui::Color(1.f, 1.f, 1.f, 0.16f), 17.f, 1.5f);
+        r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f, kGreen, 24);
+        textMid(r, m_fCount, n, badge.x + 33.f, badge.y + 17.f, kWhite);
+        if (i < m_sel) // like its card, a little back
+            r.drawRoundedRect(badge, nxui::Color(0.f, 0.f, 0.f, 0.32f * (1.f - t)), 17.f);
     }
 }
 
