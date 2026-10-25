@@ -530,23 +530,25 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
         return true;
     }
 
+    // The last upload's copy has run (its staging and command memory are free
+    // again). Only that copy is waited for, not the frames being drawn.
     waitForTextureUploads();
+    m_uploadStaging = {};
 
     const void* srcCpu = nullptr;
     DkGpuAddr srcGpu = 0;
-    dk::UniqueMemBlock tempStaging;
 
     if (size <= m_stagingPool.size) {
         srcCpu = m_stagingPool.cpuBase;
         srcGpu = m_stagingPool.block.getGpuAddr();
     } else {
         uint32_t allocSize = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
-        tempStaging = dk::MemBlockMaker{m_dev, allocSize}
+        m_uploadStaging = dk::MemBlockMaker{m_dev, allocSize}
             .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
             .create();
 
-        srcCpu = tempStaging.getCpuAddr();
-        srcGpu = tempStaging.getGpuAddr();
+        srcCpu = m_uploadStaging.getCpuAddr();
+        srcGpu = m_uploadStaging.getGpuAddr();
 
         if (!srcCpu || !srcGpu) {
             GpuDevice::logGpu( "[GpuDevice] Failed temp staging allocation for texture (%u bytes)\n", size);
@@ -566,9 +568,15 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
         view,
         {0, 0, 0, w, h, 1}
     );
+    // Drawing that follows on this queue sees the new pixels.
+    m_uploadCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
+    m_uploadCmdbuf.signalFence(m_uploadFence);
 
+    // No waitIdle: that waited for every frame in flight as well, once per
+    // picture, and the screen stuttered while pictures arrived (scrolling a
+    // row of game cards). The queue runs the copy before anything drawn after it.
     m_queue.submitCommands(m_uploadCmdbuf.finishList());
-    m_queue.waitIdle();
+    m_uploadInFlight = true;
     return true;
 }
 
@@ -608,6 +616,8 @@ void GpuDevice::shutdown() {
     if (m_uploadBatchActive)
         endTextureUploadBatch();
     if (m_queue) m_queue.waitIdle();
+    m_uploadInFlight = false;
+    m_uploadStaging = {};
     m_swapchain    = {};
     for (int i = 0; i < NUM_FB; ++i)
         m_cmdbuf[i] = {};

@@ -53,6 +53,8 @@ constexpr float kBellX = 908.f, kMusicX = 976.f, kPowerX = 1061.f, kGearX = 1146
 const nxui::Rect kSheet{120.f, 52.f, 1040.f, 616.f};
 constexpr float kSecX = 142.f, kSecW = 236.f, kSecH = 58.f, kSheetTop = 146.f;
 constexpr float kRowsX = 400.f, kRowsW = 736.f, kRowH = 72.f, kRowsBottom = 612.f;
+// News: the list on the left, the article on the right.
+constexpr float kNewsListW = 300.f, kNewsRowH = 72.f, kNewsTextX = 482.f, kNewsTextW = 640.f;
 
 const nxui::Color kWhite(1.f, 1.f, 1.f, 1.f);
 const nxui::Color kMuted(1.f, 1.f, 1.f, 0.82f);
@@ -235,6 +237,34 @@ nxui::Rect scaled(const nxui::Rect& r, float s) {
     return {r.x + (r.width - w) * 0.5f, r.y + (r.height - h) * 0.5f, w, h};
 }
 
+// Text broken into lines of at most maxW (at spaces; newlines kept).
+std::vector<std::string> wrap(nxui::Font& font, const std::string& text, float maxW) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    for (;;) {
+        const size_t end = text.find('\n', start);
+        const std::string para = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        std::string line;
+        for (size_t i = 0; i <= para.size();) {
+            size_t sp = para.find(' ', i);
+            if (sp == std::string::npos) sp = para.size();
+            const std::string word = para.substr(i, sp - i);
+            const std::string trial = line.empty() ? word : line + " " + word;
+            if (!line.empty() && font.measure(trial).x > maxW) {
+                out.push_back(line);
+                line = word;
+            } else {
+                line = trial;
+            }
+            i = sp + 1;
+        }
+        out.push_back(line);
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return out;
+}
+
 bool parseUid(const std::string& hex, AccountUidLike& out) {
     if (hex.size() != 32) return false;
     out.uid[0] = std::strtoull(hex.substr(0, 16).c_str(), nullptr, 16);
@@ -374,11 +404,24 @@ bool CardsActivity::onCreate() {
     }
 
     // The pages: games; homebrew (.nro apps, then NRO forwarders); Nintendo.
-    for (Game& g : listGames()) (g.homebrew ? m_pages[kHomebrew] : m_pages[kGames]).push_back(std::move(g));
-    std::vector<Game> nros = listHomebrew();
-    m_pages[kHomebrew].insert(m_pages[kHomebrew].begin(), std::make_move_iterator(nros.begin()),
-                              std::make_move_iterator(nros.end()));
-    for (size_t i = 0; i < m_pages[kHomebrew].size(); ++i) m_pages[kHomebrew][i].order = static_cast<int>(i);
+    // Last time's lists show at once and the real ones are read on a thread
+    // (reading every game and .nro made coming back from a game slow).
+    auto readLists = []() {
+        Lists l;
+        for (Game& g : listGames()) (g.homebrew ? l.homebrew : l.games).push_back(std::move(g));
+        std::vector<Game> nros = listHomebrew();
+        l.homebrew.insert(l.homebrew.begin(), std::make_move_iterator(nros.begin()), std::make_move_iterator(nros.end()));
+        for (size_t i = 0; i < l.homebrew.size(); ++i) l.homebrew[i].order = static_cast<int>(i);
+        return l;
+    };
+    if (loadLists(m_pages[kGames], m_pages[kHomebrew])) {
+        m_listJob = std::async(std::launch::async, readLists);
+    } else {
+        Lists l = readLists();
+        m_pages[kGames] = std::move(l.games);
+        m_pages[kHomebrew] = std::move(l.homebrew);
+        saveLists(m_pages[kGames], m_pages[kHomebrew]);
+    }
     m_pages[kNintendo] = listSystem();
     applyOrder(kHomebrew);
     applyOrder(kNintendo);
@@ -422,14 +465,7 @@ bool CardsActivity::onCreate() {
     rootBox().addChild(m_painter);
 
 #ifdef SWITCHU_MENU
-    // HomeNX's screens (Discord, News, its keyboard) in HOME's font.
-    const std::string dejavu = "sdmc:/switch/SwitchU/fonts/DejaVuSans.ttf";
-    const std::string discordFont = fontchoice::chosen("discord");
-    const std::string hxPath = discordFont.empty() ? dejavu : "sdmc:/switch/SwitchU/fonts/" + discordFont;
-    if (!m_hxFont.load(gpu, ren, hxPath, 24) || !m_hxSmall.load(gpu, ren, hxPath, 18)) {
-        m_hxFont.load(gpu, ren, dejavu, 24);
-        m_hxSmall.load(gpu, ren, dejavu, 18);
-    }
+    if (m_startSuspended || m_startRunning) m_introFor = 0.6f; // back from a game: quicker
 #endif
 
     // Always the first card on the list (the sort is Title or My Order:
@@ -455,6 +491,7 @@ void CardsActivity::onDestroy() {
     for (std::thread& t : m_threads)
         if (t.joinable()) t.join();
     if (m_browserJob.valid()) m_browserJob.wait();
+    if (m_listJob.valid()) m_listJob.wait();
 #ifdef SWITCHU_MENU
     if (m_newsJob.valid()) m_newsJob.wait();
     if (m_updateJob.valid()) m_updateJob.wait();
@@ -474,7 +511,6 @@ nxui::Widget* CardsActivity::focusRoot() {
 #ifdef SWITCHU_MENU
     if (m_textEntry && m_textEntry->isActive()) return m_textEntry.get();
     if (m_discordPanel && m_discordPanel->isActive()) return m_discordPanel.get();
-    if (m_news && m_news->isActive()) return m_news.get();
 #endif
     return nullptr;
 }
@@ -613,7 +649,7 @@ void CardsActivity::worker(int index) {
         done.id = job.game.id;
         done.what = job.what;
         std::vector<std::uint8_t> data;
-        if (job.what == kBackground) {
+        if (job.what == kBackground || job.what == kLaunch) {
             data = backgroundArt(job.game, m_key, done.kind);
         } else if (job.what == kCard) {
             data = cardArt(job.game, m_key, m_boxArt.load(), done.kind);
@@ -629,7 +665,8 @@ void CardsActivity::worker(int index) {
                 done.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
                 stbi_image_free(px);
                 // Backgrounds sharp (a box cover softer, an icon a wash of its colours); cards as drawn.
-                const int maxW = job.what == kIcon ? 160
+                const int maxW = job.what == kLaunch ? 1280
+                               : job.what == kIcon ? 160
                                : job.what == kCard ? 400
                                : done.kind == ArtKind::Icon ? 32
                                : done.kind == ArtKind::Box ? 400
@@ -652,7 +689,7 @@ void CardsActivity::wantArt() {
         if (i < 0 || i >= static_cast<int>(page.size())) return;
         Art& a = m_art[page[(size_t)i].id];
         bool& asked = what == kBackground ? a.bgAsked : what == kIcon ? a.iconAsked : a.cardAsked;
-        if (asked) return;
+        if (asked || m_time < a.retryAt) return;
         asked = true;
         jobs.push_back({page[(size_t)i], what});
     };
@@ -706,14 +743,28 @@ void CardsActivity::takeArt() {
     const std::uint64_t selected = cur ? cur->id : 0;
     for (Done& d : done) {
         auto it = m_art.find(d.id);
-        if (it == m_art.end() || d.rgba.empty()) continue;
-        auto tex = std::make_unique<nxui::Texture>();
-        if (!tex->loadFromPixels(app().gpu(), app().renderer(), d.rgba.data(), d.w, d.h)) {
-            (d.what == kBackground ? it->second.bgAsked : d.what == kIcon ? it->second.iconAsked : it->second.cardAsked) =
-                false; // no room now: asked again later
+        if (it == m_art.end()) continue;
+        bool* asked = d.what == kBackground ? &it->second.bgAsked
+                    : d.what == kIcon       ? &it->second.iconAsked
+                    : d.what == kCard       ? &it->second.cardAsked
+                                            : nullptr;
+        if (d.rgba.empty()) { // nothing came (the network not up yet?): asked again in a while
+            if (asked) *asked = false;
+            it->second.retryAt = m_time + 15.f;
             continue;
         }
-        if (d.what == kIcon) {
+        auto tex = std::make_unique<nxui::Texture>();
+        if (!tex->loadFromPixels(app().gpu(), app().renderer(), d.rgba.data(), d.w, d.h)) {
+            if (asked) *asked = false; // no room now: asked again later
+            continue;
+        }
+        if (d.what == kLaunch) {
+            if (m_leaving && d.id == m_leaveId) {
+                m_launchTex = std::move(tex);
+                m_launchTexId = d.id;
+                m_launchTexIn = m_time;
+            }
+        } else if (d.what == kIcon) {
             it->second.icon = std::move(tex);
         } else if (d.what == kBackground) {
             it->second.bg = std::move(tex);
@@ -898,7 +949,36 @@ void CardsActivity::reloadGames() {
             if (p == m_page && m_pages[p][i].id == keep) m_sels[p] = static_cast<int>(i);
     }
     m_scroll = static_cast<float>(sel());
+    saveLists(m_pages[kGames], m_pages[kHomebrew]);
     wantArt();
+}
+
+// The real lists, read on a thread, replace last time's. Where you are stays:
+// the first card stays first, a card further along stays chosen.
+void CardsActivity::takeLists(Lists lists) {
+    auto chosen = [this](int p) -> std::uint64_t {
+        const auto& page = m_pages[p];
+        return m_sels[p] > 0 && m_sels[p] < static_cast<int>(page.size()) ? page[(size_t)m_sels[p]].id : 0;
+    };
+    const std::uint64_t keep[2] = {chosen(kGames), chosen(kHomebrew)};
+    m_pages[kGames] = std::move(lists.games);
+    m_pages[kHomebrew] = std::move(lists.homebrew);
+    applyOrder(kHomebrew);
+    sortGames(m_settings.sort, false);
+    for (int p = kGames; p <= kHomebrew; ++p) {
+        m_sels[p] = 0;
+        for (size_t i = 0; keep[p] && i < m_pages[p].size(); ++i)
+            if (m_pages[p][i].id == keep[p]) m_sels[p] = static_cast<int>(i);
+    }
+    m_scroll = static_cast<float>(sel());
+    saveLists(m_pages[kGames], m_pages[kHomebrew]);
+    wantArt();
+}
+
+bool CardsActivity::glassCard(const Game& g) {
+    if (g.homebrew || !g.action.empty()) return true;
+    auto it = m_art.find(g.id);
+    return it != m_art.end() && it->second.card && it->second.kind == ArtKind::Icon;
 }
 
 // ---------------------------------------------------------------- starting things
@@ -921,12 +1001,22 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     if (index >= 0 && index < static_cast<int>(games().size()) && cardRect(index, m_leaveFrom, t)) {
         m_leaveIndex = index;
         m_leaveId = games()[(size_t)index].id;
+        if (!glassCard(games()[(size_t)index])) { // its art at full size for the end, first in line
+            {
+                std::lock_guard<std::mutex> lk(m_mu);
+                m_jobs.push_front({games()[(size_t)index], kLaunch});
+            }
+            m_cv.notify_one();
+        }
     }
     m_leaveThen = std::move(then);
     m_menu.clear();
     m_notifOpen = false;
     m_sheetOpen = false;
     m_moving = false;
+#ifdef SWITCHU_MENU
+    m_newsOpen = false;
+#endif
     m_audio.play("launch_game");
     m_audio.fadeOut(static_cast<int>(seconds * 1000.f));
 }
@@ -972,7 +1062,7 @@ void CardsActivity::launchGame(const Game& g) {
         if (games()[i].id == id) index = static_cast<int>(i);
 #ifdef SWITCHU_MENU
     if (isRunning(id)) { // back to it
-        leave(index, 0.55f, [this]() {
+        leave(index, 0.85f, [this]() {
             m_discord.beginShutdown();
             m_launcher.resumeApplication();
         });
@@ -994,7 +1084,7 @@ void CardsActivity::launchGame(const Game& g) {
         });
         return;
     }
-    leave(index, 0.9f, [this, id]() {
+    leave(index, 1.3f, [this, id]() {
         m_discord.beginShutdown(); // its threads stop while the screen goes black
         if (!m_launcher.requestLaunch(id, launchUid())) {
             comeBack();
@@ -1004,7 +1094,7 @@ void CardsActivity::launchGame(const Game& g) {
         m_launcher.closeForLaunch();
     });
 #else
-    leave(index, 0.9f, [this, id]() {
+    leave(index, 1.3f, [this, id]() {
         if (launch(id, m_user)) {
             app().requestExit(); // the game starts once this has closed
             return;
@@ -1020,7 +1110,7 @@ void CardsActivity::openNro(const std::string& path) {
     for (size_t i = 0; i < games().size(); ++i)
         if (games()[i].path == path) index = static_cast<int>(i);
 #ifdef SWITCHU_MENU
-    leave(index, 0.6f, [this, path]() {
+    leave(index, 0.85f, [this, path]() {
         m_discord.beginShutdown();
         if (!m_launcher.launchNro(path, hostTitleId(), launchUid())) {
             comeBack();
@@ -1033,7 +1123,7 @@ void CardsActivity::openNro(const std::string& path) {
         say("Open CardsNX from HOME to start apps.");
         return;
     }
-    leave(index, 0.6f, [this, path]() { // it replaces this app, as hbmenu starts it
+    leave(index, 0.85f, [this, path]() { // it replaces this app, as hbmenu starts it
         envSetNextLoad(path.c_str(), ("\"" + path + "\"").c_str());
         app().requestExit();
     });
@@ -1076,8 +1166,25 @@ void CardsActivity::openBrowser() {
     });
 }
 
+#ifdef SWITCHU_MENU
+void CardsActivity::ensureHxFonts() {
+    if (m_hxFonts) return;
+    m_hxFonts = true;
+    auto& gpu = app().gpu();
+    auto& ren = app().renderer();
+    const std::string dejavu = "sdmc:/switch/SwitchU/fonts/DejaVuSans.ttf";
+    const std::string chosen = fontchoice::chosen("discord"); // HomeNX Settings > Fonts
+    const std::string path = chosen.empty() ? dejavu : "sdmc:/switch/SwitchU/fonts/" + chosen;
+    if (!m_hxFont.load(gpu, ren, path, 24) || !m_hxSmall.load(gpu, ren, path, 18)) {
+        m_hxFont.load(gpu, ren, dejavu, 24);
+        m_hxSmall.load(gpu, ren, dejavu, 18);
+    }
+}
+#endif
+
 void CardsActivity::openDiscord() {
 #ifdef SWITCHU_MENU
+    ensureHxFonts();
     if (!m_discordPanel) {
         m_discordPanel = std::make_shared<DiscordPanel>();
         m_discordPanel->setFont(&m_hxFont);
@@ -1146,7 +1253,7 @@ void CardsActivity::openNintendo(const Game& g) {
     }
     const int index = sel();
     // The daemon opens it and starts HOME again afterwards.
-    leave(index, 0.55f, [this, a]() {
+    leave(index, 0.75f, [this, a]() {
         m_discord.beginShutdown();
         const AccountUid uid = launchUid();
         if (a == "eshop") m_launcher.launchEshop(uid);
@@ -1278,8 +1385,8 @@ bool CardsActivity::closeEverything() {
         m_discordPanel->hide();
         any = true;
     }
-    if (m_news && m_news->isActive()) {
-        m_news->hide();
+    if (m_newsOpen) {
+        m_newsOpen = false;
         any = true;
     }
 #endif
@@ -1367,6 +1474,7 @@ void CardsActivity::openOptions() {
                     m_sels[kHomebrew] = std::clamp(m_sels[kHomebrew], 0, std::max(0, (int)page.size() - 1));
                     if (m_page == kHomebrew) m_scroll = static_cast<float>(sel());
                     saveOrder(kHomebrew);
+                    saveLists(m_pages[kGames], m_pages[kHomebrew]);
                     m_audio.play("toggle_off");
                     say(name + " was deleted.");
                     wantArt();
@@ -1826,7 +1934,14 @@ void CardsActivity::runUpdate() {
 
 #ifdef SWITCHU_MENU
 void CardsActivity::openNews() {
-    if (m_newsJob.valid()) return; // on its way
+    if (m_newsOpen || m_newsJob.valid()) return; // open, or on its way
+    if (!m_newsItems.empty() && m_time - m_newsLoadedAt < 120.f) { // read a moment ago
+        m_newsOpen = true;
+        m_newsIn = m_settings.motion ? 0.f : 1.f;
+        m_audio.play("show_modal");
+        showNewsItem(std::clamp(m_newsSel, 0, static_cast<int>(m_newsItems.size()) - 1));
+        return;
+    }
     m_newsWanted = true;
     say("Opening News...");
     // Reading ~40 articles takes a second or two: not on the screen's thread.
@@ -1841,45 +1956,190 @@ void CardsActivity::openNews() {
             for (std::string line; std::getline(in, line);)
                 if (!line.empty()) read.insert(line);
         }
-        std::vector<ListDetailScreen::Entry> entries;
+        std::vector<NewsItem> items;
         for (auto& a : raw) {
-            ListDetailScreen::Entry e;
-            e.listName = a.subject.empty() ? a.topic : a.subject;
-            e.kicker = a.topic;
-            e.title = a.subject;
-            e.body = a.body;
-            e.footer = a.footer;
+            NewsItem n;
+            n.id = a.id;
+            n.title = a.subject.empty() ? a.topic : a.subject;
+            n.topic = a.topic;
+            n.body = a.body;
+            n.footer = a.footer;
             if (a.publishedAt > 0) {
                 const time_t t = static_cast<time_t>(a.publishedAt);
                 char when[48];
                 std::strftime(when, sizeof(when), "%d %B %Y", std::localtime(&t));
-                e.footer += (e.footer.empty() ? "" : "\n") + std::string(when);
+                n.topic += (n.topic.empty() ? "" : "   ") + std::string(when);
             }
-            e.unread = !a.read && !read.count(a.id);
-            e.onShown = [id = a.id]() {
-                if (id.empty()) return;
-                std::error_code ec;
-                std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
-                std::ofstream(kNewsReadPath, std::ios::app) << id << '\n';
-            };
-            if (!a.image.empty()) {
-                auto bytes = std::make_shared<std::vector<std::uint8_t>>(std::move(a.image));
-                e.lazyImage = [this, bytes]() -> std::shared_ptr<nxui::Texture> {
-                    auto tex = std::make_shared<nxui::Texture>();
-                    if (!tex->loadFromMemory(app().gpu(), app().renderer(), bytes->data(), bytes->size(), 560)) return nullptr;
-                    return tex;
-                };
-            }
-            entries.push_back(std::move(e));
+            n.unread = !a.read && !read.count(a.id);
+            if (!a.image.empty()) n.picture = std::make_shared<std::vector<std::uint8_t>>(std::move(a.image));
+            items.push_back(std::move(n));
         }
         char code[16];
         std::snprintf(code, sizeof(code), "0x%X", rc);
         const std::string empty = R_FAILED(rc) ? "The console's news couldn't be read (" + std::string(code) + ")."
                                                : std::string("There's no news saved on this console yet.");
         std::lock_guard<std::mutex> lk(m_mu);
-        m_newsReady = std::move(entries);
+        m_newsReady = std::move(items);
         m_newsEmpty = empty;
     });
+}
+
+// An article on the right: its text wrapped once, marked read, its picture loaded.
+void CardsActivity::showNewsItem(int index) {
+    if (index < 0 || index >= static_cast<int>(m_newsItems.size())) return;
+    m_newsSel = index;
+    m_newsScroll = 0.f;
+    NewsItem& n = m_newsItems[(size_t)index];
+    if (n.lines.empty()) {
+        n.titleLines = wrap(m_fLabel, n.title, kNewsTextW);
+        n.lines = wrap(m_fBody, n.footer.empty() ? n.body : n.body + "\n\n" + n.footer, kNewsTextW);
+    }
+    if (n.unread && !n.id.empty()) {
+        n.unread = false;
+        std::error_code ec;
+        std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+        std::ofstream(kNewsReadPath, std::ios::app) << n.id << '\n';
+    }
+    if (n.picture && !m_newsPictures.count(index)) {
+        if (m_newsPictures.size() >= 4) { // a few stay; the farthest goes
+            auto far = m_newsPictures.begin();
+            for (auto it = m_newsPictures.begin(); it != m_newsPictures.end(); ++it)
+                if (std::abs(it->first - index) > std::abs(far->first - index)) far = it;
+            m_newsPictures.erase(far);
+        }
+        auto tex = std::make_unique<nxui::Texture>();
+        if (tex->loadFromMemory(app().gpu(), app().renderer(), n.picture->data(), n.picture->size(), 720))
+            m_newsPictures[index] = std::move(tex);
+    }
+}
+
+bool CardsActivity::updateNews(float dt) {
+    auto& in = app().input();
+    using B = nxui::Button;
+    const int n = static_cast<int>(m_newsItems.size());
+    // Touch: a row chooses it, dragging the article scrolls it, beside the sheet closes.
+    const float x = in.touchX(), y = in.touchY();
+    if (in.touchDown()) {
+        m_newsDragging = false;
+        m_newsTouchY = y;
+        m_newsTouchScroll = m_newsScroll;
+    }
+    if (in.isTouching() && x > kNewsTextX - 20.f && kSheet.contains(x, y)) {
+        if (std::abs(y - m_newsTouchY) > 10.f) m_newsDragging = true;
+        if (m_newsDragging) m_newsScroll = std::max(0.f, m_newsTouchScroll - (y - m_newsTouchY));
+    }
+    if (in.touchUp()) {
+        if (!kSheet.contains(x, y)) {
+            m_newsOpen = false;
+            m_audio.play("hide_modal");
+            return true;
+        }
+        if (!m_newsDragging && x < kNewsTextX - 20.f) {
+            const int row = static_cast<int>((y - kSheetTop + m_newsListScroll) / kNewsRowH);
+            if (y >= kSheetTop && row >= 0 && row < n && row != m_newsSel) {
+                m_audio.play("navigation");
+                showNewsItem(row);
+            }
+        }
+        m_newsDragging = false;
+    }
+    if (in.isDown(B::B) || in.isDown(B::Minus)) {
+        m_newsOpen = false;
+        m_audio.play("hide_modal");
+        return true;
+    }
+    if ((in.isDown(B::DUp) || in.isDown(B::LStickU)) && m_newsSel > 0) {
+        m_audio.play("navigation");
+        showNewsItem(m_newsSel - 1);
+    }
+    if ((in.isDown(B::DDown) || in.isDown(B::LStickD)) && m_newsSel < n - 1) {
+        m_audio.play("navigation");
+        showNewsItem(m_newsSel + 1);
+    }
+    // The article scrolls with ZL / ZR, L / R or the right stick.
+    float speed = 0.f;
+    if (in.isHeld(B::ZR) || in.isHeld(B::R) || in.isHeld(B::RStickD)) speed += 700.f;
+    if (in.isHeld(B::ZL) || in.isHeld(B::L) || in.isHeld(B::RStickU)) speed -= 700.f;
+    m_newsScroll = std::max(0.f, m_newsScroll + speed * dt);
+    return true;
+}
+
+void CardsActivity::drawNews(nxui::Renderer& r) {
+    if (!m_newsOpen) return;
+    const float a = easeOut(m_newsIn);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
+    const nxui::Rect sheet = scaled(kSheet, 0.95f + 0.05f * a);
+    frost(r, sheet, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.88f * a));
+    r.drawRoundedRectOutline(sheet, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    r.drawGradientRect({sheet.x + 2.f, sheet.y + 2.f, sheet.width - 4.f, 80.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+                       nxui::Color(1.f, 1.f, 1.f, 0.f));
+    const float dy = sheet.y - kSheet.y;
+    icon(r, "news", kSecX + 20.f, kSheet.y + 46.f + dy, 30.f, kWhite.withAlpha(a));
+    textMid(r, m_fTitle, "News", kSecX + 46.f, kSheet.y + 46.f + dy, kWhite.withAlpha(a));
+    const std::string hint = "Up/Down Choose    ZL/ZR Scroll    B Back";
+    textMid(r, m_fBody, hint, kSheet.x + kSheet.width - 30.f - measured(m_fBody, hint).x, kSheet.y + 46.f + dy,
+            kMuted.withAlpha(0.8f * a));
+    if (m_newsItems.empty()) {
+        textMid(r, m_fPill, fit(m_fPill, m_newsEmpty, kSheet.width - 80.f), kSecX, 340.f + dy, kMuted.withAlpha(a));
+        return;
+    }
+    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float visible = kRowsBottom - kSheetTop;
+
+    // The list, kept around the chosen one.
+    const float want = std::clamp(kNewsRowH * static_cast<float>(m_newsSel) - visible * 0.5f + kNewsRowH * 0.5f, 0.f,
+                                  std::max(0.f, kNewsRowH * static_cast<float>(m_newsItems.size()) - visible));
+    m_newsListScroll += (want - m_newsListScroll) * (m_settings.motion ? 0.25f : 1.f);
+    r.pushClipRect({kSecX - 8.f, kSheetTop + dy - 4.f, kNewsListW + 16.f, visible + 8.f});
+    for (size_t i = 0; i < m_newsItems.size(); ++i) {
+        const nxui::Rect row{kSecX, kSheetTop + kNewsRowH * static_cast<float>(i) - m_newsListScroll + dy, kNewsListW,
+                             kNewsRowH - 8.f};
+        if (row.y > kRowsBottom + dy || row.y + row.height < kSheetTop + dy) continue;
+        const NewsItem& n = m_newsItems[i];
+        const bool on = static_cast<int>(i) == m_newsSel;
+        r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, (on ? 0.14f : 0.04f) * a), 16.f);
+        if (on) r.drawRoundedRectOutline(row, accent(ring * a), 16.f, 2.f);
+        if (n.unread) r.drawCircle({row.x + 14.f, row.y + 22.f}, 5.f, kGreen.withAlpha(a), 16);
+        r.drawText(fit(m_fPill, n.title, row.width - 40.f), {row.x + 26.f, row.y + 9.f}, &m_fPill, kWhite.withAlpha(a));
+        r.drawText(fit(m_fBody, n.topic, (row.width - 40.f) / 0.85f, 0.85f), {row.x + 26.f, row.y + 37.f}, &m_fBody,
+                   kMuted.withAlpha(0.85f * a), 0.85f);
+    }
+    r.popClipRect();
+    r.drawRect({kNewsTextX - 20.f, kSheetTop + dy, 1.5f, visible}, nxui::Color(1.f, 1.f, 1.f, 0.10f * a));
+
+    // The article: its picture, title, where and when, then the text.
+    const NewsItem& n = m_newsItems[(size_t)m_newsSel];
+    const float top = kSheetTop + dy;
+    r.pushClipRect({kNewsTextX - 6.f, top - 4.f, kNewsTextW + 12.f, visible + 8.f});
+    float y = top - m_newsScroll;
+    auto pic = m_newsPictures.find(m_newsSel);
+    if (pic != m_newsPictures.end() && pic->second && pic->second->valid()) {
+        const nxui::Rect frame{kNewsTextX, y, kNewsTextW, kNewsTextW * 9.f / 16.f};
+        drawCover(r, pic->second.get(), frame, 18.f, kWhite.withAlpha(a));
+        y += frame.height + 18.f;
+    }
+    for (const std::string& line : n.titleLines) {
+        r.drawText(line, {kNewsTextX, y}, &m_fLabel, kWhite.withAlpha(a));
+        y += 30.f;
+    }
+    y += 4.f;
+    r.drawText(n.topic, {kNewsTextX, y}, &m_fBody, kMuted.withAlpha(0.85f * a), 0.9f);
+    y += 34.f;
+    for (const std::string& line : n.lines) {
+        if (y > top - 30.f && y < top + visible) r.drawText(line, {kNewsTextX, y}, &m_fBody, kWhite.withAlpha(0.92f * a));
+        y += 26.f;
+    }
+    r.popClipRect();
+    // How far it scrolls, and a bar for it.
+    const float content = y + m_newsScroll - top;
+    const float most = std::max(0.f, content - visible + 24.f);
+    if (m_newsScroll > most) m_newsScroll = most;
+    if (most > 0.f) {
+        const float barH = std::max(40.f, visible * visible / content);
+        const float barY = top + (visible - barH) * (m_newsScroll / most);
+        r.drawRoundedRect({kNewsTextX + kNewsTextW + 10.f, top, 4.f, visible}, nxui::Color(1.f, 1.f, 1.f, 0.08f * a), 2.f);
+        r.drawRoundedRect({kNewsTextX + kNewsTextW + 10.f, barY, 4.f, barH}, kWhite.withAlpha(0.5f * a), 2.f);
+    }
 }
 #endif
 
@@ -2271,7 +2531,7 @@ void CardsActivity::onUpdate(float dt) {
     m_audio.update();
     const bool motion = m_settings.motion;
     auto step = [&](float& v, float seconds) { v = motion ? std::min(1.f, v + dt / seconds) : 1.f; };
-    step(m_intro, 1.1f);
+    step(m_intro, m_introFor);
     step(m_pageIn, 0.38f);
     step(m_detailIn, 0.25f);
     step(m_sheen, 0.8f);
@@ -2280,12 +2540,25 @@ void CardsActivity::onUpdate(float dt) {
     step(m_bgFade, 0.45f);
     step(m_sheetIn, 0.24f);
     step(m_sheetRowsIn, 0.22f);
+#ifdef SWITCHU_MENU
+    step(m_newsIn, 0.24f);
+#endif
     const float target = static_cast<float>(sel());
     if (!m_dragging) {
         m_scroll = motion ? m_scroll + (target - m_scroll) * (1.f - std::exp(-dt * 13.f)) : target;
         if (std::abs(m_scroll - target) < 0.001f) m_scroll = target;
     }
     if (m_messageFor > 0.f) m_messageFor -= dt;
+
+    // Pictures that didn't come are asked for again now and then.
+    if ((m_retryIn -= dt) <= 0.f) {
+        m_retryIn = 5.f;
+        wantArt();
+    }
+    // The real lists arrived (not while a card is being moved or launched).
+    if (m_listJob.valid() && !m_moving && !m_leaving
+        && m_listJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        takeLists(m_listJob.get());
 
     // BrowseNX arrived (or didn't).
     if (m_browserJob.valid() && m_browserJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -2322,33 +2595,22 @@ void CardsActivity::onUpdate(float dt) {
     // News is ready.
     if (m_newsJob.valid() && m_newsJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_newsJob.get();
-        std::vector<ListDetailScreen::Entry> entries;
-        std::string empty;
+        app().gpu().waitIdle(); // the last articles' pictures go
+        m_newsPictures.clear();
         {
             std::lock_guard<std::mutex> lk(m_mu);
-            entries = std::move(m_newsReady);
-            empty = m_newsEmpty;
+            m_newsItems = std::move(m_newsReady);
         }
+        m_newsLoadedAt = m_time;
         if (m_newsWanted && !m_leaving) {
             m_newsWanted = false;
-            if (!m_news) {
-                m_news = std::make_shared<ListDetailScreen>();
-                m_news->setFont(&m_hxFont);
-                m_news->setSmallFont(&m_hxSmall);
-                m_news->setTheme(&m_theme);
-                m_news->onNavigateSfx([this]() { m_audio.play("navigation"); });
-                m_news->onActivateSfx([this]() { m_audio.play("activation"); });
-                m_news->onCloseSfx([this]() { m_audio.play("hide_modal"); });
-                rootBox().addChild(m_news);
-            }
-            app().gpu().waitIdle(); // the last entries' pictures go
-            m_news->setEntries(std::move(entries), "News", empty);
+            m_newsOpen = true;
+            m_newsIn = m_settings.motion ? 0.f : 1.f;
+            m_newsSel = 0;
+            m_newsListScroll = 0.f;
             m_messageFor = 0.f;
             m_audio.play("show_modal");
-            m_news->show();
-            m_news->addAction(static_cast<uint64_t>(nxui::Button::ZL), [this]() { if (m_news) m_news->scrollPreview(-160.f); });
-            m_news->addAction(static_cast<uint64_t>(nxui::Button::ZR), [this]() { if (m_news) m_news->scrollPreview(160.f); });
-            focusManager().setFocus(m_news.get());
+            showNewsItem(0);
         }
     }
     // Updates: say when it's done.
@@ -2374,13 +2636,15 @@ void CardsActivity::onUpdate(float dt) {
         m_discordPanel->handleTouch(app().input());
         return;
     }
-    if (m_news && m_news->isActive()) {
-        m_news->handleTouch(app().input());
-        return;
-    }
 #endif
 
     // The launch: the card grows, then black, then it starts.
+#ifdef SWITCHU_MENU
+    if (m_newsOpen && !m_leaving) {
+        updateNews(dt);
+        return;
+    }
+#endif
     if (m_leaving) {
         m_leaveT = std::min(1.f, m_leaveT + dt / std::max(0.05f, m_leaveFor));
         if (m_leaveT >= 1.f && !m_left) {
@@ -2550,6 +2814,9 @@ void CardsActivity::draw(nxui::Renderer& r) {
     }
     drawPopup(r);
     drawSheet(r);
+#ifdef SWITCHU_MENU
+    drawNews(r);
+#endif
     drawLaunch(r);
 }
 
@@ -2734,7 +3001,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         float t = 0.f;
         if (!cardRect(i, card, t)) continue;
         const Game& g = page[(size_t)i];
-        if (g.homebrew || !g.action.empty()) continue; // glass: drawn over the blur (drawCardExtras)
+        if (glassCard(g)) continue; // glass: drawn over the blur (drawCardExtras)
         const float k = std::max(0.f, static_cast<float>(i) - m_scroll + 1.f);
         const float alpha = pageAlpha * easeOut((m_intro - 0.1f - 0.07f * k) / 0.5f) * making;
         if (alpha <= 0.01f) continue;
@@ -2785,7 +3052,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         if (alpha <= 0.01f) continue;
 
         const Game& g = page[(size_t)i];
-        if (g.homebrew || !g.action.empty()) {
+        if (glassCard(g)) {
             // An app, in the glass of the rest of the screen: the blurred
             // background through it, its icon floating on a soft glow of its
             // own colours, its name and what it is below.
@@ -2800,16 +3067,22 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             const nxui::Texture* tex = it != m_art.end() && it->second.card && it->second.card->valid() ? it->second.card.get()
                                                                                                         : nullptr;
             const float artIn = tex ? easeOut((m_time - it->second.cardIn) / 0.35f) : 0.f;
-            const float side = 150.f + 8.f * t;
-            const nxui::Rect iconRect{card.x + (card.width - side) * 0.5f, card.y + 40.f - 4.f * t, side, side};
+            // The icon inside the card's border, with room around it. Nintendo's
+            // (HomeNX's own pictures) as they're drawn; an app's square icon rounded.
+            const bool nintendo = !g.action.empty();
+            const float side = (nintendo ? 160.f : 150.f) + 8.f * t;
+            const nxui::Rect iconRect{card.x + (card.width - side) * 0.5f, card.y + (nintendo ? 36.f : 40.f) - 4.f * t,
+                                      side, side};
             if (tex) {
                 const float a = alpha * artIn;
-                // Its glow: the icon itself, bigger and faint, behind it.
-                r.drawTextureRounded(tex, scaled(iconRect, 1.22f), 52.f, kWhite.withAlpha(0.22f * a * (0.6f + 0.4f * t)));
-                r.drawRoundedRect({iconRect.x, iconRect.y + 8.f, iconRect.width, iconRect.height},
-                                  nxui::Color(0.f, 0.f, 0.f, 0.25f * a), 34.f); // its shadow
-                r.drawTextureRounded(tex, iconRect, 34.f, kWhite.withAlpha(a));
-            } else {
+                if (nintendo) {
+                    r.drawTexture(tex, iconRect, kWhite.withAlpha(a));
+                } else {
+                    r.drawRoundedRect({iconRect.x, iconRect.y + 6.f, iconRect.width, iconRect.height},
+                                      nxui::Color(0.f, 0.f, 0.f, 0.18f * a), 34.f); // a soft shadow under it
+                    r.drawTextureRounded(tex, iconRect, 34.f, kWhite.withAlpha(a));
+                }
+            } else if (!nintendo) {
                 r.drawRoundedRect(iconRect, nxui::Color(1.f, 1.f, 1.f, 0.08f * alpha), 34.f);
             }
             const float ns = fitScale(m_fLabel, g.name, card.width - 24.f);
@@ -2893,7 +3166,7 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
                           nxui::Color(0.f, 0.f, 0.f, 0.35f * (1.f - open)), radius + 8.f);
         auto it = m_art.find(g->id);
         const Art* art = it != m_art.end() ? &it->second : nullptr;
-        const bool glass = g->homebrew || !g->action.empty();
+        const bool glass = glassCard(*g);
         if (glass) {
             // An app: its glass fills the screen around its icon.
             frost(r, rect, radius, nxui::Color(0.10f, 0.12f, 0.17f, 0.45f + 0.5f * open));
@@ -2903,17 +3176,21 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
                 const float side = 150.f + 110.f * open;
                 const nxui::Rect ic{rect.x + (rect.width - side) * 0.5f, rect.y + (rect.height - side) * 0.5f - 20.f * (1.f - open),
                                     side, side};
-                r.drawTextureRounded(art->card.get(), scaled(ic, 1.25f), 60.f, kWhite.withAlpha(0.25f));
-                r.drawTextureRounded(art->card.get(), ic, 34.f + 20.f * open, kWhite);
+                if (!g->action.empty()) r.drawTexture(art->card.get(), ic, kWhite);
+                else r.drawTextureRounded(art->card.get(), ic, 34.f + 20.f * open, kWhite);
             }
         } else {
             if (art && art->card && art->card->valid())
                 drawCover(r, art->card.get(), rect, radius, kWhite, art->kind == ArtKind::Box ? 0.125f : 0.f, 0.f);
             else
                 r.drawRoundedRect(rect, nxui::Color(0.28f, 0.31f, 0.40f, 1.f), radius);
-            // The game's own art takes over as it opens out.
-            if (art && art->bg && art->bg->valid() && open > 0.f)
-                drawCover(r, art->bg.get(), rect, radius, kWhite.withAlpha(open), 0.f, 0.f, 1.f + 0.08f * open);
+            // The game's own art takes over as it opens out, at full size once it's here.
+            const float artA = smoothstep(0.f, 0.45f, open);
+            if (art && art->bg && art->bg->valid() && artA > 0.f)
+                drawCover(r, art->bg.get(), rect, radius, kWhite.withAlpha(artA), 0.f, 0.f, 1.f + 0.06f * open);
+            if (m_launchTex && m_launchTex->valid() && m_launchTexId == g->id && artA > 0.f)
+                drawCover(r, m_launchTex.get(), rect, radius,
+                          kWhite.withAlpha(artA * clamp01((m_time - m_launchTexIn) / 0.25f)), 0.f, 0.f, 1.f + 0.06f * open);
         }
         // Light runs across it as it opens.
         if (open > 0.f && open < 1.f) {
@@ -2953,7 +3230,10 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     const float da = a * d, dx = 14.f * (1.f - d);
 
     const nxui::Rect iconRect{panel.x + 25.f + dx, panel.y + 20.f, 78.f, 78.f};
-    if (const nxui::Texture* ic = gameIconTexture()) r.drawTextureRounded(ic, iconRect, 18.f, kWhite.withAlpha(da));
+    if (const nxui::Texture* ic = gameIconTexture()) {
+        if (!g.action.empty()) r.drawTexture(ic, iconRect, kWhite.withAlpha(da)); // HomeNX's icon as it's drawn
+        else r.drawTextureRounded(ic, iconRect, 18.f, kWhite.withAlpha(da));
+    }
     const float tx = iconRect.x + iconRect.width + 15.f;
     const float maxW = panel.x + panel.width - 30.f - tx;
     const float ts = fitScale(m_fTitle, g.name, maxW);

@@ -48,6 +48,11 @@ bool startNetwork();
 void stopNetwork();
 void threadDone();
 
+// The lists as they were last time (sdmc:/config/CardsNX/lists.json): HOME
+// shows them at once and reads the real ones on a thread.
+bool loadLists(std::vector<Game>& games, std::vector<Game>& homebrew);
+void saveLists(const std::vector<Game>& games, const std::vector<Game>& homebrew);
+
 // HomeNX's SteamGridDB key (Settings > SteamGridDB), "" = none.
 std::string steamGridDbKey();
 

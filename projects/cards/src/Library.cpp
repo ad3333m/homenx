@@ -184,8 +184,15 @@ std::string gametdbCover(const Game& game) {
     const char region = it->second.second;
     const char* const order[3][3] = {{"US", "EN", "JA"}, {"EN", "US", "JA"}, {"JA", "US", "EN"}};
     const int pick = region == 'E' ? 1 : region == 'J' ? 2 : 0;
-    static std::atomic<int> unreachable{0}; // no answer at all, several times: stop asking
-    if (unreachable >= 3) return {};
+    static std::atomic<int> unreachable{0}; // no answer at all, several times: rest a minute
+    static std::atomic<std::uint64_t> restUntil{0};
+    const std::uint64_t nowMs = armTicksToNs(armGetSystemTick()) / 1000000ULL;
+    if (nowMs < restUntil) return {};
+    if (unreachable >= 3) {
+        unreachable = 0;
+        restUntil = nowMs + 60000;
+        return {};
+    }
     std::string body;
     for (const char* r : order[pick]) {
         const long status = get(std::string("https://art.gametdb.com/switch/coverM/") + r + "/" + it->second.first + ".jpg", body);
@@ -329,6 +336,65 @@ std::string steamGridDbKey() {
 
 std::string idText(std::uint64_t id) { return hexId(id); }
 
+namespace {
+constexpr const char* kLists = "sdmc:/config/CardsNX/lists.json";
+
+nlohmann::json toJson(const std::vector<Game>& list) {
+    nlohmann::json a = nlohmann::json::array();
+    for (const Game& g : list)
+        a.push_back({{"id", g.id}, {"name", g.name}, {"version", g.version}, {"author", g.author}, {"path", g.path},
+                     {"homebrew", g.homebrew}, {"lastPlayed", g.lastPlayed}, {"playSeconds", g.playSeconds},
+                     {"launches", g.launches}, {"flags", g.flags}, {"order", g.order}});
+    return a;
+}
+
+void fromJson(const nlohmann::json& a, std::vector<Game>& out) {
+    out.clear();
+    if (!a.is_array()) return;
+    for (const auto& j : a) {
+        Game g;
+        g.id = j.value("id", std::uint64_t{0});
+        g.name = j.value("name", std::string());
+        g.version = j.value("version", std::string());
+        g.author = j.value("author", std::string());
+        g.path = j.value("path", std::string());
+        g.homebrew = j.value("homebrew", false);
+        g.lastPlayed = j.value("lastPlayed", std::uint64_t{0});
+        g.playSeconds = j.value("playSeconds", std::uint64_t{0});
+        g.launches = j.value("launches", std::uint32_t{0});
+        g.flags = j.value("flags", std::uint32_t{0});
+        g.order = j.value("order", 0);
+        if (g.id) out.push_back(std::move(g));
+    }
+}
+} // namespace
+
+bool loadLists(std::vector<Game>& games, std::vector<Game>& homebrew) {
+    try {
+        std::ifstream in(kLists);
+        if (!in) return false;
+        const auto j = nlohmann::json::parse(in);
+        fromJson(j.value("games", nlohmann::json::array()), games);
+        fromJson(j.value("homebrew", nlohmann::json::array()), homebrew);
+        return !games.empty() || !homebrew.empty();
+    } catch (...) {
+        return false;
+    }
+}
+
+void saveLists(const std::vector<Game>& games, const std::vector<Game>& homebrew) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
+    const std::string tmp = std::string(kLists) + ".part";
+    {
+        std::ofstream out(tmp, std::ios::trunc);
+        out << nlohmann::json{{"games", toJson(games)}, {"homebrew", toJson(homebrew)}}.dump();
+        if (!out) return;
+    }
+    std::filesystem::remove(kLists, ec);
+    std::filesystem::rename(tmp, kLists, ec);
+}
+
 std::string systemIconPath(const std::string& action) {
     static const std::pair<const char*, const char*> kHomeNX[] = {
         {"news", "news"}, {"eshop", "eshop"}, {"controllers", "controller"},
@@ -413,8 +479,12 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
     kind = ArtKind::Banner;
     if (std::filesystem::exists(banner)) return readFile(banner);
     const std::string got = eshopBanner(game, 640, 360);
-    if (!got.empty()) writeFile(banner, got);
-    return std::vector<std::uint8_t>(got.begin(), got.end());
+    if (!got.empty()) {
+        writeFile(banner, got);
+        return std::vector<std::uint8_t>(got.begin(), got.end());
+    }
+    kind = ArtKind::Icon; // nothing online (yet): its icon, on glass
+    return gameIcon(game);
 }
 
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind) {

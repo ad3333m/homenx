@@ -241,6 +241,7 @@ private:
     // the CPU never overwrites command/vertex memory the GPU is still reading.
     dk::Fence  m_frameFences[NUM_FB];
     dk::Fence  m_uploadFence;
+    dk::UniqueMemBlock m_uploadStaging; // a big upload's pixels, kept until its copy has run
     bool       m_uploadBatchActive = false;
     bool       m_uploadInFlight = false;
     unsigned   m_uploadBatchCount = 0;

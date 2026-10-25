@@ -10,7 +10,6 @@
 #ifdef SWITCHU_MENU
 #include "ReleaseUpdater.hpp"
 #include "launcher/AppletLauncher.hpp"
-#include "settings/ListDetailScreen.hpp"
 #include "settings/TextEntryScreen.hpp"
 #include "social/DiscordService.hpp"
 #include "widgets/DiscordPanel.hpp"
@@ -63,8 +62,13 @@ private:
         ArtKind kind = ArtKind::Banner, bgKind = ArtKind::Banner;
         bool cardAsked = false, bgAsked = false, iconAsked = false;
         float cardIn = -10.f; // when it arrived (it fades in)
+        float retryAt = 0.f;  // nothing came: asked again after this
     };
-    enum What { kCard, kBackground, kIcon };
+    enum What { kCard, kBackground, kIcon, kLaunch }; // kLaunch: the art at full size, for the launch
+    // The lists, read on a thread (HOME shows last time's at once).
+    struct Lists {
+        std::vector<Game> games, homebrew;
+    };
     struct Job {
         Game game;
         int what = kCard;
@@ -116,6 +120,8 @@ private:
     void select(int index);
     void switchPage(int dir);
     void sortGames(int sort, bool keepChoice = true);
+    void takeLists(Lists lists);
+    bool glassCard(const Game& g); // an app or a game without box art: its icon on glass
     void applyOrder(int page);
     void saveOrder(int page);
     void reloadGames();
@@ -202,6 +208,9 @@ private:
     // Motion: everything eases on m_time.
     float m_time = 0.f;
     float m_intro = 0.f;          // 0 -> 1 as it opens
+    float m_introFor = 1.1f;      // seconds (back from a game: quicker)
+    float m_retryIn = 5.f;        // pictures that didn't come are asked again
+    std::future<Lists> m_listJob;
     float m_pageIn = 1.f;         // 0 -> 1 after a page switch
     int m_pageDir = 1;
     float m_detailIn = 1.f;       // 0 -> 1 when the chosen game changes (its details fade in)
@@ -218,6 +227,9 @@ private:
     nxui::Rect m_leaveFrom{};
     std::function<void()> m_leaveThen;
     bool m_left = false; // `then` ran: hold the black frame until the app closes
+    std::unique_ptr<nxui::Texture> m_launchTex; // the game's art at full size
+    std::uint64_t m_launchTexId = 0;
+    float m_launchTexIn = 0.f;
 
     // Plus > Move: the chosen card moves with left / right.
     bool m_moving = false;
@@ -292,20 +304,37 @@ private:
     std::uint64_t hostTitleId() const;
     AccountUid launchUid() const;
 
-    // HomeNX's own screens, in its font.
+    // HomeNX's Discord and its keyboard, in HOME's font (loaded when first needed).
     nxui::Theme m_theme = nxui::Theme::dark();
     nxui::Font m_hxFont, m_hxSmall;
+    bool m_hxFonts = false;
+    void ensureHxFonts();
     DiscordService m_discord;
     std::shared_ptr<DiscordPanel> m_discordPanel;
     std::shared_ptr<TextEntryScreen> m_textEntry;
-    std::shared_ptr<ListDetailScreen> m_news;
     float m_discordStartIn = 4.f;
     bool m_discordStarted = false;
+
+    // News, in CardsNX's glass: the list on the left, the article on the right.
+    struct NewsItem {
+        std::string id, title, topic, body, footer;
+        bool unread = false;
+        std::shared_ptr<std::vector<std::uint8_t>> picture; // JPEG
+        std::vector<std::string> titleLines, lines;         // wrapped (when first shown)
+    };
     void openNews();
+    void showNewsItem(int index);
+    bool updateNews(float dt);
+    void drawNews(nxui::Renderer& r);
     std::future<void> m_newsJob;
-    std::vector<ListDetailScreen::Entry> m_newsReady;
+    std::vector<NewsItem> m_newsReady, m_newsItems;
     std::string m_newsEmpty;
-    bool m_newsWanted = false;
+    bool m_newsWanted = false, m_newsOpen = false;
+    int m_newsSel = 0;
+    float m_newsIn = 0.f, m_newsListScroll = 0.f, m_newsScroll = 0.f, m_newsTouchY = 0.f, m_newsTouchScroll = 0.f;
+    bool m_newsDragging = false;
+    std::map<int, std::unique_ptr<nxui::Texture>> m_newsPictures; // a few, by index
+    float m_newsLoadedAt = -1000.f;
 
     // Settings > Updates: HomeNX's release, installed from here.
     enum class Update { Idle, Checking, UpToDate, Available, Installing, Installed, Failed };

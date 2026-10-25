@@ -271,16 +271,41 @@ def app_icon():
 
 
 def toggle_icon():
-    # HomeNX's icon with a power symbol, for the HomeNX Toggle .nro
+    # NXToggle: a big glossy switch over a violet-to-blue tile, HomeNX's grid
+    # on one side and CardsNX's cards on the other (it picks between them).
     W = 256 * S
-    im = Image.open("icon.jpg").convert("RGB").resize((W, W), Image.LANCZOS)
+    im = Image.new("RGB", (W, W))
     d = ImageDraw.Draw(im)
-    cx, cy, r = W * 0.8, W * 0.2, W * 0.16
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(230, 40, 60))
-    w = int(W * 0.035)
-    rr = r * 0.55
-    d.arc([cx - rr, cy - rr, cx + rr, cy + rr], start=-60, end=240, fill="white", width=w)
-    d.line([cx, cy - rr * 1.15, cx, cy - rr * 0.1], fill="white", width=w)
+    for y in range(W):
+        t = y / W
+        d.line([0, y, W, y], fill=(int(70 - 40 * t), int(40 + 30 * t), int(170 + 50 * t)))
+    glow = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse([W * .10, W * .18, W * .90, W * .78], fill=(120, 200, 255, 90))
+    glow = glow.filter(ImageFilter.GaussianBlur(W * .09))
+    im.paste(glow, (0, 0), glow)
+    d = ImageDraw.Draw(im)
+    # the switch: a white track with a green fill and a white knob on the right
+    tx0, ty0, tx1, ty1 = W * .14, W * .30, W * .86, W * .58
+    rad = (ty1 - ty0) / 2
+    d.rounded_rectangle([tx0, ty0, tx1, ty1], radius=int(rad), fill=(52, 199, 89))
+    d.rounded_rectangle([tx0, ty0, tx1, ty0 + (ty1 - ty0) * .45], radius=int(rad), fill=(88, 220, 120))
+    d.rectangle([tx0 + rad, ty0 + (ty1 - ty0) * .3, tx1 - rad, ty0 + (ty1 - ty0) * .45], fill=(88, 220, 120))
+    kr = rad * .84
+    kx, ky = tx1 - rad, (ty0 + ty1) / 2
+    d.ellipse([kx - kr, ky - kr + W * .012, kx + kr, ky + kr + W * .012], fill=(20, 90, 50))  # its shadow
+    d.ellipse([kx - kr, ky - kr, kx + kr, ky + kr], fill="white")
+    # on the knob: three little cards (CardsNX); on the track: a 2x2 grid (HomeNX)
+    for i, col in enumerate(((255, 140, 110), (110, 200, 255), (255, 210, 90))):
+        cx = kx - kr * .5 + i * kr * .5
+        d.rounded_rectangle([cx - kr * .17, ky - kr * .42, cx + kr * .17, ky + kr * .42], radius=int(kr * .08), fill=col)
+    gx, gy, gs = tx0 + rad * .7, ky - rad * .42, rad * .38
+    for r_ in range(2):
+        for c in range(2):
+            x = gx + c * gs * 1.25
+            y = gy + r_ * gs * 1.25
+            d.rounded_rectangle([x, y, x + gs, y + gs], radius=int(gs * .25), fill=(255, 255, 255))
+    f = ImageFont.truetype(BOLD, int(W * .17))
+    d.text((W * .5, W * .80), "NXToggle", font=f, fill="white", anchor="mm")
     im.resize((256, 256), Image.LANCZOS).save("projects/manager/icon.jpg", quality=95)
 
 
