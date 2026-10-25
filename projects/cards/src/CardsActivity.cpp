@@ -9,6 +9,7 @@
 #include <nxui/third_party/stb/stb_image.h>
 #include <nxui/widgets/Widget.hpp>
 #include <switch.h>
+#include <switchu/control_cache.hpp>
 #include <switchu/ns_ext.hpp>
 #include <SDL2/SDL_mixer.h>
 
@@ -280,6 +281,12 @@ void popupGeometry(size_t rows, nxui::Rect& box, float& rowH) {
     box = {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h};
 }
 
+// Quick Settings: a panel on the right, its rows below a title and a status line.
+void quickGeometry(size_t rows, float slide, nxui::Rect& panel, float& rowH) {
+    panel = {1280.f - 20.f - 460.f + slide, 10.f, 460.f, 700.f};
+    rowH = std::min(52.f, (panel.height - 90.f - 12.f) / static_cast<float>(std::max<size_t>(1, rows)));
+}
+
 #ifdef SWITCHU_MENU
 constexpr const char* kNewsReadPath = "sdmc:/config/SwitchU/news_read.txt"; // shared with HomeNX's HOME
 #endif
@@ -459,6 +466,7 @@ bool CardsActivity::onCreate() {
     m_audio.start();
     m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
     m_audio.setShuffle(m_settings.shuffle);
+    m_audio.setRepeat(m_settings.repeat);
     m_audio.setMusic(m_settings.music, m_settings.musicVolume);
 
     m_painter = std::make_shared<Painter>([this](nxui::Renderer& r) { draw(r); });
@@ -492,6 +500,7 @@ void CardsActivity::onDestroy() {
         if (t.joinable()) t.join();
     if (m_browserJob.valid()) m_browserJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
+    if (m_deleteJob.valid()) m_deleteJob.wait();
 #ifdef SWITCHU_MENU
     if (m_newsJob.valid()) m_newsJob.wait();
     if (m_updateJob.valid()) m_updateJob.wait();
@@ -1013,6 +1022,7 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     m_menu.clear();
     m_notifOpen = false;
     m_sheetOpen = false;
+    m_quickOpen = false;
     m_moving = false;
 #ifdef SWITCHU_MENU
     m_newsOpen = false;
@@ -1371,11 +1381,12 @@ void CardsActivity::pumpDaemon() {
 
 // Everything open closes; true if something was.
 bool CardsActivity::closeEverything() {
-    bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving;
+    bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen;
     if (m_moving) finishMove(false);
     m_menu.clear();
     m_notifOpen = false;
     m_sheetOpen = false;
+    m_quickOpen = false;
 #ifdef SWITCHU_MENU
     if (m_textEntry && m_textEntry->isActive()) {
         m_textEntry->hide(false);
@@ -1483,6 +1494,31 @@ void CardsActivity::openOptions() {
             });
         }, true));
     }
+    if (g.path.empty() && g.homebrew && g.action.empty()) { // an NRO forwarder: uninstalled from the console
+        const std::uint64_t id = g.id;
+        const std::string name = g.name;
+        items.push_back(action("Delete", [this, id, name]() {
+            if (isRunning(id)) {
+                say("Close " + name + " first.");
+                return;
+            }
+            openMenu("Delete " + name + "?", {
+                action("Delete it from the console", [this, id, name]() {
+                    if (m_deleteJob.valid()) {
+                        say("Still deleting " + m_deleteName + "...");
+                        return;
+                    }
+                    m_deleteId = id;
+                    m_deleteName = name;
+                    say("Deleting " + name + "...");
+                    m_deleteJob = std::async(std::launch::async, [id]() {
+                        return static_cast<std::uint32_t>(nsDeleteApplicationCompletely(id));
+                    });
+                }, true),
+                action("Cancel", [] {}),
+            });
+        }, true));
+    }
     items.push_back(action("Cancel", [] {}));
     openMenu(g.name, std::move(items));
 }
@@ -1516,14 +1552,13 @@ void CardsActivity::finishMove(bool keep) {
     m_audio.play("toggle_on");
 }
 
-void CardsActivity::openPower() {
+std::vector<CardsActivity::MenuItem> CardsActivity::powerItems() {
     std::vector<MenuItem> items;
 #ifdef SWITCHU_MENU
     items.push_back(action("Sleep", [this]() { m_launcher.enterSleep(); }));
     items.push_back(action("Restart", [this]() { leave(-1, 0.4f, [this]() { m_launcher.reboot(); }); }));
     items.push_back(action("Shut down", [this]() { leave(-1, 0.4f, [this]() { m_launcher.shutdown(); }); }));
-    items.push_back(action(AppletLauncher::canRebootToPayload() ? "Reboot to Hekate" : "Hekate: not on this model",
-                           [this]() {
+    items.push_back(action("Reboot to Hekate", [this]() {
         // Atmosphere sends hbl's reboots to its payload (not HOME's): CardsNX
         // (the .nro) does it, asked by a file, before it shows anything.
         std::error_code ec;
@@ -1536,6 +1571,15 @@ void CardsActivity::openPower() {
                     std::remove("sdmc:/config/SwitchU/cardsnx_reboot_hekate");
                     comeBack();
                     say("Hekate didn't start.");
+                }
+            });
+            return;
+        }
+        if (!AppletLauncher::canRebootToPayload()) { // newer models: the power chip's clock, then a restart
+            leave(-1, 0.45f, [this]() {
+                if (!m_launcher.rebootToHekate()) {
+                    comeBack();
+                    say("The power chip didn't take the request for Hekate's menu.");
                 }
             });
             return;
@@ -1557,11 +1601,74 @@ void CardsActivity::openPower() {
     items.push_back(action("Sleep", doPower(Power::Sleep)));
     items.push_back(action("Restart", doPower(Power::Restart)));
     items.push_back(action("Shut down", doPower(Power::Shutdown)));
-    items.push_back(action(canRebootToPayload() ? "Reboot to Hekate" : "Hekate: not on this model",
-                           doPower(Power::Hekate)));
+    items.push_back(action("Reboot to Hekate", doPower(Power::Hekate)));
 #endif
+    return items;
+}
+
+void CardsActivity::openPower() {
+    std::vector<MenuItem> items = powerItems();
     items.push_back(action("Cancel", [] {}));
     openMenu("Power", std::move(items));
+}
+
+// R: Quick Settings, as HomeNX's (Wi-Fi, Airplane mode, brightness, volumes,
+// the song, power) in CardsNX's glass.
+void CardsActivity::openQuick() {
+    m_quick = readQuickStatus();
+    m_quickRefreshIn = 3.f;
+    std::vector<MenuItem> rows;
+    rows.push_back(toggle("Wi-Fi", [this]() { return m_quick.wifi && !m_quick.airplane; }, [this]() {
+        const bool on = !(m_quick.wifi && !m_quick.airplane);
+        if (!setWifi(on)) {
+            say("Wi-Fi didn't change.");
+            return;
+        }
+        m_quick.wifi = on;
+        if (on) m_quick.airplane = false;
+    }));
+    rows.push_back(toggle("Airplane mode", [this]() { return m_quick.airplane; }, [this]() {
+        if (setAirplaneMode(!m_quick.airplane)) m_quick.airplane = !m_quick.airplane;
+        else say("Airplane mode didn't change.");
+    }));
+    if (m_quick.brightness >= 0.f)
+        rows.push_back(slider("Brightness", [this]() { return static_cast<int>(std::lround(m_quick.brightness * 100.f)); },
+            [this](int v) {
+                m_quick.brightness = static_cast<float>(std::max(5, v)) / 100.f;
+                setBrightness(m_quick.brightness);
+            }));
+    rows.push_back(slider("Music", [this]() { return m_settings.musicVolume; }, [this](int v) {
+        m_settings.musicVolume = v;
+        m_audio.setMusic(m_settings.music, v);
+        m_settings.save();
+    }));
+    rows.push_back(slider("Sounds", [this]() { return m_settings.soundVolume; }, [this](int v) {
+        m_settings.soundVolume = v;
+        m_audio.setSounds(m_settings.sounds, v);
+        m_settings.save();
+    }));
+    rows.push_back(info("Playing", [this]() {
+        const std::string t = m_audio.trackName();
+        return m_settings.music && !t.empty() ? t : std::string("Nothing");
+    }));
+    MenuItem next = action("Next song", [this]() {
+        m_settings.music = true;
+        m_audio.skip(1);
+        m_settings.save();
+    });
+    next.stay = true;
+    rows.push_back(std::move(next));
+    rows.push_back(toggle("Repeat song", [this]() { return m_settings.repeat; }, [this]() {
+        m_settings.repeat = !m_settings.repeat;
+        m_audio.setRepeat(m_settings.repeat);
+        m_settings.save();
+    }));
+    for (MenuItem& p : powerItems()) rows.push_back(std::move(p));
+    m_quickRows = std::move(rows);
+    m_quickSel = 0;
+    m_quickOpen = true;
+    m_quickIn = m_settings.motion ? 0.f : 1.f;
+    m_audio.play("show_modal");
 }
 
 void CardsActivity::openMusic() {
@@ -1592,6 +1699,11 @@ void CardsActivity::openMusic() {
     items.push_back(toggle("Shuffle", [this]() { return m_settings.shuffle; }, [this]() {
         m_settings.shuffle = !m_settings.shuffle;
         m_audio.setShuffle(m_settings.shuffle);
+        m_settings.save();
+    }));
+    items.push_back(toggle("Repeat this song", [this]() { return m_settings.repeat; }, [this]() {
+        m_settings.repeat = !m_settings.repeat;
+        m_audio.setRepeat(m_settings.repeat);
         m_settings.save();
     }));
     items.push_back(slider("Volume", [this]() { return m_settings.musicVolume; }, [this](int v) {
@@ -1784,6 +1896,11 @@ void CardsActivity::buildSettings() {
         m_audio.setShuffle(m_settings.shuffle);
         save();
     }));
+    sound.rows.push_back(toggle("Repeat song", [this]() { return m_settings.repeat; }, [this, save]() {
+        m_settings.repeat = !m_settings.repeat;
+        m_audio.setRepeat(m_settings.repeat);
+        save();
+    }, "Play the same song again"));
     sound.rows.push_back(toggle("Sounds", [this]() { return m_settings.sounds; }, [this, save]() {
         m_settings.sounds = !m_settings.sounds;
         m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
@@ -2229,19 +2346,26 @@ void CardsActivity::keepTextCachesSmall() {
 // ---------------------------------------------------------------- input: popups and settings
 
 bool CardsActivity::updatePopup() {
+    if (m_menu.empty()) return false;
+    listInput(m_menu, m_menuSel, [this]() { m_menu.clear(); });
+    return true;
+}
+
+void CardsActivity::listInput(std::vector<MenuItem>& items, int& sel, const std::function<void()>& close) {
     auto& in = app().input();
     using B = nxui::Button;
-    const int n = static_cast<int>(m_menu.size());
-    if (n == 0) return false;
-    if ((in.isDown(B::DUp) || in.isDown(B::LStickU)) && m_menuSel > 0) {
-        --m_menuSel;
+    const int n = static_cast<int>(items.size());
+    if (n == 0) return;
+    sel = std::clamp(sel, 0, n - 1);
+    if ((in.isDown(B::DUp) || in.isDown(B::LStickU)) && sel > 0) {
+        --sel;
         m_audio.play("navigation");
     }
-    if ((in.isDown(B::DDown) || in.isDown(B::LStickD)) && m_menuSel < n - 1) {
-        ++m_menuSel;
+    if ((in.isDown(B::DDown) || in.isDown(B::LStickD)) && sel < n - 1) {
+        ++sel;
         m_audio.play("navigation");
     }
-    MenuItem& item = m_menu[(size_t)m_menuSel];
+    MenuItem& item = items[(size_t)sel];
     const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL);
     const bool right = in.isDown(B::DRight) || in.isDown(B::LStickR);
     if ((left || right) && (item.kind == MenuItem::Choice || item.kind == MenuItem::Slider) && item.change) {
@@ -2249,22 +2373,21 @@ bool CardsActivity::updatePopup() {
         m_audio.play("navigation");
     }
     if (in.isDown(B::B)) {
-        m_menu.clear();
         m_audio.play("hide_modal");
-        return true;
+        close();
+        return;
     }
     if (in.isDown(B::A)) {
         if (item.kind == MenuItem::Toggle || item.kind == MenuItem::Choice || item.kind == MenuItem::Slider) {
             if (item.change) item.change(1);
             m_audio.play(item.kind == MenuItem::Toggle && item.level && item.level() < 0.5f ? "toggle_off" : "toggle_on");
         } else if (item.kind == MenuItem::Action && item.run) {
-            auto run = item.run;
-            if (!item.stay) m_menu.clear();
+            auto run = item.run; // close() may take the list (and the row) away
+            if (!item.stay) close();
             else m_audio.play("activation");
             run();
         }
     }
-    return true;
 }
 
 bool CardsActivity::updateSheet(float) {
@@ -2416,6 +2539,28 @@ bool CardsActivity::handleTouch() {
         }
         return true;
     }
+    if (m_quickOpen) {
+        if (!in.touchUp()) return in.isTouching();
+        nxui::Rect panel;
+        float rowH = 50.f;
+        quickGeometry(m_quickRows.size(), 0.f, panel, rowH);
+        if (!panel.contains(x, y)) {
+            m_quickOpen = false;
+            m_audio.play("hide_modal");
+            return true;
+        }
+        const int row = static_cast<int>((y - panel.y - 90.f) / rowH);
+        if (y < panel.y + 90.f || row < 0 || row >= static_cast<int>(m_quickRows.size())) return true;
+        m_quickSel = row;
+        MenuItem& item = m_quickRows[(size_t)row];
+        const nxui::Rect r{panel.x + 12.f, panel.y + 90.f + rowH * static_cast<float>(row), panel.width - 24.f, rowH - 6.f};
+        if (tapRow(item, r, r.x + r.width - 18.f - 150.f, 150.f) && item.run) {
+            auto run = item.run;
+            if (!item.stay) m_quickOpen = false;
+            run();
+        }
+        return true;
+    }
     if (!m_menu.empty()) {
         if (!in.touchUp()) return in.isTouching();
         nxui::Rect box;
@@ -2540,6 +2685,7 @@ void CardsActivity::onUpdate(float dt) {
     step(m_bgFade, 0.45f);
     step(m_sheetIn, 0.24f);
     step(m_sheetRowsIn, 0.22f);
+    step(m_quickIn, 0.22f);
 #ifdef SWITCHU_MENU
     step(m_newsIn, 0.24f);
 #endif
@@ -2559,6 +2705,28 @@ void CardsActivity::onUpdate(float dt) {
     if (m_listJob.valid() && !m_moving && !m_leaving
         && m_listJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         takeLists(m_listJob.get());
+
+    // An NRO forwarder was uninstalled (or wasn't).
+    if (m_deleteJob.valid() && m_deleteJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const std::uint32_t rc = m_deleteJob.get();
+        if (R_SUCCEEDED(rc)) {
+            switchu::control_cache::remove(m_deleteId);
+            auto& page = m_pages[kHomebrew];
+            const std::uint64_t id = m_deleteId;
+            page.erase(std::remove_if(page.begin(), page.end(), [id](const Game& x) { return x.id == id; }), page.end());
+            m_sels[kHomebrew] = std::clamp(m_sels[kHomebrew], 0, std::max(0, static_cast<int>(page.size()) - 1));
+            if (m_page == kHomebrew) m_scroll = static_cast<float>(sel());
+            saveOrder(kHomebrew);
+            saveLists(m_pages[kGames], m_pages[kHomebrew]);
+            m_audio.play("toggle_off");
+            say(m_deleteName + " was deleted.");
+            wantArt();
+        } else {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), " (0x%X).", rc);
+            say("Couldn't delete " + m_deleteName + buf);
+        }
+    }
 
     // BrowseNX arrived (or didn't).
     if (m_browserJob.valid() && m_browserJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -2683,6 +2851,22 @@ void CardsActivity::onUpdate(float dt) {
         updateSheet(dt);
         return;
     }
+    if (m_quickOpen) {
+        if (in.isDown(B::R) || in.isDown(B::Plus)) {
+            m_quickOpen = false;
+            m_audio.play("hide_modal");
+            return;
+        }
+        if ((m_quickRefreshIn -= dt) <= 0.f) { // the battery and the chip's temperature
+            m_quickRefreshIn = 3.f;
+            u32 charge = 0;
+            if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) m_quick.battery = static_cast<int>(charge);
+            PsmChargerType charger = PsmChargerType_Unconnected;
+            if (R_SUCCEEDED(psmGetChargerType(&charger))) m_quick.charging = charger != PsmChargerType_Unconnected;
+        }
+        listInput(m_quickRows, m_quickSel, [this]() { m_quickOpen = false; });
+        return;
+    }
     if (!m_menu.empty()) {
         updatePopup();
         return;
@@ -2760,9 +2944,7 @@ void CardsActivity::onUpdate(float dt) {
     if (in.isDown(B::Y)) activateTop(kTopSort);
     if (in.isDown(B::Minus)) openNotifications();
     if (in.isDown(B::L)) openDiscord();
-#ifdef SWITCHU_MENU
-    if (in.isDown(B::R)) openNews();
-#endif
+    if (in.isDown(B::R)) openQuick();
     if (in.isDown(B::ZL)) switchPage(-1);
     if (in.isDown(B::ZR)) switchPage(1);
 }
@@ -2814,6 +2996,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     }
     drawPopup(r);
     drawSheet(r);
+    drawQuick(r);
 #ifdef SWITCHU_MENU
     drawNews(r);
 #endif
@@ -3338,8 +3521,8 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
         }
         default: {
             const std::string v = item.value ? item.value() : std::string();
-            if (!v.empty()) {
-                const float maxV = wide ? 300.f : 200.f;
+            if (!v.empty()) { // as much room as the label leaves (a song's whole title)
+                const float maxV = std::max(120.f, right - x - measured(m_fPill, item.label).x - 30.f);
                 const std::string shown = fit(m_fPill, v, maxV);
                 textMid(r, m_fPill, shown, right - measured(m_fPill, shown).x, cy,
                         item.kind == MenuItem::Info ? kMuted.withAlpha(a) : blue);
@@ -3393,6 +3576,33 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
     for (size_t i = 0; i < m_menu.size(); ++i) {
         const nxui::Rect row{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(i), box.width - 28.f, rowH - 6.f};
         drawRow(r, m_menu[i], row, static_cast<int>(i) == m_menuSel, a, false);
+    }
+}
+
+void CardsActivity::drawQuick(nxui::Renderer& r) {
+    if (!m_quickOpen) return;
+    const float a = easeOut(m_quickIn);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.30f * a));
+    nxui::Rect panel;
+    float rowH = 50.f;
+    quickGeometry(m_quickRows.size(), (1.f - a) * 480.f, panel, rowH);
+    frost(r, panel, 30.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.88f * a));
+    r.drawRoundedRectOutline(panel, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 30.f, 1.5f);
+    r.drawGradientRect({panel.x + 2.f, panel.y + 2.f, panel.width - 4.f, 70.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+                       nxui::Color(1.f, 1.f, 1.f, 0.f));
+    textMid(r, m_fLabel, "Quick Settings", panel.x + 26.f, panel.y + 30.f, kWhite.withAlpha(a));
+    // The battery and how warm the console is.
+    std::string status = m_quick.battery < 0 ? std::string() : "Battery " + std::to_string(m_quick.battery) + "%";
+    if (m_quick.charging) status += " (charging)";
+    if (m_quick.temperature >= 0) {
+        if (!status.empty()) status += "      ";
+        status += "Chip " + std::to_string(m_quick.temperature) + "\xC2\xB0" "C, "
+                + (m_quick.temperature >= 60 ? "hot" : m_quick.temperature >= 48 ? "warm" : "cool");
+    }
+    textMid(r, m_fBody, status, panel.x + 26.f, panel.y + 62.f, kMuted.withAlpha(0.85f * a));
+    for (size_t i = 0; i < m_quickRows.size(); ++i) {
+        const nxui::Rect row{panel.x + 12.f, panel.y + 90.f + rowH * static_cast<float>(i), panel.width - 24.f, rowH - 6.f};
+        drawRow(r, m_quickRows[i], row, static_cast<int>(i) == m_quickSel, a, false);
     }
 }
 

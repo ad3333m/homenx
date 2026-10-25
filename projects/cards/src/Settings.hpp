@@ -14,6 +14,7 @@ struct Settings {
     bool music = true;
     int musicVolume = 60;     // 0..100
     bool shuffle = false;
+    bool repeat = false;      // the same song again
     bool sounds = true;
     int soundVolume = 80;     // 0..100
     bool players = true;      // Nextendo's green dots
@@ -40,6 +41,7 @@ struct Settings {
             music = j.value("music", music);
             musicVolume = j.value("musicVolume", musicVolume);
             shuffle = j.value("shuffle", shuffle);
+            repeat = j.value("repeat", repeat);
             sounds = j.value("sounds", sounds);
             soundVolume = j.value("soundVolume", soundVolume);
             players = j.value("players", players);
@@ -63,7 +65,7 @@ struct Settings {
     void save() const {
         std::error_code ec;
         std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
-        nlohmann::json j = {{"music", music}, {"musicVolume", musicVolume}, {"shuffle", shuffle},
+        nlohmann::json j = {{"music", music}, {"musicVolume", musicVolume}, {"shuffle", shuffle}, {"repeat", repeat},
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},

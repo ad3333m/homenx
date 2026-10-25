@@ -147,7 +147,12 @@ private:
     void openSettings(int section = 0);
     void buildSettings();
     void openPower();
+    std::vector<MenuItem> powerItems(); // Sleep, Restart, Shut down, Reboot to Hekate
     void openMusic();
+    void openQuick();                   // R: Quick Settings, a glass panel on the right
+    void drawQuick(nxui::Renderer& r);
+    // Up / down, left / right, A and B on a list of rows; close() shuts it.
+    void listInput(std::vector<MenuItem>& items, int& sel, const std::function<void()>& close);
     void openUsers();
     void openNotifications();
     void startMove();
@@ -256,6 +261,9 @@ private:
     int m_playersTotal = -1;                 // -1: not known yet
     nxui::Rect m_userHit{}, m_playersHit{};  // in the pill, for touch
     std::future<bool> m_browserJob;          // BrowseNX downloading
+    std::future<std::uint32_t> m_deleteJob;  // an NRO forwarder being uninstalled (its Result)
+    std::uint64_t m_deleteId = 0;
+    std::string m_deleteName;
 
     // Popups: a list (menu, power, music, users, a game's options), or the notifications.
     std::string m_menuTitle;
@@ -266,6 +274,13 @@ private:
     std::string m_message;
     float m_messageFor = 0.f;
     std::vector<std::unique_ptr<nxui::Texture>> m_userPictures;
+
+    // Quick Settings (R).
+    bool m_quickOpen = false;
+    float m_quickIn = 0.f, m_quickRefreshIn = 0.f;
+    int m_quickSel = 0;
+    std::vector<MenuItem> m_quickRows;
+    QuickStatus m_quick;
 
     // Settings: sections on the left, their rows on the right.
     std::vector<Section> m_sheet;

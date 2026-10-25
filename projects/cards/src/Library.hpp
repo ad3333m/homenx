@@ -97,6 +97,18 @@ bool deleteUser(AccountUidLike uid, std::string& error);
 std::vector<Game> listSystem();
 bool openSystem(const std::string& action, AccountUidLike uid, std::string& error);
 
+// Quick Settings (R): the console's switches, as HomeNX's Quick Settings reads them.
+struct QuickStatus {
+    bool wifi = true, airplane = false, charging = false;
+    float brightness = -1.f; // 0..1, -1 = not known
+    int battery = -1;        // %
+    int temperature = -1;    // the chip, degrees C
+};
+QuickStatus readQuickStatus();
+bool setWifi(bool on);         // turning it on also ends Airplane mode
+bool setAirplaneMode(bool on);
+void setBrightness(float level); // 0..1
+
 // Power. Hekate: the payload is handed to Atmosphere and this process (hbl)
 // reboots, which Atmosphere sends to it. Only the first Switch model can.
 enum class Power { Sleep, Shutdown, Restart, Hekate };

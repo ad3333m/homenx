@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <strings.h>
 #include "homebrew/HomebrewStore.hpp"
+#include <switchu/hekate_rtc.hpp>
 #include <algorithm>
 #include <filesystem>
 #include <cstring>
@@ -840,6 +841,25 @@ std::string AppletLauncher::hekatePayload() {
 }
 
 bool AppletLauncher::rebootToHekate() {
+    // Newer models (no payload reboots): hekate's menu is asked for through
+    // the power chip's clock, then the console restarts as usual (the modchip
+    // starts hekate). This is how Ultrahand does it too.
+    if (!canRebootToPayload()) {
+        const bool asked = switchu::hekate_rtc::requestMenuOnNextBoot();
+        DebugLog::log("[launcher] hekate via the RTC: %s", asked ? "asked" : "FAILED");
+        if (!asked) return false;
+#ifdef SWITCHU_MENU
+        if (!preparePowerAction()) return false;
+        return R_SUCCEEDED(switchu::menu::smi_cmd::reboot());
+#else
+        Result rc = spsmInitialize();
+        if (R_SUCCEEDED(rc)) {
+            rc = spsmShutdown(true);
+            spsmExit();
+        }
+        return R_SUCCEEDED(rc);
+#endif
+    }
     static constexpr size_t kPayloadMax = 0x24000; // what fits in IRAM
     alignas(0x1000) static u8 payload[kPayloadMax];
     const std::string path = hekatePayload();

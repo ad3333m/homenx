@@ -1,7 +1,7 @@
 **CardsNX** is a HOME screen for your Switch games: a row of box-art cards over the chosen game's artwork, a status bar on top and a frosted glass panel with Play below.
 
 ### Use it as HOME
-Open **NXToggle** (HomeNX's Toggle, renamed), choose **Use CardsNX as HOME**, then restart. CardsNX is then the console's HOME screen. Games start and resume through HomeNX, Discord opens with L and News opens with R, and Settings > Updates installs new builds. Pick **Use HomeNX's HOME** in NXToggle to go back. NXToggle also still turns HOME off and on and updates HomeNX.
+Open **NXToggle** (HomeNX's Toggle, renamed), choose **Use CardsNX as HOME**, then restart. CardsNX is then the console's HOME screen. Games start and resume through HomeNX, Discord opens with L, Quick Settings with R, and Settings > Updates installs new builds. Pick **Use HomeNX's HOME** in NXToggle to go back. NXToggle also still turns HOME off and on and updates HomeNX.
 
 ### Or as an app
 Put `CardsNX.nro` in `sdmc:/switch/CardsNX/` (HomeNX installs it there for you). Open it as an application (from HomeNX's HOME, or hold R while starting a game) so it can start games.
@@ -22,7 +22,7 @@ Put `CardsNX.nro` in `sdmc:/switch/CardsNX/` (HomeNX installs it there for you).
 | + or X | Options: Play, Move, Delete (.nro), Close software |
 | Y | Change sort (Title, My Order, Last Played, Most Played) |
 | L | Discord |
-| R | News (as HOME) |
+| R | Quick Settings (Wi-Fi, Airplane mode, brightness, volumes, the song, power) |
 | ZL / ZR | Games / Homebrew / Nintendo |
 | Up / Down | Top bar and panel buttons |
 | − | Notifications |

@@ -2,6 +2,7 @@
 
 #include <switch.h>
 #include <switchu/control_cache.hpp>
+#include <switchu/hekate_rtc.hpp>
 #include <switchu/ns_ext.hpp>
 #include "homebrew/HomebrewStore.hpp"
 #ifdef SWITCHU_MENU
@@ -697,6 +698,82 @@ bool openSystem(const std::string& action, AccountUidLike user, std::string& err
     return true;
 }
 
+namespace {
+// nifm:s's general service: wireless communication on/off is Airplane mode
+// (commands 16 set / 17 get), as HomeNX's Quick Settings does it.
+struct NifmSystem {
+    Service root{}, general{};
+    bool open() {
+        if (R_FAILED(smGetService(&root, "nifm:s")) || R_FAILED(serviceConvertToDomain(&root))) return false;
+        const u64 reserved = 0;
+        serviceAssumeDomain(&root);
+        return R_SUCCEEDED(serviceDispatchIn(&root, 5, reserved, .in_send_pid = true, .out_num_objects = 1,
+                                             .out_objects = &general));
+    }
+    ~NifmSystem() {
+        serviceClose(&general);
+        serviceClose(&root);
+    }
+};
+} // namespace
+
+QuickStatus readQuickStatus() {
+    QuickStatus q;
+    if (R_SUCCEEDED(setsysInitialize())) {
+        bool on = true;
+        if (R_SUCCEEDED(setsysGetWirelessLanEnableFlag(&on))) q.wifi = on;
+        setsysExit();
+    }
+    {
+        NifmSystem nifm;
+        u8 wireless = 1;
+        if (nifm.open()) {
+            serviceAssumeDomain(&nifm.general);
+            if (R_SUCCEEDED(serviceDispatchOut(&nifm.general, 17, wireless))) q.airplane = (wireless & 1) == 0;
+        }
+    }
+    if (R_SUCCEEDED(lblInitialize())) {
+        float level = 0.f;
+        if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&level))) q.brightness = std::clamp(level, 0.f, 1.f);
+        lblExit();
+    }
+    u32 charge = 0;
+    if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) q.battery = static_cast<int>(charge);
+    PsmChargerType charger = PsmChargerType_Unconnected;
+    if (R_SUCCEEDED(psmGetChargerType(&charger))) q.charging = charger != PsmChargerType_Unconnected;
+    if (R_SUCCEEDED(tsInitialize())) {
+        s32 t = 0;
+        if (R_SUCCEEDED(tsGetTemperature(TsLocation_External, &t))) q.temperature = t > 1000 ? t / 1000 : t;
+        tsExit();
+    }
+    return q;
+}
+
+bool setAirplaneMode(bool on) {
+    NifmSystem nifm;
+    if (!nifm.open()) return false;
+    const u8 wireless = on ? 0 : 1;
+    serviceAssumeDomain(&nifm.general);
+    return R_SUCCEEDED(serviceDispatchIn(&nifm.general, 16, wireless));
+}
+
+bool setWifi(bool on) {
+    if (on) setAirplaneMode(false);
+    bool ok = false;
+    if (R_SUCCEEDED(setsysInitialize())) {
+        ok = R_SUCCEEDED(setsysSetWirelessLanEnableFlag(on));
+        setsysExit();
+    }
+    return ok;
+}
+
+void setBrightness(float level) {
+    if (R_SUCCEEDED(lblInitialize())) {
+        lblSetCurrentBrightnessSetting(std::clamp(level, 0.05f, 1.f));
+        lblExit();
+    }
+}
+
 std::vector<User> listUsers() {
     std::vector<User> out;
     AccountUid uids[8] = {};
@@ -774,9 +851,19 @@ bool power(Power what, std::string& error) {
             return false;
         }
         case Power::Hekate: {
-            if (!canRebootToPayload()) {
-                error = "Hekate needs an unpatched Switch.";
-                return false;
+            if (!canRebootToPayload()) { // newer models: through the power chip's clock (as Ultrahand)
+                if (!switchu::hekate_rtc::requestMenuOnNextBoot()) {
+                    error = "The power chip didn't take the request for Hekate's menu.";
+                    return false;
+                }
+                if (askHome(6)) return true; // HOME restarts (saving first)
+                Result rc = spsmInitialize();
+                if (R_SUCCEEDED(rc)) {
+                    rc = spsmShutdown(true);
+                    spsmExit();
+                }
+                error = "The restart didn't start.";
+                return R_SUCCEEDED(rc);
             }
             static constexpr size_t kPayloadMax = 0x24000; // what fits in IRAM
             alignas(0x1000) static u8 payload[kPayloadMax];

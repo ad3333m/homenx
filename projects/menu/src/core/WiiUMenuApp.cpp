@@ -1564,11 +1564,7 @@ void WiiUMenuApp::confirmRebootToHekate() {
     m_audio.playSfx(Sfx::ModalShow);
     m_dialogReturnFocus = focusManager().current();
     m_dialog->show(i18n.tr("power.hekate", "Reboot to Hekate"),
-                   AppletLauncher::canRebootToPayload()
-                       ? i18n.tr("power.hekate_confirm", "The console restarts into Hekate's menu. Anything open closes.")
-                       : i18n.tr("power.hekate_mariko",
-                                 "This Switch model can't restart into a payload (only the first, unpatched model "
-                                 "can). It restarts normally; Hekate shows if your modchip starts it without autoboot."),
+                   i18n.tr("power.hekate_confirm", "The console restarts into Hekate's menu. Anything open closes."),
                    {{i18n.tr("power.hekate_go", "Reboot"), [this]() { startRebootToHekate(); }, true},
                     {i18n.tr("button.cancel", "Cancel"), [] {}, true}},
                    0, {});
@@ -1595,6 +1591,13 @@ void WiiUMenuApp::startRebootToHekate() {
     if (m_launcher.rebootToHekate()) return;
     if (!m_dialog) return;
     auto& i18n = nxui::I18n::instance();
+    if (!AppletLauncher::canRebootToPayload()) {
+        m_dialog->show(i18n.tr("power.hekate", "Reboot to Hekate"),
+                       i18n.tr("power.hekate_rtc_failed", "The power chip didn't take the request for Hekate's menu."),
+                       {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
+        return;
+    }
     const bool missing = AppletLauncher::hekatePayload().empty();
     m_dialog->show(i18n.tr("power.hekate", "Reboot to Hekate"),
                    missing ? i18n.tr("power.hekate_missing",
