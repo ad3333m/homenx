@@ -540,7 +540,11 @@ bool CardsActivity::onCreate() {
 #ifdef SWITCHU_MENU
     // Back from a game (not at boot): the game you were playing is chosen.
     if (!m_atBoot) {
-        m_backTo = m_startSuspended ? m_startSuspended : std::strtoull(m_settings.lastGame.c_str(), nullptr, 16);
+        // The game open now, else the last thing started from here. An .nro runs in
+        // a game's place (its host), so when the last thing was an .nro, it's the .nro.
+        const std::uint64_t last = std::strtoull(m_settings.lastGame.c_str(), nullptr, 16);
+        const bool lastWasNro = (last >> 56) == 0xFF;
+        m_backTo = m_startSuspended && !lastWasNro ? m_startSuspended : last;
         if (m_backTo) selectById(m_backTo);
         // Its play time now (the rest of the lists stay as they were).
         for (auto& page : m_pages)
