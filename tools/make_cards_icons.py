@@ -184,6 +184,111 @@ def arrows():
     return im
 
 
+def wifi():
+    im = canvas(); d = ImageDraw.Draw(im)
+    for r in (34, 22):
+        d.arc([q(48 - r), q(66 - r), q(48 + r), q(66 + r)], 225, 315, fill=W, width=q(7))
+    d.ellipse([q(42), q(60), q(54), q(72)], fill=W)
+    return im
+
+
+def airplane():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(44), q(12), q(52), q(80)], radius=q(4), fill=W)              # the body
+    d.polygon([(q(48), q(34)), (q(84), q(54)), (q(84), q(60)), (q(48), q(50)), (q(12), q(60)), (q(12), q(54))], fill=W)
+    d.polygon([(q(48), q(68)), (q(64), q(78)), (q(64), q(83)), (q(48), q(78)), (q(32), q(83)), (q(32), q(78))], fill=W)
+    return im
+
+
+def sun():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.ellipse([q(33), q(33), q(63), q(63)], fill=W)
+    for i in range(8):
+        a = i * math.pi / 4
+        x0, y0 = 48 + 24 * math.cos(a), 48 + 24 * math.sin(a)
+        x1, y1 = 48 + 36 * math.cos(a), 48 + 36 * math.sin(a)
+        d.line([(q(x0), q(y0)), (q(x1), q(y1))], fill=W, width=q(6))
+    return im
+
+
+def speaker():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.polygon([(q(14), q(38)), (q(30), q(38)), (q(50), q(20)), (q(50), q(76)), (q(30), q(58)), (q(14), q(58))], fill=W)
+    d.arc([q(46), q(30), q(70), q(66)], 300, 60, fill=W, width=q(6))
+    d.arc([q(48), q(20), q(84), q(76)], 300, 60, fill=W, width=q(6))
+    return im
+
+
+def prev():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rectangle([q(20), q(24), q(28), q(72)], fill=W)
+    d.polygon([(q(76), q(24)), (q(76), q(72)), (q(30), q(48))], fill=W)
+    return im
+
+
+def next_():
+    return prev().transpose(Image.FLIP_LEFT_RIGHT)
+
+
+def pause():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(26), q(20), q(42), q(76)], radius=q(4), fill=W)
+    d.rounded_rectangle([q(54), q(20), q(70), q(76)], radius=q(4), fill=W)
+    return im
+
+
+def repeat():
+    im = canvas(); d = ImageDraw.Draw(im)
+    w = q(6)
+    d.rounded_rectangle([q(16), q(28), q(80), q(70)], radius=q(16), outline=W, width=w)
+    d.rectangle([q(40), q(20), q(56), q(36)], fill=(0, 0, 0, 0))        # a gap at the top...
+    d.polygon([(q(58), q(18)), (q(70), q(28)), (q(58), q(38))], fill=W)  # ...with its arrow
+    d.rectangle([q(40), q(62), q(56), q(78)], fill=(0, 0, 0, 0))
+    d.polygon([(q(38), q(60)), (q(26), q(70)), (q(38), q(80))], fill=W)
+    return im
+
+
+def shuffle():
+    im = canvas(); d = ImageDraw.Draw(im)
+    w = q(6)
+    d.line([(q(14), q(28)), (q(34), q(28)), (q(60), q(66)), (q(74), q(66))], fill=W, width=w, joint="curve")
+    d.line([(q(14), q(66)), (q(34), q(66)), (q(60), q(28)), (q(74), q(28))], fill=W, width=w, joint="curve")
+    for y in (28, 66):
+        d.polygon([(q(72), q(y - 10)), (q(84), q(y)), (q(72), q(y + 10))], fill=W)
+    return im
+
+
+def playlist():
+    im = canvas(); d = ImageDraw.Draw(im)
+    for y in (24, 42, 60):
+        d.rounded_rectangle([q(14), q(y), q(58), q(y + 7)], radius=q(3), fill=W)
+    d.polygon([(q(64), q(56)), (q(64), q(80)), (q(84), q(68))], fill=W)
+    return im
+
+
+def moon():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.ellipse([q(16), q(14), q(80), q(78)], fill=W)
+    d.ellipse([q(36), q(6), q(92), q(62)], fill=(0, 0, 0, 0))
+    return im
+
+
+def restart():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.arc([q(18), q(18), q(78), q(78)], 330, 270, fill=W, width=q(7))
+    d.polygon([(q(48), q(6)), (q(64), q(18)), (q(48), q(30))], fill=W)
+    return im
+
+
+def hekate():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(14), q(14), q(82), q(82)], radius=q(16), outline=W, width=q(6))
+    d.rectangle([q(32), q(28), q(40), q(68)], fill=W)   # an "h"
+    d.rectangle([q(32), q(44), q(62), q(52)], fill=W)
+    d.rectangle([q(56), q(44), q(64), q(68)], fill=W)
+    return im
+
+
 # The Nintendo page's icons, in the style of the Switch HOME's round buttons:
 # a white disc with a coloured drawing (Switch Online: a red disc). 256 px.
 T = 256 * 4
@@ -314,7 +419,10 @@ def app_icon():
 if __name__ == "__main__":
     for name, fn in [("dots", dots), ("sort", sort), ("friends", friends), ("bell", bell), ("gear", gear_outline),
                      ("thermo", thermo), ("tag", tag), ("play", play), ("copy", copy), ("home", home),
-                     ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows)]:
+                     ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows),
+                     ("wifi", wifi), ("airplane", airplane), ("sun", sun), ("speaker", speaker), ("prev", prev),
+                     ("next", next_), ("pause", pause), ("repeat", repeat), ("shuffle", shuffle),
+                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

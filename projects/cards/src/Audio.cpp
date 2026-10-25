@@ -1,6 +1,7 @@
 #include "Audio.hpp"
 
 #include <SDL2/SDL_mixer.h>
+#include <switch.h>
 
 #include <algorithm>
 #include <atomic>
@@ -78,6 +79,54 @@ std::string id3Title(const std::string& path) {
     return {};
 }
 
+// An MP3's length: its Xing/Info frame count if it has one, else its size at
+// the first frame's bit rate. 0 when it can't tell (not an MP3).
+float mp3Seconds(const std::string& path) {
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) return 0.f;
+    const long long fileSize = static_cast<long long>(in.tellg());
+    in.seekg(0);
+    std::vector<unsigned char> b(64 * 1024);
+    in.read(reinterpret_cast<char*>(b.data()), static_cast<std::streamsize>(b.size()));
+    b.resize(static_cast<size_t>(in.gcount()));
+    size_t at = 0;
+    if (b.size() > 10 && b[0] == 'I' && b[1] == 'D' && b[2] == '3')
+        at = 10 + ((b[6] << 21) | (b[7] << 14) | (b[8] << 7) | b[9]);
+    long long audioStart = static_cast<long long>(at);
+    if (at >= b.size()) { // a big tag: read on from after it
+        in.clear();
+        in.seekg(static_cast<std::streamoff>(at));
+        b.assign(4096, 0);
+        in.read(reinterpret_cast<char*>(b.data()), 4096);
+        b.resize(static_cast<size_t>(in.gcount()));
+        at = 0;
+    }
+    for (; at + 4 < b.size(); ++at)
+        if (b[at] == 0xFF && (b[at + 1] & 0xE0) == 0xE0) break;
+    if (at + 4 >= b.size()) return 0.f;
+    const int version = (b[at + 1] >> 3) & 3; // 3 MPEG-1, 2 MPEG-2, 0 MPEG-2.5
+    const int layer = (b[at + 1] >> 1) & 3;   // 1 = Layer III
+    const int rateIndex = (b[at + 2] >> 4) & 15, freqIndex = (b[at + 2] >> 2) & 3;
+    const bool mono = ((b[at + 3] >> 6) & 3) == 3;
+    if (layer != 1 || version == 1 || rateIndex == 0 || rateIndex == 15 || freqIndex == 3) return 0.f;
+    static const int kRates1[] = {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
+    static const int kRates2[] = {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
+    static const int kFreqs[] = {44100, 48000, 32000};
+    const bool mpeg1 = version == 3;
+    const int kbps = (mpeg1 ? kRates1 : kRates2)[rateIndex];
+    const int freq = kFreqs[freqIndex] >> (mpeg1 ? 0 : version == 2 ? 1 : 2);
+    const int samples = mpeg1 ? 1152 : 576;
+    // A Xing/Info frame (variable bit rate): the number of frames.
+    const size_t side = mpeg1 ? (mono ? 17 : 32) : (mono ? 9 : 17);
+    const size_t x = at + 4 + side;
+    if (x + 12 <= b.size() && (std::equal(b.begin() + x, b.begin() + x + 4, "Xing") || std::equal(b.begin() + x, b.begin() + x + 4, "Info"))
+        && (b[x + 7] & 1)) {
+        const unsigned frames = (static_cast<unsigned>(b[x + 8]) << 24) | (b[x + 9] << 16) | (b[x + 10] << 8) | b[x + 11];
+        return static_cast<float>(frames) * samples / freq;
+    }
+    return static_cast<float>(fileSize - audioStart) * 8.f / (kbps * 1000.f);
+}
+
 // Without a tag: "bg_3" -> "Bg 3".
 std::string fromFileName(const std::string& path) {
     std::string s = std::filesystem::path(path).stem().string();
@@ -102,6 +151,7 @@ bool Audio::start() {
     for (const std::string& t : m_tracks) {
         const std::string title = id3Title(t);
         m_titles.push_back(title.empty() ? fromFileName(t) : title);
+        m_lengths.push_back(mp3Seconds(t));
     }
     for (const char* name : {"navigation", "activation", "confirm", "launch_game", "show_modal", "hide_modal",
                              "tab_transition", "toggle_on", "toggle_off"}) {
@@ -151,6 +201,7 @@ void Audio::startTrack(size_t index) {
     m_current = Mix_LoadMUS(m_tracks[index].c_str());
     m_playing = static_cast<long>(index);
     m_track = index + 1;
+    m_position = 0.f;
     if (m_current) {
         Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
         Mix_FadeInMusic(m_current, 1, 600);
@@ -158,6 +209,11 @@ void Audio::startTrack(size_t index) {
 }
 
 void Audio::update() {
+    // Where the song is (for the progress bar): playing time since the last frame.
+    const unsigned long long now = armGetSystemTick();
+    if (m_lastTick && m_open && Mix_PlayingMusic() && !Mix_PausedMusic())
+        m_position += static_cast<float>(armTicksToNs(now - m_lastTick)) / 1e9f;
+    m_lastTick = now;
     if (!m_open || !m_music || m_tracks.empty() || !g_trackEnded.exchange(false)) return;
     if (m_repeat && m_playing >= 0) startTrack(static_cast<size_t>(m_playing));
     else startTrack(m_shuffle && m_tracks.size() > 1 ? static_cast<size_t>(std::rand()) % m_tracks.size() : m_track);
@@ -193,6 +249,31 @@ void Audio::play(const char* sound) {
 
 void Audio::fadeOut(int ms) {
     if (m_open && Mix_PlayingMusic()) Mix_FadeOutMusic(ms);
+}
+
+bool Audio::paused() const {
+    return !m_open || !Mix_PlayingMusic() || Mix_PausedMusic();
+}
+
+void Audio::togglePause() {
+    if (!m_open) return;
+    if (!Mix_PlayingMusic()) { // nothing playing: a song now
+        m_music = true;
+        g_trackEnded = true;
+        return;
+    }
+    if (Mix_PausedMusic()) Mix_ResumeMusic();
+    else Mix_PauseMusic();
+}
+
+float Audio::duration() const {
+    return m_playing >= 0 && m_playing < static_cast<long>(m_lengths.size()) ? m_lengths[(size_t)m_playing] : 0.f;
+}
+
+void Audio::playTrack(size_t index) {
+    if (!m_open || index >= m_tracks.size()) return;
+    m_music = true;
+    startTrack(index);
 }
 
 void Audio::pause() {

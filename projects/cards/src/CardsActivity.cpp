@@ -291,13 +291,37 @@ void popupGeometry(size_t rows, nxui::Rect& box, float& rowH) {
     box = {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h};
 }
 
-// Quick Settings: a panel on the right, its rows below a title and a status line.
-void quickGeometry(size_t rows, float slide, nxui::Rect& panel, float& rowH) {
-    panel = {1280.f - 20.f - 460.f + slide, 10.f, 460.f, 700.f};
-    rowH = std::min(52.f, (panel.height - 90.f - 12.f) / static_cast<float>(std::max<size_t>(1, rows)));
+// Quick Settings: the panel on the right and where its parts sit in it.
+constexpr float kQuickW = 460.f, kQuickH = 700.f, kQuickY = 10.f, kQuickPad = 18.f;
+constexpr float kQStatusY = 58.f, kQStatusH = 58.f, kQPlayerY = 126.f, kQPlayerH = 150.f;
+constexpr float kQSliderY[3] = {286.f, 346.f, 406.f}, kQSliderH = 54.f;
+constexpr float kQToggleY[2] = {466.f, 522.f}, kQToggleH = 48.f, kQPowerY = 580.f, kQPowerH = 100.f;
+constexpr int kQPlayerButtons = 6, kQPowerButtons = 4;
+
+nxui::Rect quickPanel(float slide) { return {1280.f - 20.f - kQuickW + slide, kQuickY, kQuickW, kQuickH}; }
+float quickInnerW() { return kQuickW - kQuickPad * 2.f; }
+// The player's buttons: prev, play / pause, next, repeat, shuffle, playlist.
+nxui::Vec2 quickPlayerButton(const nxui::Rect& p, int i) {
+    const float step = quickInnerW() / kQPlayerButtons;
+    return {p.x + kQuickPad + step * (static_cast<float>(i) + 0.5f), p.y + kQPlayerY + 84.f};
+}
+nxui::Rect quickPowerButton(const nxui::Rect& p, int i) {
+    const float w = (quickInnerW() - 8.f * (kQPowerButtons - 1)) / kQPowerButtons;
+    return {p.x + kQuickPad + (w + 8.f) * static_cast<float>(i), p.y + kQPowerY, w, kQPowerH};
+}
+nxui::Rect quickPlaylist(const nxui::Rect& p, size_t tracks) {
+    const float h = std::min(540.f, 64.f + 46.f * static_cast<float>(std::max<size_t>(1, tracks)));
+    return {p.x - 312.f, p.y + kQPlayerY, 300.f, h};
+}
+std::string clockText(float seconds) {
+    const int s = std::max(0, static_cast<int>(seconds));
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%d:%02d", s / 60, s % 60);
+    return buf;
 }
 
 #ifdef SWITCHU_MENU
+constexpr const char* kNewsReadPath#ifdef SWITCHU_MENU
 constexpr const char* kNewsReadPath = "sdmc:/config/SwitchU/news_read.txt"; // shared with HomeNX's HOME
 #endif
 
@@ -415,7 +439,8 @@ bool CardsActivity::onCreate() {
         || !m_fCount.load(gpu, ren, f7, 21))
         return false;
     for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
-                             "power", "music", "news", "discord", "arrows"}) {
+                             "power", "music", "news", "discord", "arrows", "wifi", "airplane", "sun", "speaker",
+                             "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate"}) {
         auto tex = std::make_unique<nxui::Texture>();
         nxui::GpuDevice::EssentialScope essential; // the buttons always draw
         if (tex->loadFromFile(gpu, ren, std::string(kAssets) + "icons/" + name + ".png", 96))
@@ -1661,63 +1686,195 @@ void CardsActivity::openPower() {
     openMenu("Power", std::move(items));
 }
 
-// R: Quick Settings, as HomeNX's (Wi-Fi, Airplane mode, brightness, volumes,
-// the song, power) in CardsNX's glass.
+// R: Quick Settings, as HomeNX's (the status, the music player, volumes and
+// brightness, Airplane mode and Wi-Fi, power) in CardsNX's glass.
 void CardsActivity::openQuick() {
     m_quick = readQuickStatus();
     m_quickRefreshIn = 3.f;
-    std::vector<MenuItem> rows;
-    rows.push_back(toggle("Wi-Fi", [this]() { return m_quick.wifi && !m_quick.airplane; }, [this]() {
-        const bool on = !(m_quick.wifi && !m_quick.airplane);
-        if (!setWifi(on)) {
-            say("Wi-Fi didn't change.");
-            return;
-        }
-        m_quick.wifi = on;
-        if (on) m_quick.airplane = false;
-    }));
-    rows.push_back(toggle("Airplane mode", [this]() { return m_quick.airplane; }, [this]() {
-        if (setAirplaneMode(!m_quick.airplane)) m_quick.airplane = !m_quick.airplane;
-        else say("Airplane mode didn't change.");
-    }));
-    if (m_quick.brightness >= 0.f)
-        rows.push_back(slider("Brightness", [this]() { return static_cast<int>(std::lround(m_quick.brightness * 100.f)); },
-            [this](int v) {
-                m_quick.brightness = static_cast<float>(std::max(5, v)) / 100.f;
-                setBrightness(m_quick.brightness);
-            }));
-    rows.push_back(slider("Music", [this]() { return m_settings.musicVolume; }, [this](int v) {
-        m_settings.musicVolume = v;
-        m_audio.setMusic(m_settings.music, v);
-        m_settings.save();
-    }));
-    rows.push_back(slider("Sounds", [this]() { return m_settings.soundVolume; }, [this](int v) {
-        m_settings.soundVolume = v;
-        m_audio.setSounds(m_settings.sounds, v);
-        m_settings.save();
-    }));
-    rows.push_back(info("Playing", [this]() {
-        const std::string t = m_audio.trackName();
-        return m_settings.music && !t.empty() ? t : std::string("Nothing");
-    }));
-    MenuItem next = action("Next song", [this]() {
-        m_settings.music = true;
-        m_audio.skip(1);
-        m_settings.save();
-    });
-    next.stay = true;
-    rows.push_back(std::move(next));
-    rows.push_back(toggle("Repeat song", [this]() { return m_settings.repeat; }, [this]() {
-        m_settings.repeat = !m_settings.repeat;
-        m_audio.setRepeat(m_settings.repeat);
-        m_settings.save();
-    }));
-    for (MenuItem& p : powerItems()) rows.push_back(std::move(p));
-    m_quickRows = std::move(rows);
-    m_quickSel = 0;
+    m_quickPower = powerItems();
+    m_quickRow = kQPlayer;
+    m_quickCol = 1; // play / pause
+    m_quickPlaylist = false;
     m_quickOpen = true;
     m_quickIn = m_settings.motion ? 0.f : 1.f;
     m_audio.play("show_modal");
+}
+
+void CardsActivity::quickActivate(int row, int col) {
+    if (row == kQPlayer) {
+        switch (col) {
+            case 0: m_audio.skip(-1); m_settings.music = true; break;
+            case 1:
+                if (!m_settings.music) {
+                    m_settings.music = true;
+                    m_audio.setMusic(true, m_settings.musicVolume);
+                } else {
+                    m_audio.togglePause();
+                }
+                break;
+            case 2: m_audio.skip(1); m_settings.music = true; break;
+            case 3:
+                m_settings.repeat = !m_settings.repeat;
+                m_audio.setRepeat(m_settings.repeat);
+                break;
+            case 4:
+                m_settings.shuffle = !m_settings.shuffle;
+                m_audio.setShuffle(m_settings.shuffle);
+                break;
+            default:
+                m_quickPlaylist = true;
+                m_quickListIn = m_settings.motion ? 0.f : 1.f;
+                m_quickListSel = std::max(0L, m_audio.playing());
+                break;
+        }
+        m_settings.save();
+        m_audio.play("activation");
+    } else if (row == kQAirplane) {
+        if (setAirplaneMode(!m_quick.airplane)) m_quick.airplane = !m_quick.airplane;
+        else say("Airplane mode didn't change.");
+        m_audio.play(m_quick.airplane ? "toggle_on" : "toggle_off");
+    } else if (row == kQWifi) {
+        const bool on = !(m_quick.wifi && !m_quick.airplane);
+        if (setWifi(on)) {
+            m_quick.wifi = on;
+            if (on) m_quick.airplane = false;
+        } else {
+            say("Wi-Fi didn't change.");
+        }
+        m_audio.play(on ? "toggle_on" : "toggle_off");
+    } else if (row == kQPower && col >= 0 && col < static_cast<int>(m_quickPower.size())) {
+        auto run = m_quickPower[(size_t)col].run;
+        m_quickOpen = false;
+        if (run) run();
+    }
+}
+
+void CardsActivity::quickChange(int row, int delta) {
+    if (row == kQMusic) {
+        m_settings.musicVolume = std::clamp(m_settings.musicVolume + delta * 10, 0, 100);
+        m_audio.setMusic(m_settings.music, m_settings.musicVolume);
+    } else if (row == kQSounds) {
+        m_settings.soundVolume = std::clamp(m_settings.soundVolume + delta * 10, 0, 100);
+        m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
+    } else if (row == kQBrightness && m_quick.brightness >= 0.f) {
+        m_quick.brightness = std::clamp(m_quick.brightness + static_cast<float>(delta) * 0.1f, 0.05f, 1.f);
+        setBrightness(m_quick.brightness);
+    } else {
+        return;
+    }
+    m_settings.save();
+    m_audio.play("navigation");
+}
+
+void CardsActivity::updateQuick() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    const bool up = in.isDown(B::DUp) || in.isDown(B::LStickU), down = in.isDown(B::DDown) || in.isDown(B::LStickD);
+    const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
+    if ((m_quickRefreshIn -= 1.f / 60.f) <= 0.f) { // the battery and the chip's temperature
+        m_quickRefreshIn = 3.f;
+        u32 charge = 0;
+        if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) m_quick.battery = static_cast<int>(charge);
+        PsmChargerType charger = PsmChargerType_Unconnected;
+        if (R_SUCCEEDED(psmGetChargerType(&charger))) m_quick.charging = charger != PsmChargerType_Unconnected;
+    }
+    if (m_quickPlaylist) { // the playlist: choose a song
+        const int n = static_cast<int>(m_audio.titles().size());
+        if (up && m_quickListSel > 0) { --m_quickListSel; m_audio.play("navigation"); }
+        if (down && m_quickListSel < n - 1) { ++m_quickListSel; m_audio.play("navigation"); }
+        if (in.isDown(B::A) && n > 0) {
+            m_settings.music = true;
+            m_settings.save();
+            m_audio.playTrack(static_cast<size_t>(m_quickListSel));
+            m_audio.play("activation");
+        }
+        if (in.isDown(B::B) || left) {
+            m_quickPlaylist = false;
+            m_audio.play("hide_modal");
+        }
+        return;
+    }
+    if (in.isDown(B::B) || in.isDown(B::R) || in.isDown(B::Plus)) {
+        m_quickOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    if (up && m_quickRow > 0) { --m_quickRow; m_audio.play("navigation"); }
+    if (down && m_quickRow < kQRows - 1) { ++m_quickRow; m_audio.play("navigation"); }
+    const int cols = m_quickRow == kQPlayer ? kQPlayerButtons : m_quickRow == kQPower ? kQPowerButtons : 1;
+    m_quickCol = std::clamp(m_quickCol, 0, cols - 1);
+    if (left || right) {
+        if (cols > 1) {
+            const int next = std::clamp(m_quickCol + (left ? -1 : 1), 0, cols - 1);
+            if (next != m_quickCol) m_audio.play("navigation");
+            m_quickCol = next;
+        } else {
+            quickChange(m_quickRow, left ? -1 : 1);
+        }
+    }
+    if (in.isDown(B::A)) quickActivate(m_quickRow, m_quickCol);
+}
+
+// Touch: a button, a switch, a slider (where the finger is), a song; beside it closes.
+bool CardsActivity::quickTouch() {
+    auto& in = app().input();
+    if (!in.touchUp()) return in.isTouching();
+    const float x = in.touchX(), y = in.touchY();
+    const nxui::Rect p = quickPanel(0.f);
+    if (m_quickPlaylist) {
+        const nxui::Rect list = quickPlaylist(p, m_audio.titles().size());
+        if (list.contains(x, y)) {
+            const int row = static_cast<int>((y - list.y - 56.f) / 46.f);
+            if (y >= list.y + 56.f && row >= 0 && row < static_cast<int>(m_audio.titles().size())) {
+                m_quickListSel = row;
+                m_settings.music = true;
+                m_settings.save();
+                m_audio.playTrack(static_cast<size_t>(row));
+            }
+            return true;
+        }
+        m_quickPlaylist = false;
+        if (!p.contains(x, y)) return true;
+    }
+    if (!p.contains(x, y)) {
+        m_quickOpen = false;
+        m_audio.play("hide_modal");
+        return true;
+    }
+    for (int i = 0; i < kQPlayerButtons; ++i) {
+        const nxui::Vec2 c = quickPlayerButton(p, i);
+        if ((x - c.x) * (x - c.x) + (y - c.y) * (y - c.y) <= 28.f * 28.f) {
+            m_quickRow = kQPlayer;
+            m_quickCol = i;
+            quickActivate(kQPlayer, i);
+            return true;
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        const nxui::Rect row{p.x + kQuickPad, p.y + kQSliderY[i], quickInnerW(), kQSliderH};
+        if (!row.contains(x, y)) continue;
+        m_quickRow = kQMusic + i;
+        const float barX = row.x + 52.f, barW = row.width - 72.f;
+        const int want = static_cast<int>(std::lround(clamp01((x - barX) / barW) * 10.f)) * 10;
+        const int now = i == 0 ? m_settings.musicVolume : i == 1 ? m_settings.soundVolume
+                                                                 : static_cast<int>(std::lround(m_quick.brightness * 100.f));
+        if (want != now) quickChange(kQMusic + i, (want - now) / 10);
+        return true;
+    }
+    for (int i = 0; i < 2; ++i)
+        if (nxui::Rect{p.x + kQuickPad, p.y + kQToggleY[i], quickInnerW(), kQToggleH}.contains(x, y)) {
+            m_quickRow = kQAirplane + i;
+            quickActivate(kQAirplane + i, 0);
+            return true;
+        }
+    for (int i = 0; i < kQPowerButtons; ++i)
+        if (quickPowerButton(p, i).contains(x, y)) {
+            m_quickRow = kQPower;
+            m_quickCol = i;
+            quickActivate(kQPower, i);
+            return true;
+        }
+    return true;
 }
 
 void CardsActivity::openMusic() {
@@ -2592,28 +2749,7 @@ bool CardsActivity::handleTouch() {
         }
         return true;
     }
-    if (m_quickOpen) {
-        if (!in.touchUp()) return in.isTouching();
-        nxui::Rect panel;
-        float rowH = 50.f;
-        quickGeometry(m_quickRows.size(), 0.f, panel, rowH);
-        if (!panel.contains(x, y)) {
-            m_quickOpen = false;
-            m_audio.play("hide_modal");
-            return true;
-        }
-        const int row = static_cast<int>((y - panel.y - 90.f) / rowH);
-        if (y < panel.y + 90.f || row < 0 || row >= static_cast<int>(m_quickRows.size())) return true;
-        m_quickSel = row;
-        MenuItem& item = m_quickRows[(size_t)row];
-        const nxui::Rect r{panel.x + 12.f, panel.y + 90.f + rowH * static_cast<float>(row), panel.width - 24.f, rowH - 6.f};
-        if (tapRow(item, r, r.x + r.width - 18.f - 150.f, 150.f) && item.run) {
-            auto run = item.run;
-            if (!item.stay) m_quickOpen = false;
-            run();
-        }
-        return true;
-    }
+    if (m_quickOpen) return quickTouch();
     if (!m_menu.empty()) {
         if (!in.touchUp()) return in.isTouching();
         nxui::Rect box;
@@ -2739,6 +2875,7 @@ void CardsActivity::onUpdate(float dt) {
     step(m_sheetIn, 0.24f);
     step(m_sheetRowsIn, 0.22f);
     step(m_quickIn, 0.22f);
+    step(m_quickListIn, 0.2f);
 #ifdef SWITCHU_MENU
     step(m_newsIn, 0.24f);
 #endif
@@ -2905,19 +3042,7 @@ void CardsActivity::onUpdate(float dt) {
         return;
     }
     if (m_quickOpen) {
-        if (in.isDown(B::R) || in.isDown(B::Plus)) {
-            m_quickOpen = false;
-            m_audio.play("hide_modal");
-            return;
-        }
-        if ((m_quickRefreshIn -= dt) <= 0.f) { // the battery and the chip's temperature
-            m_quickRefreshIn = 3.f;
-            u32 charge = 0;
-            if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) m_quick.battery = static_cast<int>(charge);
-            PsmChargerType charger = PsmChargerType_Unconnected;
-            if (R_SUCCEEDED(psmGetChargerType(&charger))) m_quick.charging = charger != PsmChargerType_Unconnected;
-        }
-        listInput(m_quickRows, m_quickSel, [this]() { m_quickOpen = false; });
+        updateQuick();
         return;
     }
     if (!m_menu.empty()) {
@@ -3734,27 +3859,146 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
 void CardsActivity::drawQuick(nxui::Renderer& r) {
     if (!m_quickOpen) return;
     const float a = easeOut(m_quickIn);
+    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.30f * a));
-    nxui::Rect panel;
-    float rowH = 50.f;
-    quickGeometry(m_quickRows.size(), (1.f - a) * 480.f, panel, rowH);
-    frost(r, panel, 30.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.88f * a));
-    r.drawRoundedRectOutline(panel, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 30.f, 1.5f);
-    r.drawGradientRect({panel.x + 2.f, panel.y + 2.f, panel.width - 4.f, 70.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+    const nxui::Rect p = quickPanel((1.f - a) * 480.f);
+    frost(r, p, 30.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
+    r.drawRoundedRectOutline(p, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 30.f, 1.5f);
+    r.drawGradientRect({p.x + 2.f, p.y + 2.f, p.width - 4.f, 70.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
                        nxui::Color(1.f, 1.f, 1.f, 0.f));
-    textMid(r, m_fLabel, "Quick Settings", panel.x + 26.f, panel.y + 30.f, kWhite.withAlpha(a));
-    // The battery and how warm the console is.
-    std::string status = m_quick.battery < 0 ? std::string() : "Battery " + std::to_string(m_quick.battery) + "%";
-    if (m_quick.charging) status += " (charging)";
+    const float x0 = p.x + kQuickPad, w = quickInnerW();
+    const nxui::Color card(1.f, 1.f, 1.f, 0.06f * a), cardEdge(1.f, 1.f, 1.f, 0.10f * a);
+    auto box = [&](const nxui::Rect& rect, bool focused) {
+        r.drawRoundedRect(rect, focused ? nxui::Color(1.f, 1.f, 1.f, 0.12f * a) : card, 18.f);
+        r.drawRoundedRectOutline(rect, focused ? accent(ring * a) : cardEdge, 18.f, focused ? 2.5f : 1.f);
+    };
+    textMid(r, m_fLabel, "Quick Settings", x0 + 4.f, p.y + 32.f, kWhite.withAlpha(a));
+    textMid(r, m_fPill, m_clock, p.x + p.width - kQuickPad - measured(m_fPill, m_clock).x, p.y + 32.f, kMuted.withAlpha(a));
+
+    // The status: battery (a little battery, filled), how warm the console is.
+    const nxui::Rect status{x0, p.y + kQStatusY, w, kQStatusH};
+    box(status, false);
+    const float sy = status.y + status.height * 0.5f;
+    const nxui::Rect batt{status.x + 18.f, sy - 9.f, 34.f, 18.f};
+    r.drawRoundedRectOutline(batt, kWhite.withAlpha(0.9f * a), 4.f, 2.f);
+    r.drawRect({batt.x + batt.width + 1.f, sy - 4.f, 3.f, 8.f}, kWhite.withAlpha(0.9f * a));
+    const float level = m_quick.battery < 0 ? 0.f : static_cast<float>(m_quick.battery) / 100.f;
+    r.drawRoundedRect({batt.x + 3.f, batt.y + 3.f, (batt.width - 6.f) * level, batt.height - 6.f},
+                      (m_quick.battery >= 0 && m_quick.battery <= 15 ? kRed : kGreen).withAlpha(a), 2.f);
+    std::string power = m_quick.battery < 0 ? std::string("-") : std::to_string(m_quick.battery) + "%";
+    if (m_quick.charging) power += "  Charging";
+    textMid(r, m_fPill, power, batt.x + batt.width + 14.f, sy, kWhite.withAlpha(a));
     if (m_quick.temperature >= 0) {
-        if (!status.empty()) status += "      ";
-        status += "Chip " + std::to_string(m_quick.temperature) + "\xC2\xB0" "C, "
-                + (m_quick.temperature >= 60 ? "hot" : m_quick.temperature >= 48 ? "warm" : "cool");
+        const int t = m_quick.temperature;
+        const nxui::Color tone = t >= 60 ? kRed : t >= 48 ? nxui::Color(1.f, 0.72f, 0.3f, 1.f) : kGreen;
+        const std::string temp = std::to_string(t) + "\xC2\xB0" "C  " + (t >= 60 ? "Hot" : t >= 48 ? "Warm" : "Optimal");
+        const float tx = status.x + status.width - 18.f - measured(m_fPill, temp).x;
+        r.drawCircle({tx - 12.f, sy}, 5.f, tone.withAlpha(a), 16);
+        textMid(r, m_fPill, temp, tx, sy, kWhite.withAlpha(a));
     }
-    textMid(r, m_fBody, status, panel.x + 26.f, panel.y + 62.f, kMuted.withAlpha(0.85f * a));
-    for (size_t i = 0; i < m_quickRows.size(); ++i) {
-        const nxui::Rect row{panel.x + 12.f, panel.y + 90.f + rowH * static_cast<float>(i), panel.width - 24.f, rowH - 6.f};
-        drawRow(r, m_quickRows[i], row, static_cast<int>(i) == m_quickSel, a, false);
+
+    // The music player: the song, its buttons, how far it is.
+    const nxui::Rect player{x0, p.y + kQPlayerY, w, kQPlayerH};
+    box(player, false);
+    const std::string song = m_settings.music && !m_audio.trackName().empty() ? m_audio.trackName() : std::string("Not playing");
+    const float ss = fitScale(m_fPill, song, w - 36.f, 0.8f);
+    textMid(r, m_fPill, fit(m_fPill, song, w - 36.f, ss), player.x + 18.f, player.y + 26.f, kWhite.withAlpha(a), ss);
+    textMid(r, m_fBody, "HOME music", player.x + 18.f, player.y + 50.f, kMuted.withAlpha(0.8f * a), 0.9f);
+    const bool playing = m_settings.music && !m_audio.paused();
+    const char* buttons[kQPlayerButtons] = {"prev", playing ? "pause" : "play", "next", "repeat", "shuffle", "playlist"};
+    for (int i = 0; i < kQPlayerButtons; ++i) {
+        const nxui::Vec2 c = quickPlayerButton(p, i);
+        const bool on = (i == 3 && m_settings.repeat) || (i == 4 && m_settings.shuffle) || (i == 5 && m_quickPlaylist);
+        const bool focused = m_quickRow == kQPlayer && m_quickCol == i && !m_quickPlaylist;
+        const float d = i == 1 ? 52.f : 44.f;
+        r.drawCircle(c, d * 0.5f, (i == 1 ? kWhite.withAlpha(0.92f * a) : on ? accent(0.35f * a) : nxui::Color(1.f, 1.f, 1.f, 0.08f * a)), 32);
+        if (focused)
+            r.drawRoundedRectOutline({c.x - d * 0.5f - 4.f, c.y - d * 0.5f - 4.f, d + 8.f, d + 8.f}, accent(ring * a), d * 0.5f + 4.f, 2.5f);
+        icon(r, buttons[i], c.x, c.y, i == 1 ? 24.f : 22.f, i == 1 ? nxui::Color(0.f, 0.f, 0.f, a) : kWhite.withAlpha(a));
+    }
+    const float length = m_audio.duration();
+    if (length > 0.f && m_settings.music) {
+        const float done = clamp01(m_audio.position() / length);
+        const float by = player.y + kQPlayerH - 18.f;
+        const nxui::Rect bar{player.x + 62.f, by - 2.f, w - 124.f, 4.f};
+        r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.18f * a), 2.f);
+        r.drawRoundedRect({bar.x, bar.y, bar.width * done, bar.height}, accent(a), 2.f);
+        textMid(r, m_fBody, clockText(m_audio.position()), player.x + 16.f, by, kMuted.withAlpha(a), 0.85f);
+        const std::string total = clockText(length);
+        textMid(r, m_fBody, total, player.x + w - 16.f - measured(m_fBody, total).x * 0.85f, by, kMuted.withAlpha(a), 0.85f);
+    }
+
+    // Music, Sound Effects, Brightness: a label, the value, a bar to slide.
+    struct Slider { const char* name; const char* glyph; int value; };
+    const Slider sliders[3] = {
+        {"Music", "music", m_settings.musicVolume},
+        {"Sound Effects", "speaker", m_settings.soundVolume},
+        {"Brightness", "sun", m_quick.brightness < 0.f ? -1 : static_cast<int>(std::lround(m_quick.brightness * 100.f))},
+    };
+    for (int i = 0; i < 3; ++i) {
+        const nxui::Rect row{x0, p.y + kQSliderY[i], w, kQSliderH};
+        box(row, m_quickRow == kQMusic + i && !m_quickPlaylist);
+        icon(r, sliders[i].glyph, row.x + 26.f, row.y + row.height * 0.5f, 24.f, kWhite.withAlpha(a));
+        textMid(r, m_fPill, sliders[i].name, row.x + 52.f, row.y + 18.f, kWhite.withAlpha(a), 0.92f);
+        const std::string v = sliders[i].value < 0 ? std::string("-") : std::to_string(sliders[i].value) + "%";
+        textMid(r, m_fBody, v, row.x + row.width - 18.f - measured(m_fBody, v).x, row.y + 18.f, kMuted.withAlpha(a));
+        const nxui::Rect bar{row.x + 52.f, row.y + 36.f, row.width - 72.f, 6.f};
+        const float f = sliders[i].value < 0 ? 0.f : static_cast<float>(sliders[i].value) / 100.f;
+        r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.18f * a), 3.f);
+        r.drawRoundedRect({bar.x, bar.y, std::max(6.f, bar.width * f), bar.height}, accent(a), 3.f);
+        r.drawCircle({bar.x + bar.width * f, bar.y + 3.f}, 8.f, kWhite.withAlpha(a), 20);
+    }
+
+    // Airplane Mode, Wi-Fi: switches.
+    struct Switch { const char* name; const char* glyph; bool on; };
+    const Switch switches[2] = {{"Airplane Mode", "airplane", m_quick.airplane},
+                                {"Wi-Fi", "wifi", m_quick.wifi && !m_quick.airplane}};
+    for (int i = 0; i < 2; ++i) {
+        const nxui::Rect row{x0, p.y + kQToggleY[i], w, kQToggleH};
+        box(row, m_quickRow == kQAirplane + i && !m_quickPlaylist);
+        const float cy = row.y + row.height * 0.5f;
+        icon(r, switches[i].glyph, row.x + 26.f, cy, 24.f, kWhite.withAlpha(a));
+        textMid(r, m_fPill, switches[i].name, row.x + 52.f, cy, kWhite.withAlpha(a), 0.92f);
+        const nxui::Rect track{row.x + row.width - 18.f - 52.f, cy - 14.f, 52.f, 28.f};
+        r.drawRoundedRect(track, switches[i].on ? kGreen.withAlpha(a) : nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 14.f);
+        r.drawCircle({track.x + (switches[i].on ? 38.f : 14.f), cy}, 11.f, kWhite.withAlpha(a), 24);
+    }
+
+    // Power: Sleep, Restart, Power Off, Hekate.
+    const char* powerGlyph[kQPowerButtons] = {"moon", "restart", "power", "hekate"};
+    const char* powerName[kQPowerButtons] = {"Sleep", "Restart", "Power Off", "Hekate"};
+    for (int i = 0; i < kQPowerButtons; ++i) {
+        const nxui::Rect b = quickPowerButton(p, i);
+        box(b, m_quickRow == kQPower && m_quickCol == i && !m_quickPlaylist);
+        icon(r, powerGlyph[i], b.x + b.width * 0.5f, b.y + 38.f, 32.f, kWhite.withAlpha(a));
+        const std::string n = powerName[i];
+        textMid(r, m_fBody, n, b.x + (b.width - measured(m_fBody, n).x * 0.9f) * 0.5f, b.y + 76.f, kWhite.withAlpha(a), 0.9f);
+    }
+
+    // The playlist, beside the panel.
+    if (m_quickPlaylist) {
+        const float la = a * easeOut(m_quickListIn);
+        const auto& titles = m_audio.titles();
+        const nxui::Rect list = quickPlaylist(p, titles.size());
+        const nxui::Rect shown{list.x + 20.f * (1.f - la), list.y, list.width, list.height};
+        frost(r, shown, 24.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.88f * la));
+        r.drawRoundedRectOutline(shown, nxui::Color(1.f, 1.f, 1.f, 0.16f * la), 24.f, 1.5f);
+        textMid(r, m_fLabel, "Playlist", shown.x + 20.f, shown.y + 28.f, kWhite.withAlpha(la));
+        if (titles.empty()) textMid(r, m_fBody, "No songs", shown.x + 20.f, shown.y + 76.f, kMuted.withAlpha(la));
+        r.pushClipRect({shown.x, shown.y + 52.f, shown.width, shown.height - 58.f});
+        const float scroll = std::max(0.f, 46.f * static_cast<float>(m_quickListSel) - (shown.height - 120.f));
+        for (size_t i = 0; i < titles.size(); ++i) {
+            const nxui::Rect row{shown.x + 10.f, shown.y + 56.f + 46.f * static_cast<float>(i) - scroll, shown.width - 20.f, 40.f};
+            const bool now = static_cast<long>(i) == m_audio.playing() && m_settings.music;
+            if (static_cast<int>(i) == m_quickListSel) {
+                r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, 0.12f * la), 14.f);
+                r.drawRoundedRectOutline(row, accent(ring * la), 14.f, 2.f);
+            }
+            if (now) icon(r, "music", row.x + 18.f, row.y + 20.f, 18.f, accent(la));
+            textMid(r, m_fBody, fit(m_fBody, titles[i], row.width - 50.f), row.x + 36.f, row.y + 20.f,
+                    (now ? accent(1.f) : kWhite).withAlpha(la));
+        }
+        r.popClipRect();
     }
 }
 

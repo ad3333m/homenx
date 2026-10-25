@@ -158,6 +158,10 @@ private:
     void openMusic();
     void openQuick();                   // R: Quick Settings, a glass panel on the right
     void drawQuick(nxui::Renderer& r);
+    void updateQuick();
+    bool quickTouch();
+    void quickActivate(int row, int col);   // A on a button
+    void quickChange(int row, int delta);   // left / right on a slider
     // Up / down, left / right, A and B on a list of rows; close() shuts it.
     void listInput(std::vector<MenuItem>& items, int& sel, const std::function<void()>& close);
     void openUsers();
@@ -282,11 +286,13 @@ private:
     float m_messageFor = 0.f;
     std::vector<std::unique_ptr<nxui::Texture>> m_userPictures;
 
-    // Quick Settings (R).
-    bool m_quickOpen = false;
-    float m_quickIn = 0.f, m_quickRefreshIn = 0.f;
-    int m_quickSel = 0;
-    std::vector<MenuItem> m_quickRows;
+    // Quick Settings (R), laid out as HomeNX's: the status, the music player,
+    // three sliders, two switches, the power buttons; the playlist beside it.
+    enum QuickRow { kQPlayer, kQMusic, kQSounds, kQBrightness, kQAirplane, kQWifi, kQPower, kQRows };
+    bool m_quickOpen = false, m_quickPlaylist = false;
+    float m_quickIn = 0.f, m_quickRefreshIn = 0.f, m_quickListIn = 0.f;
+    int m_quickRow = kQPlayer, m_quickCol = 1, m_quickListSel = 0;
+    std::vector<MenuItem> m_quickPower;  // Sleep, Restart, Shut down, Reboot to Hekate
     QuickStatus m_quick;
 
     // Settings: sections on the left, their rows on the right.

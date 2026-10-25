@@ -25,6 +25,14 @@ public:
     void fadeOut(int ms);               // before launching something
     void pause();                       // the console sleeps / an applet opens
     void resume();
+    // The player (Quick Settings): paused or not, where it is, the songs.
+    bool paused() const;
+    void togglePause();
+    float position() const { return m_position; }  // seconds into the song
+    float duration() const;                         // its length (0 = not known)
+    const std::vector<std::string>& titles() const { return m_titles; }
+    long playing() const { return m_playing; }
+    void playTrack(size_t index);
 
 private:
     void startTrack(size_t index);
@@ -32,6 +40,9 @@ private:
     bool m_open = false, m_sounds = true, m_music = true, m_shuffle = false, m_repeat = false;
     int m_volume = 60, m_soundVolume = 80;
     std::vector<std::string> m_tracks, m_titles;
+    std::vector<float> m_lengths;  // seconds, 0 = not known
+    float m_position = 0.f;
+    unsigned long long m_lastTick = 0;
     size_t m_track = 0;   // the next one
     long m_playing = -1;  // the one playing
     _Mix_Music* m_current = nullptr;
