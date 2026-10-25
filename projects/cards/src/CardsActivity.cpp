@@ -386,12 +386,14 @@ bool CardsActivity::onCreate() {
     // You: the one chosen in the pill, else the last account that played, else the first.
     AccountUidLike chosen;
     AccountUid last{};
-    if (parseUid(m_settings.user, chosen)) {
-        AccountUid uid{};
-        uid.uid[0] = chosen.uid[0];
-        uid.uid[1] = chosen.uid[1];
+    if (parseUid(m_settings.user, chosen)) { // still on the console?
+        AccountUid uids[8] = {};
+        s32 count = 0;
         bool exists = false;
-        if (R_FAILED(accountGetUserExistence(&exists, uid)) || !exists) chosen = AccountUidLike{};
+        if (R_SUCCEEDED(accountListAllUsers(uids, 8, &count)))
+            for (s32 i = 0; i < count; ++i)
+                exists |= uids[i].uid[0] == chosen.uid[0] && uids[i].uid[1] == chosen.uid[1];
+        if (!exists) chosen = AccountUidLike{};
     }
     if (!chosen.uid[0] && !chosen.uid[1] && R_SUCCEEDED(accountGetLastOpenedUser(&last)) && accountUidIsValid(&last)) {
         chosen.uid[0] = last.uid[0];
