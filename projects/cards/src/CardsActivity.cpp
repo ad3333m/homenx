@@ -1034,6 +1034,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         float t = 0.f;
         if (!cardRect(i, card, t)) continue;
         const Game& g = page[(size_t)i];
+        if (g.homebrew || !g.action.empty()) continue; // glass: drawn over the blur (drawCardExtras)
         const float k = std::max(0.f, static_cast<float>(i) - m_scroll + 1.f);
         const float alpha = pageAlpha * easeOut((m_intro - 0.1f - 0.07f * k) / 0.5f);
         if (alpha <= 0.01f) continue;
@@ -1054,22 +1055,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
             textMid(r, m_fLabel, name, card.x + (card.width - m_fLabel.measure(name).x * 0.9f) * 0.5f,
                     card.y + card.height * 0.5f, kMuted.withAlpha(alpha * (1.f - artIn)), 0.9f);
         }
-        if (tex && it->second.kind == ArtKind::Icon) {
-            // An app: its icon over a dimmed, enlarged copy of itself, its name below.
-            const float a = alpha * artIn;
-            drawCover(r, tex, card, kCardRadius, nxui::Color(0.55f, 0.55f, 0.55f, a));
-            r.drawRoundedRect(card, nxui::Color(0.05f, 0.06f, 0.08f, 0.35f * a), kCardRadius);
-            const float side = card.width - 48.f;
-            r.drawTextureRounded(tex, {card.x + 24.f, card.y + 30.f, side, side}, 26.f, kWhite.withAlpha(a));
-            const std::string name = fit(m_fLabel, g.name, card.width - 28.f);
-            r.drawText(name, {card.x + (card.width - m_fLabel.measure(name).x) * 0.5f, card.y + 46.f + side}, &m_fLabel,
-                       kWhite.withAlpha(a));
-            if (!g.author.empty()) {
-                const std::string by = fit(m_fBody, g.author, card.width - 28.f);
-                r.drawText(by, {card.x + (card.width - m_fBody.measure(by).x) * 0.5f, card.y + 78.f + side}, &m_fBody,
-                           kMuted.withAlpha(a));
-            }
-        } else if (tex) {
+        if (tex) {
             // A Switch case cover without the red Nintendo Switch band on top:
             // the rest is the card's own shape, so all of it shows.
             const bool box = it->second.kind == ArtKind::Box;
@@ -1095,6 +1081,49 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         const float k = std::max(0.f, static_cast<float>(i) - m_scroll + 1.f);
         const float alpha = easeOut(m_pageIn) * easeOut((m_intro - 0.1f - 0.07f * k) / 0.5f);
         if (alpha <= 0.01f) continue;
+
+        const Game& g = page[(size_t)i];
+        if (g.homebrew || !g.action.empty()) {
+            // An app, in the glass of the rest of the screen: the blurred
+            // background through it, its icon floating on a soft glow of its
+            // own colours, its name and what it is below.
+            const float pressed = m_pressZone == 1 && m_pressIndex == i ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
+            if (pressed > 0.f) card = scaled(card, 1.f - 0.05f * pressed);
+            r.drawRoundedRect({card.x - 3.f, card.y + 6.f + 6.f * t, card.width + 6.f, card.height + 6.f},
+                              nxui::Color(0.f, 0.f, 0.f, (0.10f + 0.10f * t) * alpha), kCardRadius + 3.f);
+            frost(r, card, kCardRadius, nxui::Color(0.17f, 0.20f, 0.27f, (0.30f + 0.08f * t) * alpha));
+            r.drawGradientRect({card.x + 2.f, card.y + 2.f, card.width - 4.f, 70.f},
+                               nxui::Color(1.f, 1.f, 1.f, 0.07f * alpha), nxui::Color(1.f, 1.f, 1.f, 0.f)); // a sheen of glass
+            auto it = m_art.find(g.id);
+            const nxui::Texture* tex = it != m_art.end() && it->second.card && it->second.card->valid() ? it->second.card.get()
+                                                                                                        : nullptr;
+            const float artIn = tex ? easeOut((m_time - it->second.cardIn) / 0.35f) : 0.f;
+            const float side = 150.f + 8.f * t;
+            const nxui::Rect iconRect{card.x + (card.width - side) * 0.5f, card.y + 40.f - 4.f * t, side, side};
+            if (tex) {
+                const float a = alpha * artIn;
+                // Its glow: the icon itself, bigger and faint, behind it.
+                r.drawTextureRounded(tex, scaled(iconRect, 1.22f), 52.f, kWhite.withAlpha(0.22f * a * (0.6f + 0.4f * t)));
+                r.drawRoundedRect({iconRect.x, iconRect.y + 8.f, iconRect.width, iconRect.height},
+                                  nxui::Color(0.f, 0.f, 0.f, 0.25f * a), 34.f); // its shadow
+                r.drawTextureRounded(tex, iconRect, 34.f, kWhite.withAlpha(a));
+            } else {
+                r.drawRoundedRect(iconRect, nxui::Color(1.f, 1.f, 1.f, 0.08f * alpha), 34.f);
+            }
+            const std::string name = fit(m_fLabel, g.name, card.width - 28.f);
+            r.drawText(name, {card.x + (card.width - m_fLabel.measure(name).x) * 0.5f, iconRect.y + side + 26.f}, &m_fLabel,
+                       kWhite.withAlpha(alpha));
+            const std::string about = !g.author.empty() ? g.author : (g.path.empty() ? "NRO forwarder" : "Homebrew");
+            const std::string by = fit(m_fBody, about, card.width - 28.f);
+            r.drawText(by, {card.x + (card.width - m_fBody.measure(by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
+                       kMuted.withAlpha(alpha));
+            r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.20f * alpha), kCardRadius, 1.5f);
+            if (i < sel()) r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.22f * (1.f - t) * alpha), kCardRadius);
+            if (t > 0.01f) {
+                const float ring = m_zone == Zone::Cards ? 0.85f + 0.15f * std::sin(m_time * 4.f) : 0.55f;
+                r.drawRoundedRectOutline(card, kWhite.withAlpha(ring * t * alpha), kCardRadius, 3.5f);
+            }
+        }
 
         if (i == sel() && m_sheen < 1.f && t > 0.5f) {
             const float e = easeOut(m_sheen);
