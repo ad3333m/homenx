@@ -13,6 +13,7 @@
 #include "settings/TextEntryScreen.hpp"
 #include "social/DiscordService.hpp"
 #include "widgets/DiscordPanel.hpp"
+#include "widgets/SocialScreen.hpp"
 #include <nxui/Theme.hpp>
 #endif
 
@@ -95,6 +96,7 @@ private:
         const nxui::Texture* picture = nullptr; // a user's picture
         bool danger = false;                    // red (Delete)
         bool stay = false;                      // an action that keeps the popup open
+        const char* glyph = nullptr;            // its icon (Plus's options)
         float anim = -1.f;                      // a toggle's knob, easing
     };
     struct Section {
@@ -164,6 +166,15 @@ private:
     // Popups and screens.
     void openMenu(std::string title, std::vector<MenuItem> items);
     void openOptions();
+    // Plus: the card's art on the left, its name and details, big buttons.
+    bool m_optOpen = false;
+    int m_optSel = 0;
+    float m_optIn = 0.f;
+    Game m_optGame;
+    std::vector<MenuItem> m_optItems;
+    void updateOptions();
+    bool optionsTouch();
+    void drawOptions(nxui::Renderer& r);
     void openSettings(int section = 0);
     void buildSettings();
     void openPower();
@@ -385,6 +396,7 @@ private:
     std::atomic<bool> m_clock24{true};
     std::atomic<bool> m_downloading{false}; // BrowseNX
     float m_evictIn = 0.f;
+    bool m_evictNow = false; // a picture had no room: far ones go now
 
     // Touch: drag the row, tap a card (again to play), tap any button.
     bool m_dragging = false, m_touchOnCards = false;
@@ -410,6 +422,11 @@ private:
     DiscordService m_discord;
     std::shared_ptr<DiscordPanel> m_discordPanel;
     std::shared_ptr<TextEntryScreen> m_textEntry;
+    std::shared_ptr<SocialScreen> m_social;   // Friends, your profile, Mii Maker (HomeNX's, not Nintendo's)
+    void ensureTextEntry();
+    void enterText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
+                   std::function<void(const std::string&)> done, nxui::Widget* back);
+    void openSocial(bool miis);
     float m_discordStartIn = 4.f;
     bool m_discordStarted = false;
 

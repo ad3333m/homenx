@@ -288,6 +288,16 @@ def download():
     return im
 
 
+def trash():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(16), q(20), q(80), q(28)], radius=q(3), fill=W)       # the lid
+    d.rounded_rectangle([q(38), q(12), q(58), q(22)], radius=q(3), fill=W)       # its handle
+    d.polygon([(q(22), q(32)), (q(74), q(32)), (q(68), q(84)), (q(28), q(84))], fill=W)
+    for x in (38, 48, 58):
+        d.rounded_rectangle([q(x - 2), q(42), q(x + 2), q(74)], radius=q(2), fill=(0, 0, 0, 0))
+    return im
+
+
 def hekate():
     im = canvas(); d = ImageDraw.Draw(im)
     d.rounded_rectangle([q(14), q(14), q(82), q(82)], radius=q(16), outline=W, width=q(6))
@@ -430,7 +440,7 @@ if __name__ == "__main__":
                      ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows),
                      ("wifi", wifi), ("airplane", airplane), ("sun", sun), ("speaker", speaker), ("prev", prev),
                      ("next", next_), ("pause", pause), ("repeat", repeat), ("shuffle", shuffle),
-                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download)]:
+                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

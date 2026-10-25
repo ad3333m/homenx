@@ -491,7 +491,8 @@ bool CardsActivity::onCreate() {
     const std::uint64_t tIcons = armGetSystemTick();
     for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
                              "power", "music", "news", "discord", "arrows", "wifi", "airplane", "sun", "speaker",
-                             "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate"}) {
+                             "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate",
+                             "download", "trash"}) {
         auto tex = std::make_unique<nxui::Texture>();
         nxui::GpuDevice::EssentialScope essential; // the buttons always draw
         if (tex->loadFromFile(gpu, ren, std::string(kAssets) + "icons/" + name + ".png", 96))
@@ -673,6 +674,7 @@ nxui::Widget* CardsActivity::focusRoot() {
 #ifdef SWITCHU_MENU
     if (m_textEntry && m_textEntry->isActive()) return m_textEntry.get();
     if (m_discordPanel && m_discordPanel->isActive()) return m_discordPanel.get();
+    if (m_social && m_social->isActive()) return m_social.get();
 #endif
     return nullptr;
 }
@@ -961,7 +963,12 @@ void CardsActivity::takeArt() {
         }
         auto tex = std::make_unique<nxui::Texture>();
         if (!tex->loadFromPixels(app().gpu(), app().renderer(), d.rgba.data(), d.w, d.h)) {
-            if (asked) *asked = false; // no room now: asked again later
+            // No room in the picture memory: far ones go now and this one is asked
+            // for again in a moment (it stayed blank until something moved).
+            if (asked) *asked = false;
+            it->second.retryAt = m_time + 0.5f;
+            m_evictNow = true;
+            m_retryIn = std::min(m_retryIn, 0.6f);
             continue;
         }
         if (d.what == kLaunch) {
@@ -996,11 +1003,18 @@ void CardsActivity::takeArt() {
 
     // Far from the selection, on any page: let the pictures go, now and then and
     // all together (freeing one waits for the GPU; the rest are then free).
-    if ((m_evictIn -= 1.f / 60.f) > 0.f || m_leaving) return;
+    // Also when the picture memory runs low (fonts and HomeNX's screens use it
+    // too), or a picture just had no room.
+    const bool tight = app().gpu().imageMemoryAvailable() < (32ull << 20);
+    const bool now = m_evictNow;
+    if (!now && ((m_evictIn -= 1.f / 60.f) > 0.f || m_leaving)) return;
     m_evictIn = 2.f;
+    m_evictNow = false;
     int loaded = 0;
     for (const auto& [id, a] : m_art) loaded += (a.card ? 1 : 0) + (a.bg ? 3 : 0);
-    if (loaded < 56) return;
+    if (loaded < 56 && !tight && !now) return;
+    const int keepCards = tight || now ? 14 : 24; // still well past the ~6 on screen either side
+    const int keepBackgrounds = tight || now ? 1 : 4;
     std::map<std::uint64_t, int> distance;
     for (int p = 0; p < kPageCount; ++p) {
         const auto& page = m_pages[p];
@@ -1011,15 +1025,15 @@ void CardsActivity::takeArt() {
     for (auto& [id, a] : m_art) {
         auto d = distance.find(id);
         const int dist = d == distance.end() ? 1000 : d->second;
-        if (a.card && dist > 24) {
+        if (a.card && dist > keepCards) {
             a.card.reset();
             a.cardAsked = false;
         }
-        if (a.icon && dist > 24) {
+        if (a.icon && dist > keepCards) {
             a.icon.reset();
             a.iconAsked = false;
         }
-        if (a.bg && dist > 4 && id != m_bgId && id != m_bgPrevId) {
+        if (a.bg && dist > keepBackgrounds && id != m_bgId && id != m_bgPrevId) {
             a.bg.reset();
             a.bgAsked = false;
         }
@@ -1328,6 +1342,7 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     m_quickOpen = false;
     m_powerOpen = false;
     m_dotsOpen = false;
+    m_optOpen = false;
     m_moving = false;
 #ifdef SWITCHU_MENU
     m_newsOpen = false;
@@ -1486,6 +1501,88 @@ void CardsActivity::openBrowser() {
 }
 
 #ifdef SWITCHU_MENU
+// HomeNX's keyboard, kept above every screen that asks for it.
+void CardsActivity::ensureTextEntry() {
+    ensureHxFonts();
+    if (!m_textEntry) {
+        m_textEntry = std::make_shared<TextEntryScreen>();
+        m_textEntry->setFont(&m_hxFont);
+        m_textEntry->setSmallFont(&m_hxSmall);
+        m_textEntry->setTheme(&m_theme);
+        m_textEntry->onKeySfx([this]() { m_audio.play("activation"); });
+        m_textEntry->onNavigateSfx([this]() { m_audio.play("navigation"); });
+        m_textEntry->onCloseSfx([this]() { m_audio.play("hide_modal"); });
+    } else {
+        rootBox().removeChild(m_textEntry.get());
+    }
+    rootBox().addChild(m_textEntry);
+}
+
+void CardsActivity::enterText(const std::string& title, const std::string& guide, const std::string& initial,
+                              int maxLength, std::function<void(const std::string&)> done, nxui::Widget* back) {
+    ensureTextEntry();
+    if (m_textEntry->isActive()) return;
+    m_textEntry->onAccept([this, done, back](const std::string& text) {
+        if (done) done(text);
+        if (back) focusManager().setFocus(back);
+    });
+    m_textEntry->onCancel([this, back]() {
+        if (back) focusManager().setFocus(back);
+    });
+    m_audio.play("show_modal");
+    m_textEntry->show({title, guide, initial, std::max(1, maxLength), false});
+    focusManager().setFocus(m_textEntry.get());
+}
+
+// Friends, your profile and Mii Maker: HomeNX's own screen, not Nintendo's.
+void CardsActivity::openSocial(bool miis) {
+    ensureHxFonts();
+    if (!m_social) {
+        m_social = std::make_shared<SocialScreen>();
+        m_social->setFonts(&m_hxFont, &m_hxSmall);
+        m_social->setGpu(&app().gpu(), &app().renderer());
+        m_social->setTheme(&m_theme);
+        m_social->setIconDir("sdmc:/switch/SwitchU/icons");
+        m_social->setDiscord(&m_discord);
+        SocialScreen::Callbacks cb;
+        cb.onClosed = [this]() { m_audio.play("hide_modal"); };
+        cb.onEnterText = [this](const std::string& title, const std::string& guide, const std::string& initial,
+                                int maxLength, std::function<void(const std::string&)> done) {
+            enterText(title, guide, initial, maxLength, std::move(done), m_social.get());
+        };
+        cb.onDiscord = [this]() {
+            if (m_social) m_social->hide();
+            openDiscord();
+        };
+        cb.onMiiEditor = [this]() { if (m_social) m_social->showMiisPage(); };
+        cb.onNavigate = [this]() { m_audio.play("navigation"); };
+        cb.onActivate = [this]() { m_audio.play("activation"); };
+        m_social->setCallbacks(std::move(cb));
+        rootBox().addChild(m_social);
+    }
+    if (m_social->isActive()) return;
+    std::vector<std::pair<std::uint64_t, std::string>> titles;
+    for (const Game& g : m_pages[kGames]) titles.emplace_back(g.id, g.name);
+    m_social->setTitles(std::move(titles));
+    // You, with your picture.
+    AccountUid uid{};
+    uid.uid[0] = m_user.uid[0];
+    uid.uid[1] = m_user.uid[1];
+    std::string name;
+    std::shared_ptr<nxui::Texture> face;
+    for (const User& u : listUsers())
+        if (u.uid.uid[0] == m_user.uid[0] && u.uid.uid[1] == m_user.uid[1]) {
+            name = u.name;
+            auto tex = std::make_shared<nxui::Texture>();
+            if (!u.picture.empty() && tex->loadFromMemory(app().gpu(), app().renderer(), u.picture.data(), u.picture.size(), 128))
+                face = tex;
+        }
+    m_audio.play("show_modal");
+    m_social->show(uid, name, face);
+    if (miis) m_social->showMiisPage();
+    focusManager().setFocus(m_social.get());
+}
+
 void CardsActivity::ensureHxFonts() {
     if (m_hxFonts) return;
     m_hxFonts = true;
@@ -1514,31 +1611,14 @@ void CardsActivity::openDiscord() {
         DiscordPanel::Callbacks cb;
         cb.onClosed = [this]() { m_audio.play("hide_modal"); };
         cb.onReply = [this](Snowflake channelId, const std::string& name) {
-            if (!m_textEntry || m_textEntry->isActive()) return;
-            m_textEntry->onAccept([this, channelId](const std::string& text) {
+            enterText("Message " + name, std::string(), std::string(), 2000, [this, channelId](const std::string& text) {
                 if (!text.empty()) m_discord.send(channelId, text);
-                if (m_discordPanel && m_discordPanel->isActive()) focusManager().setFocus(m_discordPanel.get());
-            });
-            m_textEntry->onCancel([this]() {
-                if (m_discordPanel && m_discordPanel->isActive()) focusManager().setFocus(m_discordPanel.get());
-            });
-            m_audio.play("show_modal");
-            m_textEntry->show({"Message " + name, std::string(), std::string(), 2000, false});
-            focusManager().setFocus(m_textEntry.get());
+            }, m_discordPanel.get());
         };
         cb.onNavigate = [this]() { m_audio.play("navigation"); };
         cb.onActivate = [this]() { m_audio.play("activation"); };
         m_discordPanel->setCallbacks(std::move(cb));
         rootBox().addChild(m_discordPanel);
-        // Its keyboard, above it.
-        m_textEntry = std::make_shared<TextEntryScreen>();
-        m_textEntry->setFont(&m_hxFont);
-        m_textEntry->setSmallFont(&m_hxSmall);
-        m_textEntry->setTheme(&m_theme);
-        m_textEntry->onKeySfx([this]() { m_audio.play("activation"); });
-        m_textEntry->onNavigateSfx([this]() { m_audio.play("navigation"); });
-        m_textEntry->onCloseSfx([this]() { m_audio.play("hide_modal"); });
-        rootBox().addChild(m_textEntry);
     }
     if (m_discordPanel->isActive()) return;
     m_audio.play("show_modal");
@@ -1572,6 +1652,10 @@ void CardsActivity::openNintendo(const Game& g) {
 #ifdef SWITCHU_MENU
     if (a == "news") {
         openNews();
+        return;
+    }
+    if (a == "mii" || a == "friends") { // HomeNX's own Mii Maker and Friends, inside CardsNX
+        openSocial(a == "mii");
         return;
     }
     const int index = sel();
@@ -1830,9 +1914,11 @@ void CardsActivity::pumpDaemon() {
 
 // Everything open closes; true if something was.
 bool CardsActivity::closeEverything() {
-    bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen || m_powerOpen || m_dotsOpen;
+    bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen || m_powerOpen || m_dotsOpen
+            || m_optOpen;
     m_powerOpen = false;
     m_dotsOpen = false;
+    m_optOpen = false;
     if (m_moving) finishMove(false);
     m_menu.clear();
     m_notifOpen = false;
@@ -1845,6 +1931,10 @@ bool CardsActivity::closeEverything() {
     }
     if (m_discordPanel && m_discordPanel->isOpen()) {
         m_discordPanel->hide();
+        any = true;
+    }
+    if (m_social && m_social->isOpen()) {
+        m_social->hide();
         any = true;
     }
     if (m_newsOpen) {
@@ -1896,15 +1986,19 @@ void CardsActivity::openOptions() {
     std::vector<MenuItem> items;
     const bool game = g.action.empty() && g.path.empty() && !g.homebrew;
     const bool running = isRunning(g.id);
-    items.push_back(action(running ? "Resume" : game ? "Play" : "Open", [this]() { play(); }));
+    items.push_back(action(running ? "Resume" : g.action == "get" ? "Get" : game ? "Play" : "Open", [this]() { play(); }));
+    items.back().glyph = g.action == "get" ? "download" : "play";
 #ifdef SWITCHU_MENU
-    if (running)
+    if (running) {
         items.push_back(action("Close software", [this]() {
             m_launcher.terminateApplication();
             say("Closing it...");
         }, true));
+        items.back().glyph = "power";
+    }
 #endif
     items.push_back(action("Move", [this]() { startMove(); }));
+    items.back().glyph = "arrows";
     if (g.action.empty()) {
         const std::uint64_t id = g.id;
         items.push_back(action("Download new pictures", [this, id]() {
@@ -1918,10 +2012,12 @@ void CardsActivity::openOptions() {
             }
             wantArt();
         }));
+        items.back().glyph = "restart";
     }
     if (const NroUpdate* u = nroUpdate(g)) { // a newer version
         const std::string path = g.path;
         MenuItem up = action("Update to v" + u->latest, [this, path]() { updateNro(path); });
+        up.glyph = "download";
         const std::string source = u->source;
         up.value = [source]() { return source; };
         items.insert(items.begin() + 1, std::move(up));
@@ -1952,6 +2048,7 @@ void CardsActivity::openOptions() {
                 action("Cancel", [] {}),
             });
         }, true));
+        items.back().glyph = "trash";
     }
     if (g.path.empty() && g.homebrew && g.action.empty()) { // an NRO forwarder: uninstalled from the console
         const std::uint64_t id = g.id;
@@ -1978,9 +2075,141 @@ void CardsActivity::openOptions() {
                 action("Cancel", [] {}),
             });
         }, true));
+        items.back().glyph = "trash";
     }
     items.push_back(action("Cancel", [] {}));
-    openMenu(g.name, std::move(items));
+    m_optItems = std::move(items);
+    m_optGame = g;
+    m_optSel = 0;
+    m_optOpen = true;
+    m_optIn = m_settings.motion ? 0.f : 1.f;
+    m_audio.play("show_modal");
+}
+
+namespace {
+const nxui::Rect kOptCard{196.f, 124.f, 888.f, 472.f};
+constexpr float kOptRowsY = 150.f; // below the title and its line, within the card
+nxui::Rect optionRow(size_t n, size_t i, float dy) {
+    const float x = kOptCard.x + 32.f + 260.f + 36.f - 10.f, w = kOptCard.x + kOptCard.width - 26.f - x;
+    const float rowH = std::min(56.f, (kOptCard.height - kOptRowsY - 24.f) / static_cast<float>(std::max<size_t>(1, n)));
+    return {x, kOptCard.y + kOptRowsY + rowH * static_cast<float>(i) + dy, w, rowH - 8.f};
+}
+} // namespace
+
+void CardsActivity::updateOptions() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    const int n = static_cast<int>(m_optItems.size());
+    if ((in.isDown(B::DUp) || in.isDown(B::LStickU)) && m_optSel > 0) { --m_optSel; m_audio.play("navigation"); }
+    if ((in.isDown(B::DDown) || in.isDown(B::LStickD)) && m_optSel < n - 1) { ++m_optSel; m_audio.play("navigation"); }
+    if (in.isDown(B::B) || in.isDown(B::Plus) || in.isDown(B::X)) {
+        m_optOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    if (in.isDown(B::A) && m_optSel >= 0 && m_optSel < n) {
+        auto run = m_optItems[(size_t)m_optSel].run;
+        m_optOpen = false;
+        m_audio.play("activation");
+        if (run) run();
+    }
+}
+
+bool CardsActivity::optionsTouch() {
+    auto& in = app().input();
+    if (!in.touchUp()) return in.isTouching();
+    const float x = in.touchX(), y = in.touchY();
+    for (size_t i = 0; i < m_optItems.size(); ++i)
+        if (optionRow(m_optItems.size(), i, 0.f).contains(x, y)) {
+            m_optSel = static_cast<int>(i);
+            auto run = m_optItems[i].run;
+            m_optOpen = false;
+            if (run) run();
+            return true;
+        }
+    if (!kOptCard.contains(x, y)) {
+        m_optOpen = false;
+        m_audio.play("hide_modal");
+    }
+    return true;
+}
+
+void CardsActivity::drawOptions(nxui::Renderer& r) {
+    if (!m_optOpen) return;
+    const float a = easeOut(m_optIn);
+    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    const nxui::Rect card = scaled(kOptCard, 0.95f + 0.05f * easeOutBack(m_optIn));
+    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
+    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    r.drawGradientRect({card.x + 2.f, card.y + 2.f, card.width - 4.f, 90.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+                       nxui::Color(1.f, 1.f, 1.f, 0.f));
+    const float dy = card.y - kOptCard.y;
+    const Game& g = m_optGame;
+
+    // Its art, as on its card (an app: its icon on glass).
+    const nxui::Rect art{kOptCard.x + 32.f, kOptCard.y + 50.f + dy, 260.f, 368.f};
+    r.drawRoundedRect({art.x - 3.f, art.y + 8.f, art.width + 6.f, art.height + 6.f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * a), 27.f);
+    auto it = m_art.find(g.id);
+    const nxui::Texture* tex = it != m_art.end() && it->second.card && it->second.card->valid() ? it->second.card.get() : nullptr;
+    if (glassCard(g)) {
+        frost(r, art, 24.f, glassTint(1.3f * a));
+        r.drawRoundedRectOutline(art, nxui::Color(1.f, 1.f, 1.f, 0.18f * a), 24.f, 1.5f);
+        if (tex) {
+            const float side = 170.f;
+            const nxui::Rect ic{art.x + (art.width - side) * 0.5f, art.y + (art.height - side) * 0.42f, side, side};
+            if (!g.action.empty()) r.drawTexture(tex, ic, kWhite.withAlpha(a));
+            else r.drawTextureRounded(tex, ic, 36.f, kWhite.withAlpha(a));
+        }
+    } else if (tex) {
+        drawCover(r, tex, art, 24.f, kWhite.withAlpha(a), it->second.kind == ArtKind::Box ? 0.125f : 0.f, 0.f);
+    } else {
+        r.drawRoundedRect(art, nxui::Color(0.28f, 0.31f, 0.40f, 0.9f * a), 24.f);
+    }
+
+    // Its name and a line about it.
+    const float tx = art.x + art.width + 36.f, maxW = kOptCard.x + kOptCard.width - 36.f - tx;
+    const float ts = fitScale(m_fTitle, g.name, maxW, 0.75f);
+    r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, kOptCard.y + 50.f + dy}, &m_fTitle, kWhite.withAlpha(a), ts);
+    std::string about;
+    if (!g.action.empty()) about = g.author;
+    else if (g.homebrew) about = g.path.empty() ? "NRO forwarder" : (g.author.empty() ? "Homebrew" : "Homebrew by " + g.author);
+    else about = playTime(g.playSeconds) + " played    " + lastPlayed(g.lastPlayed);
+    if (!g.version.empty()) about += "    v" + (g.version[0] == 'v' || g.version[0] == 'V' ? g.version.substr(1) : g.version);
+    r.drawText(fit(m_fBody, about, maxW), {tx, kOptCard.y + 94.f + dy}, &m_fBody, kMuted.withAlpha(a));
+
+    // The buttons: an icon on a disc, its name; the first one (Play) white.
+    for (size_t i = 0; i < m_optItems.size(); ++i) {
+        const MenuItem& item = m_optItems[i];
+        const float ta = a * easeOut((m_optIn - 0.04f * static_cast<float>(i)) / 0.7f);
+        nxui::Rect row = optionRow(m_optItems.size(), i, dy);
+        row.x += 16.f * (1.f - ta);
+        const bool chosen = static_cast<int>(i) == m_optSel, primary = i == 0;
+        if (!item.glyph) { // Cancel: just the word
+            const std::string w = item.label;
+            textMid(r, m_fPill, w, row.x + (row.width - measured(m_fPill, w).x) * 0.5f, row.y + row.height * 0.5f,
+                    (chosen ? kWhite : kMuted).withAlpha(ta));
+            if (chosen) r.drawRoundedRectOutline(row, accent(ring * ta), row.height * 0.5f, 2.f);
+            continue;
+        }
+        r.drawRoundedRect(row, primary ? kWhite.withAlpha((chosen ? 1.f : 0.88f) * ta)
+                                       : nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.16f : 0.07f) * ta), row.height * 0.5f);
+        if (chosen) r.drawRoundedRectOutline({row.x - 3.f, row.y - 3.f, row.width + 6.f, row.height + 6.f}, accent(ring * ta),
+                                             row.height * 0.5f + 3.f, 2.5f);
+        const float cy = row.y + row.height * 0.5f, d = row.height - 12.f;
+        const nxui::Color disc = primary ? nxui::Color(0.f, 0.f, 0.f, 0.85f * ta)
+                               : item.danger ? kRed.withAlpha(0.9f * ta) : accent(0.35f * ta);
+        r.drawCircle({row.x + 10.f + d * 0.5f, cy}, d * 0.5f, disc, 32);
+        icon(r, item.glyph, row.x + 10.f + d * 0.5f, cy, d * 0.55f, kWhite.withAlpha(ta));
+        const nxui::Color ink = primary ? nxui::Color(0.f, 0.f, 0.f, ta) : item.danger ? nxui::Color(1.f, 0.5f, 0.47f, ta)
+                                                                                      : kWhite.withAlpha(ta);
+        textMid(r, m_fPill, item.label, row.x + 22.f + d, cy, ink);
+        if (item.value) {
+            const std::string v = fit(m_fBody, item.value(), row.width * 0.45f);
+            textMid(r, m_fBody, v, row.x + row.width - 18.f - measured(m_fBody, v).x, cy,
+                    primary ? nxui::Color(0.f, 0.f, 0.f, 0.6f * ta) : kMuted.withAlpha(ta));
+        }
+    }
 }
 
 void CardsActivity::startMove() {
@@ -3203,9 +3432,19 @@ void CardsActivity::activateBottom(int index) {
 // few of the oldest go before it fills. Freed textures wait out the frames in
 // flight themselves (nxui), so nothing waits for the GPU.
 void CardsActivity::keepTextCachesSmall() {
-    for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount})
-        if (f->maintenanceRequested() || f->cacheEntryCount() > 120 || f->cacheBytes() > (3u << 20) + (256u << 10))
-            f->trimCache(100, 3u << 20);
+    auto keep = [](nxui::Font& f) {
+        if (f.maintenanceRequested() || f.cacheEntryCount() > 120 || f.cacheBytes() > (3u << 20) + (256u << 10))
+            f.trimCache(100, 3u << 20);
+    };
+    for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount}) keep(*f);
+#ifdef SWITCHU_MENU
+    // Discord, Social and the keyboard draw with HomeNX's font: nothing trimmed
+    // its cache, and once full no new channel names or messages showed.
+    if (m_hxFonts) {
+        keep(m_hxFont);
+        keep(m_hxSmall);
+    }
+#endif
 }
 
 // ---------------------------------------------------------------- input: popups and settings
@@ -3407,6 +3646,7 @@ bool CardsActivity::handleTouch() {
     if (m_quickOpen) return quickTouch();
     if (m_powerOpen) return powerTouch();
     if (m_dotsOpen) return dotsTouch();
+    if (m_optOpen) return optionsTouch();
     if (!m_menu.empty()) {
         if (!in.touchUp()) return in.isTouching();
         nxui::Rect box;
@@ -3595,6 +3835,7 @@ void CardsActivity::onUpdate(float dt) {
     step(m_quickIn, 0.22f);
     step(m_powerIn, 0.28f);
     step(m_dotsIn, 0.26f);
+    step(m_optIn, 0.26f);
     step(m_quickListIn, 0.2f);
 #ifdef SWITCHU_MENU
     step(m_newsIn, 0.24f);
@@ -3787,9 +4028,16 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
     // HomeNX's screens have the buttons while they're open.
-    if (m_textEntry && m_textEntry->isActive()) return;
+    if (m_textEntry && m_textEntry->isActive()) { // the keyboard: buttons and touch
+        m_textEntry->handleTouch(app().input());
+        return;
+    }
     if (m_discordPanel && m_discordPanel->isActive()) {
         m_discordPanel->handleTouch(app().input());
+        return;
+    }
+    if (m_social && m_social->isActive()) {
+        m_social->handleTouch(app().input());
         return;
     }
 #endif
@@ -3849,6 +4097,10 @@ void CardsActivity::onUpdate(float dt) {
     }
     if (m_dotsOpen) {
         updateDots();
+        return;
+    }
+    if (m_optOpen) {
+        updateOptions();
         return;
     }
     if (!m_menu.empty()) {
@@ -3988,6 +4240,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawSheet(r);
     drawQuick(r);
     drawDots(r);
+    drawOptions(r);
     drawPower(r);
 #ifdef SWITCHU_MENU
     drawNews(r);
