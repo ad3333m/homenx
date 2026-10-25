@@ -12,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
 #include <memory>
 #include <new>
 #include <unordered_map>
@@ -37,13 +38,21 @@ size_t toString(char* p, size_t size, size_t n, void* user) {
     return size * n;
 }
 
+thread_local CURL* t_curl = nullptr; // each worker's: its connections stay open
+
 // GET, the body in `out`; the HTTP status (0: no answer).
 long get(const std::string& url, std::string& out, const std::vector<std::string>& headers = {}) {
     out.clear();
-    CURL* c = curl_easy_init();
+    if (!t_curl) t_curl = curl_easy_init();
+    CURL* c = t_curl;
     if (!c) return 0;
+    curl_easy_reset(c); // the open connections stay
     curl_slist* list = nullptr;
     for (const std::string& h : headers) list = curl_slist_append(list, h.c_str());
+    // art.gametdb.com is on Let's Encrypt's newest chain (ISRG Root X1), which
+    // the console's own store may not have: its root ships with the app.
+    if (url.find("gametdb.com") != std::string::npos)
+        curl_easy_setopt(c, CURLOPT_CAINFO, "romfs:/certs/isrg-root-x1.pem");
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
     curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
@@ -57,7 +66,6 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
     long status = 0;
     if (curl_easy_perform(c) == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
     curl_slist_free_all(list);
-    curl_easy_cleanup(c);
     return status;
 }
 
@@ -172,11 +180,19 @@ std::string gametdbCover(const Game& game) {
     const char region = it->second.second;
     const char* const order[3][3] = {{"US", "EN", "JA"}, {"EN", "US", "JA"}, {"JA", "US", "EN"}};
     const int pick = region == 'E' ? 1 : region == 'J' ? 2 : 0;
+    static std::atomic<int> unreachable{0}; // no answer at all, several times: stop asking
+    if (unreachable >= 3) return {};
     std::string body;
     for (const char* r : order[pick]) {
-        if (get(std::string("https://art.gametdb.com/switch/coverM/") + r + "/" + it->second.first + ".jpg", body) == 200
-            && isPicture(body))
+        const long status = get(std::string("https://art.gametdb.com/switch/coverM/") + r + "/" + it->second.first + ".jpg", body);
+        if (status == 200 && isPicture(body)) {
+            unreachable = 0;
             return body;
+        }
+        if (status == 0) {
+            ++unreachable;
+            break;
+        }
     }
     return {};
 }
@@ -274,6 +290,11 @@ void stopNetwork() {
     socketExit();
 }
 
+void threadDone() {
+    if (t_curl) curl_easy_cleanup(t_curl);
+    t_curl = nullptr;
+}
+
 std::string steamGridDbKey() {
     try {
         std::ifstream in(kSettings);
@@ -284,7 +305,11 @@ std::string steamGridDbKey() {
     }
 }
 
-std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtKind& kind) {
+std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool boxArt, ArtKind& kind) {
+    if (!game.action.empty()) { // the Nintendo page: drawn by tools/make_cards_icons.py
+        kind = ArtKind::Icon;
+        return readFile("romfs:/icons/sys_" + game.action + ".png");
+    }
     if (game.homebrew) { // apps have no box art: their icon makes the card
         kind = ArtKind::Icon;
         return gameIcon(game);
@@ -292,8 +317,8 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtK
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     const std::string grid = base + ".grid", box = base + ".box", banner = base + ".card";
     kind = ArtKind::Grid;
-    if (std::filesystem::exists(grid)) return readFile(grid);
-    if (!key.empty()) {
+    if (boxArt && std::filesystem::exists(grid)) return readFile(grid);
+    if (boxArt && !key.empty()) {
         const std::string got = steamGridDbPicture(game, key, "grids",
             "dimensions=600x900&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false");
         if (!got.empty()) {
@@ -302,8 +327,8 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtK
         }
     }
     kind = ArtKind::Box;
-    if (std::filesystem::exists(box)) return readFile(box);
-    {
+    if (boxArt && std::filesystem::exists(box)) return readFile(box);
+    if (boxArt) {
         const std::string got = gametdbCover(game);
         if (!got.empty()) {
             writeFile(box, got);
@@ -317,16 +342,32 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, ArtK
     return std::vector<std::uint8_t>(got.begin(), got.end());
 }
 
-std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key) {
+std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind) {
+    kind = ArtKind::Icon;
+    if (!game.action.empty()) return readFile("romfs:/icons/sys_" + game.action + ".png");
     if (game.homebrew) return gameIcon(game); // drawn huge and soft: its colours
+    kind = ArtKind::Banner;
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bg";
     if (std::filesystem::exists(path)) return readFile(path);
     std::string got;
     if (!key.empty())
         got = steamGridDbPicture(game, key, "heroes", "types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false");
     if (got.empty()) got = eshopBanner(game, 1280, 720);
-    if (!got.empty()) writeFile(path, got);
-    return std::vector<std::uint8_t>(got.begin(), got.end());
+    if (!got.empty()) {
+        writeFile(path, got);
+        return std::vector<std::uint8_t>(got.begin(), got.end());
+    }
+    // No banner anywhere: its box cover, else its icon.
+    kind = ArtKind::Box;
+    const std::string box = std::string(kCacheDir) + "/" + hexId(game.id) + ".box";
+    if (std::filesystem::exists(box)) return readFile(box);
+    got = gametdbCover(game);
+    if (!got.empty()) {
+        writeFile(box, got);
+        return std::vector<std::uint8_t>(got.begin(), got.end());
+    }
+    kind = ArtKind::Icon;
+    return gameIcon(game);
 }
 
 void forgetArt(std::uint64_t id) {
@@ -387,8 +428,218 @@ bool nextendoOnline(std::map<std::uint64_t, int>& out) {
     return any;
 }
 
-bool launch(std::uint64_t id) {
-    return R_SUCCEEDED(appletRequestLaunchApplication(id, nullptr));
+namespace {
+
+bool isApplication() {
+    const AppletType t = appletGetAppletType();
+    return t == AppletType_Application || t == AppletType_SystemApplication;
+}
+
+// A request to HOME on the general channel ("SAMS": the system's own HOME
+// takes 2 home, 3 sleep, 5 shut down, 6 restart; HomeNX's also 100 launch).
+bool askHome(u32 msg, const void* extra = nullptr, size_t extraSize = 0) {
+    struct Header {
+        u32 magic, version, msg, reserved;
+    } hdr{0x534D4153, 1, msg, 0};
+    AppletStorage st{};
+    if (R_FAILED(appletCreateStorage(&st, static_cast<s64>(sizeof(hdr) + extraSize)))) return false;
+    bool ok = R_SUCCEEDED(appletStorageWrite(&st, 0, &hdr, sizeof(hdr)));
+    if (ok && extra) ok = R_SUCCEEDED(appletStorageWrite(&st, sizeof(hdr), extra, extraSize));
+    if (!ok) {
+        appletStorageClose(&st);
+        return false;
+    }
+    return R_SUCCEEDED(appletPushToGeneralChannel(&st));
+}
+
+AccountUid toUid(AccountUidLike u) {
+    AccountUid uid{};
+    uid.uid[0] = u.uid[0];
+    uid.uid[1] = u.uid[1];
+    if (!accountUidIsValid(&uid)) accountGetLastOpenedUser(&uid);
+    return uid;
+}
+
+// The web applet as Sphaira and HomeNX's .nro open it; `shop`: the eShop itself.
+Result showWeb(const char* url, AccountUid uid, bool shop) {
+    WebCommonConfig cfg{};
+    Result rc = webPageCreate(&cfg, url);
+    if (R_FAILED(rc)) return rc;
+    if (accountUidIsValid(&uid)) webConfigSetUid(&cfg, uid);
+    if (shop) {
+        reinterpret_cast<WebArgHeader*>(cfg.arg.data)->shimKind = WebShimKind_Shop;
+        cfg.appletid = AppletId_LibraryAppletShop;
+        return webConfigShow(&cfg, nullptr);
+    }
+    webConfigSetWhitelist(&cfg, ".*");
+    webConfigSetBootDisplayKind(&cfg, WebBootDisplayKind_Black);
+    webConfigSetPointer(&cfg, true);
+    webConfigSetLeftStickMode(&cfg, WebLeftStickMode_Pointer);
+    webConfigSetJsExtension(&cfg, true);
+    webConfigSetPageCache(&cfg, true);
+    webConfigSetTransferMemory(&cfg, true);
+    webConfigSetTouchEnabledOnContents(&cfg, true);
+    WebCommonReply reply{};
+    return webConfigShow(&cfg, &reply);
+}
+
+} // namespace
+
+bool launch(std::uint64_t id, AccountUidLike user) {
+    if (isApplication()) return R_SUCCEEDED(appletRequestLaunchApplication(id, nullptr));
+    const AccountUid uid = toUid(user);
+    struct {
+        u64 titleId;
+        u64 uid[2];
+    } args{id, {uid.uid[0], uid.uid[1]}};
+    return askHome(100, &args, sizeof(args));
+}
+
+std::vector<Game> listSystem() {
+    struct Entry { const char* action; const char* name; const char* about; };
+    static const Entry kEntries[] = {
+        {"eshop", "Nintendo eShop", "Games, add-ons and deals"},
+        {"nso", "Nintendo Switch Online", "Online play and classic games"},
+        {"album", "Album", "Your screenshots and videos"},
+        {"mii", "Mii Maker", "Make and edit Miis"},
+        {"friends", "Friends", "Your friend list"},
+        {"controllers", "Controllers", "Pair and order controllers"},
+        {"browser", "Web Browser", "Search the web"},
+        {"settings", "CardsNX Settings", "Music, pictures and pages"},
+    };
+    std::vector<Game> out;
+    for (const Entry& e : kEntries) {
+        Game g;
+        g.action = e.action;
+        g.name = e.name;
+        g.author = e.about;
+        g.homebrew = true;
+        g.id = 0xFE00000000000000ULL | (std::hash<std::string>{}(g.action) & 0x0000FFFFFFFFFFFFULL);
+        g.order = static_cast<int>(out.size());
+        out.push_back(std::move(g));
+    }
+    return out;
+}
+
+bool openSystem(const std::string& action, AccountUidLike user, std::string& error) {
+    const AccountUid uid = toUid(user);
+    Result rc = 0;
+    if (action == "eshop") {
+        rc = showWeb("https://bugyo.hac.lp1.eshop.nintendo.net/ashigaru/", uid, true);
+        if (R_FAILED(rc)) rc = showWeb("https://www.nintendo.com/store/", uid, false);
+    } else if (action == "nso") {
+        rc = showWeb("https://www.nintendo.com/switch/online/", uid, false);
+    } else if (action == "album") {
+        rc = albumLaShowAllAlbumFiles();
+    } else if (action == "mii") {
+        rc = miiLaShowMiiEdit(MiiSpecialKeyCode_Normal);
+    } else if (action == "friends") {
+        rc = accountUidIsValid(&uid) ? friendsLaShowFriendList(uid) : MAKERESULT(Module_Libnx, LibnxError_BadInput);
+    } else if (action == "controllers") {
+        HidLaControllerSupportArg arg;
+        hidLaCreateControllerSupportArg(&arg);
+        rc = hidLaShowControllerSupportForSystem(nullptr, &arg, false);
+    } else if (action == "browser") {
+        rc = showWeb("https://duckduckgo.com/?kae=d", uid, false);
+    }
+    if (R_FAILED(rc)) {
+        char buf[120];
+        std::snprintf(buf, sizeof(buf), "That couldn't open here (0x%X). The eShop and the browser need CardsNX "
+                      "opened over a game.", rc);
+        error = buf;
+        return false;
+    }
+    return true;
+}
+
+bool canRebootToPayload() {
+    SetSysProductModel model = SetSysProductModel_Invalid;
+    if (R_SUCCEEDED(setsysInitialize())) {
+        setsysGetProductModel(&model);
+        setsysExit();
+    }
+    return model == SetSysProductModel_Nx || model == SetSysProductModel_Copper || model == SetSysProductModel_Invalid;
+}
+
+bool power(Power what, std::string& error) {
+    switch (what) {
+        case Power::Sleep:
+            if (askHome(3)) return true;
+            error = "Sleep can only be asked from the homebrew menu: press the POWER button.";
+            return false;
+        case Power::Shutdown:
+        case Power::Restart: {
+            const bool restart = what == Power::Restart;
+            if (askHome(restart ? 6 : 5)) return true; // HOME saves first
+            Result rc = spsmInitialize();
+            if (R_SUCCEEDED(rc)) {
+                rc = spsmShutdown(restart);
+                spsmExit();
+            }
+            if (R_SUCCEEDED(rc)) return true;
+            error = "The console didn't take that (0x" + std::to_string(rc) + ").";
+            return false;
+        }
+        case Power::Hekate: {
+            if (!canRebootToPayload()) {
+                error = "This Switch model can't restart into a payload (only the first, unpatched model can). "
+                        "Hekate shows on its own if your modchip starts it without autoboot.";
+                return false;
+            }
+            static constexpr size_t kPayloadMax = 0x24000; // what fits in IRAM
+            alignas(0x1000) static u8 payload[kPayloadMax];
+            const char* path = nullptr;
+            for (const char* p : {"sdmc:/bootloader/update.bin", "sdmc:/atmosphere/reboot_payload.bin"})
+                if (std::filesystem::exists(p)) {
+                    path = p;
+                    break;
+                }
+            if (!path) {
+                error = "Hekate isn't on the SD card (sdmc:/bootloader/update.bin).";
+                return false;
+            }
+            std::memset(payload, 0, sizeof(payload));
+            size_t got = 0;
+            if (FILE* f = std::fopen(path, "rb")) {
+                got = std::fread(payload, 1, sizeof(payload), f);
+                std::fclose(f);
+            }
+            if (got == 0) {
+                error = "Couldn't read the Hekate payload.";
+                return false;
+            }
+            // Hekate's boot storage: 0x94 boot_cfg bit 0 (force autoboot) with
+            // 0x95 autoboot 0 opens its menu instead of booting straight back.
+            if (got > 0x98 && !payload[0x94] && !payload[0x95] && !payload[0x96] && !payload[0x97]) {
+                payload[0x94] = 0x01;
+                payload[0x95] = 0x00;
+            }
+            Handle port = 0;
+            Result rc = svcConnectToNamedPort(&port, "bpc:ams"); // Atmosphere's: 65001 takes the payload
+            if (R_SUCCEEDED(rc)) {
+                Service bpcAms;
+                serviceCreate(&bpcAms, port);
+                rc = serviceDispatch(&bpcAms, 65001,
+                    .buffer_attrs = { SfBufferAttr_In | SfBufferAttr_HipcMapAlias },
+                    .buffers = { { payload, sizeof(payload) } },
+                );
+                serviceClose(&bpcAms);
+            }
+            if (R_FAILED(rc)) {
+                error = "Atmosphere didn't take the Hekate payload.";
+                return false;
+            }
+            // From hbl (this .nro), Atmosphere sends the reboot to that payload.
+            rc = bpcInitialize();
+            if (R_SUCCEEDED(rc)) {
+                rc = bpcRebootSystem();
+                bpcExit();
+            }
+            error = "The reboot didn't start.";
+            return R_SUCCEEDED(rc);
+        }
+    }
+    return false;
 }
 
 } // namespace cards

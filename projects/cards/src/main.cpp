@@ -7,7 +7,9 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
+#include <cstdio>
 #include <memory>
+#include <string>
 
 extern "C" void userAppInit(void) {
     romfsInit();
@@ -29,7 +31,13 @@ extern "C" void userAppExit(void) {
 }
 
 int main(int, char**) {
-    SDL_Init(0);
+    // HomeNX's HOME asks for a Reboot to Hekate this way: Atmosphere sends only
+    // some processes' reboots to the payload, and hbl (this) is one of them.
+    if (std::remove("sdmc:/config/SwitchU/cardsnx_reboot_hekate") == 0) {
+        std::string error;
+        cards::power(cards::Power::Hekate, error); // returns only if it didn't happen
+    }
+    SDL_Init(SDL_INIT_AUDIO);
     TTF_Init();
     nxui::Renderer::setShaderBasePath("romfs:/shaders/");
 

@@ -393,8 +393,9 @@ target("CardsNX")
     add_includedirs("projects/cards/src", {public = false})
     add_files("projects/cards/src/*.cpp")
     add_files("projects/menu/src/homebrew/HomebrewStore.cpp") -- the Homebrew page's .nro list
-    add_packages("libsdl", "libsdl_ttf", "zlib", "libwebp", "libcurl", "nlohmann_json")
+    add_packages("libsdl", "libsdl_mixer", "libsdl_ttf", "zlib", "libwebp", "libcurl", "nlohmann_json")
     add_linkgroups("SDL2_ttf", "harfbuzz-subset", "harfbuzz", "freetype", "png16", "bz2", "z", {group = true})
+    add_linkgroups("SDL2_mixer", "FLAC++", "FLAC", "vorbisidec", "ogg", "modplug", "opusurl", "opusfile", "opus", {group = true})
 
     add_cxxflags("-frtti", "-fexceptions", {force = true})
     if get_config("backend") == "deko3d" then
@@ -410,6 +411,8 @@ target("CardsNX")
         os.mkdir(path.join(romfs_dir, "icons"))
         os.cp(path.join(os.projectdir(), "projects/cards/romfs/fonts/*.ttf"), path.join(romfs_dir, "fonts"))
         os.cp(path.join(os.projectdir(), "projects/cards/romfs/icons/*.png"), path.join(romfs_dir, "icons"))
+        os.mkdir(path.join(romfs_dir, "certs"))
+        os.cp(path.join(os.projectdir(), "projects/cards/romfs/certs/*.pem"), path.join(romfs_dir, "certs"))
     end)
 
     set_values("switch.name",    "CardsNX")

@@ -49,6 +49,8 @@ public:
     /// runs input + update, but skips beginFrame/endFrame so the GPU is
     /// free for whichever app currently owns the foreground.
     void setRenderEnabled(bool e) { m_renderEnabled = e; }
+    // Off: 60 Hz even when nothing is pressed (screens that keep moving).
+    void setIdleThrottle(bool on) { m_idleThrottle = on; }
     bool renderEnabled() const    { return m_renderEnabled; }
 
     /// Low-power console sleep.  No frame is presented, no input is dispatched
@@ -69,6 +71,7 @@ private:
     std::unique_ptr<Activity> m_pendingActivity;
     bool m_running = true;
     bool m_renderEnabled = true;
+    bool m_idleThrottle = true;
     bool m_sleeping = false;
     uint64_t m_navHeldMask = 0;
     int m_navHeldFrames = 0;

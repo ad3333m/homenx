@@ -257,7 +257,7 @@ void Application::run() {
                 // Keep input/update responsive, but present every other frame
                 // after the UI has been idle long enough for transitions to
                 // settle. Any new input immediately restores 60 Hz.
-                if (idleSeconds >= 2.f) {
+                if (m_idleThrottle && idleSeconds >= 2.f) {
                     skipIdleFrame = !skipIdleFrame;
                     if (skipIdleFrame) {
                         svcSleepThread(16'000'000ULL);

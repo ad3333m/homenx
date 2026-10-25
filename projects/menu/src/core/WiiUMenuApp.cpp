@@ -1577,6 +1577,21 @@ void WiiUMenuApp::confirmRebootToHekate() {
 
 void WiiUMenuApp::startRebootToHekate() {
     m_audio.playSfx(Sfx::ConfirmPositive);
+#ifdef SWITCHU_MENU
+    // Atmosphere sends only am/omm's, fatal's and hbl's reboots to its payload,
+    // and HOME's (through am) still came back as a plain restart on his
+    // firmware. CardsNX runs under hbl: it does the reboot, asked by a flag file.
+    {
+        static constexpr const char* kCards = "sdmc:/switch/CardsNX/CardsNX.nro";
+        std::error_code ec;
+        if (std::filesystem::exists(kCards, ec) && AppletLauncher::canRebootToPayload()
+            && !AppletLauncher::hekatePayload().empty()) {
+            std::ofstream("sdmc:/config/SwitchU/cardsnx_reboot_hekate") << "1";
+            openBundledApp(kCards, "CardsNX");
+            return;
+        }
+    }
+#endif
     if (m_launcher.rebootToHekate()) return;
     if (!m_dialog) return;
     auto& i18n = nxui::I18n::instance();

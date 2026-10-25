@@ -156,10 +156,12 @@ public:
         ~EssentialScope() { --s_essential; }
     };
     uint64_t imageMemoryUsed() const { return m_imageMemUsed; }
-    uint64_t imageMemoryBudget() const { return kDefaultImageBudget; }
+    uint64_t imageMemoryBudget() const { return s_imageBudget; }
+    // An app with more memory than HOME (CardsNX) can allow more pictures.
+    static void setImageBudget(uint64_t bytes) { s_imageBudget = bytes; }
     uint64_t imageMemoryAvailable() const {
-        return m_imageMemUsed < kDefaultImageBudget
-            ? kDefaultImageBudget - m_imageMemUsed : 0;
+        return m_imageMemUsed < s_imageBudget
+            ? s_imageBudget - m_imageMemUsed : 0;
     }
 
 
@@ -255,6 +257,7 @@ private:
     uint64_t m_poolMemUsed  = 0;
     static inline LogSink s_logSink = nullptr;
     static inline thread_local int s_essential = 0;
+    static inline uint64_t s_imageBudget = kDefaultImageBudget;
     uint64_t imageReserve() const { return s_essential ? 0 : kEssentialReserve; }
 
     static constexpr uint32_t kImageChunkSize = 2u * 1024u * 1024u;

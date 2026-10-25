@@ -1132,11 +1132,19 @@ static bool handleGeneralChannel() {
         u32 msg;
         u32 reserved;
     } hdr = {};
+    // HomeNX: message 100 (CardsNX starting a game from the homebrew menu)
+    // carries the title and the account after the header.
+    struct LaunchArgs {
+        u64 titleId;
+        u64 uid[2];
+    } launch = {};
 
     s64 sz = 0;
     appletStorageGetSize(&st, &sz);
     if (sz > 0)
         appletStorageRead(&st, 0, &hdr, (size_t)sz < sizeof(hdr) ? (size_t)sz : sizeof(hdr));
+    if (sz >= (s64)(sizeof(hdr) + sizeof(launch)))
+        appletStorageRead(&st, sizeof(hdr), &launch, sizeof(launch));
     appletStorageClose(&st);
 
     if (hdr.magic != 0x534D4153) return true;
@@ -1159,6 +1167,16 @@ static bool handleGeneralChannel() {
         switchu::FileLog::log("[sams] -> Reboot");
         startPowerSequence("sams-reboot", smi::SystemMessage::Reboot);
         break;
+        case 100: { // HomeNX: start a game once the homebrew applet that asked has closed
+        if (!launch.titleId) break;
+        daemon::SystemAction action{};
+        action.type = daemon::SystemActionType::LaunchApplication;
+        action.titleId = launch.titleId;
+        std::memcpy(&action.uid, launch.uid, sizeof(action.uid));
+        const Result rc = g_actionQueue.enqueue(action);
+        switchu::FileLog::log("[sams] -> Launch 0x%016lX rc=0x%X", launch.titleId, rc);
+        break;
+        }
     }
     return true;
 }
