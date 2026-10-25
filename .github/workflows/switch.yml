@@ -58,12 +58,14 @@ jobs:
         run: |
           xmake build -vD --root SwitchU
           xmake build -vD --root SwitchU-Manager
+          xmake build -vD --root HomeNX-Cards
 
       - name: Collect
         run: |
           mkdir -p out
           cp build/cross/aarch64/release/HomeNX.nro out/
           cp build/cross/aarch64/release/HomeNX-Toggle.nro out/
+          cp "build/cross/aarch64/release/HomeNX Cards.nro" out/HomeNX-Cards.nro
 
       - uses: actions/upload-artifact@v4
         with:
@@ -147,7 +149,9 @@ jobs:
           mv dist/frontend/switch/HomeNX-Toggle/HomeNX-Toggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro
           # The Homebrew Manager too: the menu copies it into switch/Homebrew-Manager/.
           mv "dist/frontend/switch/Homebrew Manager/Homebrew Manager.nro" dist/frontend/switch/SwitchU/bin/homebrew-manager.nro
-          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader "dist/frontend/switch/Homebrew Manager"
+          # HomeNX Cards (the test HOME screen) too: switch/HomeNX-Cards/.
+          mv "dist/frontend/switch/HomeNX Cards/HomeNX Cards.nro" dist/frontend/switch/SwitchU/bin/homenx-cards.nro
+          rm -rf dist/frontend/switch/HomeNX-Toggle dist/frontend/switch/HomeNX-Loader "dist/frontend/switch/Homebrew Manager" "dist/frontend/switch/HomeNX Cards"
           # HomeNX Toggle reads this to know which frontend build is installed.
           echo "build $HOMENX_BUILD" > dist/frontend/switch/SwitchU/homenx-build.txt
           mkdir -p out

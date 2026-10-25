@@ -376,6 +376,48 @@ target("Homebrew-Manager")
     set_values("switch.format",  "nro")
 target_end()
 
+-- HomeNX Cards: a test HOME screen with box-art cards (projects/cards). The
+-- frontend ships it in switch/SwitchU/bin; HOME copies it out.
+target("HomeNX-Cards")
+    set_kind("binary")
+    if not is_plat("cross") then return end
+
+    set_toolchains("devkita64")
+    set_languages("c++20")
+    add_rules("switch")
+
+    add_deps("nxui")
+    add_includedirs("projects/common/include", {public = false})
+    add_includedirs("projects/menu/src", {public = false})
+    add_includedirs("projects/cards/src", {public = false})
+    add_files("projects/cards/src/*.cpp")
+    add_packages("libsdl", "libsdl_ttf", "zlib", "libwebp", "libcurl", "nlohmann_json")
+    add_linkgroups("SDL2_ttf", "harfbuzz-subset", "harfbuzz", "freetype", "png16", "bz2", "z", {group = true})
+
+    add_cxxflags("-frtti", "-fexceptions", {force = true})
+    if get_config("backend") == "deko3d" then
+        add_packages("deko3d", {links = is_mode("debug") and "deko3dd" or "deko3d"})
+        add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
+    end
+    add_syslinks("nx")
+    add_defines(version_define, homenx_build_define)
+
+    before_build(function(target)
+        local romfs_dir = path.join(os.projectdir(), "build/cards-romfs")
+        os.mkdir(path.join(romfs_dir, "fonts"))
+        os.mkdir(path.join(romfs_dir, "icons"))
+        os.cp(path.join(os.projectdir(), "projects/cards/romfs/fonts/*.ttf"), path.join(romfs_dir, "fonts"))
+        os.cp(path.join(os.projectdir(), "projects/cards/romfs/icons/*.png"), path.join(romfs_dir, "icons"))
+    end)
+
+    set_values("switch.name",    "HomeNX Cards")
+    set_values("switch.author",  "Adam")
+    set_values("switch.version", version)
+    set_values("switch.romfs",   "build/cards-romfs")
+    set_values("switch.icon",    "projects/cards/icon.jpg")
+    set_values("switch.format",  "nro")
+target_end()
+
 -- HomeNX Loader: the frontend installs it as sdmc:/hbmenu.nro so the Album's
 -- homebrew loader opens Sphaira, or the .nro picked on the Homebrew page.
 target("HomeNX-Loader")

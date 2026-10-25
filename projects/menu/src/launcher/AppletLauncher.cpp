@@ -293,6 +293,8 @@ void AppletLauncher::installBundledApps() {
          "sdmc:/switch/HomeNX-Toggle/HomeNX-Toggle.nro"},
         {"sdmc:/switch/SwitchU/bin/homebrew-manager.nro", "sdmc:/switch/Homebrew-Manager",
          "sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro"},
+        {"sdmc:/switch/SwitchU/bin/homenx-cards.nro", "sdmc:/switch/HomeNX-Cards",
+         "sdmc:/switch/HomeNX-Cards/HomeNX-Cards.nro"},
         // Discord over games: a Tesla/Ultrahand overlay.
         {"sdmc:/switch/SwitchU/bin/homenx-discord.ovl", "sdmc:/switch/.overlays",
          "sdmc:/switch/.overlays/homenx-discord.ovl"},
