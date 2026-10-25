@@ -69,7 +69,9 @@ private:
     // The lists, read on a thread (HOME shows last time's at once).
     struct Lists {
         std::vector<Game> games, homebrew;
+        float ms = 0.f; // how long reading them took
     };
+    static Lists readAllLists(); // every game and .nro (slow: seconds), on whatever thread calls it
     struct Job {
         Game game;
         int what = kCard;
@@ -124,6 +126,7 @@ private:
     void selectById(std::uint64_t id); // its page and card, straight away
     std::uint64_t m_backTo = 0;        // back from this game: it stays chosen until you move
     void takeLists(Lists lists);
+    void startListRefresh(); // read the lists again on a thread (unless that's running)
     bool glassCard(const Game& g); // an app or a game without box art: its icon on glass
     void applyOrder(int page);
     void saveOrder(int page);
@@ -311,7 +314,20 @@ private:
     bool m_playersFresh = false;
     bool m_quit = false;
     std::string m_key;        // SteamGridDB
-    bool m_netUp = false;
+    std::atomic<bool> m_netUp{false};    // worker 0 starts the network
+    std::atomic<bool> m_netReady{false}; // ...the other workers wait for that first
+    int m_startStage = 0;                // what the first frame doesn't need starts after it
+
+    // The performance log (sdmc:/config/CardsNX/perf.log): how long starting
+    // took, slow frames and what they were doing, pictures that took long.
+    void perfLine(const std::string& line);
+    float sinceStartMs() const;
+    std::string m_perfOut; // waiting for worker 1 to write it (under m_mu)
+    std::uint64_t m_perfCreateTick = 0, m_perfLastTick = 0;
+    float m_perfPumpMs = 0.f, m_perfArtMs = 0.f, m_perfDiscordMs = 0.f, m_perfUpdateMs = 0.f, m_perfDrawMs = 0.f;
+    int m_perfUploads = 0, m_perfFrames = 0, m_perfSlow = 0, m_perfVerySlow = 0;
+    float m_perfWindow = 0.f, m_perfWorst = 0.f;
+    bool m_perfFirstCard = false;
     std::atomic<bool> m_boxArt{true};
     std::atomic<bool> m_clock24{true};
     std::atomic<bool> m_downloading{false}; // BrowseNX

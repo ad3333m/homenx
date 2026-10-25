@@ -31,6 +31,8 @@ struct Settings {
     bool showFree = true;     // free space in the status pill
     std::string user;         // who games start as (hex), "" = the last one who played
     std::string lastGame;     // the last game (or app) started from here, hex
+    long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
+    bool perfLog = true;      // sdmc:/config/CardsNX/perf.log: start-up times and slow frames
     std::vector<std::string> order[3]; // My order, per page: ids (hex)
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
@@ -60,6 +62,8 @@ struct Settings {
             showFree = j.value("showFree", showFree);
             user = j.value("user", user);
             lastGame = j.value("lastGame", lastGame);
+            listsAt = j.value("listsAt", listsAt);
+            perfLog = j.value("perfLog", perfLog);
             const char* const keys[3] = {"orderGames", "orderHomebrew", "orderNintendo"};
             for (int p = 0; p < 3; ++p) order[p] = j.value(keys[p], order[p]);
         } catch (...) {
@@ -73,7 +77,7 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"user", user}, {"lastGame", lastGame},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]}};
         std::ofstream(kPath, std::ios::trunc) << j.dump(2);
     }

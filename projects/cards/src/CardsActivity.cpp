@@ -80,7 +80,7 @@ constexpr int kAccentCount = sizeof(kAccents) / sizeof(kAccents[0]);
 const char* const kGlassNames[] = {"Clear", "Frosted", "Dark"};
 const char* const kLaunchNames[] = {"Card jump", "Splash screen", "Card zoom", "Card flip", "Dive in", "Off"};
 // Each style's length against the zoom's (callers give the zoom's seconds).
-constexpr float kLaunchPace[] = {0.75f, 1.1f, 1.f, 0.95f, 0.8f, 0.15f};
+constexpr float kLaunchPace[] = {0.85f, 1.1f, 1.f, 0.95f, 0.8f, 0.15f};
 
 constexpr const char* kBrowseNxUrl = "https://github.com/ad3333m/browsenx/releases/download/latest/BrowseNX.nro";
 constexpr const char* kBrowseNxPath = "sdmc:/switch/BrowseNX/BrowseNX.nro";
@@ -269,6 +269,8 @@ std::vector<std::string> wrap(nxui::Font& font, const std::string& text, float m
     return out;
 }
 
+float ticksMs(std::uint64_t ticks) { return static_cast<float>(armTicksToNs(ticks)) / 1e6f; }
+
 // A background job's thread: off the screen's core and below it (std::async
 // threads start on core 0 at the screen's own priority, and took its frames).
 void offScreenCore() {
@@ -321,7 +323,6 @@ std::string clockText(float seconds) {
 }
 
 #ifdef SWITCHU_MENU
-constexpr const char* kNewsReadPath#ifdef SWITCHU_MENU
 constexpr const char* kNewsReadPath = "sdmc:/config/SwitchU/news_read.txt"; // shared with HomeNX's HOME
 #endif
 
@@ -395,6 +396,7 @@ CardsActivity::CardsActivity(std::uint64_t suspendedId, bool appRunning, bool at
 }
 
 bool CardsActivity::onCreate() {
+    m_perfCreateTick = armGetSystemTick();
     auto& gpu = app().gpu();
     auto& ren = app().renderer();
     ren.setBoxWireframeEnabled(false);
@@ -422,6 +424,23 @@ bool CardsActivity::onCreate() {
     m_settings.load();
     m_boxArt = m_settings.boxArt;
     m_clock24 = m_settings.clock24;
+    if (m_settings.perfLog) { // a new part of the log (the last one kept as perf.old.log once it's big)
+        std::error_code ec;
+        if (std::filesystem::file_size("sdmc:/config/CardsNX/perf.log", ec) > (512u << 10) && !ec) {
+            std::filesystem::remove("sdmc:/config/CardsNX/perf.old.log", ec);
+            std::filesystem::rename("sdmc:/config/CardsNX/perf.log", "sdmc:/config/CardsNX/perf.old.log", ec);
+        }
+        char head[96];
+        std::snprintf(head, sizeof(head), "=== CardsNX %s %s ===", HOMENX_BUILD,
+#ifdef SWITCHU_MENU
+                      m_atBoot ? "(HOME, console start)" : "(HOME, back from a game or applet)"
+#else
+                      "(app)"
+#endif
+        );
+        perfLine(head);
+    }
+    const std::uint64_t tFonts = armGetSystemTick();
 
     // Names in other scripts (Japanese, Chinese, Korean) from the console's own fonts.
     if (R_SUCCEEDED(plInitialize(PlServiceType_User))) {
@@ -438,6 +457,7 @@ bool CardsActivity::onCreate() {
         || !m_fPill.load(gpu, ren, f6, 19) || !m_fBody.load(gpu, ren, f5, 17) || !m_fBadge.load(gpu, ren, f7, 15)
         || !m_fCount.load(gpu, ren, f7, 21))
         return false;
+    const std::uint64_t tIcons = armGetSystemTick();
     for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
                              "power", "music", "news", "discord", "arrows", "wifi", "airplane", "sun", "speaker",
                              "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate"}) {
@@ -448,24 +468,27 @@ bool CardsActivity::onCreate() {
     }
 
     // The pages: games; homebrew (.nro apps, then NRO forwarders); Nintendo.
-    // Last time's lists show at once and the real ones are read on a thread
-    // (reading every game and .nro made coming back from a game slow).
-    auto readLists = []() {
-        offScreenCore();
-        Lists l;
-        for (Game& g : listGames()) (g.homebrew ? l.homebrew : l.games).push_back(std::move(g));
-        std::vector<Game> nros = listHomebrew();
-        l.homebrew.insert(l.homebrew.begin(), std::make_move_iterator(nros.begin()), std::make_move_iterator(nros.end()));
-        for (size_t i = 0; i < l.homebrew.size(); ++i) l.homebrew[i].order = static_cast<int>(i);
-        return l;
-    };
+    // Last time's lists show at once. Reading every game and .nro takes
+    // seconds, so that happens only at console start, when the console says
+    // the games changed, or when the lists are half an hour old (on a thread).
+    const std::uint64_t tLists = armGetSystemTick();
+    const long long nowSec = static_cast<long long>(std::time(nullptr));
+#ifdef SWITCHU_MENU
+    const bool atBoot = m_atBoot;
+#else
+    const bool atBoot = false; // the app: only when they're old
+#endif
+    const bool stale = atBoot || nowSec - m_settings.listsAt > 30 * 60 || nowSec < m_settings.listsAt;
+    bool scanned = false;
     if (loadLists(m_pages[kGames], m_pages[kHomebrew])) {
-        m_listJob = std::async(std::launch::async, readLists);
-    } else {
-        Lists l = readLists();
+        if (stale) startListRefresh();
+    } else { // the very first time: read them now
+        Lists l = readAllLists();
         m_pages[kGames] = std::move(l.games);
         m_pages[kHomebrew] = std::move(l.homebrew);
         saveLists(m_pages[kGames], m_pages[kHomebrew]);
+        m_settings.listsAt = nowSec;
+        scanned = true;
     }
     m_pages[kNintendo] = listSystem();
     applyOrder(kHomebrew);
@@ -496,16 +519,10 @@ bool CardsActivity::onCreate() {
         }
     }
     m_user = chosen;
-    loadAvatar();
+    const std::uint64_t tRest = armGetSystemTick();
 
     m_unread = notifications::unreadCount();
     m_key = steamGridDbKey();
-
-    m_audio.start();
-    m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
-    m_audio.setShuffle(m_settings.shuffle);
-    m_audio.setRepeat(m_settings.repeat);
-    m_audio.setMusic(m_settings.music, m_settings.musicVolume);
 
     m_painter = std::make_shared<Painter>([this](nxui::Renderer& r) { draw(r); });
     rootBox().addChild(m_painter);
@@ -525,13 +542,60 @@ bool CardsActivity::onCreate() {
     if (!m_atBoot) {
         m_backTo = m_startSuspended ? m_startSuspended : std::strtoull(m_settings.lastGame.c_str(), nullptr, 16);
         if (m_backTo) selectById(m_backTo);
+        // Its play time now (the rest of the lists stay as they were).
+        for (auto& page : m_pages)
+            for (Game& g : page)
+                if (m_backTo && g.id == m_backTo && g.path.empty() && g.action.empty()) {
+                    PdmPlayStatistics st{};
+                    if (R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationId(g.id, false, &st))) {
+                        g.lastPlayed = st.last_timestamp_user;
+                        g.playSeconds = st.playtime / 1000000000ULL;
+                        g.launches = st.total_launches;
+                    }
+                }
     }
 #endif
-    m_netUp = startNetwork();
     for (int i = 0; i < 5; ++i) m_threads.emplace_back([this, i]() { worker(i); });
     wantArt();
     m_intro = m_settings.motion ? 0.f : 1.f;
+    const std::uint64_t tEnd = armGetSystemTick();
+    char line[200];
+    std::snprintf(line, sizeof(line),
+                  "start: setup %.0f ms, fonts %.0f, icons %.0f, lists %.0f (%s), the rest %.0f; %.0f ms in all",
+                  ticksMs(tFonts - m_perfCreateTick), ticksMs(tIcons - tFonts), ticksMs(tLists - tIcons),
+                  ticksMs(tRest - tLists), scanned ? "read now" : stale ? "saved; reading on a thread" : "saved",
+                  ticksMs(tEnd - tRest), ticksMs(tEnd - m_perfCreateTick));
+    perfLine(line);
     return true;
+}
+
+CardsActivity::Lists CardsActivity::readAllLists() {
+    const std::uint64_t t0 = armGetSystemTick();
+    Lists l;
+    for (Game& g : listGames()) (g.homebrew ? l.homebrew : l.games).push_back(std::move(g));
+    std::vector<Game> nros = listHomebrew();
+    l.homebrew.insert(l.homebrew.begin(), std::make_move_iterator(nros.begin()), std::make_move_iterator(nros.end()));
+    for (size_t i = 0; i < l.homebrew.size(); ++i) l.homebrew[i].order = static_cast<int>(i);
+    l.ms = ticksMs(armGetSystemTick() - t0);
+    return l;
+}
+
+void CardsActivity::startListRefresh() {
+    if (m_listJob.valid()) return;
+    m_listJob = std::async(std::launch::async, []() {
+        offScreenCore(); // this thread only (never the screen's)
+        return readAllLists();
+    });
+}
+
+float CardsActivity::sinceStartMs() const { return ticksMs(armGetSystemTick() - m_perfCreateTick); }
+
+void CardsActivity::perfLine(const std::string& line) {
+    if (!m_settings.perfLog) return;
+    char head[24];
+    std::snprintf(head, sizeof(head), "[%8.1f s] ", sinceStartMs() / 1000.f);
+    std::lock_guard<std::mutex> lk(m_mu);
+    m_perfOut += head + line + "\n";
 }
 
 void CardsActivity::onDestroy() {
@@ -545,6 +609,11 @@ void CardsActivity::onDestroy() {
         if (t.joinable()) t.join();
     if (m_browserJob.valid()) m_browserJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
+    if (!m_perfOut.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
+        std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << m_perfOut;
+    }
     if (m_deleteJob.valid()) m_deleteJob.wait();
 #ifdef SWITCHU_MENU
     if (m_newsJob.valid()) m_newsJob.wait();
@@ -635,11 +704,36 @@ void CardsActivity::worker(int index) {
     // frames' time (the Games page stuttered).
     nxui::moveToWorkerCores();
     svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3B);
-    std::uint64_t countsAt = 0, statusAt = 0;
+    // The network starts here, not on the screen's thread; the others wait for it
+    // (a picture fetched before it's up fails and is asked for again).
+    if (index == 0) {
+        const std::uint64_t t0 = armGetSystemTick();
+        m_netUp = startNetwork();
+        m_netReady = true;
+        char line[64];
+        std::snprintf(line, sizeof(line), "network %s in %.0f ms", m_netUp ? "up" : "not up", ticksMs(armGetSystemTick() - t0));
+        perfLine(line);
+    } else {
+        while (!m_netReady && !m_quit) svcSleepThread(5'000'000ULL);
+    }
+    std::uint64_t countsAt = 0, statusAt = 0, logAt = 0;
     for (;;) {
         // The bar's numbers, once a second: the time, battery, network, the SD
         // card's free space (that one waited on the card on the screen's thread).
         const std::uint64_t now = armTicksToNs(armGetSystemTick()) / 1000000ULL;
+        if (index == 1 && now >= logAt) { // the performance log, a few seconds at a time
+            logAt = now + 5000;
+            std::string out;
+            {
+                std::lock_guard<std::mutex> lk(m_mu);
+                out.swap(m_perfOut);
+            }
+            if (!out.empty()) {
+                std::error_code ec;
+                std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
+                std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << out;
+            }
+        }
         if (index == 1 && now >= statusAt) {
             statusAt = now + 1000;
             Status s;
@@ -702,6 +796,7 @@ void CardsActivity::worker(int index) {
         Done done;
         done.id = job.game.id;
         done.what = job.what;
+        const std::uint64_t jobStart = armGetSystemTick();
         std::vector<std::uint8_t> data;
         if (job.what == kBackground || job.what == kLaunch) {
             data = backgroundArt(job.game, m_key, done.kind);
@@ -729,6 +824,14 @@ void CardsActivity::worker(int index) {
                 done.w = w;
                 done.h = h;
             }
+        }
+        const float took = ticksMs(armGetSystemTick() - jobStart);
+        if (took > 800.f) { // a picture that took long (the internet, mostly)
+            char line[160];
+            std::snprintf(line, sizeof(line), "%s for %.60s took %.0f ms%s",
+                          job.what == kBackground ? "background" : job.what == kIcon ? "icon" : "card", job.game.name.c_str(),
+                          took, done.rgba.empty() ? " (nothing came)" : "");
+            perfLine(line);
         }
         std::lock_guard<std::mutex> lk(m_mu);
         m_done.push_back(std::move(done));
@@ -813,7 +916,7 @@ void CardsActivity::takeArt() {
                                             : nullptr;
         if (d.rgba.empty()) { // nothing came (the network not up yet?): asked again in a while
             if (asked) *asked = false;
-            it->second.retryAt = m_time + 15.f;
+            it->second.retryAt = m_time + (m_time < 10.f ? 2.f : 15.f);
             continue;
         }
         auto tex = std::make_unique<nxui::Texture>();
@@ -841,7 +944,14 @@ void CardsActivity::takeArt() {
             it->second.card = std::move(tex);
             it->second.kind = d.kind;
             it->second.cardIn = m_time;
+            if (!m_perfFirstCard && d.id == selected) {
+                m_perfFirstCard = true;
+                char line[64];
+                std::snprintf(line, sizeof(line), "the chosen card's picture showed at %.0f ms", sinceStartMs());
+                perfLine(line);
+            }
         }
+        ++m_perfUploads;
     }
 
     // Far from the selection, on any page: let the pictures go, now and then and
@@ -925,6 +1035,10 @@ void CardsActivity::select(int index) {
 
 void CardsActivity::switchPage(int dir) {
     m_backTo = 0;
+    // The Homebrew page: .nro apps added a while ago show (read on a thread).
+    if ((m_page + dir + kPageCount) % kPageCount == kHomebrew
+        && static_cast<long long>(std::time(nullptr)) - m_settings.listsAt > 120)
+        startListRefresh();
     if (m_moving) finishMove(true);
     m_page = (m_page + dir + kPageCount) % kPageCount;
     m_pageDir = dir > 0 ? 1 : -1;
@@ -1004,34 +1118,21 @@ void CardsActivity::saveOrder(int page) {
     m_settings.save();
 }
 
-// A game was installed, removed or a game card went in or out.
+// A game was installed, removed or a game card went in or out: read them
+// again on a thread (it took the screen's thread seconds).
 void CardsActivity::reloadGames() {
-    const Game* cur = current();
-    const std::uint64_t keep = cur ? cur->id : 0;
-    std::vector<Game> games, forwarders;
-    for (Game& g : listGames()) (g.homebrew ? forwarders : games).push_back(std::move(g));
-    std::vector<Game> homebrew;
-    for (Game& g : m_pages[kHomebrew])
-        if (!g.path.empty()) homebrew.push_back(std::move(g));
-    homebrew.insert(homebrew.end(), std::make_move_iterator(forwarders.begin()), std::make_move_iterator(forwarders.end()));
-    for (size_t i = 0; i < homebrew.size(); ++i) homebrew[i].order = static_cast<int>(i);
-    m_pages[kGames] = std::move(games);
-    m_pages[kHomebrew] = std::move(homebrew);
-    applyOrder(kHomebrew);
-    sortGames(m_settings.sort, false);
-    for (int p = 0; p < kPageCount; ++p) {
-        m_sels[p] = std::clamp(m_sels[p], 0, std::max(0, static_cast<int>(m_pages[p].size()) - 1));
-        for (size_t i = 0; i < m_pages[p].size(); ++i)
-            if (p == m_page && m_pages[p][i].id == keep) m_sels[p] = static_cast<int>(i);
-    }
-    m_scroll = static_cast<float>(sel());
-    saveLists(m_pages[kGames], m_pages[kHomebrew]);
-    wantArt();
+    startListRefresh();
 }
 
 // The real lists, read on a thread, replace last time's. Where you are stays:
 // the first card stays first, a card further along stays chosen.
 void CardsActivity::takeLists(Lists lists) {
+    char line[80];
+    std::snprintf(line, sizeof(line), "lists read again in %.0f ms (%zu games, %zu homebrew)", lists.ms,
+                  lists.games.size(), lists.homebrew.size());
+    perfLine(line);
+    m_settings.listsAt = static_cast<long long>(std::time(nullptr));
+    m_settings.save();
     auto chosen = [this](int p) -> std::uint64_t {
         const auto& page = m_pages[p];
         return m_sels[p] > 0 && m_sels[p] < static_cast<int>(page.size()) ? page[(size_t)m_sels[p]].id : 0;
@@ -2160,6 +2261,10 @@ void CardsActivity::buildSettings() {
     about.rows.push_back(info("Games", [this]() { return std::to_string(m_pages[kGames].size()); }));
     about.rows.push_back(info("Homebrew", [this]() { return std::to_string(m_pages[kHomebrew].size()); }));
     about.rows.push_back(info("Free on the SD card", [this]() { return m_free; }));
+    about.rows.push_back(toggle("Performance log", [this]() { return m_settings.perfLog; }, [this]() {
+        m_settings.perfLog = !m_settings.perfLog;
+        m_settings.save();
+    }, "config/CardsNX/perf.log: slow frames and start-up times"));
 #ifndef SWITCHU_MENU
     about.rows.push_back(action("Close CardsNX", [this]() {
         m_settings.save();
@@ -2545,12 +2650,14 @@ void CardsActivity::activateBottom(int index) {
     }
 }
 
-// Text is cached per font as pictures. When a font's cache is full it stops
-// making new ones (text went missing): half of it goes. Freed textures wait
-// out the frames in flight themselves (nxui), so nothing waits for the GPU.
+// Text is cached per font as pictures (144 or 4 MB at most). A full cache
+// stops making new ones and text went missing for a frame (a flicker), so a
+// few of the oldest go before it fills. Freed textures wait out the frames in
+// flight themselves (nxui), so nothing waits for the GPU.
 void CardsActivity::keepTextCachesSmall() {
     for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount})
-        if (f->maintenanceRequested()) f->trimCache(f->cacheEntryCount() / 2, f->cacheBytes() / 2);
+        if (f->maintenanceRequested() || f->cacheEntryCount() > 120 || f->cacheBytes() > (3u << 20) + (256u << 10))
+            f->trimCache(100, 3u << 20);
 }
 
 // ---------------------------------------------------------------- input: popups and settings
@@ -2855,13 +2962,74 @@ bool CardsActivity::handleTouch() {
 // ---------------------------------------------------------------- frame
 
 void CardsActivity::onUpdate(float dt) {
+    // Frame times for the log: the time since the last frame, and what the last one did.
+    const std::uint64_t frameTick = armGetSystemTick();
+    if (m_perfLastTick) {
+        const float interval = ticksMs(frameTick - m_perfLastTick);
+        ++m_perfFrames;
+        m_perfWindow += interval;
+        m_perfWorst = std::max(m_perfWorst, interval);
+        if (interval > 20.f) ++m_perfSlow;
+        if (interval > 34.f) ++m_perfVerySlow;
+        if (interval > 24.f && m_settings.perfLog) {
+            char line[220];
+            std::snprintf(line, sizeof(line),
+                          "slow frame %.1f ms: daemon %.1f, pictures %.1f (%d uploaded), discord %.1f, the rest of update %.1f, "
+                          "drawing %.1f, GPU/system %.1f",
+                          interval, m_perfPumpMs, m_perfArtMs, m_perfUploads, m_perfDiscordMs,
+                          std::max(0.f, m_perfUpdateMs - m_perfPumpMs - m_perfArtMs - m_perfDiscordMs), m_perfDrawMs,
+                          std::max(0.f, interval - m_perfUpdateMs - m_perfDrawMs));
+            perfLine(line);
+        }
+        if (m_perfWindow >= 10000.f) {
+            char line[160];
+            std::snprintf(line, sizeof(line), "10 s: %.1f fps, worst frame %.1f ms, %d over 20 ms, %d over 34 ms",
+                          m_perfFrames * 1000.f / m_perfWindow, m_perfWorst, m_perfSlow, m_perfVerySlow);
+            perfLine(line);
+            m_perfFrames = m_perfSlow = m_perfVerySlow = 0;
+            m_perfWindow = m_perfWorst = 0.f;
+        }
+    } else {
+        char line[64];
+        std::snprintf(line, sizeof(line), "first frame at %.0f ms", ticksMs(frameTick - m_perfCreateTick));
+        perfLine(line);
+    }
+    m_perfLastTick = frameTick;
+    m_perfPumpMs = m_perfArtMs = m_perfDiscordMs = 0.f;
+    m_perfUploads = 0;
+    struct UpdateTimer {
+        CardsActivity* self;
+        std::uint64_t start;
+        ~UpdateTimer() { self->m_perfUpdateMs = ticksMs(armGetSystemTick() - start); }
+    } updateTimer{this, frameTick};
+
+    // A slow frame no longer jumps everything ahead (it looked like stutter):
+    // things move a little slower for a moment instead.
+    dt = std::min(dt, 1.f / 30.f);
 #ifdef SWITCHU_MENU
+    std::uint64_t t = armGetSystemTick();
     pumpDaemon();
+    m_perfPumpMs = ticksMs(armGetSystemTick() - t);
     if (m_asleep) return;
 #endif
+    // What the first frame doesn't need starts just after it, so HOME shows sooner.
+    if (m_startStage < 3) {
+        ++m_startStage;
+        if (m_startStage == 2) {
+            m_audio.start();
+            m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
+            m_audio.setShuffle(m_settings.shuffle);
+            m_audio.setRepeat(m_settings.repeat);
+            m_audio.setMusic(m_settings.music, m_settings.musicVolume);
+        } else if (m_startStage == 3) {
+            loadAvatar();
+        }
+    }
     m_time += dt;
     keepTextCachesSmall();
+    const std::uint64_t tArt = armGetSystemTick();
     takeArt();
+    m_perfArtMs = ticksMs(armGetSystemTick() - tArt);
     m_audio.update();
     const bool motion = m_settings.motion;
     auto step = [&](float& v, float seconds) { v = motion ? std::min(1.f, v + dt / seconds) : 1.f; };
@@ -2942,7 +3110,9 @@ void CardsActivity::onUpdate(float dt) {
         m_discordStarted = true;
         if (!m_discord.started() && m_discord.hasSavedAccount()) m_discord.activate();
     }
+    const std::uint64_t tDiscord = armGetSystemTick();
     m_discord.update();
+    m_perfDiscordMs = ticksMs(armGetSystemTick() - tDiscord);
     DiscordService::Alert alert;
     if (m_discord.takeAlert(alert)) {
         notifications::add(("discord/" + std::to_string(alert.channelId) + "/" + std::to_string(alert.guildId)).c_str(),
@@ -3128,6 +3298,11 @@ void CardsActivity::onUpdate(float dt) {
 }
 
 void CardsActivity::draw(nxui::Renderer& r) {
+    struct DrawTimer {
+        CardsActivity* self;
+        std::uint64_t start;
+        ~DrawTimer() { self->m_perfDrawMs = ticksMs(armGetSystemTick() - start); }
+    } drawTimer{this, armGetSystemTick()};
     drawBackground(r);
     drawCards(r);
     // One blurred copy of the frame for every glass shape on top of it.
@@ -3351,7 +3526,7 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     if (m_leaving) {
         const int style = launchStyle();
         if (style == kFade && index == m_leaveIndex) { // a smooth hop: up, a little bigger, and back down
-            const float hop = 0.5f - 0.5f * std::cos(6.28318f * clamp01(m_leaveT / 0.62f));
+            const float hop = 0.5f - 0.5f * std::cos(6.28318f * clamp01(m_leaveT / 0.6f));
             card = scaled(card, 1.f + 0.05f * hop);
             card.y -= 34.f * hop;
         }
@@ -3595,7 +3770,7 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
         black = smoothstep(0.1f, 1.f, t); // nothing to show (power, a system applet): a fade
     } else if (style == kFade) {
         // Card jump: the card hops (cardRect), then everything fades into the game.
-        black = smoothstep(0.45f, 1.f, t);
+        black = smoothstep(0.5f, 1.f, t);
     } else if (style == kSplash) {
         // The screen goes soft and dark; the game's art comes up through it.
         const float soft = smoothstep(0.f, 0.3f, t);

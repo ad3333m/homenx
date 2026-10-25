@@ -215,8 +215,10 @@ void Renderer::retireImageMemory(dk::UniqueMemBlock&& block, uint32_t size) {
 }
 
 void Renderer::releaseDeferredImages(bool all) {
-    for (std::size_t i = 0; i < m_deferredImages.size();) {
+    int budget = all ? 1 << 30 : 8; // a few a frame: each one is a call into the kernel
+    for (std::size_t i = 0; i < m_deferredImages.size() && budget > 0;) {
         if (all || m_deferredImages[i].freeFrame <= m_frameSerial) {
+            --budget;
             m_gpu.forgetImageMemory(m_deferredImages[i].size);
             if (i + 1 != m_deferredImages.size()) m_deferredImages[i] = std::move(m_deferredImages.back());
             m_deferredImages.pop_back(); // the MemBlock goes here
