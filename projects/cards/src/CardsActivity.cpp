@@ -5,6 +5,7 @@
 #include <nxui/Application.hpp>
 #include <nxui/core/GpuDevice.hpp>
 #include <nxui/core/Renderer.hpp>
+#include <nxui/core/ThreadPool.hpp>
 #include <nxui/third_party/stb/stb_image.h>
 #include <nxui/widgets/Widget.hpp>
 #include <switch.h>
@@ -254,6 +255,10 @@ const Game* CardsActivity::current() {
 // ---------------------------------------------------------------- the workers
 
 void CardsActivity::worker(int index) {
+    // Off the screen's core and below it: decoding a picture used to take the
+    // frames' time (the Games page stuttered).
+    nxui::moveToWorkerCores();
+    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3B);
     std::uint64_t countsAt = 0;
     for (;;) {
         Job job;
@@ -295,7 +300,7 @@ void CardsActivity::worker(int index) {
                 const int maxW = !job.background ? 400
                                : done.kind == ArtKind::Icon ? 32
                                : done.kind == ArtKind::Box ? 400
-                                                           : 1280;
+                                                           : 960;
                 shrink(done.rgba, w, h, maxW);
                 done.w = w;
                 done.h = h;
@@ -342,7 +347,7 @@ void CardsActivity::takeArt() {
     std::vector<Done> done;
     {
         std::lock_guard<std::mutex> lk(m_mu);
-        const size_t n = std::min<size_t>(2, m_done.size()); // a couple of uploads a frame
+        const size_t n = std::min<size_t>(1, m_done.size()); // one upload a frame
         for (size_t i = 0; i < n; ++i) done.push_back(std::move(m_done[i]));
         m_done.erase(m_done.begin(), m_done.begin() + static_cast<std::ptrdiff_t>(n));
         if (m_playersFresh) {
@@ -377,8 +382,10 @@ void CardsActivity::takeArt() {
         }
     }
 
-    // Far from the selection, on any page: let the pictures go (two a frame at
-    // most: freeing waits for the GPU). Cards near the selection always stay.
+    // Far from the selection, on any page: let the pictures go, now and then and
+    // all together (freeing one waits for the GPU; the rest are then free).
+    if ((m_evictIn -= 1.f / 60.f) > 0.f) return;
+    m_evictIn = 0.5f;
     std::map<std::uint64_t, int> distance;
     for (int p = 0; p < kPageCount; ++p) {
         const auto& page = m_pages[p];
@@ -386,20 +393,16 @@ void CardsActivity::takeArt() {
         for (size_t i = 0; i < page.size(); ++i) // another page's: as if 8 further away
             distance[page[i].id] = std::abs(static_cast<int>(i) - s) + (p == m_page ? 0 : 8);
     }
-    int freed = 0;
     for (auto& [id, a] : m_art) {
-        if (freed >= 2) break;
         auto d = distance.find(id);
         const int dist = d == distance.end() ? 1000 : d->second;
-        if (a.card && dist > 13) {
+        if (a.card && dist > 20) {
             a.card.reset();
             a.cardAsked = false;
-            ++freed;
         }
-        if (a.bg && dist > 2 && id != m_bgId && id != m_bgPrevId) {
+        if (a.bg && dist > 3 && id != m_bgId && id != m_bgPrevId) {
             a.bg.reset();
             a.bgAsked = false;
-            ++freed;
         }
     }
 }
@@ -742,6 +745,116 @@ void CardsActivity::keepTextCachesSmall() {
     if (waited) app().renderer().reclaimReleasedTextureSlotsAfterIdle();
 }
 
+// ---------------------------------------------------------------- touch
+
+bool CardsActivity::handleTouch() {
+    auto& in = app().input();
+    const float x = in.touchX(), y = in.touchY();
+    auto inCircle = [&](float cx, float cy, float r) { return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r; };
+
+    // A popup: a row runs (a setting changes: left half down, right half up); beside it closes.
+    if (m_notifOpen) {
+        if (in.touchUp()) {
+            m_notifOpen = false;
+            m_audio.play("hide_modal");
+        }
+        return in.isTouching() || in.touchUp();
+    }
+    if (!m_menu.empty()) {
+        if (!in.touchUp()) return in.isTouching();
+        const float w = 560.f, rowH = 54.f, h = 82.f + rowH * static_cast<float>(m_menu.size());
+        const nxui::Rect box{(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h};
+        if (!box.contains(x, y)) {
+            m_menu.clear();
+            m_audio.play("hide_modal");
+            return true;
+        }
+        const int row = static_cast<int>((y - box.y - 66.f) / rowH);
+        if (y < box.y + 66.f || row < 0 || row >= static_cast<int>(m_menu.size())) return true;
+        m_menuSel = row;
+        MenuItem& item = m_menu[(size_t)row];
+        if (item.change) {
+            item.change(x < box.x + box.width * 0.5f ? -1 : 1);
+        } else if (item.run) {
+            auto run = item.run;
+            m_menu.clear();
+            run();
+        }
+        return true;
+    }
+
+    if (in.touchDown()) {
+        m_touchOnCards = y > 100.f && y < 490.f;
+        m_touchScroll = m_scroll;
+        m_dragging = false;
+    }
+    // Dragging the row: it follows the finger, the card under the middle is chosen.
+    if (in.isTouching() && m_touchOnCards) {
+        const float dx = x - in.touchStartX();
+        if (!m_dragging && std::abs(dx) > 14.f) m_dragging = true;
+        if (m_dragging && !games().empty()) {
+            const float last = static_cast<float>(games().size() - 1);
+            m_scroll = std::clamp(m_touchScroll - dx / kCardPitch, -0.35f, last + 0.35f);
+            const int near = std::clamp(static_cast<int>(std::lround(m_scroll)), 0, static_cast<int>(last));
+            if (near != sel()) select(near);
+        }
+        return true;
+    }
+    if (!in.touchUp()) return false;
+    if (m_dragging) { // let go: it settles on the nearest card
+        m_dragging = false;
+        return true;
+    }
+
+    // A tap.
+    if (m_touchOnCards) {
+        for (int i = 0; i < static_cast<int>(games().size()); ++i) {
+            nxui::Rect card;
+            float t = 0.f;
+            if (!cardRect(i, card, t) || !card.contains(x, y)) continue;
+            m_zone = Zone::Cards;
+            if (i == sel()) {
+                press(1, i);
+                play();
+            } else {
+                select(i);
+            }
+            return true;
+        }
+        return true;
+    }
+    if (y < 95.f) { // the top bar
+        int hit = -1;
+        if (inCircle(134.f, kTopY, 40.f)) hit = 0;
+        else if (inCircle(219.f, kTopY, 40.f) || (x > 260.f && x < 420.f)) hit = 1;
+        else if (x > kFriendsX - 30.f && x < kFriendsX + 60.f) hit = 2;
+        else if (inCircle(kBellX, kTopY, 32.f)) hit = 3;
+        else if (inCircle(kPowerX, kTopY, 40.f)) hit = 4;
+        else if (inCircle(kGearX, kTopY, 40.f)) hit = 5;
+        if (hit >= 0) {
+            m_zone = Zone::Top;
+            m_topSel = hit;
+            activateTop(hit);
+        }
+        return true;
+    }
+    if (kPanel.contains(x, y)) { // the panel's buttons
+        const float by = kPanel.y + 108.f, cy = by + 38.5f, right = kPanel.x + kPanel.width - 22.f;
+        int hit = -1;
+        if (nxui::Rect{kPanel.x + 22.f, by, 262.f, 77.f}.contains(x, y)) hit = 0;
+        else if (inCircle(kPanel.x + 22.f + 262.f + 8.f + 38.5f, cy, 40.f)) hit = 1;
+        else if (inCircle(right - 77.f - 8.f - 38.5f, cy, 40.f)) hit = 2;
+        else if (inCircle(right - 38.5f, cy, 40.f)) hit = 3;
+        if (hit >= 0) {
+            m_zone = Zone::Bottom;
+            m_bottomSel = hit;
+            activateBottom(hit);
+        }
+        return true;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------- frame
 
 void CardsActivity::onUpdate(float dt) {
@@ -759,8 +872,10 @@ void CardsActivity::onUpdate(float dt) {
     step(m_pressT, 0.22f);
     step(m_bgFade, 0.45f);
     const float target = static_cast<float>(sel());
-    m_scroll = motion ? m_scroll + (target - m_scroll) * (1.f - std::exp(-dt * 13.f)) : target;
-    if (std::abs(m_scroll - target) < 0.001f) m_scroll = target;
+    if (!m_dragging) {
+        m_scroll = motion ? m_scroll + (target - m_scroll) * (1.f - std::exp(-dt * 13.f)) : target;
+        if (std::abs(m_scroll - target) < 0.001f) m_scroll = target;
+    }
     if (m_messageFor > 0.f) m_messageFor -= dt;
     if ((m_statusIn -= dt) <= 0.f) {
         m_statusIn = 1.f;
@@ -774,6 +889,8 @@ void CardsActivity::onUpdate(float dt) {
     const bool downDown = in.isDown(B::DDown) || in.isDown(B::LStickD);
     const bool leftDown = in.isDown(B::DLeft) || in.isDown(B::LStickL);
     const bool rightDown = in.isDown(B::DRight) || in.isDown(B::LStickR);
+
+    if (handleTouch()) return;
 
     if (m_notifOpen) {
         if (bDown || aDown || in.isDown(B::Minus)) {

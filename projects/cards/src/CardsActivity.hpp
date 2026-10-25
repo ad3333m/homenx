@@ -164,6 +164,12 @@ private:
     std::string m_key;        // SteamGridDB
     bool m_netUp = false;
     std::atomic<bool> m_boxArt{true};
+    float m_evictIn = 0.f;
+
+    // Touch: drag the row, tap a card (again to play), tap any button.
+    bool m_dragging = false, m_touchOnCards = false;
+    float m_touchScroll = 0.f;
+    bool handleTouch();
 };
 
 } // namespace cards

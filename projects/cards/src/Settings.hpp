@@ -15,7 +15,7 @@ struct Settings {
     bool players = true;      // Nextendo's green dots
     bool motion = true;       // animations (off: things move straight to place)
     int startPage = 0;        // 0 games, 1 homebrew, 2 Nintendo
-    int sort = 0;             // 0 last played, 1 title, 2 most played
+    int sort = 1;             // 0 last played, 1 title (the default: every game, A to Z), 2 most played
     int haze = 45;            // how much the background art is softened, 0..80
     bool boxArt = true;       // box covers on cards (off: the eShop banner)
 
@@ -32,7 +32,7 @@ struct Settings {
             players = j.value("players", players);
             motion = j.value("motion", motion);
             startPage = j.value("startPage", startPage);
-            sort = j.value("sort", sort);
+            sort = j.value("sortOrder", sort);
             haze = j.value("haze", haze);
             boxArt = j.value("boxArt", boxArt);
         } catch (...) {
@@ -44,7 +44,7 @@ struct Settings {
         std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
         nlohmann::json j = {{"music", music}, {"musicVolume", musicVolume}, {"sounds", sounds},
                             {"players", players}, {"motion", motion}, {"startPage", startPage},
-                            {"sort", sort}, {"haze", haze}, {"boxArt", boxArt}};
+                            {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}};
         std::ofstream(kPath, std::ios::trunc) << j.dump(2);
     }
 };
