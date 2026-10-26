@@ -707,10 +707,12 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
     const std::string name = nameKey(game.name);
     for (const auto& [words, url] : kPicks)
         if (name.find(words) != std::string::npos) {
-            if (std::filesystem::exists(base + ".titlepick", ec)) return readFile(base + ".titlepick");
+            // Saved under its link's number: a changed pick is downloaded again.
+            const std::string saved = base + ".pick" + std::to_string(std::hash<std::string>{}(url) % 1000000);
+            if (std::filesystem::exists(saved, ec)) return readFile(saved);
             std::string body;
             if (get(url, body) == 200 && isPicture(body)) {
-                writeFile(base + ".titlepick", body);
+                writeFile(saved, body);
                 return std::vector<std::uint8_t>(body.begin(), body.end());
             }
             break; // (no internet now: the others below meanwhile)
