@@ -158,6 +158,7 @@ long long steamGridDbGame(const std::string& name, const std::string& key) {
 std::vector<std::pair<std::string, std::string>> steamGridDbAssets(long long gameId, const std::string& key, const char* kind,
                                                                    const std::string& query, size_t max, bool* answered) {
     std::vector<std::pair<std::string, std::string>> out;
+    if (gameId < 0 && answered) *answered = true; // no such game there: an answer (0: none came)
     if (gameId <= 0) return out;
     const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
     std::string body;
@@ -716,7 +717,7 @@ bool keptBack(std::uint64_t id, const char* ext) {
     return !ec;
 }
 
-std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
+std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy) {
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     std::error_code ec;
     // Chosen by hand (+ > Title picture): kept for good; empty = its own icon.
@@ -752,6 +753,16 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
     const std::string path = base + ".title2";
     if (std::filesystem::exists(path, ec)) return readFile(path); // empty: SteamGridDB had none
     if (key.empty()) return {};
+    // One search at a time (each is several requests and downloads): five at
+    // once kept every picture thread from the covers, which loaded slowly.
+    static std::atomic<bool> searching{false};
+    if (searching.exchange(true)) {
+        if (busy) *busy = true;
+        return {};
+    }
+    struct Done {
+        ~Done() { searching = false; }
+    } done;
     const std::vector<Game> names = searchNames(game);
     // An icon with see-through edges: up to 512 px first (big ones are MBs),
     // then the big ones; then its logo (they all have no background).

@@ -88,6 +88,7 @@ private:
         ArtKind kind = ArtKind::Banner;
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
+        bool again = false; // an icon for now: its title picture is asked for again
     };
     // A row in a popup or in Settings.
     struct MenuItem {

@@ -877,7 +877,9 @@ void CardsActivity::worker(int index) {
             data.assign(std::istreambuf_iterator<char>(in), {});
         } else {
             done.kind = ArtKind::Title;
-            if (m_titleArt && !job.game.homebrew) data = titleArt(job.game, m_key);
+            bool busy = false;
+            if (m_titleArt && !job.game.homebrew) data = titleArt(job.game, m_key, &busy);
+            done.again = busy; // another search is running: its plain icon now, the title picture later
             if (data.empty()) {
                 done.kind = ArtKind::Icon;
                 data = gameIcon(job.game);
@@ -941,16 +943,12 @@ void CardsActivity::wantArt() {
         jobs.push_back({page[(size_t)i], what});
     };
     const int s = sel();
-    add(s, kIcon);
     add(s, kCard);
     add(s, kBackground);
+    add(s, kIcon); // (a title picture can mean a search online: after the pictures you see)
     for (int d = 1; d <= 6; ++d) {
         add(s + d, kCard);
         add(s - d, kCard);
-        if (d <= 2) {
-            add(s + d, kIcon);
-            add(s - d, kIcon);
-        }
         if (d == 1) {
             add(s + 1, kBackground);
             add(s - 1, kBackground);
@@ -959,6 +957,10 @@ void CardsActivity::wantArt() {
     for (int d = 7; d <= 12; ++d) { // further ahead, both ways (scrolling fast)
         add(s + d, kCard);
         if (d <= 9) add(s - d, kCard);
+    }
+    for (int d = 1; d <= 2; ++d) {
+        add(s + d, kIcon);
+        add(s - d, kIcon);
     }
     if (jobs.empty()) return;
     {
@@ -1028,6 +1030,10 @@ void CardsActivity::takeArt() {
         } else if (d.what == kIcon) {
             it->second.icon = std::move(tex);
             it->second.iconKind = d.kind;
+            if (d.again) { // asked again in a moment, for its title picture
+                it->second.iconAsked = false;
+                it->second.retryAt = m_time + 3.f;
+            }
         } else if (d.what == kBackground) {
             it->second.bg = std::move(tex);
             it->second.bgKind = d.kind;

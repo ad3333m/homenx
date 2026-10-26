@@ -77,7 +77,8 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
 void forgetArt(std::uint64_t id); // the next ask downloads them again
 // The game's own picture with no background (the Wonder Flower for Super Mario
 // Bros. Wonder): the first SteamGridDB icon with clear edges. Empty: none.
-std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key);
+// busy: another search was running (it's asked again a little later).
+std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy = nullptr);
 // + > Title picture: SteamGridDB's icons and logos for the game to choose from
 // (no background first), with the one an older CardsNX picked. Slow: a thread.
 struct TitleChoice {
