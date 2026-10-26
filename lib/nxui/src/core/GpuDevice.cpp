@@ -542,6 +542,13 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
         m_uploadFence.wait();
         m_uploadInFlight = false;
     }
+    // A big picture's own staging block goes as soon as its copy has run
+    // (not 16 uploads later: a row of backgrounds held tens of MB).
+    for (UploadSlot& done : m_uploadSlots)
+        if (done.busy && done.staging && done.fence.wait(0) == DkResult_Success) {
+            done.busy = false;
+            done.staging = {};
+        }
     // This upload's slot. Its last copy ran long ago, unless 16 came at once.
     const int index = m_uploadNext;
     m_uploadNext = (m_uploadNext + 1) % kUploadSlots;
