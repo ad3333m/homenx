@@ -701,8 +701,8 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
         {"mario tennis aces", "https://cdn2.steamgriddb.com/icon/6a57122a72d2bd5e8a156c678952f88b.png"},
         {"new super mario bros u deluxe", "https://cdn2.steamgriddb.com/icon/f3848b78b70702300c576fcd56a9addd.png"},
         {"minecraft", "https://cdn2.steamgriddb.com/icon/cfecdb276f634854f3ef915e2e980c31.png"},
-        // (mine: its logo's bubbles stacked; the wide one is 3187 px, 31 MB to decode)
-        {"1 2 switch", "https://cdn2.steamgriddb.com/logo/037e1ffb2901a910fe15ab0996acfe69.png"},
+        // (its logo, SteamGridDB's 512 px copy: the original is 3187 px, 31 MB to decode)
+        {"1 2 switch", "https://cdn2.steamgriddb.com/logo_thumb/67f5f6bb5b8cbbc3593fda172965b132.png"},
     };
     const std::string name = nameKey(game.name);
     for (const auto& [words, url] : kPicks)
