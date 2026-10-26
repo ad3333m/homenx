@@ -29,6 +29,12 @@
 #include <mutex>
 #include <thread>
 #include <nxui/core/ThreadPool.hpp>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <new>
 #include <unordered_map>
 
@@ -605,6 +611,8 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     const std::string grid = base + ".grid", box = base + ".box", banner = base + ".card";
     kind = ArtKind::Grid;
+    // Chosen by hand (+ > Card picture): kept for good.
+    if (boxArt && std::filesystem::exists(base + ".coverme")) return readFile(base + ".coverme");
     // The covers Adam picked on SteamGridDB (2026-10-26), by name: downloaded once,
     // saved under their link's number (a changed pick is downloaded again).
     static const std::pair<const char*, const char*> kCovers[] = {
@@ -807,6 +815,48 @@ std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, 
     // No background first (what a title picture is), the rest after.
     std::stable_partition(out.begin(), out.end(), [](const TitleChoice& c) { return c.before || c.clear; });
     return out;
+}
+
+std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max) {
+    std::vector<TitleChoice> out;
+    if (key.empty()) return out;
+    std::set<std::string> seen;
+    std::string body;
+    for (const Game& g : searchNames(game))
+        for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(g.name, key), key, "grids",
+                 "dimensions=600x900&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
+            if (out.size() >= max || url.empty() || !seen.insert(url).second) continue;
+            if ((thumb.empty() || get(thumb, body) != 200 || !isPicture(body)) && (get(url, body) != 200 || !isPicture(body)))
+                continue;
+            int w = 0, h = 0, ch = 0;
+            stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
+                                                &w, &h, &ch, 4);
+            if (!px) continue;
+            const bool removed = removedNotice(px, w, h); // (a taken-down one's notice)
+            TitleChoice c;
+            c.url = url;
+            c.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
+            stbi_image_free(px);
+            if (removed) continue;
+            shrink(c.rgba, w, h, 160);
+            c.w = w;
+            c.h = h;
+            out.push_back(std::move(c));
+        }
+    return out;
+}
+
+bool chooseCoverArt(const Game& game, const TitleChoice* choice) {
+    const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".coverme";
+    if (!choice) {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        return true;
+    }
+    std::string data;
+    if (get(choice->url, data) != 200 || !isPicture(data)) return false;
+    writeFile(path, data);
+    return true;
 }
 
 bool chooseTitleArt(const Game& game, const TitleChoice* choice) {
@@ -1129,6 +1179,30 @@ ConsoleSettings readConsoleSettings() {
     return s;
 }
 
+int nextendoMode() {
+    bool emu = false; // emuMMC: Atmosphère reads hosts/emummc*.txt, else hosts/sysmmc.txt
+    if (R_SUCCEEDED(splInitialize())) {
+        u64 v = 0;
+        if (R_SUCCEEDED(splGetConfig(static_cast<SplConfigItem>(65007), &v))) emu = v != 0;
+        splExit();
+    }
+    std::vector<std::string> files;
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator("sdmc:/atmosphere/hosts", ec)) {
+        const std::string name = e.path().filename().string();
+        if (emu ? name.rfind("emummc", 0) == 0 : name == "sysmmc.txt") files.push_back(e.path().string());
+    }
+    if (files.empty()) files.push_back("sdmc:/atmosphere/hosts/default.txt"); // (used when there's no own one)
+    for (const std::string& f : files) {
+        std::ifstream in(f, std::ios::binary);
+        std::string text(64 * 1024, '\0');
+        in.read(&text[0], static_cast<std::streamsize>(text.size()));
+        text.resize(static_cast<size_t>(in.gcount()));
+        if (text.find("51.178.29.194") != std::string::npos || text.find("3.135.232.168") != std::string::npos) return 1;
+    }
+    return 0;
+}
+
 void writeConsoleSettings(const ConsoleSettings& s) {
     if (R_SUCCEEDED(setsysInitialize())) {
         setsysSetVibrationMasterVolume(std::clamp(s.vibration, 0.f, 1.f));
@@ -1198,6 +1272,68 @@ int testSpeed(CURL* c, CURLcode rc, bool up) {
 }
 } // namespace
 
+namespace {
+// The public address and port a STUN server (RFC 5389) sees this UDP socket as.
+bool stunMapped(int sock, const char* host, const char* port, std::uint32_t& ip, std::uint16_t& mappedPort) {
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(host, port, &hints, &res) != 0 || !res) return false;
+    unsigned char req[20] = {0x00, 0x01, 0x00, 0x00, 0x21, 0x12, 0xA4, 0x42}; // a binding request
+    for (int i = 8; i < 20; ++i) req[i] = static_cast<unsigned char>(std::rand());
+    bool ok = false;
+    for (int attempt = 0; attempt < 3 && !ok; ++attempt) {
+        sendto(sock, req, sizeof(req), 0, res->ai_addr, res->ai_addrlen);
+        pollfd p{sock, POLLIN, 0};
+        if (poll(&p, 1, 1000) <= 0) continue;
+        unsigned char buf[512];
+        const ssize_t n = recv(sock, buf, sizeof(buf), 0);
+        if (n < 20 || buf[0] != 0x01 || buf[1] != 0x01 || std::memcmp(buf + 8, req + 8, 12) != 0) continue;
+        for (size_t at = 20; at + 4 <= static_cast<size_t>(n);) { // its attributes
+            const int type = buf[at] << 8 | buf[at + 1], len = buf[at + 2] << 8 | buf[at + 3];
+            if (at + 4 + static_cast<size_t>(len) > static_cast<size_t>(n)) break;
+            const unsigned char* v = buf + at + 4;
+            if ((type == 0x0020 || type == 0x0001) && len >= 8 && v[1] == 0x01) { // (XOR-)MAPPED-ADDRESS, IPv4
+                std::uint16_t prt = static_cast<std::uint16_t>(v[2] << 8 | v[3]);
+                std::uint32_t addr = static_cast<std::uint32_t>(v[4]) << 24 | v[5] << 16 | v[6] << 8 | v[7];
+                if (type == 0x0020) {
+                    prt ^= 0x2112;
+                    addr ^= 0x2112A442;
+                }
+                ip = addr;
+                mappedPort = prt;
+                ok = true;
+                if (type == 0x0020) break;
+            }
+            at += 4 + ((static_cast<size_t>(len) + 3) & ~static_cast<size_t>(3));
+        }
+    }
+    freeaddrinfo(res);
+    return ok;
+}
+
+// The NAT type, by the Switch's letters: A no NAT, B one public port for every
+// address (good), D a new one per address (strict), F no UDP at all. (C needs
+// a server that answers from a second address, which the public ones don't.)
+char natType(std::uint32_t localIp) {
+    const int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) return 'F';
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    bind(s, reinterpret_cast<sockaddr*>(&local), sizeof(local));
+    std::uint32_t ip1 = 0, ip2 = 0;
+    std::uint16_t p1 = 0, p2 = 0;
+    const bool a = stunMapped(s, "stun.cloudflare.com", "3478", ip1, p1);
+    const bool b = stunMapped(s, "stun.l.google.com", "19302", ip2, p2);
+    close(s);
+    if (!a && !b) return 'F';
+    if ((a ? ip1 : ip2) == localIp) return 'A';
+    if (a && b) return ip1 == ip2 && p1 == p2 ? 'B' : 'D';
+    return 'B';
+}
+} // namespace
+
 void testConnection(NetTest& t) {
     if (R_SUCCEEDED(nifmInitialize(NifmServiceType_User))) {
         NifmInternetConnectionType type{};
@@ -1229,6 +1365,14 @@ void testConnection(NetTest& t) {
         t.stage = 4;
         return;
     }
+    // The NAT type (as the Switch's own test shows it).
+    std::uint32_t localIp = 0;
+    if (R_SUCCEEDED(nifmInitialize(NifmServiceType_User))) {
+        u32 ip = 0;
+        if (R_SUCCEEDED(nifmGetCurrentIpAddress(&ip))) localIp = ntohl(ip);
+        nifmExit();
+    }
+    t.nat = natType(localIp);
     // Download and upload: as much as moves in 8 s (Cloudflare's speed test, else Tele2's).
     t.stage = 2;
     for (const char* url : {"https://speed.cloudflare.com/__down?bytes=50000000", "http://speedtest.tele2.net/100MB.zip"}) {

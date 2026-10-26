@@ -151,6 +151,8 @@ private:
     std::future<bool> m_getJob;
     std::string m_getPath, m_getName;
     void openPageOrder(int select);
+    std::vector<std::string> m_sheetNames; // Settings > Home > Settings tab order, while it's open
+    void openSheetOrder();
     void startListRefresh(bool gamesOnly = false); // read the lists again on a thread (unless that's running)
     float m_gamesChangedIn = 0.f; // the installed titles changed: read again once they stop (an update sends many)
     bool glassCard(const Game& g); // an app or a game without box art: its icon on glass
@@ -180,6 +182,17 @@ private:
     // Popups and screens.
     void openMenu(std::string title, std::vector<MenuItem> items);
     void openOptions();
+    // The Music screen (the note in the bar, Music on the dots): a record that
+    // turns, the song and its controls, the playlist, and the music's bars.
+    bool m_musicOpen = false;
+    float m_musicIn = 0.f, m_musicSpin = 0.f, m_musicBass = 0.f, m_musicListScroll = 0.f;
+    int m_musicZone = 0, m_musicCol = 2, m_musicRow = 0; // zone 0 controls, 1 volume, 2 playlist
+    bool m_musicVolDrag = false;
+    std::array<float, Audio::kBands> m_viz{};          // the bars, eased
+    void updateMusic();
+    bool musicTouch();
+    void drawMusic(nxui::Renderer& r);
+    void musicControl(int col); // shuffle, previous, play / pause, next, repeat
     // + > Title picture: the game's pictures to choose from, in a grid.
     bool m_pickOpen = false;
     Game m_pickGame;
@@ -190,7 +203,8 @@ private:
     float m_pickIn = 0.f;
     std::future<bool> m_pickSave;
     std::uint64_t m_pickSaveId = 0;
-    void openTitlePicker(const Game& g);
+    bool m_pickCover = false, m_pickSaveCover = false; // the card's picture (not the title's)
+    void openTitlePicker(const Game& g, bool cover = false);
     void updatePicker();
     bool pickerTouch();
     void drawPicker(nxui::Renderer& r);
@@ -392,6 +406,8 @@ private:
     QuickStatus m_quick;
     // Settings > Internet, Controllers, Console.
     ConsoleSettings m_console;
+    int m_nextendoMode = 0;  // 1: Nextendo mode is on (Settings > Nextendo)
+    void openNextendo(int mode); // Prelude, Nextendo's app, which switches it (-1: just open it)
     std::shared_ptr<NetTest> m_netTest;
     std::future<void> m_netTestJob, m_findJob;
     void startConnectionTest();

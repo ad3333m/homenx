@@ -311,6 +311,22 @@ def pad():
     return im
 
 
+def nextendo():
+    # Nextendo's logo as a white glyph, measured from HomeNX's nextendo.png (256 px
+    # -> 96): the ring, an X a little below the middle, and its signal off the
+    # X's top-right arm, inside the ring.
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.ellipse([q(5), q(5), q(91), q(91)], outline=W, width=q(7))
+    stroke = 9
+    for (x0, y0), (x1, y1) in (((30, 35), (62, 67)), ((62, 35), (30, 67))):
+        d.line([(q(x0), q(y0)), (q(x1), q(y1))], fill=W, width=q(stroke))
+        for x, y in ((x0, y0), (x1, y1)):  # round ends
+            d.ellipse([q(x - stroke / 2), q(y - stroke / 2), q(x + stroke / 2), q(y + stroke / 2)], fill=W)
+    for r in (8, 15):
+        d.arc([q(62 - r), q(34.5 - r), q(62 + r), q(34.5 + r)], start=-90, end=0, fill=W, width=q(3.5))
+    return im
+
+
 def hekate():
     im = canvas(); d = ImageDraw.Draw(im)
     d.rounded_rectangle([q(14), q(14), q(82), q(82)], radius=q(16), outline=W, width=q(6))
@@ -453,7 +469,7 @@ if __name__ == "__main__":
                      ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows),
                      ("wifi", wifi), ("airplane", airplane), ("sun", sun), ("speaker", speaker), ("prev", prev),
                      ("next", next_), ("pause", pause), ("repeat", repeat), ("shuffle", shuffle),
-                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad)]:
+                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad), ("nextendo", nextendo)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

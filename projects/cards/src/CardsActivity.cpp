@@ -491,7 +491,7 @@ bool CardsActivity::onCreate() {
     for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
                              "power", "music", "news", "discord", "arrows", "wifi", "airplane", "sun", "speaker",
                              "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate",
-                             "download", "trash", "pad"}) {
+                             "download", "trash", "pad", "nextendo"}) {
         auto tex = std::make_unique<nxui::Texture>();
         nxui::GpuDevice::EssentialScope essential; // the buttons always draw
         if (tex->loadFromFile(gpu, ren, std::string(kAssets) + "icons/" + name + ".png", 96))
@@ -1372,6 +1372,27 @@ void CardsActivity::getMedia(const Game& g) {
     });
 }
 
+void CardsActivity::openSheetOrder() {
+    buildSettings(); // the tabs in their order now
+    m_sheetNames.clear();
+    for (const Section& sec : m_sheet) m_sheetNames.push_back(sec.name);
+    const int n = static_cast<int>(m_sheetNames.size());
+    auto label = [this](int pos) { return std::to_string(pos + 1) + ".  " + m_sheetNames[(size_t)pos]; };
+    std::vector<MenuItem> items;
+    for (int pos = 0; pos < n; ++pos)
+        items.push_back(choice(label(pos), []() { return std::string("Move"); }, [this, pos, n, label](int d) {
+            const int to = pos + d;
+            if (to < 0 || to >= n) return;
+            std::swap(m_sheetNames[(size_t)pos], m_sheetNames[(size_t)to]);
+            m_settings.sheetOrder = m_sheetNames;
+            m_settings.save();
+            for (int i = 0; i < n && i < static_cast<int>(m_menu.size()); ++i) m_menu[(size_t)i].label = label(i);
+            m_menuSel = to; // the tab you're moving stays chosen
+        }));
+    items.push_back(action("Done", [this]() { openSettings(); }));
+    openMenu("Settings tab order  (< > moves a tab)", std::move(items));
+}
+
 void CardsActivity::openPageOrder(int select) {
     std::vector<MenuItem> items;
     auto label = [this](int pos) {
@@ -1436,6 +1457,7 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     m_dotsOpen = false;
     m_optOpen = false;
     m_pickOpen = false;
+    m_musicOpen = false;
     m_moving = false;
 #ifdef SWITCHU_MENU
     m_newsOpen = false;
@@ -2018,11 +2040,12 @@ void CardsActivity::pumpDaemon() {
 // Everything open closes; true if something was.
 bool CardsActivity::closeEverything() {
     bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen || m_powerOpen || m_dotsOpen
-            || m_optOpen || m_pickOpen;
+            || m_optOpen || m_pickOpen || m_musicOpen;
     m_powerOpen = false;
     m_dotsOpen = false;
     m_optOpen = false;
     m_pickOpen = false;
+    m_musicOpen = false;
     if (m_moving) finishMove(false);
     m_menu.clear();
     m_notifOpen = false;
@@ -2127,6 +2150,8 @@ void CardsActivity::openOptions() {
         }));
         items.back().glyph = "restart";
         if (game) {
+            items.push_back(action("Card picture", [this, g]() { openTitlePicker(g, true); }));
+            items.back().glyph = "copy";
             items.push_back(action("Title picture", [this, g]() { openTitlePicker(g); }));
             items.back().glyph = "tag";
         }
@@ -2217,23 +2242,27 @@ nxui::Rect optionRow(size_t n, size_t i, float dy) {
 namespace {
 const nxui::Rect kPickCard{120.f, 40.f, 1040.f, 640.f};
 constexpr int kPickCols = 6, kPickRows = 4;
-nxui::Rect pickTile(int i, float dy) {
+// Covers are tall: 8 a row, 2 rows.
+int pickCols(bool cover) { return cover ? 8 : kPickCols; }
+nxui::Rect pickTile(int i, float dy, bool cover) {
+    const int cols = pickCols(cover);
     const float gap = 12.f, x0 = kPickCard.x + 30.f, y0 = kPickCard.y + 100.f + dy;
-    const float w = (kPickCard.width - 60.f - gap * (kPickCols - 1)) / kPickCols, h = 112.f;
-    return {x0 + (w + gap) * static_cast<float>(i % kPickCols), y0 + (h + gap) * static_cast<float>(i / kPickCols), w, h};
+    const float w = (kPickCard.width - 60.f - gap * (cols - 1)) / cols, h = cover ? 236.f : 112.f;
+    return {x0 + (w + gap) * static_cast<float>(i % cols), y0 + (h + gap) * static_cast<float>(i / cols), w, h};
 }
 } // namespace
 
-void CardsActivity::openTitlePicker(const Game& g) {
+void CardsActivity::openTitlePicker(const Game& g, bool cover) {
     if (m_pickJob.valid()) m_pickJob.wait(); // (only one: the last one's still finishing)
+    m_pickCover = cover;
     m_pickGame = g;
     m_pickChoices.clear();
     m_pickTex.clear();
     m_pickSel = 0;
     const std::string key = m_key;
-    m_pickJob = std::async(std::launch::async, [g, key]() {
+    m_pickJob = std::async(std::launch::async, [g, key, cover]() {
         offScreenCore();
-        std::vector<TitleChoice> choices = titleChoices(g, key, 22);
+        std::vector<TitleChoice> choices = cover ? coverChoices(g, key, 15) : titleChoices(g, key, 22);
         TitleChoice own; // its own icon first
         own.own = true;
         const std::vector<std::uint8_t> icon = gameIcon(g);
@@ -2246,7 +2275,8 @@ void CardsActivity::openTitlePicker(const Game& g) {
             own.h = h;
         }
         choices.insert(choices.begin(), std::move(own));
-        if (choices.size() > static_cast<size_t>(kPickCols * kPickRows)) choices.resize(kPickCols * kPickRows);
+        const size_t most = cover ? 16 : static_cast<size_t>(kPickCols * kPickRows);
+        if (choices.size() > most) choices.resize(most);
         threadDone();
         return choices;
     });
@@ -2260,16 +2290,18 @@ void CardsActivity::pickChoice(int index) {
     TitleChoice c = m_pickChoices[(size_t)index];
     c.rgba.clear();
     const Game g = m_pickGame;
+    const bool cover = m_pickCover;
     m_pickSaveId = g.id;
-    m_pickSave = std::async(std::launch::async, [g, c]() {
+    m_pickSaveCover = cover;
+    m_pickSave = std::async(std::launch::async, [g, c, cover]() {
         offScreenCore();
-        const bool ok = chooseTitleArt(g, c.own ? nullptr : &c);
+        const bool ok = cover ? chooseCoverArt(g, c.own ? nullptr : &c) : chooseTitleArt(g, c.own ? nullptr : &c);
         threadDone();
         return ok;
     });
     m_pickOpen = false;
     m_audio.play("activation");
-    if (!m_settings.titlePics) say("Saved. It shows when Settings > Look > Title pictures is on.");
+    if (!cover && !m_settings.titlePics) say("Saved. It shows when Settings > Look > Title pictures is on.");
 }
 
 void CardsActivity::updatePicker() {
@@ -2283,10 +2315,11 @@ void CardsActivity::updatePicker() {
     const int n = static_cast<int>(m_pickChoices.size());
     if (n == 0) return;
     int s = m_pickSel;
+    const int cols = pickCols(m_pickCover);
     if (in.isDown(B::DLeft) || in.isDown(B::LStickL)) s -= 1;
     if (in.isDown(B::DRight) || in.isDown(B::LStickR)) s += 1;
-    if (in.isDown(B::DUp) || in.isDown(B::LStickU)) s -= kPickCols;
-    if (in.isDown(B::DDown) || in.isDown(B::LStickD)) s += kPickCols;
+    if (in.isDown(B::DUp) || in.isDown(B::LStickU)) s -= cols;
+    if (in.isDown(B::DDown) || in.isDown(B::LStickD)) s += cols;
     s = std::clamp(s, 0, n - 1);
     if (s != m_pickSel) {
         m_pickSel = s;
@@ -2300,7 +2333,7 @@ bool CardsActivity::pickerTouch() {
     if (!in.touchUp()) return in.isTouching();
     const float x = in.touchX(), y = in.touchY();
     for (int i = 0; i < static_cast<int>(m_pickChoices.size()); ++i)
-        if (pickTile(i, 0.f).contains(x, y)) {
+        if (pickTile(i, 0.f, m_pickCover).contains(x, y)) {
             m_pickSel = i;
             pickChoice(i);
             return true;
@@ -2335,7 +2368,7 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
     r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
     const float dy = card.y - kPickCard.y;
     icon(r, "tag", kPickCard.x + 46.f, kPickCard.y + 46.f + dy, 26.f, kWhite.withAlpha(a));
-    const std::string title = "Title picture";
+    const std::string title = m_pickCover ? "Card picture" : "Title picture";
     textMid(r, m_fTitle, title, kPickCard.x + 72.f, kPickCard.y + 46.f + dy, kWhite.withAlpha(a));
     const float nameX = kPickCard.x + 92.f + measured(m_fTitle, title).x;
     const std::string hint = "A Use it    B Back";
@@ -2351,14 +2384,14 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
     for (int i = 0; i < static_cast<int>(m_pickChoices.size()); ++i) {
         const TitleChoice& c = m_pickChoices[(size_t)i];
         const float ta = a * easeOut((m_pickIn - 0.02f * static_cast<float>(i)) / 0.7f);
-        nxui::Rect tile = pickTile(i, dy);
+        nxui::Rect tile = pickTile(i, dy, m_pickCover);
         const bool chosen = i == m_pickSel;
         if (chosen) tile = scaled(tile, 1.04f);
         r.drawRoundedRect(tile, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.15f : 0.06f) * ta), 18.f);
         r.drawRoundedRectOutline(tile, chosen ? accent(ring * ta) : nxui::Color(1.f, 1.f, 1.f, 0.10f * ta), 18.f,
                                  chosen ? 2.5f : 1.f);
         // The picture at its own shape, above its label (if it has one).
-        const char* label = c.own ? "Its own icon" : c.before ? "The one before" : nullptr;
+        const char* label = c.own ? (m_pickCover ? "Automatic" : "Its own icon") : c.before ? "The one before" : nullptr;
         const nxui::Rect box{tile.x + 10.f, tile.y + 8.f, tile.width - 20.f, tile.height - (label ? 34.f : 16.f)};
         if (const nxui::Texture* t = (size_t)i < m_pickTex.size() ? m_pickTex[(size_t)i].get() : nullptr) {
             const float s = std::min(box.width / static_cast<float>(t->width()), box.height / static_cast<float>(t->height()));
@@ -3040,47 +3073,276 @@ bool CardsActivity::quickTouch() {
 }
 
 void CardsActivity::openMusic() {
-    std::vector<MenuItem> items;
-    items.push_back(info("Now playing", [this]() {
-        const std::string t = m_audio.trackName();
-        return m_settings.music && !t.empty() ? t : std::string("Nothing");
-    }));
-    items.push_back(toggle("Music", [this]() { return m_settings.music; }, [this]() {
-        m_settings.music = !m_settings.music;
-        m_audio.setMusic(m_settings.music, m_settings.musicVolume);
+    m_musicOpen = true;
+    m_musicIn = m_settings.motion ? 0.f : 1.f;
+    m_musicZone = 0;
+    m_musicCol = 2; // play / pause
+    m_musicRow = std::max(0L, m_audio.playing());
+    m_audio.play("show_modal");
+}
+
+namespace {
+const nxui::Rect kMusicCard{110.f, 46.f, 1060.f, 628.f};
+constexpr float kMusicInfoX = 470.f, kMusicInfoW = 340.f, kMusicListX = 852.f, kMusicListW = 290.f;
+constexpr float kMusicRowH = 46.f, kMusicListTop = 132.f, kMusicListBottom = 452.f;
+nxui::Vec2 musicButton(int col, float dy) { // shuffle, previous, play / pause, next, repeat
+    return {kMusicInfoX + 34.f + 68.f * static_cast<float>(col), 330.f + dy};
+}
+nxui::Rect musicVolume(float dy) { return {kMusicInfoX + 44.f, 402.f + dy, kMusicInfoW - 110.f, 8.f}; }
+} // namespace
+
+void CardsActivity::musicControl(int col) {
+    switch (col) {
+        case 0:
+            m_settings.shuffle = !m_settings.shuffle;
+            m_audio.setShuffle(m_settings.shuffle);
+            break;
+        case 1:
+        case 3:
+            m_settings.music = true;
+            m_audio.skip(col == 1 ? -1 : 1);
+            break;
+        case 2:
+            if (!m_settings.music) { // off: on, and a song starts
+                m_settings.music = true;
+                m_audio.setMusic(true, m_settings.musicVolume);
+            } else {
+                m_audio.togglePause();
+            }
+            break;
+        default:
+            m_settings.repeat = !m_settings.repeat;
+            m_audio.setRepeat(m_settings.repeat);
+            break;
+    }
+    m_settings.save();
+    m_audio.play("activation");
+}
+
+void CardsActivity::updateMusic() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
+    const bool up = in.isDown(B::DUp) || in.isDown(B::LStickU), down = in.isDown(B::DDown) || in.isDown(B::LStickD);
+    if (in.isDown(B::B) || in.isDown(B::Plus)) {
+        m_musicOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    const int songs = static_cast<int>(m_audio.titles().size());
+    const int zone = m_musicZone;
+    if (zone == 0) {
+        if (left && m_musicCol > 0) --m_musicCol;
+        else if (right && m_musicCol < 4) ++m_musicCol;
+        else if (right && songs > 0) m_musicZone = 2;
+        else if (down) m_musicZone = 1;
+        if (in.isDown(B::A)) musicControl(m_musicCol);
+    } else if (zone == 1) {
+        if (up) m_musicZone = 0;
+        if (left || right) {
+            m_settings.musicVolume = std::clamp(m_settings.musicVolume + (right ? 5 : -5), 0, 100);
+            m_audio.setMusic(m_settings.music, m_settings.musicVolume);
+            m_settings.save();
+        }
+    } else {
+        if (up && m_musicRow > 0) --m_musicRow;
+        else if (down && m_musicRow < songs - 1) ++m_musicRow;
+        else if (left) m_musicZone = 0;
+        if (in.isDown(B::A) && m_musicRow < songs) {
+            m_settings.music = true;
+            m_audio.playTrack(static_cast<size_t>(m_musicRow));
+            m_settings.save();
+            m_audio.play("activation");
+        }
+    }
+    if (left || right || up || down) m_audio.play("navigation");
+}
+
+bool CardsActivity::musicTouch() {
+    auto& in = app().input();
+    const float x = in.touchX(), y = in.touchY();
+    const nxui::Rect vol = musicVolume(0.f);
+    // The volume follows a finger along it.
+    if (in.isTouching() && (m_musicVolDrag || (x >= vol.x - 10.f && x <= vol.x + vol.width + 10.f && std::abs(y - vol.y - 4.f) < 22.f))) {
+        m_musicVolDrag = true;
+        m_musicZone = 1;
+        const int v = static_cast<int>(std::lround(clamp01((x - vol.x) / vol.width) * 100.f));
+        if (v != m_settings.musicVolume) {
+            m_settings.musicVolume = v;
+            m_audio.setMusic(m_settings.music, v);
+        }
+        return true;
+    }
+    if (!in.touchUp()) return in.isTouching();
+    if (m_musicVolDrag) {
+        m_musicVolDrag = false;
         m_settings.save();
-    }));
-    MenuItem next = action("Next song", [this]() {
-        m_settings.music = true;
-        m_audio.skip(1);
-        m_settings.save();
-    });
-    next.stay = true;
-    items.push_back(next);
-    MenuItem prev = action("Previous song", [this]() {
-        m_settings.music = true;
-        m_audio.skip(-1);
-        m_settings.save();
-    });
-    prev.stay = true;
-    items.push_back(prev);
-    items.push_back(toggle("Shuffle", [this]() { return m_settings.shuffle; }, [this]() {
-        m_settings.shuffle = !m_settings.shuffle;
-        m_audio.setShuffle(m_settings.shuffle);
-        m_settings.save();
-    }));
-    items.push_back(toggle("Repeat this song", [this]() { return m_settings.repeat; }, [this]() {
-        m_settings.repeat = !m_settings.repeat;
-        m_audio.setRepeat(m_settings.repeat);
-        m_settings.save();
-    }));
-    items.push_back(slider("Volume", [this]() { return m_settings.musicVolume; }, [this](int v) {
-        m_settings.musicVolume = v;
-        m_audio.setMusic(m_settings.music, v);
-        m_settings.save();
-    }));
-    items.push_back(action("Done", [] {}));
-    openMenu("Music", std::move(items));
+        return true;
+    }
+    for (int i = 0; i < 5; ++i) {
+        const nxui::Vec2 c = musicButton(i, 0.f);
+        if (std::hypot(x - c.x, y - c.y) < (i == 2 ? 36.f : 28.f)) {
+            m_musicZone = 0;
+            m_musicCol = i;
+            musicControl(i);
+            return true;
+        }
+    }
+    const int songs = static_cast<int>(m_audio.titles().size());
+    if (x >= kMusicListX && x <= kMusicListX + kMusicListW && y >= kMusicListTop && y <= kMusicListBottom) {
+        const int row = static_cast<int>((y - kMusicListTop + m_musicListScroll) / kMusicRowH);
+        if (row >= 0 && row < songs) {
+            m_musicZone = 2;
+            m_musicRow = row;
+            m_settings.music = true;
+            m_audio.playTrack(static_cast<size_t>(row));
+            m_settings.save();
+            m_audio.play("activation");
+        }
+        return true;
+    }
+    if (!kMusicCard.contains(x, y)) {
+        m_musicOpen = false;
+        m_audio.play("hide_modal");
+    }
+    return true;
+}
+
+void CardsActivity::drawMusic(nxui::Renderer& r) {
+    if (!m_musicOpen) return;
+    const float a = easeOut(m_musicIn);
+    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const bool playing = m_settings.music && !m_audio.paused();
+    // The bars: what's heard now, up quickly and down slowly.
+    float target[Audio::kBands];
+    m_audio.spectrum(target);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < Audio::kBands; ++i) {
+        float& v = m_viz[(size_t)i];
+        const float t = playing ? target[i] : 0.f;
+        v = t > v ? v + (t - v) * 0.6f : std::max(t, v - dt * 1.4f);
+    }
+    float bass = 0.f;
+    for (int i = 0; i < 8; ++i) bass += m_viz[(size_t)i] / 8.f;
+    m_musicBass += (bass - m_musicBass) * 0.25f;
+    if (playing) m_musicSpin += dt * 1.1f;
+
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    const nxui::Rect card = scaled(kMusicCard, 0.95f + 0.05f * easeOutBack(m_musicIn));
+    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
+    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    r.drawGradientRect({card.x + 2.f, card.y + 2.f, card.width - 4.f, 90.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+                       nxui::Color(1.f, 1.f, 1.f, 0.f));
+    const float dy = card.y - kMusicCard.y;
+    icon(r, "music", kMusicCard.x + 46.f, kMusicCard.y + 46.f + dy, 28.f, kWhite.withAlpha(a));
+    textMid(r, m_fTitle, "Music", kMusicCard.x + 72.f, kMusicCard.y + 46.f + dy, kWhite.withAlpha(a));
+    const std::string hint = "A Choose    B Back";
+    textMid(r, m_fBody, hint, kMusicCard.x + kMusicCard.width - 36.f - measured(m_fBody, hint).x, kMusicCard.y + 46.f + dy,
+            kMuted.withAlpha(0.8f * a));
+
+    // The record: it turns while the music plays, its glow beats with the bass.
+    const nxui::Vec2 c{kMusicCard.x + 190.f, 262.f + dy};
+    const float R = 122.f;
+    r.drawCircle(c, R + 10.f + 26.f * m_musicBass, accent(0.10f * a + 0.22f * m_musicBass * a), 64);
+    r.drawCircle(c, R + 4.f, nxui::Color(1.f, 1.f, 1.f, 0.10f * a), 64);
+    r.drawCircle(c, R, nxui::Color(0.03f, 0.03f, 0.05f, 0.96f * a), 64);
+    for (float g = R - 8.f; g > 56.f; g -= 9.f) // its grooves
+        r.drawRoundedRectOutline({c.x - g, c.y - g, g * 2.f, g * 2.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a), g, 1.f);
+    for (int k = 0; k < 2; ++k) { // light on it, turning
+        const float th = m_musicSpin + 3.14159265f * static_cast<float>(k);
+        const nxui::Vec2 p1{c.x + std::cos(th - 0.28f) * (R - 6.f), c.y + std::sin(th - 0.28f) * (R - 6.f)};
+        const nxui::Vec2 p2{c.x + std::cos(th + 0.28f) * (R - 6.f), c.y + std::sin(th + 0.28f) * (R - 6.f)};
+        r.drawTriangle(c, p1, p2, nxui::Color(1.f, 1.f, 1.f, 0.07f * a));
+    }
+    r.drawCircle(c, 50.f, accent(a), 48); // its label
+    r.drawCircle(c, 50.f, nxui::Color(1.f, 1.f, 1.f, 0.12f * a), 48);
+    r.drawCircle(c, 42.f, accent(a), 48);
+    const nxui::Vec2 dot{c.x + std::cos(m_musicSpin * 1.0f) * 30.f, c.y + std::sin(m_musicSpin * 1.0f) * 30.f};
+    r.drawCircle(dot, 4.f, nxui::Color(1.f, 1.f, 1.f, 0.6f * a), 16);
+    icon(r, "music", c.x, c.y, 34.f, kWhite.withAlpha(a));
+    r.drawCircle(c, 4.f, nxui::Color(0.03f, 0.03f, 0.05f, a), 16);
+
+    // The song.
+    const long now = m_audio.playing();
+    const auto& titles = m_audio.titles();
+    const std::string song = m_settings.music && !m_audio.trackName().empty() ? m_audio.trackName() : std::string("Not playing");
+    const float ts = fitScale(m_fTitle, song, kMusicInfoW, 0.7f);
+    r.drawText(fit(m_fTitle, song, kMusicInfoW, ts), {kMusicInfoX, 150.f + dy}, &m_fTitle, kWhite.withAlpha(a), ts);
+    std::string sub = "HOME music";
+    if (now >= 0 && !titles.empty()) sub += "    Song " + std::to_string(now + 1) + " of " + std::to_string(titles.size());
+    if (!m_settings.music) sub = "Music is off: play to start it";
+    r.drawText(sub, {kMusicInfoX, 194.f + dy}, &m_fBody, kMuted.withAlpha(a));
+    const float length = m_audio.duration();
+    const float done = length > 0.f && m_settings.music ? clamp01(m_audio.position() / length) : 0.f;
+    const nxui::Rect bar{kMusicInfoX, 252.f + dy, kMusicInfoW, 6.f};
+    r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 3.f);
+    r.drawRoundedRect({bar.x, bar.y, bar.width * done, bar.height}, accent(a), 3.f);
+    r.drawCircle({bar.x + bar.width * done, bar.y + 3.f}, 7.f, kWhite.withAlpha(a), 20);
+    textMid(r, m_fBody, clockText(m_settings.music ? m_audio.position() : 0.f), kMusicInfoX, 278.f + dy, kMuted.withAlpha(a), 0.85f);
+    const std::string total = length > 0.f ? clockText(length) : std::string("-:--");
+    textMid(r, m_fBody, total, kMusicInfoX + kMusicInfoW - measured(m_fBody, total).x * 0.85f, 278.f + dy, kMuted.withAlpha(a), 0.85f);
+
+    // Its buttons.
+    const char* glyphs[5] = {"shuffle", "prev", playing ? "pause" : "play", "next", "repeat"};
+    for (int i = 0; i < 5; ++i) {
+        const nxui::Vec2 b = musicButton(i, dy);
+        const bool on = (i == 0 && m_settings.shuffle) || (i == 4 && m_settings.repeat);
+        const float d = i == 2 ? 66.f : 48.f;
+        r.drawCircle(b, d * 0.5f, i == 2 ? kWhite.withAlpha(0.94f * a) : on ? accent(0.4f * a) : nxui::Color(1.f, 1.f, 1.f, 0.08f * a), 40);
+        if (m_musicZone == 0 && m_musicCol == i)
+            r.drawRoundedRectOutline({b.x - d * 0.5f - 5.f, b.y - d * 0.5f - 5.f, d + 10.f, d + 10.f}, accent(ring * a), d * 0.5f + 5.f, 2.5f);
+        icon(r, glyphs[i], b.x, b.y, i == 2 ? 30.f : 22.f, i == 2 ? nxui::Color(0.f, 0.f, 0.f, a) : kWhite.withAlpha(a));
+    }
+    // The volume.
+    const nxui::Rect vol = musicVolume(dy);
+    icon(r, "speaker", kMusicInfoX + 14.f, vol.y + 4.f, 22.f, kWhite.withAlpha(0.85f * a));
+    r.drawRoundedRect(vol, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 4.f);
+    const float v = static_cast<float>(m_settings.musicVolume) / 100.f;
+    r.drawRoundedRect({vol.x, vol.y, vol.width * v, vol.height}, kWhite.withAlpha(0.9f * a), 4.f);
+    r.drawCircle({vol.x + vol.width * v, vol.y + 4.f}, m_musicZone == 1 ? 11.f : 9.f, kWhite.withAlpha(a), 24);
+    if (m_musicZone == 1)
+        r.drawRoundedRectOutline({vol.x - 10.f, vol.y - 14.f, vol.width + 20.f, 36.f}, accent(ring * a), 18.f, 2.f);
+    const std::string pct = std::to_string(m_settings.musicVolume) + "%";
+    textMid(r, m_fBody, pct, vol.x + vol.width + 18.f, vol.y + 4.f, kMuted.withAlpha(a), 0.9f);
+
+    // The playlist.
+    r.drawRect({kMusicListX - 22.f, 112.f + dy, 1.f, kMusicListBottom - 100.f}, nxui::Color(1.f, 1.f, 1.f, 0.10f * a));
+    icon(r, "playlist", kMusicListX + 10.f, 106.f + dy, 20.f, kMuted.withAlpha(a));
+    textMid(r, m_fPill, "Playlist", kMusicListX + 30.f, 106.f + dy, kMuted.withAlpha(a), 0.9f);
+    const int songs = static_cast<int>(titles.size());
+    const float want = std::clamp(m_musicRow * kMusicRowH - (kMusicListBottom - kMusicListTop) * 0.5f + kMusicRowH * 0.5f, 0.f,
+                                  std::max(0.f, songs * kMusicRowH - (kMusicListBottom - kMusicListTop)));
+    m_musicListScroll += (want - m_musicListScroll) * 0.25f;
+    r.pushClipRect({kMusicListX - 6.f, kMusicListTop + dy, kMusicListW + 12.f, kMusicListBottom - kMusicListTop});
+    for (int i = 0; i < songs; ++i) {
+        const nxui::Rect row{kMusicListX, kMusicListTop + dy + i * kMusicRowH - m_musicListScroll, kMusicListW, kMusicRowH - 6.f};
+        if (row.y + row.height < kMusicListTop + dy || row.y > kMusicListBottom + dy) continue;
+        const bool current = i == now && m_settings.music, chosen = m_musicZone == 2 && m_musicRow == i;
+        if (current || chosen) r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.12f : 0.06f) * a), 14.f);
+        if (chosen) r.drawRoundedRectOutline(row, accent(ring * a), 14.f, 2.f);
+        const float cy = row.y + row.height * 0.5f;
+        textMid(r, m_fBody, std::to_string(i + 1), row.x + 12.f, cy, kMuted.withAlpha(0.7f * a), 0.9f);
+        textMid(r, m_fPill, fit(m_fPill, titles[(size_t)i], row.width - 80.f, 0.9f), row.x + 38.f, cy,
+                current ? accent(a) : kWhite.withAlpha(a), 0.9f);
+        if (current) // little bars that move with it
+            for (int k = 0; k < 3; ++k) {
+                const float h = 6.f + 14.f * (playing ? m_viz[(size_t)(4 + k * 9)] : 0.15f);
+                r.drawRoundedRect({row.x + row.width - 34.f + k * 8.f, cy + 9.f - h, 5.f, h}, accent(a), 2.f);
+            }
+    }
+    r.popClipRect();
+
+    // The music's bars, along the bottom (and their reflection).
+    const float baseY = kMusicCard.y + kMusicCard.height - 44.f + dy, left = kMusicCard.x + 40.f;
+    const float step = (kMusicCard.width - 80.f) / Audio::kBands, bw = step - 6.f;
+    for (int i = 0; i < Audio::kBands; ++i) {
+        const float lv = m_viz[(size_t)i];
+        const float h = 4.f + 118.f * lv;
+        const nxui::Rect b{left + i * step + 3.f, baseY - h, bw, h};
+        const nxui::Color col = nxui::Color::lerp(accent(1.f), kWhite, lv * 0.45f);
+        r.drawRoundedRect(b, col.withAlpha((0.55f + 0.45f * lv) * a), std::min(bw * 0.5f, 5.f));
+        r.drawRoundedRect({b.x, baseY + 6.f, bw, h * 0.28f}, col.withAlpha(0.14f * a), std::min(bw * 0.5f, 4.f));
+    }
 }
 
 // The pill's picture: who games start as; add or remove users.
@@ -3194,6 +3456,12 @@ void CardsActivity::buildSettings() {
     };
     order.detail = "CardsNX opens on the first; ZL / ZR go in this order";
     home.rows.push_back(std::move(order));
+    MenuItem tabs = action("Settings tab order", [this]() {
+        m_sheetOpen = false;
+        openSheetOrder();
+    });
+    tabs.detail = "The tabs on the left of Settings, in the order you like";
+    home.rows.push_back(std::move(tabs));
     home.rows.push_back(choice("Sort games", [this]() { return std::string(kSortNames[m_settings.sort]); },
         [this, save](int d) {
             int at = 0;
@@ -3331,9 +3599,9 @@ void CardsActivity::buildSettings() {
     netTest.value = [this]() { return netTestText(0); };
     netTest.detail = "Ping, download and upload speed";
     net.rows.push_back(std::move(netTest));
-    for (int row : {4, 1, 2, 3})
-        net.rows.push_back(info(row == 4 ? "Signal" : row == 1 ? "Ping" : row == 2 ? "Download" : "Upload",
-                                [this, row]() { return netTestText(row); }));
+    static const char* const kNetRows[] = {"", "Ping", "Download", "Upload", "Signal", "Connection to the internet", "NAT type"};
+    for (int row : {5, 4, 1, 2, 3, 6})
+        net.rows.push_back(info(kNetRows[row], [this, row]() { return netTestText(row); }));
     m_sheet.push_back(std::move(net));
 
     Section pads{"Controllers", "pad", {}};
@@ -3388,6 +3656,22 @@ void CardsActivity::buildSettings() {
         writeConsoleSettings(m_console);
     }, "Wired when it's plugged in"));
     m_sheet.push_back(std::move(pads));
+
+    // Nextendo: Nextendo's Prelude switches the network (it rewrites Atmosphère's
+    // hosts and patches, then restarts); here's which is on, and the way there.
+    Section nx{"Nextendo", "nextendo", {}};
+    MenuItem nintendo = action("Nintendo Mode", [this]() { openNextendo(0); });
+    nintendo.value = [this]() { return m_nextendoMode == 0 ? std::string("On") : std::string(); };
+    nintendo.detail = "Nintendo's own servers: the eShop and Nintendo Switch Online";
+    nx.rows.push_back(std::move(nintendo));
+    MenuItem nextendo = action("Nextendo Mode", [this]() { openNextendo(1); });
+    nextendo.value = [this]() { return m_nextendoMode == 1 ? std::string("On") : std::string(); };
+    nextendo.detail = "Play online on Nextendo Network, no Nintendo account needed";
+    nx.rows.push_back(std::move(nextendo));
+    MenuItem prelude = action("Open Nextendo", [this]() { openNextendo(-1); });
+    prelude.detail = "Prelude: your Nextendo account and each game's online set-up";
+    nx.rows.push_back(std::move(prelude));
+    m_sheet.push_back(std::move(nx));
 
     Section console{"Console", "moon", {}};
     static const char* const kHandheldSleep[] = {"1 minute", "3 minutes", "5 minutes", "10 minutes", "30 minutes", "Never"};
@@ -3478,6 +3762,13 @@ void CardsActivity::buildSettings() {
     }));
 #endif
     m_sheet.push_back(std::move(about));
+    // His order (Settings > Home > Settings tab order); tabs new since go after.
+    const auto& wanted = m_settings.sheetOrder;
+    auto rank = [&wanted](const Section& sec) {
+        const auto it = std::find(wanted.begin(), wanted.end(), sec.name);
+        return it == wanted.end() ? 1000 : static_cast<int>(it - wanted.begin());
+    };
+    std::stable_sort(m_sheet.begin(), m_sheet.end(), [&rank](const Section& x, const Section& y) { return rank(x) < rank(y); });
 }
 
 void CardsActivity::saveAllPictures() {
@@ -3506,6 +3797,37 @@ void CardsActivity::saveAllPictures() {
     });
     m_audio.play("activation");
     say("Saving every game's pictures on the SD card...");
+}
+
+void CardsActivity::openNextendo(int mode) {
+    if (mode >= 0 && mode == m_nextendoMode) {
+        say(mode == 1 ? "Nextendo Mode is on already." : "Nintendo Mode is on already.");
+        return;
+    }
+    std::string path = findNro("prelude");
+    if (path.empty()) path = findNro("nextendo");
+    if (path.empty()) {
+        say("Prelude, Nextendo's app, isn't on the SD card: get it from nextendo.network.");
+        return;
+    }
+    if (mode >= 0) say(std::string("In Prelude, choose ") + (mode == 1 ? "NEXTENDO" : "NINTENDO") + ": it switches and restarts the console.");
+    m_sheetOpen = false;
+#ifdef SWITCHU_MENU
+    const std::uint64_t host = hostTitleId();
+    if (!host) {
+        say("Prelude runs as an application, in an installed game it borrows: install one first.");
+        return;
+    }
+    leave(-1, 0.85f, [this, path, host]() {
+        m_discord.beginShutdown();
+        if (!m_launcher.launchNro(path, host, launchUid(), /*applicationOnly=*/true)) {
+            comeBack();
+            say("Prelude didn't start: it only runs as an application.");
+        }
+    });
+#else
+    openNro(path);
+#endif
 }
 
 void CardsActivity::startConnectionTest() {
@@ -3539,6 +3861,16 @@ std::string CardsActivity::netTestText(int row) {
     case 1: return t.pingMs >= 0 ? std::to_string(t.pingMs.load()) + " ms" : stage <= 1 ? "..." : "-";
     case 2: return t.downKbps > 0 ? mbps(t.downKbps) : stage == 2 ? "..." : stage > 2 && t.internet ? "Couldn't test" : "-";
     case 3: return t.upKbps > 0 ? mbps(t.upKbps) : stage == 3 ? "..." : stage > 3 && t.internet ? "Couldn't test" : "-";
+    case 5: return t.internet ? "Success" : stage >= 2 ? "Failed" : "...";
+    case 6: {
+        switch (t.nat.load()) {
+            case 'A': return "A: open, the best";
+            case 'B': return "B: good for online play";
+            case 'D': return "D: strict, some games can't connect";
+            case 'F': return "F: no UDP, online play won't work";
+            default: return stage >= 2 ? "-" : "...";
+        }
+    }
     default: {
         static const char* const kBars[] = {"Weak", "Fair", "Good", "Strong"};
         return t.signal >= 0 ? kBars[std::min(t.signal.load(), 3)] : stage == 0 ? "..." : "-";
@@ -3627,6 +3959,7 @@ void CardsActivity::updatePairing(float dt) {
 
 void CardsActivity::openSettings(int section) {
     m_console = readConsoleSettings();
+    m_nextendoMode = nextendoMode();
     m_quick = readQuickStatus();
     buildSettings();
     m_sheetOpen = true;
@@ -4208,6 +4541,7 @@ bool CardsActivity::handleTouch() {
     if (m_quickOpen) return quickTouch();
     if (m_powerOpen) return powerTouch();
     if (m_dotsOpen) return dotsTouch();
+    if (m_musicOpen) return musicTouch();
     if (m_pickOpen) return pickerTouch();
     if (m_optOpen) return optionsTouch();
     if (!m_menu.empty()) {
@@ -4467,6 +4801,7 @@ void CardsActivity::onUpdate(float dt) {
     step(m_dotsIn, 0.26f);
     step(m_optIn, 0.26f);
     step(m_pickIn, 0.26f);
+    step(m_musicIn, 0.26f);
     step(m_quickListIn, 0.2f);
 #ifdef SWITCHU_MENU
     step(m_newsIn, 0.24f);
@@ -4575,7 +4910,10 @@ void CardsActivity::onUpdate(float dt) {
     if (m_pickSave.valid() && m_pickSave.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         if (m_pickSave.get()) {
             auto it = m_art.find(m_pickSaveId);
-            if (it != m_art.end()) {
+            if (it != m_art.end() && m_pickSaveCover) { // the card's new picture
+                it->second.card.reset();
+                it->second.cardAsked = false;
+            } else if (it != m_art.end()) {
                 it->second.icon.reset();
                 it->second.iconAsked = false;
             }
@@ -4765,6 +5103,10 @@ void CardsActivity::onUpdate(float dt) {
         updateDots();
         return;
     }
+    if (m_musicOpen) {
+        updateMusic();
+        return;
+    }
     if (m_pickOpen) {
         updatePicker();
         return;
@@ -4918,6 +5260,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawDots(r);
     drawOptions(r);
     drawPicker(r);
+    drawMusic(r);
     drawPower(r);
 #ifdef SWITCHU_MENU
     drawNews(r);

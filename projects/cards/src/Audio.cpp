@@ -5,7 +5,11 @@
 #include <switch.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
+#include <complex>
+#include <mutex>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -19,6 +23,71 @@ constexpr const char* kSounds = "sdmc:/switch/SwitchU/sounds/wiiu";
 std::atomic<bool> g_trackEnded{false};
 
 void onTrackEnded() { g_trackEnded = true; } // SDL_mixer's thread: just a flag
+
+// The bars: every mix SDL makes (4096 samples) is cut into four 1024-sample
+// slices, each one's levels per band kept; the screen shows the slice that's
+// being heard now, so they move 43 times a second. SDL's audio thread.
+constexpr int kFft = 1024, kRate = 44100, kSlices = 4;
+std::mutex g_vizMu;
+std::array<std::array<float, Audio::kBands>, kSlices> g_viz{};
+int g_vizCount = 0;
+unsigned long long g_vizTick = 0;
+
+void fft(std::vector<std::complex<float>>& a) { // in place, radix 2
+    const size_t n = a.size();
+    for (size_t i = 1, j = 0; i < n; ++i) {
+        size_t bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) std::swap(a[i], a[j]);
+    }
+    for (size_t len = 2; len <= n; len <<= 1) {
+        const float ang = -2.f * 3.14159265f / static_cast<float>(len);
+        const std::complex<float> step(std::cos(ang), std::sin(ang));
+        for (size_t i = 0; i < n; i += len) {
+            std::complex<float> w(1.f, 0.f);
+            for (size_t k = 0; k < len / 2; ++k) {
+                const std::complex<float> u = a[i + k], v = a[i + k + len / 2] * w;
+                a[i + k] = u + v;
+                a[i + k + len / 2] = u - v;
+                w *= step;
+            }
+        }
+    }
+}
+
+void onMixed(void*, Uint8* stream, int len) {
+    static std::vector<std::complex<float>> buf(kFft);
+    static std::vector<float> window;
+    static std::array<int, Audio::kBands + 1> edges{};
+    if (window.empty()) { // once: a Hann window, and each band's first bin (log spaced)
+        window.resize(kFft);
+        for (int i = 0; i < kFft; ++i) window[i] = 0.5f - 0.5f * std::cos(2.f * 3.14159265f * i / (kFft - 1));
+        for (int b = 0; b <= Audio::kBands; ++b) {
+            const float hz = 50.f * std::pow(16000.f / 50.f, static_cast<float>(b) / Audio::kBands);
+            edges[b] = std::max(b == 0 ? 1 : edges[b - 1] + 1, static_cast<int>(hz * kFft / kRate));
+        }
+    }
+    const auto* s = reinterpret_cast<const Sint16*>(stream);
+    const int frames = len / 4; // 16-bit stereo
+    std::array<std::array<float, Audio::kBands>, kSlices> out{};
+    int n = 0;
+    for (int start = 0; start + kFft <= frames && n < kSlices; start += kFft, ++n) {
+        for (int i = 0; i < kFft; ++i)
+            buf[i] = {(s[(start + i) * 2] + s[(start + i) * 2 + 1]) * (0.5f / 32768.f) * window[i], 0.f};
+        fft(buf);
+        for (int b = 0; b < Audio::kBands; ++b) {
+            float peak = 0.f;
+            for (int i = edges[b]; i < std::min(edges[b + 1], kFft / 2); ++i) peak = std::max(peak, std::abs(buf[i]));
+            const float db = 20.f * std::log10(peak / (kFft / 4.f) + 1e-6f); // a full-scale tone is 0 dB
+            out[n][b] = std::clamp((db + 62.f) / 56.f, 0.f, 1.f);         // -62..-6 dB
+        }
+    }
+    std::lock_guard<std::mutex> lk(g_vizMu);
+    g_viz = out;
+    g_vizCount = n;
+    g_vizTick = armGetSystemTick();
+}
 
 void putUtf8(std::string& out, unsigned cp) {
     if (cp < 0x80) {
@@ -165,6 +234,7 @@ bool Audio::start() {
     m_open = true;
     Mix_Volume(-1, MIX_MAX_VOLUME * m_soundVolume / 100);
     Mix_HookMusicFinished(onTrackEnded);
+    Mix_SetPostMix(onMixed, nullptr);
     m_infoJob = std::async(std::launch::async, []() {
         offTheScreensCore();
         Loaded l;
@@ -192,6 +262,7 @@ void Audio::stop() {
     if (m_infoJob.valid()) m_infoJob.wait();
     if (m_trackJob.valid()) m_trackJob.wait();
     Mix_HookMusicFinished(nullptr);
+    Mix_SetPostMix(nullptr, nullptr);
     Mix_HaltMusic();
     Mix_HaltChannel(-1);
     if (m_current) Mix_FreeMusic(m_current);
@@ -337,6 +408,18 @@ void Audio::togglePause() {
     m_userPaused = !m_userPaused;
     if (m_userPaused) Mix_PauseMusic();
     else if (!m_sysPaused) Mix_ResumeMusic();
+}
+
+void Audio::spectrum(float* out) const {
+    std::lock_guard<std::mutex> lk(g_vizMu);
+    if (!m_open || g_vizCount == 0) {
+        std::fill(out, out + kBands, 0.f);
+        return;
+    }
+    // The slice being heard now: one per 1024 samples since that mix.
+    const float ms = static_cast<float>(armTicksToNs(armGetSystemTick() - g_vizTick)) / 1e6f;
+    const int i = std::clamp(static_cast<int>(ms / (1000.f * kFft / kRate)), 0, g_vizCount - 1);
+    std::copy(g_viz[(size_t)i].begin(), g_viz[(size_t)i].end(), out);
 }
 
 float Audio::duration() const {

@@ -34,6 +34,10 @@ public:
     float duration() const;                         // its length (0 = not known)
     const std::vector<std::string>& titles() const { return m_titles; }
     long playing() const { return m_playing; }
+    // The music's bars (the Music screen): what was just heard, as kBands
+    // levels 0..1 from 50 Hz to 16 kHz.
+    static constexpr int kBands = 48;
+    void spectrum(float* out) const;
     void playTrack(size_t index);
 
 private:

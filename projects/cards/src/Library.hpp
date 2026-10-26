@@ -90,6 +90,10 @@ std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, 
 // Downloads it and keeps it as the game's title picture for good (kept through
 // "Download new pictures"); nullptr: its own icon instead.
 bool chooseTitleArt(const Game& game, const TitleChoice* choice);
+// + > Card picture: SteamGridDB's covers (600x900) for the game to choose from.
+std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max = 15);
+// Downloads it and keeps it as the game's card for good; nullptr: back to the usual one.
+bool chooseCoverArt(const Game& game, const TitleChoice* choice);
 // Halves a picture until it's at most maxW wide.
 void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
 // SteamGridDB swaps a picture taken down (DMCA) for a flat notice: one mostly
@@ -148,6 +152,9 @@ struct ConsoleSettings {
     std::string firmware, atmosphere;
 };
 ConsoleSettings readConsoleSettings();
+// Which network the console loads, as Nextendo's Prelude decides it: 1 Nextendo
+// (Atmosphère's hosts file in use sends Nintendo's servers to Nextendo's), 0 Nintendo.
+int nextendoMode();
 void writeConsoleSettings(const ConsoleSettings& s); // the switches and the sleep times
 
 // Settings > Internet > Connection test, on a worker: the numbers fill in as it goes.
@@ -155,6 +162,7 @@ struct NetTest {
     std::atomic<int> stage{0}; // 0 the network, 1 the Internet, 2 download, 3 upload, 4 done
     std::atomic<bool> internet{false}, stop{false};
     std::atomic<int> signal{-1}, pingMs{-1}, downKbps{-1}, upKbps{-1};
+    std::atomic<char> nat{0}; // the Switch's NAT types: 'A' open .. 'F' no UDP; 0 not tested
 };
 void testConnection(NetTest& t);
 
