@@ -467,6 +467,13 @@ bool CardsActivity::onCreate() {
                       static_cast<unsigned long long>(total >> 20),
                       static_cast<unsigned long long>(std::clamp<u64>(total / 4, 64ull << 20, 160ull << 20) >> 20));
         perfLine(head);
+#ifdef SWITCHU_MENU
+        if (m_startRunning || m_startSuspended) { // (the GPU can be slower with one open behind HOME)
+            std::snprintf(head, sizeof(head), "a game is open behind HOME (%016llX)",
+                          static_cast<unsigned long long>(m_startSuspended));
+            perfLine(head);
+        }
+#endif
     }
     const std::uint64_t tFonts = armGetSystemTick();
 
@@ -4738,15 +4745,27 @@ void CardsActivity::onUpdate(float dt) {
         if (interval > 34.f) ++m_perfVerySlow;
         const auto waits = app().gpu().takeWaitStats();
         const auto frees = app().renderer().takeFreeStats();
+        // A GPU that can't keep up (frames waiting over two refreshes on it, for
+        // a second or so): the glass goes plain for this session.
+        m_gpuWaitAvg += (std::min(waits.frameMs, 120.f) - m_gpuWaitAvg) * 0.05f;
+        if (!m_gpuSlow && m_gpuWaitAvg > 34.f && m_time > 2.f) {
+            m_gpuSlow = true;
+            char line[120];
+            std::snprintf(line, sizeof(line), "the GPU is slow here (%.0f ms a frame): the glass is plain until HOME starts again",
+                          m_gpuWaitAvg);
+            perfLine(line);
+        }
         if (interval > 24.f && m_settings.perfLog) {
-            char line[400];
+            char line[460];
             std::snprintf(line, sizeof(line),
                           "slow frame %.1f ms: daemon %.1f, pictures %.1f (%d uploaded), discord %.1f, the rest of update %.1f "
-                          "(most: %s %.1f), drawing %.1f, GPU/system %.1f (GPU waits: frame %.1f, uploads %.1f; %d freed in %.1f)",
+                          "(most: %s %.1f), drawing %.1f (most: %s %.1f), GPU/system %.1f (GPU waits: frame %.1f, uploads %.1f; "
+                          "%d freed in %.1f)",
                           interval, m_perfPumpMs, m_perfArtMs, m_perfUploads, m_perfDiscordMs,
                           std::max(0.f, m_perfUpdateMs - m_perfPumpMs - m_perfArtMs - m_perfDiscordMs), m_perfMarkName,
-                          m_perfMarkMs, m_perfDrawMs, std::max(0.f, interval - m_perfUpdateMs - m_perfDrawMs), waits.frameMs,
-                          waits.uploadMs, frees.count, frees.ms);
+                          m_perfMarkMs, m_perfDrawMs, m_drawMarkName, m_drawMarkMs,
+                          std::max(0.f, interval - m_perfUpdateMs - m_perfDrawMs), waits.frameMs, waits.uploadMs, frees.count,
+                          frees.ms);
             perfLine(line);
         }
         if (m_perfWindow >= 10000.f) {
@@ -5233,26 +5252,50 @@ void CardsActivity::onUpdate(float dt) {
     if (in.isDown(B::ZR)) switchPage(1);
 }
 
+void CardsActivity::drawStep(const char* next) {
+    const std::uint64_t now = armGetSystemTick();
+    const float ms = ticksMs(now - m_drawMarkTick);
+    if (ms > m_drawMarkMs && m_drawMarkTick) {
+        m_drawMarkMs = ms;
+        m_drawMarkName = nxui::g_phase.load(); // the step that just ended
+    }
+    m_drawMarkTick = now;
+    nxui::setPhase(next);
+}
+
 void CardsActivity::draw(nxui::Renderer& r) {
     struct DrawTimer {
         CardsActivity* self;
         std::uint64_t start;
         ~DrawTimer() { self->m_perfDrawMs = ticksMs(armGetSystemTick() - start); }
     } drawTimer{this, armGetSystemTick()};
-    nxui::setPhase("draw: the background");
+    m_drawMarkTick = armGetSystemTick();
+    m_drawMarkMs = 0.f;
+    m_drawMarkName = "";
+    drawStep("draw: the background");
     drawBackground(r);
-    nxui::setPhase("draw: the cards");
+    drawStep("draw: the cards");
     drawCards(r);
-    nxui::setPhase("draw: the glass");
-    // One blurred copy of the frame for every glass shape on top of it.
-    m_frosted = r.gpu().offscreenReady();
+    drawStep("draw: the glass");
+    // One blurred copy of the frame for every glass shape on top of it, made
+    // again when what's behind changed: at once while things move, every 6th
+    // frame while only the background drifts, else kept (HomeNX's screens blur
+    // into the same copy: it's made each frame while one is open).
+    m_frosted = r.gpu().offscreenReady() && !m_gpuSlow;
     if (m_frosted) {
-        r.captureToOffscreen(false);
-        r.applyBlur(2.5f, 2);
+        const bool moving = std::abs(m_scroll - static_cast<float>(sel())) > 0.002f || m_dragging || m_pageIn < 1.f
+                         || m_bgFade < 1.f || m_intro < 1.f || m_leaving || m_moving || focusRoot() != nullptr;
+        if (moving || ++m_blurAge >= (m_settings.bgMotion ? 6 : 60)) {
+            r.captureToOffscreen(false);
+            r.applyBlur(2.5f, 2);
+            m_blurAge = 0;
+        }
+    } else {
+        m_blurAge = 1000; // made at once when it's back
     }
-    nxui::setPhase("draw: the cards' extras");
+    drawStep("draw: the cards' extras");
     drawCardExtras(r);
-    nxui::setPhase("draw: the bar and the panel");
+    drawStep("draw: the bar and the panel");
     // Launching: the bar and the panel go first.
     const int leaveStyle = launchStyle();
     const float ui = m_leaving && leaveStyle != kNoAnimation && leaveStyle != kFade ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
@@ -5289,7 +5332,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
         textMid(r, m_fBody, first, pill.x + 22.f, pill.y + (second.empty() ? 21.f : 22.f), kWhite.withAlpha(a));
         if (!second.empty()) textMid(r, m_fBody, second, pill.x + 22.f, pill.y + 46.f, kWhite.withAlpha(a));
     }
-    nxui::setPhase("draw: the menus");
+    drawStep("draw: the menus");
     drawPopup(r);
     drawSheet(r);
     drawQuick(r);
@@ -5302,6 +5345,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawNews(r);
 #endif
     drawLaunch(r);
+    drawStep("after drawing"); // (ends the last step's time)
 }
 
 // ---------------------------------------------------------------- drawing

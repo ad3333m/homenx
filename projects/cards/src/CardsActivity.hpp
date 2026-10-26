@@ -303,6 +303,18 @@ private:
     std::map<std::string, std::unique_ptr<nxui::Texture>> m_icons;
     std::shared_ptr<nxui::Widget> m_painter;
     bool m_frosted = false;
+    // The glass's blurred copy of the screen: made again only when what's behind
+    // it changes (every few frames while the background drifts). The GPU was the
+    // limit when it ran slow (a game open behind HOME, a low clock): frames took
+    // 66 ms. If it still can't keep up, the glass goes plain for the session.
+    int m_blurAge = 1000;
+    float m_gpuWaitAvg = 0.f;
+    bool m_gpuSlow = false;
+    // The longest part of the last draw (the slow-frame lines).
+    std::uint64_t m_drawMarkTick = 0;
+    float m_drawMarkMs = 0.f;
+    const char* m_drawMarkName = "";
+    void drawStep(const char* next);
 
     std::vector<Game> m_pages[kPageCount];
     int m_sels[kPageCount] = {0, 0, 0, 0};
