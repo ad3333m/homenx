@@ -6,6 +6,7 @@
 #include <nxui/Activity.hpp>
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
+#include <nxui/Theme.hpp>
 
 #ifdef SWITCHU_MENU
 #include "ReleaseUpdater.hpp"
@@ -15,7 +16,6 @@
 #include "widgets/DiscordPanel.hpp"
 #include "widgets/SocialScreen.hpp"
 #include "settings/ControllerTestScreen.hpp"
-#include <nxui/Theme.hpp>
 #endif
 
 #include <array>
@@ -445,6 +445,8 @@ private:
     std::atomic<bool> m_downloading{false}; // BrowseNX
     float m_evictIn = 0.f;
     bool m_evictNow = false; // a picture had no room: far ones go now
+    nxui::Theme m_theme = nxui::Theme::dark();
+    void applyTheme(); // CardsNX's glass, white text and highlight colour, for HomeNX's screens in it
 
     // Touch: drag the row, tap a card (again to play), tap any button.
     bool m_dragging = false, m_touchOnCards = false;
@@ -463,8 +465,6 @@ private:
     AccountUid launchUid() const;
 
     // HomeNX's Discord and its keyboard, in HOME's font (loaded when first needed).
-    nxui::Theme m_theme = nxui::Theme::dark();
-    void applyTheme(); // CardsNX's glass, white text and highlight colour, for HomeNX's screens in it
     nxui::Font m_hxFont, m_hxSmall;
     bool m_hxFonts = false;
     void ensureHxFonts();
