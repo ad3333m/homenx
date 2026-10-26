@@ -783,6 +783,8 @@ private:
     bool m_dialogWasActive            = false;
     bool m_suppressNextNavigateSfx    = false;
     bool m_pendingNetConnect          = false;
+    std::future<bool> m_nextendoGet;           // Nextendo's app (Prelude) being downloaded
+    std::atomic<float> m_nextendoProgress{0.f};
     int  m_deferredInitialAssetFrames = 0;
     bool m_deferredStaticTextures = false;
     int  m_deferredProfileFrames = 0;

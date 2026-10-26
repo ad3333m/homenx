@@ -662,6 +662,7 @@ void CardsActivity::onDestroy() {
     if (m_deleteJob.valid()) m_deleteJob.wait();
     m_saveAllStop = true;
     if (m_saveAllJob.valid()) m_saveAllJob.wait();
+    if (m_nxGetJob.valid()) m_nxGetJob.wait();
     if (m_pickJob.valid()) m_pickJob.wait();
     if (m_pickSave.valid()) m_pickSave.wait();
     if (m_netTest) m_netTest->stop = true;
@@ -3804,10 +3805,29 @@ void CardsActivity::openNextendo(int mode) {
         say(mode == 1 ? "Nextendo Mode is on already." : "Nintendo Mode is on already.");
         return;
     }
+    constexpr const char* kNextendoNro = "sdmc:/switch/nextendo.nro"; // where Prelude's releases go
     std::string path = findNro("prelude");
     if (path.empty()) path = findNro("nextendo");
-    if (path.empty()) {
-        say("Prelude, Nextendo's app, isn't on the SD card: get it from nextendo.network.");
+    std::error_code ec;
+    if (path.empty() && std::filesystem::exists(kNextendoNro, ec)) path = kNextendoNro;
+    if (path.empty()) { // not there: its newest release, then it opens
+        if (m_nxGetJob.valid()) {
+            say("Still getting Nextendo's app...");
+            return;
+        }
+        if (!m_netUp) {
+            say("Connect to the internet to get Nextendo's app.");
+            return;
+        }
+        m_nxGetMode = mode;
+        m_nxGetJob = std::async(std::launch::async, [kNextendoNro]() {
+            offScreenCore();
+            const bool ok = download("https://github.com/NextendoNetwork/Prelude-Nextendo/releases/latest/download/nextendo.nro",
+                                     kNextendoNro);
+            threadDone();
+            return ok;
+        });
+        say("Getting Nextendo's app (Prelude, 25 MB)...");
         return;
     }
     if (mode >= 0) say(std::string("In Prelude, choose ") + (mode == 1 ? "NEXTENDO" : "NINTENDO") + ": it switches and restarts the console.");
@@ -4864,6 +4884,13 @@ void CardsActivity::onUpdate(float dt) {
                         }
                     }
                 m_updates.erase(m_nroUpdating);
+                try { // off the saved list too, or it was offered again at the next start
+                    std::ifstream in(kUpdatesPath);
+                    auto j = nlohmann::json::parse(in);
+                    if (j.contains("apps") && j["apps"].is_object()) j["apps"].erase(m_nroUpdating);
+                    writeLater(kUpdatesPath, j.dump());
+                } catch (...) {
+                }
                 saveLists(m_pages[kGames], homebrewToSave());
                 m_audio.play("toggle_on");
                 say(name + " is updated" + (latest.empty() ? std::string(" to the latest version.") : " to " + latest + "."));
@@ -4906,6 +4933,11 @@ void CardsActivity::onUpdate(float dt) {
     }
 
     perfMark("updates and deleting");
+    // Nextendo's app arrived: it opens.
+    if (m_nxGetJob.valid() && m_nxGetJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        if (m_nxGetJob.get()) openNextendo(m_nxGetMode);
+        else say("Nextendo's app didn't download. Check the internet connection.");
+    }
     // A title picture was chosen (+ > Title picture): it shows now.
     if (m_pickSave.valid() && m_pickSave.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         if (m_pickSave.get()) {

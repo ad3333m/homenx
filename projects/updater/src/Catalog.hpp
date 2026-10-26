@@ -28,6 +28,9 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done);
 // Downloads the newest .nro and puts it in place of the old one.
 bool installUpdate(const App& app, std::atomic<float>& progress, std::string& error);
 
+// A file from the web to `to` (through a .part file); HomeNX's Nextendo button.
+bool downloadFile(const std::string& url, const std::string& to, std::atomic<float>& progress, std::string& error);
+
 // Whether `latest` is a newer version than `installed` ("v1.2.0" > "1.1.9").
 bool isNewer(const std::string& latest, const std::string& installed);
 

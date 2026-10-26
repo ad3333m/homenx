@@ -198,14 +198,21 @@ bool fromGitHub(App& app, const std::string& repo) {
     const auto j = nlohmann::json::parse(body, nullptr, false);
     if (j.is_discarded() || !j.is_object()) return false;
     std::string nro, nroNamed, zip;
+    long long nroSize = -1, nroNamedSize = -1;
     const std::string want = lowerFileName(app.path);
     for (const auto& a : j.value("assets", nlohmann::json::array())) {
         std::string name = a.value("name", std::string());
         const std::string url = a.value("browser_download_url", std::string());
         std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::tolower(c); });
         if (name.size() > 4 && name.compare(name.size() - 4, 4, ".nro") == 0) {
-            if (nro.empty()) nro = url;
-            if (name == want) nroNamed = url;
+            if (nro.empty()) {
+                nro = url;
+                nroSize = a.value("size", -1LL);
+            }
+            if (name == want) {
+                nroNamed = url;
+                nroNamedSize = a.value("size", -1LL);
+            }
         } else if (name.size() > 4 && name.compare(name.size() - 4, 4, ".zip") == 0 && zip.empty()) {
             zip = url;
         }
@@ -223,6 +230,16 @@ bool fromGitHub(App& app, const std::string& repo) {
     }
     app.latest = tag;
     app.source = "GitHub " + repo;
+    // A release without a version number ("latest"): newer when its .nro isn't
+    // the one on the SD card (by size). Compared as text, "latest" was always
+    // newer than "1.0.0", so the update came back after every update.
+    if (std::none_of(tag.begin(), tag.end(), [](unsigned char c) { return std::isdigit(c); })) {
+        std::error_code ec;
+        const long long size = !nroNamed.empty() ? nroNamedSize : nroSize;
+        const long long have = static_cast<long long>(std::filesystem::file_size(app.path, ec));
+        // ponytail: a zip can't be compared (no size of the .nro inside): not offered.
+        if (app.zip || ec || size <= 0 || have == size) app.latest = app.version;
+    }
     return true;
 }
 
@@ -350,6 +367,18 @@ bool installUpdate(const App& app, std::atomic<float>& progress, std::string& er
     }
     std::remove(old.c_str());
     switchu::FileLog::log("[updater] %s updated to %s", app.path.c_str(), app.latest.c_str());
+    return true;
+}
+
+bool downloadFile(const std::string& url, const std::string& to, std::atomic<float>& progress, std::string& error) {
+    const std::string part = to + ".part";
+    if (!download(url, part, progress, error)) return false;
+    std::remove(to.c_str());
+    if (std::rename(part.c_str(), to.c_str()) != 0) {
+        std::remove(part.c_str());
+        error = "Couldn't put it in place";
+        return false;
+    }
     return true;
 }
 

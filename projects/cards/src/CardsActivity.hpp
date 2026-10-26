@@ -408,6 +408,8 @@ private:
     ConsoleSettings m_console;
     int m_nextendoMode = 0;  // 1: Nextendo mode is on (Settings > Nextendo)
     void openNextendo(int mode); // Prelude, Nextendo's app, which switches it (-1: just open it)
+    std::future<bool> m_nxGetJob; // Prelude being downloaded (it wasn't on the SD card)
+    int m_nxGetMode = -1;
     std::shared_ptr<NetTest> m_netTest;
     std::future<void> m_netTestJob, m_findJob;
     void startConnectionTest();

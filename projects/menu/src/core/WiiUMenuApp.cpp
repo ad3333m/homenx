@@ -29,6 +29,7 @@
 #include <unordered_set>
 #include <fstream>
 #include <filesystem>
+#include "../../../updater/src/Catalog.hpp" // updater::downloadFile (Nextendo's app)
 #include <nlohmann/json.hpp>
 #include <nxui/widgets/GlassPanel.hpp>
 #include <system_error>
@@ -1445,8 +1446,35 @@ void WiiUMenuApp::activateCustomButton() {
 // application, never the Album.
 void WiiUMenuApp::activateNextendo() {
     auto& i18n = nxui::I18n::instance();
-    const std::string path = m_config.nextendoPath;
+    std::string path = m_config.nextendoPath;
     std::error_code ec;
+    // Prelude's releases are nextendo.nro now; not there at all, it's downloaded
+    // (then this runs again).
+    constexpr const char* kNextendoNro = "sdmc:/switch/nextendo.nro";
+    if ((path.empty() || !std::filesystem::exists(path, ec)) && std::filesystem::exists(kNextendoNro, ec)) {
+        path = m_config.nextendoPath = kNextendoNro;
+        m_config.save();
+    }
+    if ((path.empty() || !std::filesystem::exists(path, ec)) && !m_nextendoGet.valid()) {
+        m_nextendoProgress = 0.f;
+        m_nextendoGet = std::async(std::launch::async, [this, kNextendoNro]() {
+            std::string error;
+            return updater::downloadFile(
+                "https://github.com/NextendoNetwork/Prelude-Nextendo/releases/latest/download/nextendo.nro", kNextendoNro,
+                m_nextendoProgress, error);
+        });
+        if (m_dialog) {
+            m_audio.playSfx(Sfx::ModalShow);
+            m_dialog->show(i18n.tr("nextendo.getting_title", "Getting Nextendo"),
+                           i18n.tr("nextendo.getting_body",
+                                   "Its app (Prelude, 25 MB) isn't on the SD card, so HomeNX is downloading it. "
+                                   "It opens when it's here."),
+                           {{i18n.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+            focusManager().setFocus(m_dialog.get());
+        }
+        return;
+    }
+    if (m_nextendoGet.valid()) return; // still downloading
     auto explain = [this, &i18n](const std::string& title, const std::string& body) {
         if (!m_dialog) return;
         m_audio.playSfx(Sfx::ModalShow);
@@ -6294,6 +6322,20 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         m_pendingNetConnect = false;
         leaveThen([this]() { m_launcher.launchNetConnect(); });
         return;
+    }
+    // Nextendo's app arrived (the Nextendo button downloaded it): it opens.
+    if (m_nextendoGet.valid() && m_nextendoGet.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        if (m_nextendoGet.get()) {
+            m_config.nextendoPath = "sdmc:/switch/nextendo.nro";
+            m_config.save();
+            activateNextendo();
+        } else if (m_dialog) {
+            auto& tr = nxui::I18n::instance();
+            m_dialog->show(tr.tr("nextendo.get_failed_title", "Nextendo didn't download"),
+                           tr.tr("nextendo.get_failed_body", "Check the internet connection, then try again."),
+                           {{tr.tr("button.ok", "OK"), [] {}, true}}, 0, {});
+            focusManager().setFocus(m_dialog.get());
+        }
     }
 
 #ifdef SWITCHU_MENU
