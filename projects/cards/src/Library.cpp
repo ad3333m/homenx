@@ -605,6 +605,25 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     const std::string grid = base + ".grid", box = base + ".box", banner = base + ".card";
     kind = ArtKind::Grid;
+    // The covers Adam picked on SteamGridDB (2026-10-26), by name: downloaded once,
+    // saved under their link's number (a changed pick is downloaded again).
+    static const std::pair<const char*, const char*> kCovers[] = {
+        {"link s awakening", "https://cdn2.steamgriddb.com/grid/62e42d5128071bb96fc3a269019e0504.png"},
+    };
+    if (boxArt) {
+        const std::string name = nameKey(game.name);
+        for (const auto& [words, url] : kCovers)
+            if (name.find(words) != std::string::npos) {
+                const std::string saved = base + ".coverpick" + std::to_string(std::hash<std::string>{}(url) % 1000000);
+                if (std::filesystem::exists(saved)) return readFile(saved);
+                std::string body;
+                if (get(url, body) == 200 && isPicture(body)) {
+                    writeFile(saved, body);
+                    return std::vector<std::uint8_t>(body.begin(), body.end());
+                }
+                break; // (no internet now: the others below meanwhile)
+            }
+    }
     if (boxArt && std::filesystem::exists(grid)) return readFile(grid);
     if (boxArt && !key.empty()) {
         const std::string got = steamGridDbPicture(game, key, "grids",
@@ -703,6 +722,7 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
         {"minecraft", "https://cdn2.steamgriddb.com/icon/cfecdb276f634854f3ef915e2e980c31.png"},
         // (its logo, SteamGridDB's 512 px copy: the original is 3187 px, 31 MB to decode)
         {"1 2 switch", "https://cdn2.steamgriddb.com/logo_thumb/67f5f6bb5b8cbbc3593fda172965b132.png"},
+        {"link s awakening", "https://cdn2.steamgriddb.com/icon/cd4fc6461d3c852b8c31abd289f6c6df.png"},
     };
     const std::string name = nameKey(game.name);
     for (const auto& [words, url] : kPicks)
