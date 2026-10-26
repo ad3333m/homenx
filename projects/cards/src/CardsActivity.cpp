@@ -3661,14 +3661,14 @@ void CardsActivity::buildSettings() {
     // Nextendo: Nextendo's Prelude switches the network (it rewrites Atmosphère's
     // hosts and patches, then restarts); here's which is on, and the way there.
     Section nx{"Nextendo", "nextendo", {}};
-    MenuItem nintendo = action("Nintendo Mode", [this]() { openNextendo(0); });
-    nintendo.value = [this]() { return m_nextendoMode == 0 ? std::string("On") : std::string(); };
-    nintendo.detail = "Nintendo's own servers: the eShop and Nintendo Switch Online";
-    nx.rows.push_back(std::move(nintendo));
-    MenuItem nextendo = action("Nextendo Mode", [this]() { openNextendo(1); });
-    nextendo.value = [this]() { return m_nextendoMode == 1 ? std::string("On") : std::string(); };
-    nextendo.detail = "Play online on Nextendo Network, no Nintendo account needed";
-    nx.rows.push_back(std::move(nextendo));
+    MenuItem nintendoRow = action("Nintendo Mode", [this]() { openNextendo(0); });
+    nintendoRow.value = [this]() { return m_nextendoMode == 0 ? std::string("On") : std::string(); };
+    nintendoRow.detail = "Nintendo's own servers: the eShop and Nintendo Switch Online";
+    nx.rows.push_back(std::move(nintendoRow));
+    MenuItem nextendoRow = action("Nextendo Mode", [this]() { openNextendo(1); });
+    nextendoRow.value = [this]() { return m_nextendoMode == 1 ? std::string("On") : std::string(); };
+    nextendoRow.detail = "Play online on Nextendo Network, no Nintendo account needed";
+    nx.rows.push_back(std::move(nextendoRow));
     MenuItem prelude = action("Open Nextendo", [this]() { openNextendo(-1); });
     prelude.detail = "Prelude: your Nextendo account and each game's online set-up";
     nx.rows.push_back(std::move(prelude));
