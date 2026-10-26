@@ -717,12 +717,9 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
             }
             break; // (no internet now: the others below meanwhile)
         }
-    // The one the stricter search before picked, for the games he liked that
-    // one better (the leaf for Animal Crossing, Tears of the Kingdom's); for the
-    // rest (JoJo's) the newer search's is the better one.
-    for (const char* words : {"animal crossing", "tears of the kingdom"})
-        if (name.find(words) != std::string::npos)
-            if (std::vector<std::uint8_t> old = readFile(base + ".title"); !old.empty()) return old;
+    // The one the stricter search before picked: he liked those (the leaf for
+    // Animal Crossing, Tears of the Kingdom's) more than what's found now.
+    if (std::vector<std::uint8_t> old = readFile(base + ".title"); !old.empty()) return old;
     // (".title2": the ones "none" was saved for before are asked again with these.)
     const std::string path = base + ".title2";
     if (std::filesystem::exists(path, ec)) return readFile(path); // empty: SteamGridDB had none
