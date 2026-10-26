@@ -1870,9 +1870,14 @@ void SocialScreen::onRender(nxui::Renderer& ren) {
     const nxui::Color muted = m_theme->textSecondary.withAlpha(a);
     const nxui::Color accent = m_theme->cursorNormal;
 
-    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.4f * a));
+    ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, (m_frosted ? 0.5f : 0.4f) * a));
     const nxui::Rect p = panelRect();
-    ren.drawRoundedRect(p, m_theme->panelBase.withAlpha(0.98f * a), 28.f);
+    const bool frosted = m_frosted && ren.gpu().offscreenReady();
+    if (frosted) ren.drawOffscreenRounded(0, p, 28.f, nxui::Color::white().withAlpha(a));
+    ren.drawRoundedRect(p, m_theme->panelBase.withAlpha((frosted ? 0.86f : 0.98f) * a), 28.f);
+    if (frosted) // the light along the top, as CardsNX's sheets
+        ren.drawGradientRect({p.x + 2.f, p.y + 2.f, p.width - 4.f, 90.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+                             nxui::Color(1.f, 1.f, 1.f, 0.f));
     ren.drawRoundedRectOutline(p, m_theme->panelBorder.withAlpha(a), 28.f, 1.5f);
 
     // Header: the title, and you in the corner.

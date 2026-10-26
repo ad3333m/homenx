@@ -464,6 +464,7 @@ private:
 
     // HomeNX's Discord and its keyboard, in HOME's font (loaded when first needed).
     nxui::Theme m_theme = nxui::Theme::dark();
+    void applyTheme(); // CardsNX's glass, white text and highlight colour, for HomeNX's screens in it
     nxui::Font m_hxFont, m_hxSmall;
     bool m_hxFonts = false;
     void ensureHxFonts();
@@ -471,6 +472,7 @@ private:
     std::shared_ptr<DiscordPanel> m_discordPanel;
     std::shared_ptr<TextEntryScreen> m_textEntry;
     std::shared_ptr<SocialScreen> m_social;   // Friends, your profile, Mii Maker (HomeNX's, not Nintendo's)
+    nxui::Font m_socFont, m_socSmall;         // CardsNX's typeface at the sizes HomeNX's screens are laid out for
     void ensureTextEntry();
     void enterText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
                    std::function<void(const std::string&)> done, nxui::Widget* back);

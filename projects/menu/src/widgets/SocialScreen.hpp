@@ -47,6 +47,9 @@ public:
     void setIconDir(std::string dir) { m_iconDir = std::move(dir); }
     void setDiscord(const DiscordService* d) { m_discord = d; }
     void setCallbacks(Callbacks cb) { m_cb = std::move(cb); }
+    // CardsNX's look: the panel is frosted glass over the blurred screen (the
+    // copy CardsNX makes each frame) instead of a solid one.
+    void setFrosted(bool on) { m_frosted = on; }
     // The installed games: their names, and whose play history to read for you.
     void setTitles(std::vector<std::pair<std::uint64_t, std::string>> titles);
 
@@ -181,6 +184,7 @@ private:
     std::map<std::uint64_t, std::string> m_titles;
 
     bool m_active = false;
+    bool m_frosted = false;
     float m_anim = 0.f;
     Zone m_zone = Zone::Tiles;
     Mode m_mode = Mode::Friends;

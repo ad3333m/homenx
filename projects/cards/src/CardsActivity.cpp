@@ -448,6 +448,7 @@ bool CardsActivity::onCreate() {
     m_settings.load();
     m_boxArt = m_settings.boxArt;
     m_titleArt = m_settings.titlePics;
+    applyTheme();
     m_clock24 = m_settings.clock24;
     if (m_settings.perfLog) { // a new part of the log (the last one kept as perf.old.log once it's big)
         std::error_code ec;
@@ -696,6 +697,18 @@ nxui::Widget* CardsActivity::focusRoot() {
 const Game* CardsActivity::current() {
     auto& g = games();
     return g.empty() ? nullptr : &g[(size_t)std::clamp(sel(), 0, static_cast<int>(g.size()) - 1)];
+}
+
+void CardsActivity::applyTheme() {
+    m_theme = nxui::Theme::dark();
+    m_theme.panelBase = nxui::Color(0.08f, 0.09f, 0.13f, 0.86f);
+    m_theme.panelBorder = nxui::Color(1.f, 1.f, 1.f, 0.16f);
+    m_theme.panelHighlight = nxui::Color(1.f, 1.f, 1.f, 0.05f);
+    m_theme.iconDefault = nxui::Color(1.f, 1.f, 1.f, 0.06f);
+    m_theme.cursorNormal = accent(1.f);
+    m_theme.cursorGlow = accent(0.12f);
+    m_theme.textPrimary = kWhite;
+    m_theme.textSecondary = kMuted;
 }
 
 nxui::Color CardsActivity::accent(float a) const {
@@ -1592,7 +1605,12 @@ void CardsActivity::openSocial(bool miis) {
     ensureHxFonts();
     if (!m_social) {
         m_social = std::make_shared<SocialScreen>();
-        m_social->setFonts(&m_hxFont, &m_hxSmall);
+        // In CardsNX's look: its typeface (Inter), frosted glass, CardsNX's theme.
+        const std::string fonts = std::string(kAssets) + "fonts/";
+        const bool inter = m_socFont.load(app().gpu(), app().renderer(), fonts + "Inter-600.ttf", 24)
+                        && m_socSmall.load(app().gpu(), app().renderer(), fonts + "Inter-500.ttf", 18);
+        m_social->setFonts(inter ? &m_socFont : &m_hxFont, inter ? &m_socSmall : &m_hxSmall);
+        m_social->setFrosted(true);
         m_social->setGpu(&app().gpu(), &app().renderer());
         m_social->setTheme(&m_theme);
         m_social->setIconDir("sdmc:/switch/SwitchU/icons");
@@ -3171,7 +3189,11 @@ void CardsActivity::buildSettings() {
     Section look{"Look", "gear", {}};
     look.rows.push_back(choice("Highlight colour",
         [this]() { return std::string(kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].name); },
-        [this, save](int d) { m_settings.accent = (m_settings.accent + d + kAccentCount) % kAccentCount; save(); },
+        [this, save](int d) {
+            m_settings.accent = (m_settings.accent + d + kAccentCount) % kAccentCount;
+            applyTheme(); // HomeNX's screens in CardsNX too
+            save();
+        },
         "The ring around what's chosen"));
     look.rows.push_back(choice("Launch animation",
         [this]() { return std::string(kLaunchNames[std::clamp(m_settings.launchStyle, 0, kLaunchStyles - 1)]); },
@@ -3947,6 +3969,10 @@ void CardsActivity::keepTextCachesSmall() {
     if (m_hxFonts) {
         keep(m_hxFont);
         keep(m_hxSmall);
+    }
+    if (m_social) {
+        keep(m_socFont);
+        keep(m_socSmall);
     }
 #endif
 }
