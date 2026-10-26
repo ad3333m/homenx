@@ -18,6 +18,7 @@
 #include <nxui/Theme.hpp>
 #endif
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -71,9 +72,12 @@ private:
     // The lists, read on a thread (HOME shows last time's at once).
     struct Lists {
         std::vector<Game> games, homebrew;
-        float ms = 0.f; // how long reading them took
+        float ms = 0.f;         // how long reading them took
+        bool gamesOnly = false; // the installed titles only: the .nro apps stay as they are
     };
-    static Lists readAllLists(); // every game and .nro (slow: seconds), on whatever thread calls it
+    // Every game and .nro (slow: seconds), on whatever thread calls it; or only
+    // the installed titles (a game installed, updated or removed).
+    static Lists readAllLists(bool gamesOnly = false);
     struct Job {
         Game game;
         int what = kCard;
@@ -136,10 +140,18 @@ private:
     void splitMedia();
     std::vector<Game> homebrewToSave() const; // Homebrew and Media's .nro apps, for lists.json
     void getMedia(const Game& g);
+    std::atomic<bool> m_updatesSaved{false}; // the last updates came from the saved list
+    // Settings > Pictures > Save every picture now: every game's, on the SD card
+    // for good (one taken down later stays), one game at a time on a thread.
+    std::future<void> m_saveAllJob;
+    std::atomic<int> m_saveAllDone{0}, m_saveAllTotal{0};
+    std::atomic<bool> m_saveAllStop{false};
+    void saveAllPictures();
     std::future<bool> m_getJob;
     std::string m_getPath, m_getName;
     void openPageOrder(int select);
-    void startListRefresh(); // read the lists again on a thread (unless that's running)
+    void startListRefresh(bool gamesOnly = false); // read the lists again on a thread (unless that's running)
+    float m_gamesChangedIn = 0.f; // the installed titles changed: read again once they stop (an update sends many)
     bool glassCard(const Game& g); // an app or a game without box art: its icon on glass
     void applyOrder(int page);
     void saveOrder(int page);
@@ -396,6 +408,7 @@ private:
     void perfLine(const std::string& line);
     float sinceStartMs() const;
     std::string m_perfOut; // waiting for worker 1 to write it (under m_mu)
+    std::vector<std::array<std::string, 3>> m_notifyOut; // notifications for worker 1 to save (under m_mu)
     std::uint64_t m_perfCreateTick = 0, m_perfLastTick = 0;
     float m_perfPumpMs = 0.f, m_perfArtMs = 0.f, m_perfDiscordMs = 0.f, m_perfUpdateMs = 0.f, m_perfDrawMs = 0.f;
     int m_perfUploads = 0, m_perfFrames = 0, m_perfSlow = 0, m_perfVerySlow = 0;
@@ -405,6 +418,10 @@ private:
     float m_perfMarkMs = 0.f;
     const char* m_perfMarkName = "";
     void perfMark(const char* step);
+    // Every 50 ms: when the screen's thread stays in one step for long, the log
+    // says which; when this thread itself didn't run for a second, the whole
+    // process was stopped (the system paused HOME), not CardsNX.
+    void watchdog();
     float m_perfWindow = 0.f, m_perfWorst = 0.f;
     bool m_perfFirstCard = false;
     std::atomic<bool> m_boxArt{true};

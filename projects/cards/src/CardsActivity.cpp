@@ -32,6 +32,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -301,6 +302,13 @@ void offScreenCore() {
     svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3B);
 }
 
+// "v1.2.3" for a version; "" for one that isn't a number (a release called
+// "latest": it read "vlatest").
+std::string versionName(const std::string& v) {
+    if (std::none_of(v.begin(), v.end(), [](unsigned char c) { return std::isdigit(c); })) return {};
+    return v[0] == 'v' || v[0] == 'V' ? v : "v" + v;
+}
+
 const MediaApp* mediaAppOf(const std::string& name, const std::string& path) {
     std::string n = name, p = path;
     for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -473,6 +481,10 @@ bool CardsActivity::onCreate() {
 #endif
         );
         perfLine(head);
+        std::snprintf(head, sizeof(head), "memory: %llu MB, %llu MB of it for pictures",
+                      static_cast<unsigned long long>(total >> 20),
+                      static_cast<unsigned long long>(std::clamp<u64>(total / 4, 64ull << 20, 160ull << 20) >> 20));
+        perfLine(head);
     }
     const std::uint64_t tFonts = armGetSystemTick();
 
@@ -596,6 +608,7 @@ bool CardsActivity::onCreate() {
     }
 #endif
     for (int i = 0; i < 5; ++i) m_threads.emplace_back([this, i]() { worker(i); });
+    if (m_settings.perfLog) m_threads.emplace_back([this]() { watchdog(); });
     wantArt();
     m_intro = m_settings.motion ? 0.f : 1.f;
     const std::uint64_t tEnd = armGetSystemTick();
@@ -609,10 +622,15 @@ bool CardsActivity::onCreate() {
     return true;
 }
 
-CardsActivity::Lists CardsActivity::readAllLists() {
+CardsActivity::Lists CardsActivity::readAllLists(bool gamesOnly) {
     const std::uint64_t t0 = armGetSystemTick();
     Lists l;
+    l.gamesOnly = gamesOnly;
     for (Game& g : listGames()) (g.homebrew ? l.homebrew : l.games).push_back(std::move(g));
+    if (gamesOnly) {
+        l.ms = ticksMs(armGetSystemTick() - t0);
+        return l;
+    }
     std::vector<Game> nros = listHomebrew();
     l.homebrew.insert(l.homebrew.begin(), std::make_move_iterator(nros.begin()), std::make_move_iterator(nros.end()));
     for (size_t i = 0; i < l.homebrew.size(); ++i) l.homebrew[i].order = static_cast<int>(i);
@@ -620,11 +638,11 @@ CardsActivity::Lists CardsActivity::readAllLists() {
     return l;
 }
 
-void CardsActivity::startListRefresh() {
+void CardsActivity::startListRefresh(bool gamesOnly) {
     if (m_listJob.valid()) return;
-    m_listJob = std::async(std::launch::async, []() {
+    m_listJob = std::async(std::launch::async, [gamesOnly]() {
         offScreenCore(); // this thread only (never the screen's)
-        return readAllLists();
+        return readAllLists(gamesOnly);
     });
 }
 
@@ -658,6 +676,8 @@ void CardsActivity::onDestroy() {
         std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << m_perfOut;
     }
     if (m_deleteJob.valid()) m_deleteJob.wait();
+    m_saveAllStop = true;
+    if (m_saveAllJob.valid()) m_saveAllJob.wait();
     if (m_netTest) m_netTest->stop = true;
     if (m_netTestJob.valid()) m_netTestJob.wait();
     if (m_findJob.valid()) m_findJob.wait();
@@ -674,6 +694,7 @@ void CardsActivity::onDestroy() {
 #endif
     if (m_netUp) stopNetwork();
     m_settings.save();
+    flushWrites();
     m_audio.stop();
 }
 
@@ -773,10 +794,13 @@ void CardsActivity::worker(int index) {
         if (index == 1 && now >= logAt) { // the performance log, a few seconds at a time
             logAt = now + 5000;
             std::string out;
+            std::vector<std::array<std::string, 3>> notify;
             {
                 std::lock_guard<std::mutex> lk(m_mu);
                 out.swap(m_perfOut);
+                notify.swap(m_notifyOut);
             }
+            for (const auto& n : notify) notifications::add(n[0].c_str(), n[1], n[2]);
             if (!out.empty()) {
                 std::error_code ec;
                 std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
@@ -884,7 +908,7 @@ void CardsActivity::worker(int index) {
                 // Backgrounds sharp (a box cover softer, an icon a wash of its colours); cards as drawn.
                 const int maxW = job.what == kLaunch ? 1280
                                : job.what == kIcon ? 160
-                               : job.what == kCard ? 400
+                               : job.what == kCard ? 300 // drawn ~250 wide: a whole page of them fits
                                : done.kind == ArtKind::Icon ? 32
                                : done.kind == ArtKind::Box ? 400
                                                            : 960;
@@ -1040,9 +1064,12 @@ void CardsActivity::takeArt() {
     m_evictNow = false;
     int loaded = 0;
     for (const auto& [id, a] : m_art) loaded += (a.card ? 1 : 0) + (a.bg ? 3 : 0);
-    if (loaded < 56 && !tight && !now) return;
-    const int keepCards = tight || now ? 14 : 24; // still well past the ~6 on screen either side
-    const int keepBackgrounds = tight || now ? 1 : 4;
+    // A whole page of covers stays while there's room: one let go came back
+    // blank until it loaded again, and with the SD card busy (an install, the
+    // list) that took seconds -- the covers that "disappeared".
+    if (loaded < 140 && !tight && !now) return;
+    const int keepCards = tight || now ? 14 : 60; // 14: still well past the ~6 on screen either side
+    const int keepBackgrounds = tight || now ? 1 : 6;
     std::map<std::uint64_t, int> distance;
     for (int p = 0; p < kPageCount; ++p) {
         const auto& page = m_pages[p];
@@ -1211,26 +1238,38 @@ void CardsActivity::saveOrder(int page) {
     m_settings.save();
 }
 
-// A game was installed, removed or a game card went in or out: read them
-// again on a thread (it took the screen's thread seconds).
+// A game was installed, updated or removed, or a game card went in or out:
+// the installed titles are read again on a thread once the changes stop (an
+// update sends them all the time it installs; every one used to read every
+// .nro on the SD card again, and HOME lagged until it was done).
 void CardsActivity::reloadGames() {
-    startListRefresh();
+    m_gamesChangedIn = 3.f;
 }
 
 // The real lists, read on a thread, replace last time's. Where you are stays:
 // the first card stays first, a card further along stays chosen.
 void CardsActivity::takeLists(Lists lists) {
-    char line[80];
-    std::snprintf(line, sizeof(line), "lists read again in %.0f ms (%zu games, %zu homebrew)", lists.ms,
-                  lists.games.size(), lists.homebrew.size());
+    char line[120];
+    std::snprintf(line, sizeof(line), "%s read again in %.0f ms (%zu games, %zu homebrew)",
+                  lists.gamesOnly ? "installed titles" : "lists", lists.ms, lists.games.size(), lists.homebrew.size());
     perfLine(line);
-    m_settings.listsAt = static_cast<long long>(std::time(nullptr));
-    m_settings.save();
+    if (!lists.gamesOnly) {
+        m_settings.listsAt = static_cast<long long>(std::time(nullptr));
+        m_settings.save();
+    }
     auto chosen = [this](int p) -> std::uint64_t {
         const auto& page = m_pages[p];
         return m_sels[p] > 0 && m_sels[p] < static_cast<int>(page.size()) ? page[(size_t)m_sels[p]].id : 0;
     };
     const std::uint64_t keep[2] = {chosen(kGames), chosen(kHomebrew)};
+    if (lists.gamesOnly) { // the .nro apps as they were, then the new NRO forwarders
+        std::vector<Game> all;
+        for (Game& g : homebrewToSave())
+            if (!g.path.empty()) all.push_back(std::move(g));
+        all.insert(all.end(), std::make_move_iterator(lists.homebrew.begin()), std::make_move_iterator(lists.homebrew.end()));
+        for (size_t i = 0; i < all.size(); ++i) all[i].order = static_cast<int>(i);
+        lists.homebrew = std::move(all);
+    }
     m_pages[kGames] = std::move(lists.games);
     m_pages[kHomebrew] = std::move(lists.homebrew);
     splitMedia();
@@ -1738,29 +1777,6 @@ const CardsActivity::NroUpdate* CardsActivity::nroUpdate(const Game& g) const {
 void CardsActivity::checkHomebrewUpdates(bool force) {
     if (m_updatesJob.valid()) return;
     const long long now = static_cast<long long>(std::time(nullptr));
-    if (!force) {
-        try {
-            std::ifstream in(kUpdatesPath);
-            if (in) {
-                const auto j = nlohmann::json::parse(in);
-                const long long at = j.value("checkedAt", 0LL);
-                m_updates.clear();
-                const auto saved = j.value("apps", nlohmann::json::object());
-                for (auto it = saved.begin(); it != saved.end(); ++it) {
-                    NroUpdate u;
-                    u.latest = it.value().value("latest", std::string());
-                    u.source = it.value().value("source", std::string());
-                    u.url = it.value().value("url", std::string());
-                    u.zipEntry = it.value().value("zipEntry", std::string());
-                    u.zip = it.value().value("zip", false);
-                    m_updates[it.key()] = u;
-                }
-                if (now - at < 6 * 3600 && now >= at) return; // fresh enough
-            }
-        } catch (...) {
-        }
-    }
-    if (!m_netUp) return;
     std::vector<updater::App> apps;
     for (Page p : {kHomebrew, kMedia})
         for (const Game& g : m_pages[p])
@@ -1772,11 +1788,41 @@ void CardsActivity::checkHomebrewUpdates(bool force) {
             a.version = g.version;
             apps.push_back(std::move(a));
         }
-    m_updatesJob = std::async(std::launch::async, [apps, now]() mutable {
+    const bool online = m_netUp;
+    m_updatesSaved = false;
+    m_updatesJob = std::async(std::launch::async, [this, apps, now, force, online]() mutable {
         offScreenCore();
+        std::map<std::string, NroUpdate> found;
+        // The saved list (read here: the SD card can keep the screen waiting).
+        if (!force) {
+            long long at = 0;
+            try {
+                std::ifstream in(kUpdatesPath);
+                if (in) {
+                    const auto j = nlohmann::json::parse(in);
+                    at = j.value("checkedAt", 0LL);
+                    const auto saved = j.value("apps", nlohmann::json::object());
+                    for (auto it = saved.begin(); it != saved.end(); ++it) {
+                        NroUpdate u;
+                        u.latest = it.value().value("latest", std::string());
+                        u.source = it.value().value("source", std::string());
+                        u.url = it.value().value("url", std::string());
+                        u.zipEntry = it.value().value("zipEntry", std::string());
+                        u.zip = it.value().value("zip", false);
+                        found[it.key()] = u;
+                    }
+                }
+            } catch (...) {
+            }
+            if ((now - at < 6 * 3600 && now >= at) || !online) { // fresh enough (or no internet)
+                m_updatesSaved = true;
+                return found;
+            }
+            found.clear();
+        }
+        if (!online) return found;
         std::atomic<int> done{0};
         updater::findUpdates(apps, done);
-        std::map<std::string, NroUpdate> found;
         nlohmann::json saved = {{"checkedAt", now}, {"apps", nlohmann::json::object()}};
         for (const updater::App& a : apps) {
             if (a.downloadUrl.empty() || !updater::isNewer(a.latest, a.version)) continue;
@@ -1785,9 +1831,7 @@ void CardsActivity::checkHomebrewUpdates(bool force) {
             saved["apps"][a.path] = {{"latest", u.latest}, {"source", u.source}, {"url", u.url},
                                      {"zipEntry", u.zipEntry}, {"zip", u.zip}};
         }
-        std::error_code ec;
-        std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
-        std::ofstream(kUpdatesPath, std::ios::trunc) << saved.dump();
+        writeLater(kUpdatesPath, saved.dump());
         threadDone();
         return found;
     });
@@ -1829,8 +1873,8 @@ void CardsActivity::openHomebrewUpdates() {
             const std::string path = g.path;
             paths.push_back(path);
             MenuItem row = action(g.name, [this, path]() { updateNro(path); });
-            const std::string latest = u->latest;
-            row.value = [latest]() { return "v" + latest; };
+            const std::string latest = versionName(u->latest);
+            row.value = [latest]() { return latest.empty() ? std::string("Latest version") : latest; };
             items.push_back(std::move(row));
         }
     if (paths.empty()) {
@@ -2048,7 +2092,8 @@ void CardsActivity::openOptions() {
     }
     if (const NroUpdate* u = nroUpdate(g)) { // a newer version
         const std::string path = g.path;
-        MenuItem up = action("Update to v" + u->latest, [this, path]() { updateNro(path); });
+        const std::string to = versionName(u->latest);
+        MenuItem up = action(to.empty() ? "Update to the latest version" : "Update to " + to, [this, path]() { updateNro(path); });
         up.glyph = "download";
         const std::string source = u->source;
         up.value = [source]() { return source; };
@@ -2207,7 +2252,7 @@ void CardsActivity::drawOptions(nxui::Renderer& r) {
     if (!g.action.empty()) about = g.author;
     else if (g.homebrew) about = g.path.empty() ? "NRO forwarder" : (g.author.empty() ? "Homebrew" : "Homebrew by " + g.author);
     else about = playTime(g.playSeconds) + " played    " + lastPlayed(g.lastPlayed);
-    if (!g.version.empty()) about += "    v" + (g.version[0] == 'v' || g.version[0] == 'V' ? g.version.substr(1) : g.version);
+    if (!g.version.empty()) about += "    " + (versionName(g.version).empty() ? g.version : versionName(g.version));
     r.drawText(fit(m_fBody, about, maxW), {tx, kOptCard.y + 94.f + dy}, &m_fBody, kMuted.withAlpha(a));
 
     // The buttons: an icon on a disc, its name; the first one (Play) white.
@@ -2505,7 +2550,7 @@ struct PowerLook {
     nxui::Color tone;
 };
 const PowerLook kPowerLooks[4] = {
-    {"Sleep", "Rest, back where you were", "moon", nxui::Color(0.38f, 0.56f, 1.f, 1.f)},
+    {"Sleep", "Pick up later", "moon", nxui::Color(0.38f, 0.56f, 1.f, 1.f)},
     {"Restart", "Off and on again", "restart", nxui::Color(0.25f, 0.82f, 0.68f, 1.f)},
     {"Power Off", "Turn the console off", "power", nxui::Color(1.f, 0.36f, 0.36f, 1.f)},
     {"Hekate", "Hekate's menu", "hekate", nxui::Color(0.70f, 0.50f, 1.f, 1.f)},
@@ -3157,10 +3202,20 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(console));
 
     Section pictures{"Pictures", "tag", {}};
-    pictures.rows.push_back(action("Download all pictures again", [this]() {
+    MenuItem keep = action("Save every picture now", [this]() { saveAllPictures(); });
+    keep.value = [this]() {
+        if (m_saveAllJob.valid() && m_saveAllJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+            return "Saving " + std::to_string(m_saveAllDone.load()) + " of " + std::to_string(m_saveAllTotal.load());
+        return m_saveAllTotal > 0 ? std::string("All saved") : std::string();
+    };
+    keep.detail = "Every game's, on the SD card for good: one taken down later stays";
+    pictures.rows.push_back(std::move(keep));
+    MenuItem again = action("Download all pictures again", [this]() {
         forgetAllArt();
         say("Pictures will download again.");
-    }));
+    });
+    again.detail = "One that's gone online since keeps the old picture";
+    pictures.rows.push_back(std::move(again));
     pictures.rows.push_back(info("SteamGridDB key", [this]() {
         return m_key.empty() ? std::string("None (HomeNX's Settings)") : std::string("Set");
     }));
@@ -3214,6 +3269,34 @@ void CardsActivity::buildSettings() {
     }));
 #endif
     m_sheet.push_back(std::move(about));
+}
+
+void CardsActivity::saveAllPictures() {
+    if (m_saveAllJob.valid() && m_saveAllJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    if (!m_netReady) {
+        say("The network isn't up yet.");
+        return;
+    }
+    std::vector<Game> games = m_pages[kGames];
+    m_saveAllTotal = static_cast<int>(games.size());
+    m_saveAllDone = 0;
+    m_saveAllStop = false;
+    const std::string key = m_key;
+    const bool boxArt = m_boxArt, title = m_titleArt;
+    m_saveAllJob = std::async(std::launch::async, [this, games, key, boxArt, title]() {
+        offScreenCore();
+        for (const Game& g : games) { // what's saved already is only read back
+            if (m_saveAllStop) break;
+            ArtKind kind;
+            cardArt(g, key, boxArt, kind);
+            backgroundArt(g, key, kind);
+            if (title) titleArt(g, key);
+            ++m_saveAllDone;
+        }
+        threadDone();
+    });
+    m_audio.play("activation");
+    say("Saving every game's pictures on the SD card...");
 }
 
 void CardsActivity::startConnectionTest() {
@@ -3692,13 +3775,15 @@ void CardsActivity::activateBottom(int index) {
 }
 
 // Text is cached per font as pictures (144 or 4 MB at most). A full cache
-// stops making new ones and text went missing for a frame (a flicker), so a
-// few of the oldest go before it fills. Freed textures wait out the frames in
-// flight themselves (nxui), so nothing waits for the GPU.
+// stops making new ones and text went missing for a frame (a flicker), so the
+// least used go just before it fills. Not sooner: trimmed past 120, a screen
+// with more text than that lost some every frame and drew it again (140-280 ms
+// frames in build 132's log). Freed textures wait out the frames in flight
+// themselves (nxui), so nothing waits for the GPU.
 void CardsActivity::keepTextCachesSmall() {
     auto keep = [](nxui::Font& f) {
-        if (f.maintenanceRequested() || f.cacheEntryCount() > 120 || f.cacheBytes() > (3u << 20) + (256u << 10))
-            f.trimCache(100, 3u << 20);
+        if (f.maintenanceRequested() || f.cacheEntryCount() > 136 || f.cacheBytes() > (3u << 20) + (768u << 10))
+            f.trimCache(108, 3u << 20);
     };
     for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount}) keep(*f);
 #ifdef SWITCHU_MENU
@@ -4015,7 +4100,51 @@ bool CardsActivity::handleTouch() {
 
 // ---------------------------------------------------------------- frame
 
+void CardsActivity::watchdog() {
+    nxui::moveToWorkerCores(); // above the workers: it mostly sleeps
+    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
+    std::uint32_t serial = nxui::g_phaseSerial.load();
+    std::uint64_t since = armGetSystemTick(), woke = since;
+    const char* stuckIn = nullptr;
+    while (!m_quit) {
+        svcSleepThread(50'000'000ULL);
+        const std::uint64_t now = armGetSystemTick();
+        const float away = ticksMs(now - woke) - 50.f;
+        woke = now;
+        char line[160];
+        if (away > 1000.f) { // nothing in this process ran (the console slept, or HOME was paused)
+            std::snprintf(line, sizeof(line), "watchdog: all of HOME was stopped for %.0f ms (the system, not CardsNX)", away);
+            perfLine(line);
+            serial = nxui::g_phaseSerial.load();
+            since = now;
+            stuckIn = nullptr;
+            continue;
+        }
+        const std::uint32_t s = nxui::g_phaseSerial.load();
+        if (s != serial) {
+            if (stuckIn) {
+                std::snprintf(line, sizeof(line), "watchdog: the screen's thread waited %.0f ms in \"%s\"",
+                              ticksMs(now - since), stuckIn);
+                perfLine(line);
+            }
+            serial = s;
+            since = now;
+            stuckIn = nullptr;
+        } else if (!stuckIn && ticksMs(now - since) > 250.f) {
+            stuckIn = nxui::g_phase.load();
+        }
+    }
+}
+
 void CardsActivity::perfMark(const char* step) {
+    // The watchdog is told the step starting now (the one after this).
+    static const char* const kSteps[] = {"start-up", "text caches", "pictures", "music", "scrolling", "lists",
+                                         "updates and deleting", "downloads", "discord", "news", "buttons and screens"};
+    for (size_t i = 0; i + 1 < sizeof(kSteps) / sizeof(kSteps[0]); ++i)
+        if (std::strcmp(kSteps[i], step) == 0) {
+            nxui::setPhase(kSteps[i + 1]);
+            break;
+        }
     const std::uint64_t now = armGetSystemTick();
     const float ms = ticksMs(now - m_perfMarkTick);
     if (ms > m_perfMarkMs) {
@@ -4141,6 +4270,10 @@ void CardsActivity::onUpdate(float dt) {
     }
     // The real lists arrived (not while a card is being moved or launched).
     perfMark("scrolling");
+    if (m_gamesChangedIn > 0.f && (m_gamesChangedIn -= dt) <= 0.f) {
+        if (m_listJob.valid()) m_gamesChangedIn = 1.f; // after the one that's reading
+        else startListRefresh(true);
+    }
     if (m_listJob.valid() && !m_moving && !m_leaving
         && m_listJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         takeLists(m_listJob.get());
@@ -4155,7 +4288,8 @@ void CardsActivity::onUpdate(float dt) {
         m_updates = m_updatesJob.get();
         int n = 0;
         for (Page p : {kHomebrew, kMedia}) for (const Game& g : m_pages[p]) n += nroUpdate(g) ? 1 : 0;
-        if (n > 0) say(std::to_string(n) + (n == 1 ? " homebrew app has" : " homebrew apps have") + " an update (+ on it, or Settings).");
+        if (n > 0 && !m_updatesSaved) // (known since last time: not said again)
+            say(std::to_string(n) + (n == 1 ? " homebrew app has" : " homebrew apps have") + " an update (+ on it, or Settings).");
     }
     if (m_nroUpdateJob.valid()) {
         std::string name = m_nroUpdating;
@@ -4165,11 +4299,13 @@ void CardsActivity::onUpdate(float dt) {
         if (m_nroUpdateJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             const std::string error = m_nroUpdateJob.get();
             if (error.empty()) {
-                const std::string latest = m_updates.count(m_nroUpdating) ? m_updates[m_nroUpdating].latest : std::string();
+                const std::string latest = versionName(m_updates.count(m_nroUpdating) ? m_updates[m_nroUpdating].latest : std::string());
                 for (Page p : {kHomebrew, kMedia})
                     for (Game& g : m_pages[p])
                     if (g.path == m_nroUpdating) {
-                        g.version = latest;
+                        HomebrewApp app; // its own version now (a release called "latest" says nothing)
+                        if (readHomebrew(g.path, app, false) && !app.version.empty()) g.version = app.version;
+                        else if (!latest.empty()) g.version = latest;
                         auto art = m_art.find(g.id); // its new icon
                         if (art != m_art.end()) {
                             art->second.card.reset();
@@ -4180,7 +4316,7 @@ void CardsActivity::onUpdate(float dt) {
                 m_updates.erase(m_nroUpdating);
                 saveLists(m_pages[kGames], homebrewToSave());
                 m_audio.play("toggle_on");
-                say(name + " is updated" + (latest.empty() ? std::string(".") : " to v" + latest + "."));
+                say(name + " is updated" + (latest.empty() ? std::string(" to the latest version.") : " to " + latest + "."));
                 wantArt();
             } else {
                 say("Couldn't update " + name + ": " + error);
@@ -4275,8 +4411,11 @@ void CardsActivity::onUpdate(float dt) {
     m_perfDiscordMs = ticksMs(armGetSystemTick() - tDiscord);
     DiscordService::Alert alert;
     if (m_discord.takeAlert(alert)) {
-        notifications::add(("discord/" + std::to_string(alert.channelId) + "/" + std::to_string(alert.guildId)).c_str(),
-                           alert.title, alert.text);
+        { // saved on the SD card by worker 1, not here (a busy card froze the screen)
+            std::lock_guard<std::mutex> lk(m_mu);
+            m_notifyOut.push_back({"discord/" + std::to_string(alert.channelId) + "/" + std::to_string(alert.guildId),
+                                   alert.title, alert.text});
+        }
         ++m_unread;
         if (!(m_discordPanel && m_discordPanel->isActive())) say(alert.title + ": " + alert.text);
     }
@@ -4489,15 +4628,20 @@ void CardsActivity::draw(nxui::Renderer& r) {
         std::uint64_t start;
         ~DrawTimer() { self->m_perfDrawMs = ticksMs(armGetSystemTick() - start); }
     } drawTimer{this, armGetSystemTick()};
+    nxui::setPhase("draw: the background");
     drawBackground(r);
+    nxui::setPhase("draw: the cards");
     drawCards(r);
+    nxui::setPhase("draw: the glass");
     // One blurred copy of the frame for every glass shape on top of it.
     m_frosted = r.gpu().offscreenReady();
     if (m_frosted) {
         r.captureToOffscreen(false);
         r.applyBlur(2.5f, 2);
     }
+    nxui::setPhase("draw: the cards' extras");
     drawCardExtras(r);
+    nxui::setPhase("draw: the bar and the panel");
     // Launching: the bar and the panel go first.
     const int leaveStyle = launchStyle();
     const float ui = m_leaving && leaveStyle != kNoAnimation && leaveStyle != kFade ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
@@ -4534,6 +4678,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
         textMid(r, m_fBody, first, pill.x + 22.f, pill.y + (second.empty() ? 21.f : 22.f), kWhite.withAlpha(a));
         if (!second.empty()) textMid(r, m_fBody, second, pill.x + 22.f, pill.y + 46.f, kWhite.withAlpha(a));
     }
+    nxui::setPhase("draw: the menus");
     drawPopup(r);
     drawSheet(r);
     drawQuick(r);
@@ -5064,15 +5209,23 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     const float da = a * d, dx = 14.f * (1.f - d);
 
     const nxui::Rect iconRect{panel.x + 25.f + dx, panel.y + 20.f, 78.f, 78.f};
+    float picRight = iconRect.x + iconRect.width;
     if (const nxui::Texture* ic = gameIconTexture()) {
         auto art = m_art.find(g.id);
-        if (art != m_art.end() && art->second.iconKind == ArtKind::Title) // its own picture, no background: a little bigger
-            r.drawTexture(ic, {iconRect.x - 6.f, iconRect.y - 6.f, iconRect.width + 12.f, iconRect.height + 12.f},
-                          kWhite.withAlpha(da));
-        else if (!g.action.empty()) r.drawTexture(ic, iconRect, kWhite.withAlpha(da)); // HomeNX's icon as it's drawn
-        else r.drawTextureRounded(ic, iconRect, 18.f, kWhite.withAlpha(da));
+        if (art != m_art.end() && art->second.iconKind == ArtKind::Title) {
+            // Its own picture, no background: a little bigger, at its own shape (a logo is wide; the name moves along).
+            const float aspect = ic->height() > 0 ? static_cast<float>(ic->width()) / static_cast<float>(ic->height()) : 1.f;
+            const float w = std::min(150.f, 90.f * aspect), h = w / std::max(aspect, 0.1f);
+            const nxui::Rect pic{iconRect.x - 6.f, iconRect.y + iconRect.height * 0.5f - h * 0.5f, w, h};
+            r.drawTexture(ic, pic, kWhite.withAlpha(da));
+            picRight = std::max(picRight, pic.x + pic.width - 3.f);
+        } else if (!g.action.empty()) {
+            r.drawTexture(ic, iconRect, kWhite.withAlpha(da)); // HomeNX's icon as it's drawn
+        } else {
+            r.drawTextureRounded(ic, iconRect, 18.f, kWhite.withAlpha(da));
+        }
     }
-    const float tx = iconRect.x + iconRect.width + 15.f;
+    const float tx = picRight + 15.f;
     const float maxW = panel.x + panel.width - 30.f - tx;
     const float ts = fitScale(m_fTitle, g.name, maxW);
     r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, panel.y + 20.f + (1.f - ts) * 14.f}, &m_fTitle, kWhite.withAlpha(da), ts);
@@ -5081,11 +5234,14 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     else if (g.homebrew) about = g.path.empty() ? "NRO forwarder" : (g.author.empty() ? "Homebrew" : "Homebrew by " + g.author);
     else if (running) about = playTime(g.playSeconds) + "    Open now: Resume carries on";
     else about = playTime(g.playSeconds) + "    " + lastPlayed(g.lastPlayed);
-    if (const NroUpdate* u = nroUpdate(g)) about += "    Update to v" + u->latest + " (+)";
+    if (const NroUpdate* u = nroUpdate(g)) {
+        const std::string to = versionName(u->latest);
+        about += "    Update to " + (to.empty() ? std::string("the latest version") : to) + " (+)";
+    }
     r.drawText(fit(m_fBody, about, maxW), {tx, panel.y + 60.f}, &m_fBody, kMuted.withAlpha(da));
     if (!g.version.empty()) {
         icon(r, "tag", tx + 8.f, panel.y + 95.f, 17.f, kMuted.withAlpha(da));
-        const std::string v = (g.version[0] == 'v' || g.version[0] == 'V') ? g.version : "v" + g.version;
+        const std::string vn = versionName(g.version), v = vn.empty() ? g.version : vn;
         textMid(r, m_fBody, v, tx + 22.f, panel.y + 95.f, kMuted.withAlpha(da), 0.95f);
     }
 

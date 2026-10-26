@@ -9,6 +9,12 @@
 
 namespace cards {
 
+// Writes `data` to `path` on CardsNX's writer thread (Library.cpp): the
+// screen's thread never waits on the SD card, which an install or the
+// pictures can keep busy for seconds. The newest data for a path wins.
+void writeLater(const std::string& path, std::string data);
+void flushWrites(); // everything written (before HOME closes)
+
 // CardsNX's settings (the gear, or the Nintendo page > Settings), in
 // sdmc:/config/CardsNX/settings.json.
 struct Settings {
@@ -80,8 +86,6 @@ struct Settings {
     }
 
     void save() const {
-        std::error_code ec;
-        std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
         nlohmann::json j = {{"music", music}, {"musicVolume", musicVolume}, {"shuffle", shuffle}, {"repeat", repeat},
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
@@ -89,7 +93,7 @@ struct Settings {
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
-        std::ofstream(kPath, std::ios::trunc) << j.dump(2);
+        writeLater(kPath, j.dump(2));
     }
 };
 

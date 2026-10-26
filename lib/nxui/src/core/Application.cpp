@@ -235,6 +235,7 @@ void Application::run() {
             continue;
         }
 
+        setPhase("reading the buttons");
         m_input.update();
         if (m_input.hasUserActivity()) {
             idleSeconds = 0.f;
@@ -242,14 +243,18 @@ void Application::run() {
         } else {
             idleSeconds += dt;
         }
+        setPhase("handing the buttons to the screens");
         dispatchInput();
 
         if (m_activity) {
+            setPhase("update");
             m_activity->onUpdate(dt);
+            setPhase("changing screens");
             if (!applyPendingActivity()) {
                 m_running = false;
                 break;
             }
+            setPhase("HomeNX's screens (update)");
             m_activity->m_rootBox->update(dt);
 
             if (m_renderEnabled) {
@@ -264,12 +269,19 @@ void Application::run() {
                         continue;
                     }
                 }
+                setPhase("waiting for the GPU (frame)");
                 m_gpu.beginFrame();
+                setPhase("starting the frame");
                 m_renderer->beginFrame();
+                setPhase("HomeNX's screens (draw)");
                 m_activity->m_rootBox->render(*m_renderer);
+                setPhase("draw");
                 m_activity->onRender(*m_renderer);
+                setPhase("finishing the frame");
                 m_renderer->endFrame();
+                setPhase("showing the frame");
                 m_gpu.endFrame();
+                setPhase("after the frame");
                 m_activity->onAfterPresent(*m_renderer);
             } else {
                 // Yield CPU while another app owns the foreground.

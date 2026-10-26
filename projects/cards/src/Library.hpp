@@ -82,6 +82,7 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key);
 // of a single colour. Those are passed over for the next picture it has.
 bool removedNotice(const std::uint8_t* rgba, int w, int h);
 void forgetPicture(std::uint64_t id, bool background); // that one comes again
+bool keptBack(std::uint64_t id, const char* ext);      // the one put aside by forgetArt, back in the cache
 
 
 // Players online in Nextendo (nextendo.network) by title, as its site counts them.

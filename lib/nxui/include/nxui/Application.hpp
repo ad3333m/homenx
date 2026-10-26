@@ -2,9 +2,20 @@
 #include <nxui/core/GpuDevice.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/Input.hpp>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 
 namespace nxui {
+
+// What the screen's thread is doing now (a watchdog on another thread names
+// the step a long freeze happened in). Set at each step; a static string.
+inline std::atomic<const char*> g_phase{"starting"};
+inline std::atomic<std::uint32_t> g_phaseSerial{0};
+inline void setPhase(const char* what) {
+    g_phase.store(what, std::memory_order_relaxed);
+    g_phaseSerial.fetch_add(1, std::memory_order_relaxed);
+}
 
 class Activity;
 

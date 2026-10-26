@@ -1,4 +1,5 @@
 #include "Library.hpp"
+#include "Settings.hpp"
 
 #include <switch.h>
 #include <switchu/control_cache.hpp>
@@ -21,7 +22,12 @@
 #include <fstream>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <map>
 #include <memory>
+#include <mutex>
+#include <thread>
+#include <nxui/core/ThreadPool.hpp>
 #include <new>
 #include <unordered_map>
 
@@ -85,7 +91,8 @@ std::vector<std::uint8_t> readFile(const std::string& path) {
 void writeFile(const std::string& path, const std::string& data) {
     std::error_code ec;
     std::filesystem::create_directories(kCacheDir, ec);
-    const std::string tmp = path + ".part";
+    // Its own .part per thread: two can save the same picture at once.
+    const std::string tmp = path + ".part" + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id()) % 1000);
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         out.write(data.data(), static_cast<std::streamsize>(data.size()));
@@ -116,18 +123,31 @@ std::string percentEncode(const std::string& s) {
 
 // The first picture SteamGridDB has of `kind` ("grids" or "heroes") for the game.
 // clear: only one with see-through edges (an icon with no background). answered: the list came.
-std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const char* query,
-                               bool clear = false, bool* answered = nullptr) {
+std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const std::string& query,
+                               bool clear = false, bool* answered = nullptr, size_t tries = 6) {
     const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
     std::string body;
-    if (get(std::string(kSteamGridDb) + "/search/autocomplete/" + percentEncode(game.name), body, headers) != 200)
-        return {};
+    // The game, found once per name (a title picture asks several times).
+    static std::mutex foundMu;
+    static std::map<std::string, long long> found;
     long long gameId = 0;
-    try {
-        const auto j = nlohmann::json::parse(body);
-        if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
-            gameId = j["data"][0].value("id", 0LL);
-    } catch (...) {
+    {
+        std::lock_guard<std::mutex> lk(foundMu);
+        auto it = found.find(game.name);
+        if (it != found.end()) gameId = it->second;
+    }
+    if (gameId == 0) {
+        if (get(std::string(kSteamGridDb) + "/search/autocomplete/" + percentEncode(game.name), body, headers) != 200)
+            return {};
+        try {
+            const auto j = nlohmann::json::parse(body);
+            if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
+                gameId = j["data"][0].value("id", 0LL);
+        } catch (...) {
+        }
+        if (gameId <= 0) gameId = -1;
+        std::lock_guard<std::mutex> lk(foundMu);
+        found[game.name] = gameId;
     }
     if (gameId <= 0) return {};
     if (get(std::string(kSteamGridDb) + "/" + kind + "/game/" + std::to_string(gameId) + "?" + query, body, headers) != 200)
@@ -139,11 +159,12 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
         if (j.contains("data") && j["data"].is_array())
             for (const auto& a : j["data"]) {
                 if (a.is_object()) urls.push_back(a.value("url", std::string()));
-                if (urls.size() == 6) break;
+                if (urls.size() == tries) break;
             }
     } catch (...) {
     }
-    // Nine in ten points along its edges see-through.
+    // Most points along its edges see-through (a subject may touch them; a
+    // square with a background, even with round corners, doesn't pass).
     auto clearEdges = [](const stbi_uc* px, int w, int h) {
         int seen = 0;
         for (int i = 0; i < 16; ++i) {
@@ -151,7 +172,7 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
             for (const auto& [cx, cy] : {std::pair{x, 0}, std::pair{x, h - 1}, std::pair{0, y}, std::pair{w - 1, y}})
                 seen += px[(static_cast<size_t>(cy) * w + cx) * 4 + 3] < 40;
         }
-        return seen * 10 >= 64 * 9;
+        return seen * 10 >= 64 * 6;
     };
     // The first that came and isn't the notice for one taken down.
     for (const std::string& url : urls) {
@@ -412,16 +433,66 @@ bool loadLists(std::vector<Game>& games, std::vector<Game>& homebrew) {
 }
 
 void saveLists(const std::vector<Game>& games, const std::vector<Game>& homebrew) {
-    std::error_code ec;
-    std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
-    const std::string tmp = std::string(kLists) + ".part";
-    {
-        std::ofstream out(tmp, std::ios::trunc);
-        out << nlohmann::json{{"games", toJson(games)}, {"homebrew", toJson(homebrew)}}.dump();
-        if (!out) return;
+    writeLater(kLists, nlohmann::json{{"games", toJson(games)}, {"homebrew", toJson(homebrew)}}.dump());
+}
+
+namespace {
+std::mutex g_writeMu;
+std::condition_variable g_writeCv;
+std::map<std::string, std::string> g_writes; // path -> newest data
+bool g_writing = false, g_writerStop = false;
+std::thread g_writer;
+
+void writerLoop() {
+    nxui::moveToWorkerCores();
+    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3B);
+    std::unique_lock<std::mutex> lk(g_writeMu);
+    for (;;) {
+        g_writeCv.wait(lk, [] { return g_writerStop || !g_writes.empty(); });
+        if (g_writes.empty()) break; // stopping, and nothing left
+        auto next = g_writes.begin();
+        const std::string path = next->first, data = std::move(next->second);
+        g_writes.erase(next);
+        g_writing = true;
+        lk.unlock();
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+        const std::string tmp = path + ".part";
+        bool ok;
+        {
+            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+            out.write(data.data(), static_cast<std::streamsize>(data.size()));
+            ok = static_cast<bool>(out);
+        }
+        if (ok) {
+            std::filesystem::remove(path, ec);
+            std::filesystem::rename(tmp, path, ec);
+        }
+        lk.lock();
+        g_writing = false;
+        g_writeCv.notify_all();
     }
-    std::filesystem::remove(kLists, ec);
-    std::filesystem::rename(tmp, kLists, ec);
+}
+} // namespace
+
+void writeLater(const std::string& path, std::string data) {
+    std::lock_guard<std::mutex> lk(g_writeMu);
+    g_writes[path] = std::move(data);
+    if (!g_writer.joinable()) {
+        g_writerStop = false;
+        g_writer = std::thread(writerLoop);
+    }
+    g_writeCv.notify_all();
+}
+
+void flushWrites() {
+    {
+        std::lock_guard<std::mutex> lk(g_writeMu);
+        if (!g_writer.joinable()) return;
+        g_writerStop = true; // it writes what's left, then ends
+    }
+    g_writeCv.notify_all();
+    g_writer.join();
 }
 
 std::string systemIconPath(const std::string& action) {
@@ -496,6 +567,7 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
             writeFile(grid, got);
             return std::vector<std::uint8_t>(got.begin(), got.end());
         }
+        if (keptBack(game.id, ".grid")) return readFile(grid); // taken down since: the one saved
     }
     kind = ArtKind::Box;
     if (boxArt && std::filesystem::exists(box)) return readFile(box);
@@ -527,6 +599,7 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
     std::string got;
     if (!key.empty())
         got = steamGridDbPicture(game, key, "heroes", "types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false");
+    if (got.empty() && keptBack(game.id, ".bg")) return readFile(path); // taken down since: the one saved
     if (got.empty()) got = eshopBanner(game, 1280, 720);
     if (!got.empty()) {
         writeFile(path, got);
@@ -545,21 +618,62 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
     return gameIcon(game);
 }
 
+// "Download them again" puts the old ones aside (kept/): if the new one can't
+// be had -- taken down for DMCA since -- the old one comes back (keptBack).
 void forgetArt(std::uint64_t id) {
     std::error_code ec;
-    for (const char* ext : {".grid", ".box", ".card", ".bg", ".title"})
-        std::filesystem::remove(std::string(kCacheDir) + "/" + hexId(id) + ext, ec);
+    const std::string kept = std::string(kCacheDir) + "/kept";
+    std::filesystem::create_directories(kept, ec);
+    for (const char* ext : {".grid", ".box", ".card", ".bg", ".title2"}) {
+        const std::string path = std::string(kCacheDir) + "/" + hexId(id) + ext;
+        if (!std::filesystem::exists(path, ec) || std::filesystem::file_size(path, ec) == 0) continue;
+        const std::string aside = kept + "/" + hexId(id) + ext;
+        std::filesystem::remove(aside, ec);
+        std::filesystem::rename(path, aside, ec);
+    }
+    std::filesystem::remove(std::string(kCacheDir) + "/" + hexId(id) + ".title", ec); // the old "none"
+}
+
+bool keptBack(std::uint64_t id, const char* ext) {
+    std::error_code ec;
+    const std::string aside = std::string(kCacheDir) + "/kept/" + hexId(id) + ext;
+    if (!std::filesystem::exists(aside, ec)) return false;
+    const std::string path = std::string(kCacheDir) + "/" + hexId(id) + ext;
+    std::filesystem::remove(path, ec);
+    std::filesystem::rename(aside, path, ec);
+    return !ec;
 }
 
 std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
-    const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".title";
+    // (".title2": the ones "none" was saved for before are asked again with these.)
+    const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".title2";
     std::error_code ec;
     if (std::filesystem::exists(path, ec)) return readFile(path); // empty: SteamGridDB had none
     if (key.empty()) return {};
+    // Its name, then the part before a colon or dash ("Minecraft: Nintendo
+    // Switch Edition" is "Minecraft" there, with far more pictures).
+    std::vector<Game> names{game};
+    for (const char* cut : {": ", " - "}) {
+        const size_t at = game.name.find(cut);
+        if (at != std::string::npos && at > 2) {
+            Game shorter = game;
+            shorter.name = game.name.substr(0, at);
+            names.push_back(std::move(shorter));
+            break;
+        }
+    }
+    // An icon with see-through edges: up to 512 px first (big ones are MBs),
+    // then the big ones; then its logo (they all have no background).
+    const std::string base = "types=static&mimes=image/png&nsfw=false&humor=false";
     bool answered = false;
-    // Up to 512 px: many are 1024 px PNGs of a few MB, and the cards waited behind them.
-    const std::string got = steamGridDbPicture(game, key, "icons",
-        "types=static&mimes=image/png&nsfw=false&humor=false&dimensions=512,256,192,180,160,152,150,144,128", true, &answered);
+    std::string got;
+    for (const Game& g : names) {
+        got = steamGridDbPicture(g, key, "icons", base + "&dimensions=512,256,192,180,160,152,150,144,128", true, &answered);
+        if (got.empty()) got = steamGridDbPicture(g, key, "icons", base + "&dimensions=1024,768", true, &answered, 3);
+        if (got.empty()) got = steamGridDbPicture(g, key, "logos", base, true, &answered, 4);
+        if (!got.empty()) break;
+    }
+    if (got.empty() && keptBack(game.id, ".title2")) return readFile(path); // taken down since: the one saved
     if (answered) writeFile(path, got); // none: not asked again until its pictures are downloaded again
     return std::vector<std::uint8_t>(got.begin(), got.end());
 }

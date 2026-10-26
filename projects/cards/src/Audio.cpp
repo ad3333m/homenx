@@ -1,11 +1,13 @@
 #include "Audio.hpp"
 
 #include <SDL2/SDL_mixer.h>
+#include <nxui/core/ThreadPool.hpp>
 #include <switch.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -127,6 +129,23 @@ float mp3Seconds(const std::string& path) {
     return static_cast<float>(fileSize - audioStart) * 8.f / (kbps * 1000.f);
 }
 
+// A whole file (empty if it isn't there).
+std::vector<unsigned char> readAll(const std::string& path) {
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) return {};
+    std::vector<unsigned char> data(static_cast<size_t>(in.tellg()));
+    in.seekg(0);
+    in.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    data.resize(static_cast<size_t>(in.gcount()));
+    return data;
+}
+
+// Off the screen's core, below its priority (std::async threads start on its).
+void offTheScreensCore() {
+    nxui::moveToWorkerCores();
+    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3B);
+}
+
 // Without a tag: "bg_3" -> "Bg 3".
 std::string fromFileName(const std::string& path) {
     std::string s = std::filesystem::path(path).stem().string();
@@ -138,38 +157,46 @@ std::string fromFileName(const std::string& path) {
 
 } // namespace
 
+// The songs, their titles and lengths, and the sounds: read on a thread (the
+// SD card can be busy for seconds; HOME's start waited 250 ms on these).
 bool Audio::start() {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096) < 0) return false;
     Mix_AllocateChannels(8);
     m_open = true;
-    std::error_code ec;
-    for (const auto& e : std::filesystem::directory_iterator(std::string(kSounds) + "/music", ec)) {
-        const std::string ext = e.path().extension().string();
-        if (ext == ".mp3" || ext == ".ogg" || ext == ".MP3" || ext == ".OGG") m_tracks.push_back(e.path().string());
-    }
-    std::sort(m_tracks.begin(), m_tracks.end());
-    for (const std::string& t : m_tracks) {
-        const std::string title = id3Title(t);
-        m_titles.push_back(title.empty() ? fromFileName(t) : title);
-        m_lengths.push_back(mp3Seconds(t));
-    }
-    for (const char* name : {"navigation", "activation", "confirm", "launch_game", "show_modal", "hide_modal",
-                             "tab_transition", "toggle_on", "toggle_off"}) {
-        if (Mix_Chunk* c = Mix_LoadWAV((std::string(kSounds) + "/sfx/" + name + ".wav").c_str()))
-            m_chunks.push_back({name, c});
-    }
     Mix_Volume(-1, MIX_MAX_VOLUME * m_soundVolume / 100);
     Mix_HookMusicFinished(onTrackEnded);
+    m_infoJob = std::async(std::launch::async, []() {
+        offTheScreensCore();
+        Loaded l;
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(std::string(kSounds) + "/music", ec)) {
+            const std::string ext = e.path().extension().string();
+            if (ext == ".mp3" || ext == ".ogg" || ext == ".MP3" || ext == ".OGG") l.tracks.push_back(e.path().string());
+        }
+        std::sort(l.tracks.begin(), l.tracks.end());
+        for (const std::string& t : l.tracks) {
+            const std::string title = id3Title(t);
+            l.titles.push_back(title.empty() ? fromFileName(t) : title);
+            l.lengths.push_back(mp3Seconds(t));
+        }
+        for (const char* name : {"navigation", "activation", "confirm", "launch_game", "show_modal", "hide_modal",
+                                 "tab_transition", "toggle_on", "toggle_off"})
+            l.sounds.emplace_back(name, readAll(std::string(kSounds) + "/sfx/" + name + ".wav"));
+        return l;
+    });
     return true;
 }
 
 void Audio::stop() {
     if (!m_open) return;
+    if (m_infoJob.valid()) m_infoJob.wait();
+    if (m_trackJob.valid()) m_trackJob.wait();
     Mix_HookMusicFinished(nullptr);
     Mix_HaltMusic();
     Mix_HaltChannel(-1);
     if (m_current) Mix_FreeMusic(m_current);
     m_current = nullptr;
+    m_trackData.clear();
     for (auto& [name, c] : m_chunks) Mix_FreeChunk(c);
     m_chunks.clear();
     Mix_CloseAudio();
@@ -183,38 +210,83 @@ void Audio::setMusic(bool on, int volume) {
     Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
     if (!on) {
         Mix_HaltMusic();
-        m_playing = -1;
+        m_isPlaying = false;
+        m_playing = m_wantTrack = -1;
         g_trackEnded = false;
         return;
     }
-    if (!Mix_PlayingMusic()) g_trackEnded = true; // start one now (update)
+    if (!m_isPlaying && m_wantTrack < 0) g_trackEnded = true; // start one now (update)
 }
 
+// The song is read into memory on a thread and played from there (update):
+// streamed from the SD card, SDL's audio thread read it while holding the
+// lock every sound and frame needed, so a busy card froze the screen.
 void Audio::startTrack(size_t index) {
     if (m_tracks.empty()) return;
     index %= m_tracks.size();
-    Mix_HookMusicFinished(nullptr); // halting the old one isn't "it ended"
-    Mix_HaltMusic();
-    Mix_HookMusicFinished(onTrackEnded);
     g_trackEnded = false;
-    if (m_current) Mix_FreeMusic(m_current);
-    m_current = Mix_LoadMUS(m_tracks[index].c_str());
     m_playing = static_cast<long>(index);
     m_track = index + 1;
     m_position = 0.f;
-    if (m_current) {
-        Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
-        Mix_FadeInMusic(m_current, 1, 600);
-    }
+    m_wantTrack = static_cast<long>(index);
+    loadWanted();
+}
+
+void Audio::loadWanted() {
+    if (m_trackJob.valid() || m_wantTrack < 0) return; // one at a time: the newest next
+    m_jobTrack = m_wantTrack;
+    const std::string path = m_tracks[(size_t)m_jobTrack];
+    m_trackJob = std::async(std::launch::async, [path]() {
+        offTheScreensCore();
+        return readAll(path);
+    });
 }
 
 void Audio::update() {
     // Where the song is (for the progress bar): playing time since the last frame.
     const unsigned long long now = armGetSystemTick();
-    if (m_lastTick && m_open && Mix_PlayingMusic() && !Mix_PausedMusic())
+    if (m_lastTick && m_isPlaying && !m_userPaused && !m_sysPaused)
         m_position += static_cast<float>(armTicksToNs(now - m_lastTick)) / 1e9f;
     m_lastTick = now;
-    if (!m_open || !m_music || m_tracks.empty() || !g_trackEnded.exchange(false)) return;
+    if (!m_open) return;
+    if (m_infoJob.valid()) { // the songs and sounds are read
+        if (m_infoJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        Loaded l = m_infoJob.get();
+        m_tracks = std::move(l.tracks);
+        m_titles = std::move(l.titles);
+        m_lengths = std::move(l.lengths);
+        for (auto& [name, bytes] : l.sounds)
+            if (!bytes.empty())
+                if (SDL_RWops* rw = SDL_RWFromConstMem(bytes.data(), static_cast<int>(bytes.size())))
+                    if (Mix_Chunk* c = Mix_LoadWAV_RW(rw, 1)) m_chunks.push_back({name, c}); // decoded: the bytes can go
+    }
+    if (m_trackJob.valid() && m_trackJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        std::vector<unsigned char> data = m_trackJob.get();
+        if (m_jobTrack == m_wantTrack && m_music) { // the one wanted (not one skipped past meanwhile)
+            m_wantTrack = -1;
+            Mix_HookMusicFinished(nullptr); // halting the old one isn't "it ended"
+            Mix_HaltMusic();
+            Mix_HookMusicFinished(onTrackEnded);
+            g_trackEnded = false;
+            if (m_current) Mix_FreeMusic(m_current);
+            m_current = nullptr;
+            m_trackData = std::move(data); // after the old song let go of its bytes
+            if (!m_trackData.empty())
+                if (SDL_RWops* rw = SDL_RWFromConstMem(m_trackData.data(), static_cast<int>(m_trackData.size())))
+                    m_current = Mix_LoadMUS_RW(rw, 1);
+            m_isPlaying = m_current != nullptr;
+            m_userPaused = false;
+            m_position = 0.f;
+            if (m_current) {
+                Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
+                Mix_FadeInMusic(m_current, 1, 600);
+                if (m_sysPaused) Mix_PauseMusic();
+            }
+        }
+        loadWanted(); // one asked for while this was read
+    }
+    if (!m_music || m_tracks.empty() || !g_trackEnded.exchange(false)) return;
+    m_isPlaying = false;
     if (m_repeat && m_playing >= 0) startTrack(static_cast<size_t>(m_playing));
     else startTrack(m_shuffle && m_tracks.size() > 1 ? static_cast<size_t>(std::rand()) % m_tracks.size() : m_track);
 }
@@ -248,22 +320,23 @@ void Audio::play(const char* sound) {
 }
 
 void Audio::fadeOut(int ms) {
-    if (m_open && Mix_PlayingMusic()) Mix_FadeOutMusic(ms);
+    if (m_open && m_isPlaying) Mix_FadeOutMusic(ms);
 }
 
 bool Audio::paused() const {
-    return !m_open || !Mix_PlayingMusic() || Mix_PausedMusic();
+    return !m_open || !m_isPlaying || m_userPaused;
 }
 
 void Audio::togglePause() {
     if (!m_open) return;
-    if (!Mix_PlayingMusic()) { // nothing playing: a song now
+    if (!m_isPlaying) { // nothing playing: a song now
         m_music = true;
-        g_trackEnded = true;
+        if (m_wantTrack < 0) g_trackEnded = true;
         return;
     }
-    if (Mix_PausedMusic()) Mix_ResumeMusic();
-    else Mix_PauseMusic();
+    m_userPaused = !m_userPaused;
+    if (m_userPaused) Mix_PauseMusic();
+    else if (!m_sysPaused) Mix_ResumeMusic();
 }
 
 float Audio::duration() const {
@@ -277,11 +350,13 @@ void Audio::playTrack(size_t index) {
 }
 
 void Audio::pause() {
+    m_sysPaused = true;
     if (m_open) Mix_PauseMusic();
 }
 
 void Audio::resume() {
-    if (m_open) Mix_ResumeMusic();
+    m_sysPaused = false;
+    if (m_open && !m_userPaused) Mix_ResumeMusic();
 }
 
 } // namespace cards
