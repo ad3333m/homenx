@@ -216,9 +216,11 @@ void Renderer::retireImageMemory(dk::UniqueMemBlock&& block, uint32_t size) {
 
 void Renderer::releaseDeferredImages(bool all) {
     int budget = all ? 1 << 30 : 8; // a few a frame: each one is a call into the kernel
+    const u64 start = armGetSystemTick();
     for (std::size_t i = 0; i < m_deferredImages.size() && budget > 0;) {
         if (all || m_deferredImages[i].freeFrame <= m_frameSerial) {
             --budget;
+            ++m_frees.count;
             m_gpu.forgetImageMemory(m_deferredImages[i].size);
             if (i + 1 != m_deferredImages.size()) m_deferredImages[i] = std::move(m_deferredImages.back());
             m_deferredImages.pop_back(); // the MemBlock goes here
@@ -226,6 +228,7 @@ void Renderer::releaseDeferredImages(bool all) {
             ++i;
         }
     }
+    m_frees.ms += armTicksToNs(armGetSystemTick() - start) / 1e6f;
 }
 
 void Renderer::updateTexture(int slot, const dk::ImageView& view) {

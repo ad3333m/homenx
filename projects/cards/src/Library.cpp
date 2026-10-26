@@ -557,8 +557,9 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
     if (std::filesystem::exists(path, ec)) return readFile(path); // empty: SteamGridDB had none
     if (key.empty()) return {};
     bool answered = false;
-    const std::string got = steamGridDbPicture(game, key, "icons", "types=static&mimes=image/png&nsfw=false&humor=false",
-                                               true, &answered);
+    // Up to 512 px: many are 1024 px PNGs of a few MB, and the cards waited behind them.
+    const std::string got = steamGridDbPicture(game, key, "icons",
+        "types=static&mimes=image/png&nsfw=false&humor=false&dimensions=512,256,192,180,160,152,150,144,128", true, &answered);
     if (answered) writeFile(path, got); // none: not asked again until its pictures are downloaded again
     return std::vector<std::uint8_t>(got.begin(), got.end());
 }

@@ -92,6 +92,9 @@ public:
     // Frame scope
     void beginFrame();
     void endFrame();
+    // Pictures given back to the system since the last call, and the time it took.
+    struct FreeStats { int count = 0; float ms = 0.f; };
+    FreeStats takeFreeStats() { FreeStats s = m_frees; m_frees = {}; return s; }
 
     // 2D drawing
     void drawRect(const Rect& r, const Color& c);
@@ -237,6 +240,7 @@ private:
     void releaseDeferredImages(bool all);
 #endif
     std::uint64_t m_frameSerial = 0;
+    FreeStats m_frees;
     static constexpr int WHITE_TEX_SLOT = 0;
 
     // Offscreen target descriptor slots

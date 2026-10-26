@@ -177,6 +177,11 @@ public:
     void endTextureUploadBatch();
     void waitForTextureUploads();
 
+    // Time the CPU spent waiting on the GPU since the last call: for frames
+    // (the swapchain and the slot's fence) and for uploads (a slot still busy).
+    struct WaitStats { float frameMs = 0.f, uploadMs = 0.f; };
+    WaitStats takeWaitStats() { WaitStats s = m_waits; m_waits = {}; return s; }
+
     static constexpr int NUM_OFFSCREEN = 3;
     dk::Image&       offscreenImage(int i)       { return m_offImages[i]; }
     const dk::Image& offscreenImage(int i) const { return m_offImages[i]; }
@@ -243,8 +248,20 @@ private:
     // Per-slot fences: signalled in endFrame, waited in beginFrame, so that
     // the CPU never overwrites command/vertex memory the GPU is still reading.
     dk::Fence  m_frameFences[NUM_FB];
-    dk::Fence  m_uploadFence;
-    dk::UniqueMemBlock m_uploadStaging; // a big upload's pixels, kept until its copy has run
+    dk::Fence  m_uploadFence;        // a batch's (or a capture's): it uses all the upload memory
+    // Single uploads take turns through these: each has its own fence, a
+    // part of the command memory and of the staging pool (a big picture gets
+    // its own block). One waits only when its slot's copy, 16 uploads back, is
+    // still running -- not for the frame being drawn, as one shared fence did.
+    static constexpr int kUploadSlots = 16;
+    struct UploadSlot {
+        dk::Fence fence;
+        dk::UniqueMemBlock staging;
+        bool busy = false;
+    };
+    UploadSlot m_uploadSlots[kUploadSlots];
+    int        m_uploadNext = 0;
+    WaitStats  m_waits;
     bool       m_uploadBatchActive = false;
     bool       m_uploadInFlight = false;
     unsigned   m_uploadBatchCount = 0;

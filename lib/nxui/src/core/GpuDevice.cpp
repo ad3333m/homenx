@@ -61,7 +61,7 @@ bool GpuDevice::initialize() {
     m_imgDescOff = m_dataPool.alloc(MAX_TEXTURES * sizeof(DkImageDescriptor), DK_IMAGE_DESCRIPTOR_ALIGNMENT);
     m_samDescOff = m_dataPool.alloc(MAX_SAMPLERS * sizeof(DkSamplerDescriptor), DK_SAMPLER_DESCRIPTOR_ALIGNMENT);
 
-    m_stagingPool.create(m_dev, 256 * 1024, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
+    m_stagingPool.create(m_dev, kUploadSlots * 256 * 1024, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
 
     createFramebuffers();
     createDepthStencil();
@@ -145,11 +145,13 @@ void GpuDevice::createOffscreenTargets() {
 }
 
 int GpuDevice::beginFrame() {
+    const u64 start = armGetSystemTick();
     m_slot = m_queue.acquireImage(m_swapchain);
 
     // Wait for the GPU to finish the PREVIOUS frame that used this slot's
     // command memory / vertex buffer before we overwrite them.
     m_frameFences[m_slot].wait();
+    m_waits.frameMs += armTicksToNs(armGetSystemTick() - start) / 1e6f;
 
     // Reset command buffer and re-feed its memory (clear invalidates memory
     // tracking — following the deko3d sample framework pattern).
@@ -535,25 +537,38 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
         return true;
     }
 
-    // The last upload's copy has run (its staging and command memory are free
-    // again). Only that copy is waited for, not the frames being drawn.
-    waitForTextureUploads();
-    m_uploadStaging = {};
+    // A batch or a capture used all of the upload memory: it finishes first.
+    if (m_uploadInFlight) {
+        m_uploadFence.wait();
+        m_uploadInFlight = false;
+    }
+    // This upload's slot. Its last copy ran long ago, unless 16 came at once.
+    const int index = m_uploadNext;
+    m_uploadNext = (m_uploadNext + 1) % kUploadSlots;
+    UploadSlot& slot = m_uploadSlots[index];
+    if (slot.busy) {
+        const u64 start = armGetSystemTick();
+        slot.fence.wait();
+        m_waits.uploadMs += armTicksToNs(armGetSystemTick() - start) / 1e6f;
+        slot.busy = false;
+    }
+    slot.staging = {};
 
     const void* srcCpu = nullptr;
     DkGpuAddr srcGpu = 0;
+    const uint32_t slotStaging = m_stagingPool.size / kUploadSlots;
 
-    if (size <= m_stagingPool.size) {
-        srcCpu = m_stagingPool.cpuBase;
-        srcGpu = m_stagingPool.block.getGpuAddr();
+    if (size <= slotStaging) {
+        srcCpu = static_cast<uint8_t*>(m_stagingPool.cpuBase) + index * slotStaging;
+        srcGpu = m_stagingPool.block.getGpuAddr() + index * slotStaging;
     } else {
         uint32_t allocSize = (size + kGpuAlign - 1) & ~(kGpuAlign - 1);
-        m_uploadStaging = dk::MemBlockMaker{m_dev, allocSize}
+        slot.staging = dk::MemBlockMaker{m_dev, allocSize}
             .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
             .create();
 
-        srcCpu = m_uploadStaging.getCpuAddr();
-        srcGpu = m_uploadStaging.getGpuAddr();
+        srcCpu = slot.staging.getCpuAddr();
+        srcGpu = slot.staging.getGpuAddr();
 
         if (!srcCpu || !srcGpu) {
             GpuDevice::logGpu( "[GpuDevice] Failed temp staging allocation for texture (%u bytes)\n", size);
@@ -563,9 +578,11 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
 
     std::memcpy(const_cast<void*>(srcCpu), pixels, size);
 
-    // Use dedicated upload command buffer
+    // Use dedicated upload command buffer, in this slot's part of its memory
+    // (the copies before may still be waiting to run from theirs).
+    constexpr uint32_t slotCmd = 64 * 1024 / kUploadSlots;
     m_uploadCmdbuf.clear();
-    m_uploadCmdbuf.addMemory(m_uploadCmdPool.block, 0, 64 * 1024);
+    m_uploadCmdbuf.addMemory(m_uploadCmdPool.block, index * slotCmd, slotCmd);
 
     dk::ImageView view{dst};
     m_uploadCmdbuf.copyBufferToImage(
@@ -575,7 +592,7 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
     );
     // Drawing that follows on this queue sees the new pixels.
     m_uploadCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
-    m_uploadCmdbuf.signalFence(m_uploadFence);
+    m_uploadCmdbuf.signalFence(slot.fence);
 
     // No waitIdle: that waited for every frame in flight as well, once per
     // picture, and the screen stuttered while pictures arrived (scrolling a
@@ -584,7 +601,7 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
     // queue never signals, and the next upload's wait hung HOME at start.
     m_queue.submitCommands(m_uploadCmdbuf.finishList());
     m_queue.flush();
-    m_uploadInFlight = true;
+    slot.busy = true;
     return true;
 }
 
@@ -601,6 +618,12 @@ void GpuDevice::beginTextureUploadBatch() {
 }
 
 void GpuDevice::waitForTextureUploads() {
+    for (UploadSlot& slot : m_uploadSlots)
+        if (slot.busy) {
+            slot.fence.wait();
+            slot.busy = false;
+            slot.staging = {};
+        }
     if (!m_uploadInFlight)
         return;
     m_uploadFence.wait();
@@ -626,7 +649,10 @@ void GpuDevice::shutdown() {
         endTextureUploadBatch();
     if (m_queue) m_queue.waitIdle();
     m_uploadInFlight = false;
-    m_uploadStaging = {};
+    for (UploadSlot& slot : m_uploadSlots) {
+        slot.busy = false;
+        slot.staging = {};
+    }
     m_swapchain    = {};
     for (int i = 0; i < NUM_FB; ++i)
         m_cmdbuf[i] = {};

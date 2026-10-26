@@ -399,6 +399,12 @@ private:
     std::uint64_t m_perfCreateTick = 0, m_perfLastTick = 0;
     float m_perfPumpMs = 0.f, m_perfArtMs = 0.f, m_perfDiscordMs = 0.f, m_perfUpdateMs = 0.f, m_perfDrawMs = 0.f;
     int m_perfUploads = 0, m_perfFrames = 0, m_perfSlow = 0, m_perfVerySlow = 0;
+    // The longest step of the last update (perfMark between steps), and the
+    // GPU waits and picture frees nxui counted.
+    std::uint64_t m_perfMarkTick = 0;
+    float m_perfMarkMs = 0.f;
+    const char* m_perfMarkName = "";
+    void perfMark(const char* step);
     float m_perfWindow = 0.f, m_perfWorst = 0.f;
     bool m_perfFirstCard = false;
     std::atomic<bool> m_boxArt{true};

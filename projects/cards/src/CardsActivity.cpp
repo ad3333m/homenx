@@ -4015,6 +4015,16 @@ bool CardsActivity::handleTouch() {
 
 // ---------------------------------------------------------------- frame
 
+void CardsActivity::perfMark(const char* step) {
+    const std::uint64_t now = armGetSystemTick();
+    const float ms = ticksMs(now - m_perfMarkTick);
+    if (ms > m_perfMarkMs) {
+        m_perfMarkMs = ms;
+        m_perfMarkName = step;
+    }
+    m_perfMarkTick = now;
+}
+
 void CardsActivity::onUpdate(float dt) {
     // Frame times for the log: the time since the last frame, and what the last one did.
     const std::uint64_t frameTick = armGetSystemTick();
@@ -4025,14 +4035,17 @@ void CardsActivity::onUpdate(float dt) {
         m_perfWorst = std::max(m_perfWorst, interval);
         if (interval > 20.f) ++m_perfSlow;
         if (interval > 34.f) ++m_perfVerySlow;
+        const auto waits = app().gpu().takeWaitStats();
+        const auto frees = app().renderer().takeFreeStats();
         if (interval > 24.f && m_settings.perfLog) {
-            char line[220];
+            char line[400];
             std::snprintf(line, sizeof(line),
-                          "slow frame %.1f ms: daemon %.1f, pictures %.1f (%d uploaded), discord %.1f, the rest of update %.1f, "
-                          "drawing %.1f, GPU/system %.1f",
+                          "slow frame %.1f ms: daemon %.1f, pictures %.1f (%d uploaded), discord %.1f, the rest of update %.1f "
+                          "(most: %s %.1f), drawing %.1f, GPU/system %.1f (GPU waits: frame %.1f, uploads %.1f; %d freed in %.1f)",
                           interval, m_perfPumpMs, m_perfArtMs, m_perfUploads, m_perfDiscordMs,
-                          std::max(0.f, m_perfUpdateMs - m_perfPumpMs - m_perfArtMs - m_perfDiscordMs), m_perfDrawMs,
-                          std::max(0.f, interval - m_perfUpdateMs - m_perfDrawMs));
+                          std::max(0.f, m_perfUpdateMs - m_perfPumpMs - m_perfArtMs - m_perfDiscordMs), m_perfMarkName,
+                          m_perfMarkMs, m_perfDrawMs, std::max(0.f, interval - m_perfUpdateMs - m_perfDrawMs), waits.frameMs,
+                          waits.uploadMs, frees.count, frees.ms);
             perfLine(line);
         }
         if (m_perfWindow >= 10000.f) {
@@ -4049,12 +4062,18 @@ void CardsActivity::onUpdate(float dt) {
         perfLine(line);
     }
     m_perfLastTick = frameTick;
+    m_perfMarkTick = frameTick;
+    m_perfMarkMs = 0.f;
+    m_perfMarkName = "";
     m_perfPumpMs = m_perfArtMs = m_perfDiscordMs = 0.f;
     m_perfUploads = 0;
     struct UpdateTimer {
         CardsActivity* self;
         std::uint64_t start;
-        ~UpdateTimer() { self->m_perfUpdateMs = ticksMs(armGetSystemTick() - start); }
+        ~UpdateTimer() {
+            self->perfMark("buttons and screens");
+            self->m_perfUpdateMs = ticksMs(armGetSystemTick() - start);
+        }
     } updateTimer{this, frameTick};
 
     // A slow frame no longer jumps everything ahead (it looked like stutter):
@@ -4080,11 +4099,15 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
     m_time += dt;
+    perfMark("start-up");
     keepTextCachesSmall();
+    perfMark("text caches");
     const std::uint64_t tArt = armGetSystemTick();
     takeArt();
     m_perfArtMs = ticksMs(armGetSystemTick() - tArt);
+    perfMark("pictures");
     m_audio.update();
+    perfMark("music");
     const bool motion = m_settings.motion;
     auto step = [&](float& v, float seconds) { v = motion ? std::min(1.f, v + dt / seconds) : 1.f; };
     step(m_intro, m_introFor);
@@ -4117,9 +4140,11 @@ void CardsActivity::onUpdate(float dt) {
         wantArt();
     }
     // The real lists arrived (not while a card is being moved or launched).
+    perfMark("scrolling");
     if (m_listJob.valid() && !m_moving && !m_leaving
         && m_listJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         takeLists(m_listJob.get());
+    perfMark("lists");
 
     // Homebrew updates: the saved list at once; asked again a little after start.
     if (!m_updatesChecked && m_netReady && m_time > 6.f) {
@@ -4194,6 +4219,7 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
 
+    perfMark("updates and deleting");
     // A Media app arrived (or didn't): its card becomes the app's.
     if (m_getJob.valid() && m_getJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         if (m_getJob.get()) {
@@ -4236,6 +4262,7 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
 
+    perfMark("downloads");
 #ifdef SWITCHU_MENU
     // Discord: a saved account connects a few seconds in (its messages show
     // here and in the bell); the panel opens with L.
@@ -4253,6 +4280,7 @@ void CardsActivity::onUpdate(float dt) {
         ++m_unread;
         if (!(m_discordPanel && m_discordPanel->isActive())) say(alert.title + ": " + alert.text);
     }
+    perfMark("discord");
     // News is ready.
     if (m_newsJob.valid() && m_newsJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_newsJob.get();
@@ -4291,6 +4319,7 @@ void CardsActivity::onUpdate(float dt) {
             lastUpdate = now;
         }
     }
+    perfMark("news");
     updatePairing(dt);
     // HomeNX's screens have the buttons while they're open.
     if (m_textEntry && m_textEntry->isActive()) { // the keyboard: buttons and touch
