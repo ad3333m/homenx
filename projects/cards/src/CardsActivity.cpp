@@ -229,23 +229,6 @@ std::string lastPlayed(std::uint64_t at) {
 }
 
 // Halves a picture until it's at most maxW wide (a softer, cheaper texture).
-void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
-    while (w > maxW && w >= 2 && h >= 2) {
-        const int nw = w / 2, nh = h / 2;
-        std::vector<std::uint8_t> out(static_cast<size_t>(nw) * nh * 4);
-        for (int y = 0; y < nh; ++y)
-            for (int x = 0; x < nw; ++x)
-                for (int c = 0; c < 4; ++c) {
-                    const auto at = [&](int xx, int yy) { return rgba[(static_cast<size_t>(yy) * w + xx) * 4 + c]; };
-                    out[(static_cast<size_t>(y) * nw + x) * 4 + c] = static_cast<std::uint8_t>(
-                        (at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) + at(2 * x + 1, 2 * y + 1)) / 4);
-                }
-        rgba.swap(out);
-        w = nw;
-        h = nh;
-    }
-}
-
 // A picture drawn to fill `dst`, cropped to its shape. trimTop / trimBottom:
 // fractions left out first; zoom / panX / panY: a slow drift (the background).
 void drawCover(nxui::Renderer& r, const nxui::Texture* tex, const nxui::Rect& dst, float radius, const nxui::Color& tint,
@@ -678,6 +661,8 @@ void CardsActivity::onDestroy() {
     if (m_deleteJob.valid()) m_deleteJob.wait();
     m_saveAllStop = true;
     if (m_saveAllJob.valid()) m_saveAllJob.wait();
+    if (m_pickJob.valid()) m_pickJob.wait();
+    if (m_pickSave.valid()) m_pickSave.wait();
     if (m_netTest) m_netTest->stop = true;
     if (m_netTestJob.valid()) m_netTestJob.wait();
     if (m_findJob.valid()) m_findJob.wait();
@@ -1410,6 +1395,7 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     m_powerOpen = false;
     m_dotsOpen = false;
     m_optOpen = false;
+    m_pickOpen = false;
     m_moving = false;
 #ifdef SWITCHU_MENU
     m_newsOpen = false;
@@ -1987,10 +1973,11 @@ void CardsActivity::pumpDaemon() {
 // Everything open closes; true if something was.
 bool CardsActivity::closeEverything() {
     bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen || m_powerOpen || m_dotsOpen
-            || m_optOpen;
+            || m_optOpen || m_pickOpen;
     m_powerOpen = false;
     m_dotsOpen = false;
     m_optOpen = false;
+    m_pickOpen = false;
     if (m_moving) finishMove(false);
     m_menu.clear();
     m_notifOpen = false;
@@ -2089,6 +2076,10 @@ void CardsActivity::openOptions() {
             wantArt();
         }));
         items.back().glyph = "restart";
+        if (game) {
+            items.push_back(action("Title picture", [this, g]() { openTitlePicker(g); }));
+            items.back().glyph = "tag";
+        }
     }
     if (const NroUpdate* u = nroUpdate(g)) { // a newer version
         const std::string path = g.path;
@@ -2172,6 +2163,170 @@ nxui::Rect optionRow(size_t n, size_t i, float dy) {
     return {x, kOptCard.y + kOptRowsY + rowH * static_cast<float>(i) + dy, w, rowH - 8.f};
 }
 } // namespace
+
+namespace {
+const nxui::Rect kPickCard{120.f, 40.f, 1040.f, 640.f};
+constexpr int kPickCols = 6, kPickRows = 4;
+nxui::Rect pickTile(int i, float dy) {
+    const float gap = 12.f, x0 = kPickCard.x + 30.f, y0 = kPickCard.y + 100.f + dy;
+    const float w = (kPickCard.width - 60.f - gap * (kPickCols - 1)) / kPickCols, h = 112.f;
+    return {x0 + (w + gap) * static_cast<float>(i % kPickCols), y0 + (h + gap) * static_cast<float>(i / kPickCols), w, h};
+}
+} // namespace
+
+void CardsActivity::openTitlePicker(const Game& g) {
+    if (m_pickJob.valid()) m_pickJob.wait(); // (only one: the last one's still finishing)
+    m_pickGame = g;
+    m_pickChoices.clear();
+    m_pickTex.clear();
+    m_pickSel = 0;
+    const std::string key = m_key;
+    m_pickJob = std::async(std::launch::async, [g, key]() {
+        offScreenCore();
+        std::vector<TitleChoice> choices = titleChoices(g, key, 22);
+        TitleChoice own; // its own icon first
+        own.own = true;
+        const std::vector<std::uint8_t> icon = gameIcon(g);
+        int w = 0, h = 0, ch = 0;
+        if (stbi_uc* px = icon.empty() ? nullptr : stbi_load_from_memory(icon.data(), static_cast<int>(icon.size()), &w, &h, &ch, 4)) {
+            own.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
+            stbi_image_free(px);
+            shrink(own.rgba, w, h, 160);
+            own.w = w;
+            own.h = h;
+        }
+        choices.insert(choices.begin(), std::move(own));
+        if (choices.size() > static_cast<size_t>(kPickCols * kPickRows)) choices.resize(kPickCols * kPickRows);
+        threadDone();
+        return choices;
+    });
+    m_pickOpen = true;
+    m_pickIn = m_settings.motion ? 0.f : 1.f;
+    m_audio.play("show_modal");
+}
+
+void CardsActivity::pickChoice(int index) {
+    if (index < 0 || index >= static_cast<int>(m_pickChoices.size()) || m_pickSave.valid()) return;
+    TitleChoice c = m_pickChoices[(size_t)index];
+    c.rgba.clear();
+    const Game g = m_pickGame;
+    m_pickSaveId = g.id;
+    m_pickSave = std::async(std::launch::async, [g, c]() {
+        offScreenCore();
+        const bool ok = chooseTitleArt(g, c.own ? nullptr : &c);
+        threadDone();
+        return ok;
+    });
+    m_pickOpen = false;
+    m_audio.play("activation");
+    if (!m_settings.titlePics) say("Saved. It shows when Settings > Look > Title pictures is on.");
+}
+
+void CardsActivity::updatePicker() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    if (in.isDown(B::B) || in.isDown(B::Plus)) {
+        m_pickOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    const int n = static_cast<int>(m_pickChoices.size());
+    if (n == 0) return;
+    int s = m_pickSel;
+    if (in.isDown(B::DLeft) || in.isDown(B::LStickL)) s -= 1;
+    if (in.isDown(B::DRight) || in.isDown(B::LStickR)) s += 1;
+    if (in.isDown(B::DUp) || in.isDown(B::LStickU)) s -= kPickCols;
+    if (in.isDown(B::DDown) || in.isDown(B::LStickD)) s += kPickCols;
+    s = std::clamp(s, 0, n - 1);
+    if (s != m_pickSel) {
+        m_pickSel = s;
+        m_audio.play("navigation");
+    }
+    if (in.isDown(B::A)) pickChoice(m_pickSel);
+}
+
+bool CardsActivity::pickerTouch() {
+    auto& in = app().input();
+    if (!in.touchUp()) return in.isTouching();
+    const float x = in.touchX(), y = in.touchY();
+    for (int i = 0; i < static_cast<int>(m_pickChoices.size()); ++i)
+        if (pickTile(i, 0.f).contains(x, y)) {
+            m_pickSel = i;
+            pickChoice(i);
+            return true;
+        }
+    if (!kPickCard.contains(x, y)) {
+        m_pickOpen = false;
+        m_audio.play("hide_modal");
+    }
+    return true;
+}
+
+void CardsActivity::drawPicker(nxui::Renderer& r) {
+    if (!m_pickOpen) return;
+    // The pictures arrived: shown from now on (their pixels aren't needed after).
+    if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        m_pickChoices = m_pickJob.get();
+        m_pickTex.clear();
+        for (TitleChoice& c : m_pickChoices) {
+            auto tex = std::make_unique<nxui::Texture>();
+            if (c.rgba.empty() || !tex->loadFromPixels(app().gpu(), app().renderer(), c.rgba.data(), c.w, c.h)) tex.reset();
+            m_pickTex.push_back(std::move(tex));
+            c.rgba.clear();
+            c.rgba.shrink_to_fit();
+        }
+        m_pickSel = m_pickChoices.size() > 1 ? 1 : 0; // the first found (its own icon is first)
+    }
+    const float a = easeOut(m_pickIn);
+    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    const nxui::Rect card = scaled(kPickCard, 0.95f + 0.05f * easeOutBack(m_pickIn));
+    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.88f * a));
+    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    const float dy = card.y - kPickCard.y;
+    icon(r, "tag", kPickCard.x + 46.f, kPickCard.y + 46.f + dy, 26.f, kWhite.withAlpha(a));
+    const std::string title = "Title picture";
+    textMid(r, m_fTitle, title, kPickCard.x + 72.f, kPickCard.y + 46.f + dy, kWhite.withAlpha(a));
+    const float nameX = kPickCard.x + 92.f + measured(m_fTitle, title).x;
+    const std::string hint = "A Use it    B Back";
+    const float hintW = measured(m_fBody, hint).x;
+    textMid(r, m_fBody, fit(m_fBody, m_pickGame.name, kPickCard.x + kPickCard.width - 60.f - hintW - nameX), nameX,
+            kPickCard.y + 48.f + dy, kMuted.withAlpha(a));
+    textMid(r, m_fBody, hint, kPickCard.x + kPickCard.width - 36.f - hintW, kPickCard.y + 48.f + dy, kMuted.withAlpha(0.8f * a));
+    if (m_pickJob.valid()) {
+        const std::string looking = "Looking on SteamGridDB...";
+        textMid(r, m_fLabel, looking, 640.f - measured(m_fLabel, looking).x * 0.5f, kPickCard.y + 320.f + dy, kMuted.withAlpha(a));
+        return;
+    }
+    for (int i = 0; i < static_cast<int>(m_pickChoices.size()); ++i) {
+        const TitleChoice& c = m_pickChoices[(size_t)i];
+        const float ta = a * easeOut((m_pickIn - 0.02f * static_cast<float>(i)) / 0.7f);
+        nxui::Rect tile = pickTile(i, dy);
+        const bool chosen = i == m_pickSel;
+        if (chosen) tile = scaled(tile, 1.04f);
+        r.drawRoundedRect(tile, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.15f : 0.06f) * ta), 18.f);
+        r.drawRoundedRectOutline(tile, chosen ? accent(ring * ta) : nxui::Color(1.f, 1.f, 1.f, 0.10f * ta), 18.f,
+                                 chosen ? 2.5f : 1.f);
+        // The picture at its own shape, above its label (if it has one).
+        const char* label = c.own ? "Its own icon" : c.before ? "The one before" : nullptr;
+        const nxui::Rect box{tile.x + 10.f, tile.y + 8.f, tile.width - 20.f, tile.height - (label ? 34.f : 16.f)};
+        if (const nxui::Texture* t = (size_t)i < m_pickTex.size() ? m_pickTex[(size_t)i].get() : nullptr) {
+            const float s = std::min(box.width / static_cast<float>(t->width()), box.height / static_cast<float>(t->height()));
+            const float w = static_cast<float>(t->width()) * s, h = static_cast<float>(t->height()) * s;
+            const nxui::Rect pic{box.x + (box.width - w) * 0.5f, box.y + (box.height - h) * 0.5f, w, h};
+            if (c.own) r.drawTextureRounded(t, pic, 12.f, kWhite.withAlpha(ta));
+            else r.drawTexture(t, pic, kWhite.withAlpha(ta));
+        }
+        if (label)
+            textMid(r, m_fBody, label, tile.x + (tile.width - measured(m_fBody, label).x * 0.8f) * 0.5f,
+                    tile.y + tile.height - 15.f, kMuted.withAlpha(ta), 0.8f);
+    }
+    if (m_pickChoices.size() <= 1) {
+        const std::string none = m_key.empty() ? "Pictures to choose come from SteamGridDB: add a key in HomeNX's Settings."
+                                               : "SteamGridDB has no pictures for this game.";
+        textMid(r, m_fBody, none, 640.f - measured(m_fBody, none).x * 0.5f, kPickCard.y + 330.f + dy, kMuted.withAlpha(a));
+    }
+}
 
 void CardsActivity::updateOptions() {
     auto& in = app().input();
@@ -3995,6 +4150,7 @@ bool CardsActivity::handleTouch() {
     if (m_quickOpen) return quickTouch();
     if (m_powerOpen) return powerTouch();
     if (m_dotsOpen) return dotsTouch();
+    if (m_pickOpen) return pickerTouch();
     if (m_optOpen) return optionsTouch();
     if (!m_menu.empty()) {
         if (!in.touchUp()) return in.isTouching();
@@ -4252,6 +4408,7 @@ void CardsActivity::onUpdate(float dt) {
     step(m_powerIn, 0.28f);
     step(m_dotsIn, 0.26f);
     step(m_optIn, 0.26f);
+    step(m_pickIn, 0.26f);
     step(m_quickListIn, 0.2f);
 #ifdef SWITCHU_MENU
     step(m_newsIn, 0.24f);
@@ -4356,6 +4513,20 @@ void CardsActivity::onUpdate(float dt) {
     }
 
     perfMark("updates and deleting");
+    // A title picture was chosen (+ > Title picture): it shows now.
+    if (m_pickSave.valid() && m_pickSave.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        if (m_pickSave.get()) {
+            auto it = m_art.find(m_pickSaveId);
+            if (it != m_art.end()) {
+                it->second.icon.reset();
+                it->second.iconAsked = false;
+            }
+            wantArt();
+            m_audio.play("toggle_on");
+        } else {
+            say("That picture didn't download. Check the internet connection.");
+        }
+    }
     // A Media app arrived (or didn't): its card becomes the app's.
     if (m_getJob.valid() && m_getJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         if (m_getJob.get()) {
@@ -4536,6 +4707,10 @@ void CardsActivity::onUpdate(float dt) {
         updateDots();
         return;
     }
+    if (m_pickOpen) {
+        updatePicker();
+        return;
+    }
     if (m_optOpen) {
         updateOptions();
         return;
@@ -4684,6 +4859,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawQuick(r);
     drawDots(r);
     drawOptions(r);
+    drawPicker(r);
     drawPower(r);
 #ifdef SWITCHU_MENU
     drawNews(r);

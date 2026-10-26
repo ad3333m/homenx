@@ -24,6 +24,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -121,61 +122,73 @@ std::string percentEncode(const std::string& s) {
     return out;
 }
 
-// The first picture SteamGridDB has of `kind` ("grids" or "heroes") for the game.
-// clear: only one with see-through edges (an icon with no background). answered: the list came.
-std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const std::string& query,
-                               bool clear = false, bool* answered = nullptr, size_t tries = 6) {
-    const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
-    std::string body;
-    // The game, found once per name (a title picture asks several times).
+// The game on SteamGridDB, found once per name (pictures ask several times).
+// 0: no answer (asked again later), -1: no such game.
+long long steamGridDbGame(const std::string& name, const std::string& key) {
     static std::mutex foundMu;
     static std::map<std::string, long long> found;
-    long long gameId = 0;
     {
         std::lock_guard<std::mutex> lk(foundMu);
-        auto it = found.find(game.name);
-        if (it != found.end()) gameId = it->second;
+        auto it = found.find(name);
+        if (it != found.end()) return it->second;
     }
-    if (gameId == 0) {
-        if (get(std::string(kSteamGridDb) + "/search/autocomplete/" + percentEncode(game.name), body, headers) != 200)
-            return {};
-        try {
-            const auto j = nlohmann::json::parse(body);
-            if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
-                gameId = j["data"][0].value("id", 0LL);
-        } catch (...) {
-        }
-        if (gameId <= 0) gameId = -1;
-        std::lock_guard<std::mutex> lk(foundMu);
-        found[game.name] = gameId;
+    const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
+    std::string body;
+    if (get(std::string(kSteamGridDb) + "/search/autocomplete/" + percentEncode(name), body, headers) != 200) return 0;
+    long long gameId = -1;
+    try {
+        const auto j = nlohmann::json::parse(body);
+        if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
+            gameId = j["data"][0].value("id", -1LL);
+    } catch (...) {
     }
-    if (gameId <= 0) return {};
+    std::lock_guard<std::mutex> lk(foundMu);
+    found[name] = gameId;
+    return gameId;
+}
+
+// Its pictures of `kind` ("grids", "heroes", "icons", "logos"): each one's
+// url and thumbnail, best first. answered: the list came.
+std::vector<std::pair<std::string, std::string>> steamGridDbAssets(long long gameId, const std::string& key, const char* kind,
+                                                                   const std::string& query, size_t max, bool* answered) {
+    std::vector<std::pair<std::string, std::string>> out;
+    if (gameId <= 0) return out;
+    const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
+    std::string body;
     if (get(std::string(kSteamGridDb) + "/" + kind + "/game/" + std::to_string(gameId) + "?" + query, body, headers) != 200)
-        return {};
+        return out;
     if (answered) *answered = true;
-    std::vector<std::string> urls;
     try {
         const auto j = nlohmann::json::parse(body);
         if (j.contains("data") && j["data"].is_array())
             for (const auto& a : j["data"]) {
-                if (a.is_object()) urls.push_back(a.value("url", std::string()));
-                if (urls.size() == tries) break;
+                if (a.is_object()) out.emplace_back(a.value("url", std::string()), a.value("thumb", std::string()));
+                if (out.size() == max) break;
             }
     } catch (...) {
     }
-    // Most points along its edges see-through (a subject may touch them; a
-    // square with a background, even with round corners, doesn't pass).
-    auto clearEdges = [](const stbi_uc* px, int w, int h) {
-        int seen = 0;
-        for (int i = 0; i < 16; ++i) {
-            const int x = i * (w - 1) / 15, y = i * (h - 1) / 15;
-            for (const auto& [cx, cy] : {std::pair{x, 0}, std::pair{x, h - 1}, std::pair{0, y}, std::pair{w - 1, y}})
-                seen += px[(static_cast<size_t>(cy) * w + cx) * 4 + 3] < 40;
-        }
-        return seen * 10 >= 64 * 6;
-    };
-    // The first that came and isn't the notice for one taken down.
-    for (const std::string& url : urls) {
+    return out;
+}
+
+// Most points along its edges see-through (a subject may touch them; a
+// square with a background, even with round corners, doesn't pass).
+bool clearEdges(const unsigned char* px, int w, int h) {
+    int seen = 0;
+    for (int i = 0; i < 16; ++i) {
+        const int x = i * (w - 1) / 15, y = i * (h - 1) / 15;
+        for (const auto& [cx, cy] : {std::pair{x, 0}, std::pair{x, h - 1}, std::pair{0, y}, std::pair{w - 1, y}})
+            seen += px[(static_cast<size_t>(cy) * w + cx) * 4 + 3] < 40;
+    }
+    return seen * 10 >= 64 * 6;
+}
+
+// The first picture SteamGridDB has of `kind` for the game that came and isn't
+// the notice for one taken down. clear: only one with see-through edges (an
+// icon with no background). answered: the list came.
+std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const std::string& query,
+                               bool clear = false, bool* answered = nullptr, size_t tries = 6) {
+    std::string body;
+    for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(game.name, key), key, kind, query, tries, answered)) {
         if (url.empty() || get(url, body) != 200 || !isPicture(body)) continue;
         int w = 0, h = 0, ch = 0;
         stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
@@ -185,6 +198,22 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
         if (good) return body;
     }
     return {};
+}
+
+// Its name, then the part before a colon or dash ("Minecraft: Nintendo Switch
+// Edition" is "Minecraft" on SteamGridDB, with far more pictures).
+std::vector<Game> searchNames(const Game& game) {
+    std::vector<Game> names{game};
+    for (const char* cut : {": ", " - "}) {
+        const size_t at = game.name.find(cut);
+        if (at != std::string::npos && at > 2) {
+            Game shorter = game;
+            shorter.name = game.name.substr(0, at);
+            names.push_back(std::move(shorter));
+            break;
+        }
+    }
+    return names;
 }
 
 // A game's name as GameTDB's index has it (tools/make_gametdb_index.py does the
@@ -267,6 +296,23 @@ std::string eshopBanner(const Game& game, int w, int h) {
 }
 
 } // namespace
+
+void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
+    while (w > maxW && w >= 2 && h >= 2) {
+        const int nw = w / 2, nh = h / 2;
+        std::vector<std::uint8_t> out(static_cast<size_t>(nw) * nh * 4);
+        for (int y = 0; y < nh; ++y)
+            for (int x = 0; x < nw; ++x)
+                for (int c = 0; c < 4; ++c) {
+                    const auto at = [&](int xx, int yy) { return rgba[(static_cast<size_t>(yy) * w + xx) * 4 + c]; };
+                    out[(static_cast<size_t>(y) * nw + x) * 4 + c] = static_cast<std::uint8_t>(
+                        (at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) + at(2 * x + 1, 2 * y + 1)) / 4);
+                }
+        rgba.swap(out);
+        w = nw;
+        h = nh;
+    }
+}
 
 std::vector<Game> listGames() {
     // As HOME reads it (launcher/AppListLoader.cpp): 30 at a time, up to 1024.
@@ -631,7 +677,6 @@ void forgetArt(std::uint64_t id) {
         std::filesystem::remove(aside, ec);
         std::filesystem::rename(path, aside, ec);
     }
-    std::filesystem::remove(std::string(kCacheDir) + "/" + hexId(id) + ".title", ec); // the old "none"
 }
 
 bool keptBack(std::uint64_t id, const char* ext) {
@@ -645,37 +690,93 @@ bool keptBack(std::uint64_t id, const char* ext) {
 }
 
 std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
-    // (".title2": the ones "none" was saved for before are asked again with these.)
-    const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".title2";
+    const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     std::error_code ec;
+    // Chosen by hand (+ > Title picture): kept for good; empty = its own icon.
+    if (std::filesystem::exists(base + ".titleme", ec)) return readFile(base + ".titleme");
+    // The one the stricter search before picked: he liked those (the leaf for
+    // Animal Crossing, Tears of the Kingdom's) more than what's found now.
+    if (std::vector<std::uint8_t> old = readFile(base + ".title"); !old.empty()) return old;
+    // (".title2": the ones "none" was saved for before are asked again with these.)
+    const std::string path = base + ".title2";
     if (std::filesystem::exists(path, ec)) return readFile(path); // empty: SteamGridDB had none
     if (key.empty()) return {};
-    // Its name, then the part before a colon or dash ("Minecraft: Nintendo
-    // Switch Edition" is "Minecraft" there, with far more pictures).
-    std::vector<Game> names{game};
-    for (const char* cut : {": ", " - "}) {
-        const size_t at = game.name.find(cut);
-        if (at != std::string::npos && at > 2) {
-            Game shorter = game;
-            shorter.name = game.name.substr(0, at);
-            names.push_back(std::move(shorter));
-            break;
-        }
-    }
+    const std::vector<Game> names = searchNames(game);
     // An icon with see-through edges: up to 512 px first (big ones are MBs),
     // then the big ones; then its logo (they all have no background).
-    const std::string base = "types=static&mimes=image/png&nsfw=false&humor=false";
+    const std::string query = "types=static&mimes=image/png&nsfw=false&humor=false";
     bool answered = false;
     std::string got;
     for (const Game& g : names) {
-        got = steamGridDbPicture(g, key, "icons", base + "&dimensions=512,256,192,180,160,152,150,144,128", true, &answered);
-        if (got.empty()) got = steamGridDbPicture(g, key, "icons", base + "&dimensions=1024,768", true, &answered, 3);
-        if (got.empty()) got = steamGridDbPicture(g, key, "logos", base, true, &answered, 4);
+        got = steamGridDbPicture(g, key, "icons", query + "&dimensions=512,256,192,180,160,152,150,144,128", true, &answered);
+        if (got.empty()) got = steamGridDbPicture(g, key, "icons", query + "&dimensions=1024,768", true, &answered, 3);
+        if (got.empty()) got = steamGridDbPicture(g, key, "logos", query, true, &answered, 4);
         if (!got.empty()) break;
     }
     if (got.empty() && keptBack(game.id, ".title2")) return readFile(path); // taken down since: the one saved
     if (answered) writeFile(path, got); // none: not asked again until its pictures are downloaded again
     return std::vector<std::uint8_t>(got.begin(), got.end());
+}
+
+std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, size_t max) {
+    std::vector<TitleChoice> out;
+    const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
+    if (std::vector<std::uint8_t> old = readFile(base + ".title"); !old.empty()) { // the one picked before
+        int w = 0, h = 0, ch = 0;
+        if (stbi_uc* px = stbi_load_from_memory(old.data(), static_cast<int>(old.size()), &w, &h, &ch, 4)) {
+            TitleChoice c;
+            c.file = base + ".title";
+            c.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
+            stbi_image_free(px);
+            shrink(c.rgba, w, h, 160);
+            c.w = w;
+            c.h = h;
+            c.clear = true;
+            c.before = true;
+            out.push_back(std::move(c));
+        }
+    }
+    if (key.empty()) return out;
+    std::set<std::string> seen;
+    std::string body;
+    for (const Game& g : searchNames(game))
+        for (const char* kind : {"icons", "logos"})
+            for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(g.name, key), key, kind,
+                                                              "types=static&mimes=image/png&nsfw=false&humor=false", 14, nullptr)) {
+                if (out.size() >= max || url.empty() || !seen.insert(url).second) continue;
+                // The thumbnail (small) when it's a picture stb reads, else the picture.
+                if ((thumb.empty() || get(thumb, body) != 200 || !isPicture(body)) && (get(url, body) != 200 || !isPicture(body)))
+                    continue;
+                int w = 0, h = 0, ch = 0;
+                stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
+                                                    &w, &h, &ch, 4);
+                if (!px) continue;
+                TitleChoice c;
+                c.url = url;
+                c.clear = clearEdges(px, w, h);
+                c.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
+                stbi_image_free(px);
+                shrink(c.rgba, w, h, 160);
+                c.w = w;
+                c.h = h;
+                out.push_back(std::move(c));
+            }
+    // No background first (what a title picture is), the rest after.
+    std::stable_partition(out.begin(), out.end(), [](const TitleChoice& c) { return c.before || c.clear; });
+    return out;
+}
+
+bool chooseTitleArt(const Game& game, const TitleChoice* choice) {
+    const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
+    std::string data;
+    if (choice && !choice->file.empty()) {
+        const std::vector<std::uint8_t> old = readFile(choice->file);
+        data.assign(old.begin(), old.end());
+    } else if (choice && (get(choice->url, data) != 200 || !isPicture(data))) {
+        return false;
+    }
+    writeFile(base + ".titleme", data); // empty: its own icon
+    return true;
 }
 
 void forgetPicture(std::uint64_t id, bool background) {

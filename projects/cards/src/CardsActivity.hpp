@@ -179,6 +179,21 @@ private:
     // Popups and screens.
     void openMenu(std::string title, std::vector<MenuItem> items);
     void openOptions();
+    // + > Title picture: the game's pictures to choose from, in a grid.
+    bool m_pickOpen = false;
+    Game m_pickGame;
+    std::future<std::vector<TitleChoice>> m_pickJob;
+    std::vector<TitleChoice> m_pickChoices;                 // (their pixels go once they're shown)
+    std::vector<std::unique_ptr<nxui::Texture>> m_pickTex;
+    int m_pickSel = 0;
+    float m_pickIn = 0.f;
+    std::future<bool> m_pickSave;
+    std::uint64_t m_pickSaveId = 0;
+    void openTitlePicker(const Game& g);
+    void updatePicker();
+    bool pickerTouch();
+    void drawPicker(nxui::Renderer& r);
+    void pickChoice(int index);
     // Plus: the card's art on the left, its name and details, big buttons.
     bool m_optOpen = false;
     int m_optSel = 0;

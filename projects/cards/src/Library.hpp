@@ -78,6 +78,20 @@ void forgetArt(std::uint64_t id); // the next ask downloads them again
 // The game's own picture with no background (the Wonder Flower for Super Mario
 // Bros. Wonder): the first SteamGridDB icon with clear edges. Empty: none.
 std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key);
+// + > Title picture: SteamGridDB's icons and logos for the game to choose from
+// (no background first), with the one an older CardsNX picked. Slow: a thread.
+struct TitleChoice {
+    std::string url, file;          // the picture online, or on the SD card (the one before)
+    std::vector<std::uint8_t> rgba; // a small copy to show, decoded
+    int w = 0, h = 0;
+    bool clear = false, before = false, own = false; // own: its own icon (the chooser adds it)
+};
+std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, size_t max = 19);
+// Downloads it and keeps it as the game's title picture for good (kept through
+// "Download new pictures"); nullptr: its own icon instead.
+bool chooseTitleArt(const Game& game, const TitleChoice* choice);
+// Halves a picture until it's at most maxW wide.
+void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
 // SteamGridDB swaps a picture taken down (DMCA) for a flat notice: one mostly
 // of a single colour. Those are passed over for the next picture it has.
 bool removedNotice(const std::uint8_t* rgba, int w, int h);
