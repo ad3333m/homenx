@@ -85,8 +85,6 @@ const MediaApp kMediaApps[] = {
      "sdmc:/switch/TikTok/TikTok.nro"},
     {"AnikkuNX", {"anikku", nullptr}, nullptr, nullptr},
     {"Cinejoy", {"cinejoy", nullptr}, nullptr, nullptr},
-    {"ForYou", {"foryou", "for you"}, "https://github.com/ad3333m/switch-fyp/releases/download/v1.0.0/ForYou.nro",
-     "sdmc:/switch/ForYou/ForYou.nro"},
 };
 const char* const kSortNames[] = {"Last Played", "Title", "Most Played", "My Order"};
 constexpr int kSortCycle[] = {1, 3, 0, 2}; // Y: Title, My Order, Last Played, Most Played
