@@ -38,6 +38,9 @@ struct Settings {
     bool clock24 = true;
     bool showFree = true;     // free space in the status pill
     bool titlePics = true;    // a 3D picture by the game's name in the panel
+    // Homebrew moved by hand (+ > Move to Media / Move to Homebrew): .nro paths,
+    // NRO forwarders' title IDs. Out: the ones Media takes by itself, kept out.
+    std::vector<std::string> mediaIn, mediaOut;
     std::string user;         // who games start as (hex), "" = the last one who played
     std::string lastGame;     // the last game (or app) started from here, hex
     long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
@@ -75,6 +78,8 @@ struct Settings {
             clock24 = j.value("clock24", clock24);
             showFree = j.value("showFree", showFree);
             titlePics = j.value("titlePics", titlePics);
+            mediaIn = j.value("mediaIn", mediaIn);
+            mediaOut = j.value("mediaOut", mediaOut);
             user = j.value("user", user);
             lastGame = j.value("lastGame", lastGame);
             listsAt = j.value("listsAt", listsAt);
@@ -90,7 +95,7 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
         writeLater(kPath, j.dump(2));

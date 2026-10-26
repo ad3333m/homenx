@@ -1287,8 +1287,13 @@ void CardsActivity::takeLists(Lists lists) {
 void CardsActivity::splitMedia() {
     auto& homebrew = m_pages[kHomebrew];
     std::vector<Game> media;
+    auto listed = [](const std::vector<std::string>& list, const Game& g) {
+        const std::string key = g.path.empty() ? idText(g.id) : g.path;
+        return std::find(list.begin(), list.end(), key) != list.end();
+    };
     for (auto it = homebrew.begin(); it != homebrew.end();) {
-        if (!it->path.empty() && mediaAppOf(it->name, it->path)) {
+        const bool own = !it->path.empty() && mediaAppOf(it->name, it->path); // Adam's media apps, by name
+        if ((own && !listed(m_settings.mediaOut, *it)) || listed(m_settings.mediaIn, *it)) {
             media.push_back(std::move(*it));
             it = homebrew.erase(it);
         } else {
@@ -1297,8 +1302,9 @@ void CardsActivity::splitMedia() {
     }
     for (const MediaApp& m : kMediaApps) { // not on the SD card, but on GitHub: a card to get it
         if (!m.url) continue;
-        bool have = false;
+        bool have = false; // (on either page: one moved to Homebrew is had too)
         for (const Game& g : media) have |= mediaAppOf(g.name, g.path) == &m;
+        for (const Game& g : homebrew) have |= !g.path.empty() && mediaAppOf(g.name, g.path) == &m;
         if (have) continue;
         Game g;
         g.name = m.name;
@@ -1313,6 +1319,27 @@ void CardsActivity::splitMedia() {
     m_pages[kMedia] = std::move(media);
     applyOrder(kMedia);
     m_sels[kMedia] = std::clamp(m_sels[kMedia], 0, std::max(0, static_cast<int>(m_pages[kMedia].size()) - 1));
+}
+
+void CardsActivity::moveToMedia(const Game& g, bool toMedia) {
+    const std::string key = g.path.empty() ? idText(g.id) : g.path;
+    for (auto* list : {&m_settings.mediaIn, &m_settings.mediaOut})
+        list->erase(std::remove(list->begin(), list->end(), key), list->end());
+    const bool own = !g.path.empty() && mediaAppOf(g.name, g.path); // goes to Media by itself
+    if (toMedia && !own) m_settings.mediaIn.push_back(key);
+    if (!toMedia && own) m_settings.mediaOut.push_back(key);
+    // The pages again: everything back on Homebrew, then Media takes its own.
+    const int from = m_page;
+    m_pages[kHomebrew] = homebrewToSave();
+    applyOrder(kHomebrew);
+    splitMedia();
+    m_sels[from] = std::clamp(m_sels[from], 0, std::max(0, static_cast<int>(m_pages[from].size()) - 1));
+    m_scroll = static_cast<float>(sel());
+    saveOrder(toMedia ? kMedia : kHomebrew); // (saves the settings too)
+    saveLists(m_pages[kGames], homebrewToSave());
+    m_audio.play("toggle_on");
+    say(g.name + (toMedia ? " is on the Media page now." : " is back on the Homebrew page."));
+    wantArt();
 }
 
 std::vector<Game> CardsActivity::homebrewToSave() const {
@@ -2080,6 +2107,11 @@ void CardsActivity::openOptions() {
 #endif
     items.push_back(action("Move", [this]() { startMove(); }));
     items.back().glyph = "arrows";
+    if (g.homebrew && g.action.empty() && (m_page == kHomebrew || m_page == kMedia)) { // its page
+        const bool toMedia = m_page == kHomebrew;
+        items.push_back(action(toMedia ? "Move to Media" : "Move to Homebrew", [this, g, toMedia]() { moveToMedia(g, toMedia); }));
+        items.back().glyph = toMedia ? "music" : "dots";
+    }
     if (g.action.empty()) {
         const std::uint64_t id = g.id;
         items.push_back(action("Download new pictures", [this, id]() {

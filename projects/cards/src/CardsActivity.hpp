@@ -138,6 +138,7 @@ private:
     // The Media page: your media apps off the Homebrew page, and the ones
     // GitHub has that aren't on the SD card yet ("Get").
     void splitMedia();
+    void moveToMedia(const Game& g, bool toMedia); // + > Move to Media / Move to Homebrew
     std::vector<Game> homebrewToSave() const; // Homebrew and Media's .nro apps, for lists.json
     void getMedia(const Game& g);
     std::atomic<bool> m_updatesSaved{false}; // the last updates came from the saved list
