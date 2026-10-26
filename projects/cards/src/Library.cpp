@@ -1135,12 +1135,39 @@ QuickStatus readQuickStatus() {
     if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) q.battery = static_cast<int>(charge);
     PsmChargerType charger = PsmChargerType_Unconnected;
     if (R_SUCCEEDED(psmGetChargerType(&charger))) q.charging = charger != PsmChargerType_Unconnected;
-    if (R_SUCCEEDED(tsInitialize())) {
-        s32 t = 0;
-        if (R_SUCCEEDED(tsGetTemperature(TsLocation_External, &t))) q.temperature = t > 1000 ? t / 1000 : t;
-        tsExit();
-    }
+    q.temperature = chipTemperature();
     return q;
+}
+
+int chipTemperature() {
+    int out = -1;
+    if (R_FAILED(tsInitialize())) return out;
+    if (hosversionAtLeast(14, 0, 0)) { // (the old call is gone from 14.0.0)
+        TsSession s{};
+        if (R_SUCCEEDED(tsOpenSession(&s, TsDeviceCode_LocationExternal))) {
+            float t = 0.f;
+            if (R_SUCCEEDED(tsSessionGetTemperature(&s, &t))) out = static_cast<int>(t + 0.5f);
+            tsSessionClose(&s);
+        }
+    } else {
+        s32 t = 0;
+        if (R_SUCCEEDED(tsGetTemperature(TsLocation_External, &t))) out = t > 1000 ? t / 1000 : t;
+    }
+    tsExit();
+    return out;
+}
+
+int gpuMhz() {
+    if (!hosversionAtLeast(8, 0, 0) || R_FAILED(clkrstInitialize())) return 0;
+    int out = 0;
+    ClkrstSession s{};
+    if (R_SUCCEEDED(clkrstOpenSession(&s, PcvModuleId_GPU, 3))) {
+        u32 hz = 0;
+        if (R_SUCCEEDED(clkrstGetClockRate(&s, &hz))) out = static_cast<int>(hz / 1000000);
+        clkrstCloseSession(&s);
+    }
+    clkrstExit();
+    return out;
 }
 
 ConsoleSettings readConsoleSettings() {

@@ -134,6 +134,8 @@ struct QuickStatus {
     int temperature = -1;    // the chip, degrees C
 };
 QuickStatus readQuickStatus();
+int chipTemperature(); // degrees C, -1 not known
+int gpuMhz();          // the GPU's clock now (the perf log: a hot chip is throttled), 0 not known
 bool setWifi(bool on);         // turning it on also ends Airplane mode
 bool setAirplaneMode(bool on);
 void setBrightness(float level); // 0..1

@@ -4770,8 +4770,9 @@ void CardsActivity::onUpdate(float dt) {
         }
         if (m_perfWindow >= 10000.f) {
             char line[160];
-            std::snprintf(line, sizeof(line), "10 s: %.1f fps, worst frame %.1f ms, %d over 20 ms, %d over 34 ms",
-                          m_perfFrames * 1000.f / m_perfWindow, m_perfWorst, m_perfSlow, m_perfVerySlow);
+            std::snprintf(line, sizeof(line), "10 s: %.1f fps, worst frame %.1f ms, %d over 20 ms, %d over 34 ms (chip %d C, GPU %d MHz)",
+                          m_perfFrames * 1000.f / m_perfWindow, m_perfWorst, m_perfSlow, m_perfVerySlow, chipTemperature(),
+                          gpuMhz());
             perfLine(line);
             m_perfFrames = m_perfSlow = m_perfVerySlow = 0;
             m_perfWindow = m_perfWorst = 0.f;
