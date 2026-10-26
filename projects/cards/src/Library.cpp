@@ -694,6 +694,25 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key) {
     std::error_code ec;
     // Chosen by hand (+ > Title picture): kept for good; empty = its own icon.
     if (std::filesystem::exists(base + ".titleme", ec)) return readFile(base + ".titleme");
+    // The ones Adam picked on SteamGridDB (2026-10-26), by name: downloaded once.
+    static const std::pair<const char*, const char*> kPicks[] = {
+        {"51 worldwide games", "https://cdn2.steamgriddb.com/icon/2abbb67d13de26bdb4b9487c072ce63f.png"},
+        {"clubhouse games", "https://cdn2.steamgriddb.com/icon/2abbb67d13de26bdb4b9487c072ce63f.png"},
+        {"mario tennis aces", "https://cdn2.steamgriddb.com/icon/6a57122a72d2bd5e8a156c678952f88b.png"},
+        {"new super mario bros u deluxe", "https://cdn2.steamgriddb.com/icon/f3848b78b70702300c576fcd56a9addd.png"},
+        {"minecraft", "https://cdn2.steamgriddb.com/icon/cfecdb276f634854f3ef915e2e980c31.png"},
+    };
+    const std::string name = nameKey(game.name);
+    for (const auto& [words, url] : kPicks)
+        if (name.find(words) != std::string::npos) {
+            if (std::filesystem::exists(base + ".titlepick", ec)) return readFile(base + ".titlepick");
+            std::string body;
+            if (get(url, body) == 200 && isPicture(body)) {
+                writeFile(base + ".titlepick", body);
+                return std::vector<std::uint8_t>(body.begin(), body.end());
+            }
+            break; // (no internet now: the others below meanwhile)
+        }
     // The one the stricter search before picked: he liked those (the leaf for
     // Animal Crossing, Tears of the Kingdom's) more than what's found now.
     if (std::vector<std::uint8_t> old = readFile(base + ".title"); !old.empty()) return old;
