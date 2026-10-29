@@ -4,6 +4,7 @@
 #include <nxui/core/GpuDevice.hpp>
 #include "social/DiscordService.hpp"
 #include "widgets/DiscordPanel.hpp"
+#include "widgets/LockScreen.hpp"
 #include "widgets/SocialScreen.hpp"
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
@@ -330,7 +331,8 @@ private:
     void createTextEntry();
     void requestTextEntry(const std::string& title, const std::string& guide,
                           const std::string& initial, int maxLength, bool password,
-                          std::function<void(const std::string&)> onAccept);
+                          std::function<void(const std::string&)> onAccept,
+                          bool sensitive = false);
     void editSteamGridDbApiKey();
     void startSteamGridDbScrape();
     void cancelSteamGridDbScrape();
@@ -426,6 +428,7 @@ private:
     void openQuickSettings();
     void openDiscordPanel();
     void ensureDiscordPanel();
+    void showLockScreen(bool resumeMusic);
     void applyDiscordFont();
     void openNotifications();
     void persistMusicPlaybackState(bool updateEnabledFlag = false);
@@ -438,6 +441,8 @@ private:
     void pollSleepNotifications();
     void onUpdateAwake(float dt);
     void closeQuickSettings();
+    // Called by the lock screen when its auto-sleep timer expires.
+    void handleLockScreenAutoSleep();
     void createThemeShop();
     void createGameOptions();
     void createFolderOptions();
@@ -546,6 +551,10 @@ private:
     // HomeNX: the Discord panel (left side) and its connection.
     DiscordService                     m_discord;
     std::shared_ptr<DiscordPanel>      m_discordPanel;
+    std::shared_ptr<LockScreen>        m_lockScreen;
+    bool m_lockMusicShouldResume = false;
+    bool m_lockMusicResumePending = false;
+    bool m_discordTokenEntryPending = false;
     std::shared_ptr<SocialScreen>      m_social;
     std::shared_ptr<SettingsScreen>    m_settings;
     std::shared_ptr<ThemeShopScreen>   m_themeShop;

@@ -28,7 +28,7 @@ namespace {
 // HomeNX: CI republishes one rolling release tagged "latest" and titles it
 // "HomeNX build <N>" once the frontend zip is uploaded; N is the CI run number.
 constexpr const char* kLatestReleaseUrl =
-    "https://api.github.com/repos/ad3333m/homenx/releases/tags/latest";
+    "https://api.github.com/repos/PowerCmptr/HomeNX/releases/tags/latest";
 constexpr const char* kWorkRoot = "sdmc:/config/SwitchU/update";
 constexpr const char* kArchivePath = "sdmc:/config/SwitchU/update/SwitchU-update.zip";
 constexpr const char* kArchivePartPath = "sdmc:/config/SwitchU/update/SwitchU-update.zip.part";

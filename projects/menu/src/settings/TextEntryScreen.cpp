@@ -206,6 +206,8 @@ void TextEntryScreen::show(const Request& request) {
     if (m_active)
         return;
     buildLayout();
+    if (m_request.password || m_request.sensitive)
+        std::fill(m_text.begin(), m_text.end(), '\0');
     m_request = request;
     m_text = request.initial;
     m_active = true;
@@ -589,9 +591,13 @@ void TextEntryScreen::onUpdate(float dt) {
         m_animatingOut = false;
         setVisible(false);
         const bool accepted = m_accepted;
-        const std::string value = m_text;
+        std::string value = m_text;
         auto accept = m_acceptCb;
         auto cancel = m_cancelCb;
+        if (m_request.password || m_request.sensitive) {
+            std::fill(m_text.begin(), m_text.end(), '\0');
+            m_text.clear();
+        }
         DebugLog::log("[textentry] close accepted=%d length=%d hasAcceptCb=%d hasCancelCb=%d",
                       accepted, countCodepoints(value), (bool)accept, (bool)cancel);
         if (accepted) {
@@ -599,6 +605,8 @@ void TextEntryScreen::onUpdate(float dt) {
         } else if (cancel) {
             cancel();
         }
+        if (m_request.password || m_request.sensitive)
+            std::fill(value.begin(), value.end(), '\0');
         DebugLog::log("[textentry] onUpdate close transition callback returned");
     }
 }

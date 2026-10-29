@@ -1068,7 +1068,10 @@ bool WiiUMenuApp::onCreate() {
     switchu::menu::smi_cmd::menuReady();
 #endif
 
-    if (!fastReturn) requestNewsUpdate(); // fresh news by the time News is opened
+    if (!fastReturn) {
+        showLockScreen(m_config.musicEnabled);
+        requestNewsUpdate(); // fresh news by the time News is opened
+    }
     DebugLog::log("[init] DONE total=%lums fastReturn=%d",
                   initElapsedMs(), fastReturn ? 1 : 0);
     return true;
@@ -2763,9 +2766,11 @@ void WiiUMenuApp::createTextEntry() {
 void WiiUMenuApp::requestTextEntry(
     const std::string& title, const std::string& guide,
     const std::string& initial, int maxLength, bool password,
-    std::function<void(const std::string&)> onAccept) {
+    std::function<void(const std::string&)> onAccept, bool sensitive) {
     createTextEntry();
-    if (!m_textEntry || m_textEntry->isActive()) return;
+    // A previous keyboard may still be fading out. Let show() replace that
+    // transition; only a keyboard the user is actively editing should block it.
+    if (!m_textEntry || m_textEntry->isEditing()) return;
     if (m_overlayLayer) {
         m_overlayLayer->removeChild(m_textEntry.get());
         m_overlayLayer->addChild(m_textEntry);
@@ -2787,7 +2792,7 @@ void WiiUMenuApp::requestTextEntry(
     });
     m_textEntry->onCancel(restoreFocus);
     m_audio.playSfx(Sfx::ModalShow);
-    m_textEntry->show({title, guide, initial, std::max(1, maxLength), password});
+    m_textEntry->show({title, guide, initial, std::max(1, maxLength), password, sensitive});
     focusManager().setFocus(m_textEntry.get());
     if (m_cursor) m_cursor->setVisible(false);
 }
@@ -5760,6 +5765,14 @@ void WiiUMenuApp::noteWork(WorkPart part, std::uint64_t startTick) {
 
 void WiiUMenuApp::onUpdate(float dt) {
     noteWork(WorkFrame, armGetSystemTick() - armNsToTicks(static_cast<std::uint64_t>(std::max(0.f, dt) * 1e9f)));
+    if (m_discordTokenEntryPending) {
+        m_discordTokenEntryPending = false;
+        requestTextEntry("Discord user session token",
+                         "Enter your token below. It stays visible while typing.",
+                         std::string(), 512, false, [this](const std::string& token) {
+            m_discord.signInWithUserToken(token);
+        }, true);
+    }
     // HomeNX launch card: once it covers the screen, stop drawing HOME under it
     // (that was what made the card stutter); finish the launch on black frames.
     {
@@ -5837,6 +5850,39 @@ void WiiUMenuApp::enterSystemSleep() {
     if (m_systemAsleep)
         return;
     m_systemAsleep = true;
+
+    // Show the lock screen before sleeping so the last frame rendered is the
+    // lock screen (dark background), not the home screen. When the console
+    // wakes, the display shows the lock screen instead of the stale home
+    // screen framebuffer.
+    if (!m_lockScreen) {
+        m_lockScreen = std::make_shared<LockScreen>();
+        m_lockScreen->setFonts(&m_fontNormal, &m_fontSmall);
+        m_lockScreen->onUnlock([this]() {
+            if (m_bgLayer) m_bgLayer->setVisible(true);
+            if (m_contentLayer) m_contentLayer->setVisible(true);
+            if (m_lockMusicShouldResume) {
+                if (m_audioStarted) m_audio.play();
+                else m_lockMusicResumePending = true;
+            }
+            m_lockMusicShouldResume = false;
+            nxui::Widget* target = m_grid ? m_grid->focusManager().current() : nullptr;
+            if (isCurrentFocusableWidget(target)) focusManager().setFocus(target);
+            updateCursor();
+        });
+        m_lockScreen->onAutoSleep([this]() { handleLockScreenAutoSleep(); });
+    }
+    if (m_bgLayer) m_bgLayer->setVisible(false);
+    if (m_contentLayer) m_contentLayer->setVisible(false);
+    m_lockScreen->setNotifications(notifications::recent(50));
+    if (m_overlayLayer) {
+        m_overlayLayer->removeChild(m_lockScreen.get());
+        m_overlayLayer->addChild(m_lockScreen);
+    }
+    m_lockScreen->show(app().gpu(), app().renderer());
+    focusManager().setFocus(m_lockScreen.get());
+    if (m_cursor) m_cursor->setVisible(false);
+
     DebugLog::log("[power] console sleeping: frames stopped, music paused");
 
     // Music keeps the mixer feeding the audio path for the whole sleep. The
@@ -5858,8 +5904,7 @@ void WiiUMenuApp::leaveSystemSleep() {
     m_systemAsleep = false;
     app().setSleeping(false);
 
-    if (m_musicWasPlayingBeforeSleep && m_config.musicEnabled)
-        m_audio.play();
+    const bool resumeMusic = m_musicWasPlayingBeforeSleep && m_config.musicEnabled;
     m_musicWasPlayingBeforeSleep = false;
 
     // Notifications pushed during sleep were only inspected for the wake
@@ -5867,6 +5912,11 @@ void WiiUMenuApp::leaveSystemSleep() {
     m_refreshQueued = true;
     m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 3);
     updateCursor();
+    if (!m_lockScreen || !m_lockScreen->isActive()) {
+        showLockScreen(resumeMusic);
+    } else {
+        m_lockScreen->setNotifications(notifications::recent(50));
+    }
     DebugLog::log("[power] console awake: presentation resumed");
 }
 
@@ -5888,6 +5938,12 @@ void WiiUMenuApp::pollSleepNotifications() {
             leaveSystemSleep();
     }
 #endif
+}
+
+// The lock screen's auto-sleep timer expired: put the console back to sleep.
+void WiiUMenuApp::handleLockScreenAutoSleep() {
+    DebugLog::log("[power] lock screen idle timeout: returning to standby");
+    enterSystemSleep();
 }
 
 void WiiUMenuApp::onUpdateAwake(float dt) {
@@ -6251,7 +6307,9 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
             // HomeNX: the whole music start (open the song, seek to where it was)
             // runs here on the worker too. On the main thread the MP3 seek froze
             // HOME for a second or more after every return.
-            const AppConfig cfg = m_config;
+            AppConfig cfg = m_config;
+            if (m_lockScreen && m_lockScreen->isActive())
+                cfg.musicEnabled = false;
             m_audioFuture = m_threadPool.submit([this, cfg]() {
                 m_audio.initialize();
                 m_availablePresets = scanAvailablePresets();
@@ -6284,6 +6342,10 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         m_loadedSoundPreset = resolveSoundPresetId(m_config.soundPreset);
         m_audioStarted = true;
         m_audioPlaybackRestorePending = false;
+        if (m_lockMusicResumePending) {
+            m_lockMusicResumePending = false;
+            if (m_config.musicEnabled) m_audio.play();
+        }
     }
 
     if (m_presetChangePending && m_audioFuture.valid() &&
@@ -6486,6 +6548,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     // rebuild, which could make Plus silently disappear after a page/model
     // update even though the icon remained visibly selected.
     if (app().input().isDown(nxui::Button::Plus) &&
+        !(m_lockScreen && m_lockScreen->isActive()) &&
         !app().input().isDown(nxui::Button::Minus) &&
         m_navigator.route() == switchu::navigation::Route::Home &&
         !m_editMode &&
@@ -6534,6 +6597,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
 #endif
 
     if (app().input().isDown(nxui::Button::Minus) &&
+        !(m_lockScreen && m_lockScreen->isActive()) &&
         !app().input().isDown(nxui::Button::Plus) &&
         m_navigator.route() == switchu::navigation::Route::Home &&
         !m_editMode &&

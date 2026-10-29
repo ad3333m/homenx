@@ -4,8 +4,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <cstring>
 #include <string>
 #include <vector>
+#include <string>
 
 // HomeNX's notification centre: what HOME and the Discord overlay told you, one
 // line each in sdmc:/config/SwitchU/notifications.txt (time, kind, title, text,
@@ -106,6 +108,31 @@ inline bool discordTarget(const Item& it, std::uint64_t& channel, std::uint64_t&
 
 inline void clear() {
     std::remove(kPath);
+}
+
+// Remove a notification identified by its timestamp (unique `at` value)
+inline void remove(std::uint64_t at) {
+    FILE* f = std::fopen(kPath, "r");
+    if (!f) return;
+    std::vector<std::string> lines;
+    char buf[2048];
+    while (std::fgets(buf, sizeof(buf), f)) {
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
+        std::size_t tab = line.find('\t');
+        if (tab != std::string::npos) {
+            unsigned long long ts = std::strtoull(line.c_str(), nullptr, 10);
+            if (ts == at) continue; // skip this entry
+        }
+        lines.push_back(line);
+    }
+    std::fclose(f);
+    f = std::fopen(kPath, "w");
+    if (!f) return;
+    for (const auto& l : lines) {
+        std::fprintf(f, "%s\n", l.c_str());
+    }
+    std::fclose(f);
 }
 
 } // namespace notifications

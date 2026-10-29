@@ -30,6 +30,7 @@ public:
         std::string initial;
         int maxLength = 64;
         bool password = false;
+        bool sensitive = false; // keep visible while typing, but erase after use
     };
 
     TextEntryScreen();
@@ -48,6 +49,7 @@ public:
     void show(const Request& request);
     void hide(bool accepted);
     bool isActive() const { return m_active || m_animatingOut; }
+    bool isEditing() const { return m_active; }
     const std::string& text() const { return m_text; }
 
     void handleTouch(nxui::Input& input);

@@ -1221,6 +1221,10 @@ static bool handleAppletMessages() {
         case 26:
         switchu::FileLog::log("[ae] -> Wakeup");
         g_batteryRefreshPending.store(true);
+        // Deliver wake before requesting the menu foreground, so it can put
+        // the lock screen up before its first visible frame.
+        if (daemon::menu_la::isActive())
+            pushNotification(smi::MenuMessage::WakeUp);
         if (daemon::app::isRunning() && !daemon::menu_la::isActive()) {
             Result rc = daemon::app::resume();
             if (R_FAILED(rc)) {
@@ -1232,9 +1236,7 @@ static bool handleAppletMessages() {
         } else {
             appletRequestToGetForeground();
         }
-        if (daemon::menu_la::isActive()) {
-            pushNotification(smi::MenuMessage::WakeUp);
-        } else if (!daemon::app::isRunning()) {
+        if (!daemon::menu_la::isActive() && !daemon::app::isRunning()) {
             daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
         }
         break;

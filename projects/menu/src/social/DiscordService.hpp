@@ -15,7 +15,7 @@
 // console (plus SwitchCord's) so the panel can switch between them.
 class DiscordService {
 public:
-    enum class State { SignedOut, QrLogin, Connecting, Ready, Failed };
+    enum class State { SignedOut, QrLogin, Connecting, Ready, Failed, TokenLogin };
 
     struct Account {
         std::string id, username, globalName, avatar, token;
@@ -95,6 +95,9 @@ public:
     // QR sign-in (also how another account is added).
     void startQrLogin();
     void cancelQrLogin();
+    // Accepts a normal user session token and validates it before saving.
+    // OAuth2 access tokens and bot tokens are not supported here.
+    void signInWithUserToken(const std::string& token);
     std::string qrUrl() const;      // empty until the code is ready
     std::string qrStatus() const;   // what the phone did so far
 
@@ -146,6 +149,7 @@ private:
     uint64_t m_accountsVersion = 0;
     bool m_rememberedMe = false;
     State m_state = State::SignedOut;
+    State m_tokenLoginReturnState = State::SignedOut;
     std::string m_error;
     bool m_started = false;
     bool m_stopping = false;

@@ -20,11 +20,40 @@ buttons, and Glass effects (off = steady 60 FPS).
   Nintendo's screens (they need the console to go online). The **Mii Editor** is in
   Social too: your Miis with a HomeNX portrait; create/edit opens Mii Maker.
 - **Discord** slides in from the left: friends online, your DMs (read and reply).
-  Sign in once with a QR code, or HomeNX uses your SwitchCord account. Discord can
-  flag accounts that use third-party clients; that risk is yours.
+  Sign in with a QR code, reuse a saved SwitchCord account, or enter an existing
+  Discord user session token. OAuth2 access tokens and bot tokens are not
+  accepted by this client. **When Discord requires an interactive CAPTCHA that
+  HomeNX cannot display or complete, use the user-token login instead** — it
+  lets you paste an existing Discord user session token directly and skips the
+  CAPTCHA entirely. Tokens are saved in plaintext on the SD card at
+  `sdmc:/config/SwitchU/discord.json`; protect that file. Discord may also
+  restrict accounts using third-party clients.
+- **Lock Screen** — a custom, single-press lock screen with clock, date, and an
+  optional wallpaper. See [Lock Screen](#lock-screen) below.
 - **Controllers** opens HomeNX's Controllers menu (Change Grip/Order, Find
   Controllers, Test Input Devices, Button Mapping).
 - R opens Quick Settings.
+
+## Lock Screen
+
+This fork adds a custom lock screen that overlays the HOME menu:
+
+- Large centered clock and date.
+- Single-press unlock: press **A** once to unlock — no multi-press confirmation.
+- Optional custom wallpaper (see below).
+
+### Wallpaper
+
+The lock screen loads `sdmc:/switch/SwitchU/lockscreen/wallpaper.png` first, then
+falls back to `wallpaper.jpg` if the PNG isn't present. Any 16:9 image works;
+**1280×720 or larger is recommended** for the best result (e.g. 1920×1080).
+
+To replace it:
+
+1. Prepare a 16:9 image (PNG or JPG).
+2. Copy it to `sdmc:/switch/SwitchU/lockscreen/` as either `wallpaper.png` or
+   `wallpaper.jpg`. If both exist, the PNG wins.
+3. It's picked up on the next unlock — no reboot needed.
 
 ## Installing the frontend
 
@@ -160,6 +189,17 @@ If you want to help, open an issue when you find a bug and open a pull request i
 
 - Thanks to [Xortroll](https://github.com/Xortroll) for the help and for [uLaunch](https://github.com/Xortroll/uLaunch) which inspired this project a lot
 
+- Thanks to [ad3333m](https://github.com/ad3333m) for [HomeNX](https://github.com/ad3333m/homenx) which was the original Project I forked to add more features and improve independently.
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0. See the [LICENSE](https://github.com/PoloNX/SwitchU/blob/master/LICENSE) file for details.
+
+---
+
+<div align="center">
+  <a href="https://buymeacoffee.com/cyanes">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" width="180" alt="Buy Me A Coffee">
+  </a>
+</div>
+```

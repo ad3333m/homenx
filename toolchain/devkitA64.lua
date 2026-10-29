@@ -4,6 +4,12 @@ toolchain("devkita64")
 
     on_load(function(toolchain)
         local DEVKITPRO = os.getenv("DEVKITPRO") or "/opt/devkitpro"
+        if not os.isfile(path.join(DEVKITPRO, "portlibs/switch/include/mbedtls/ctr_drbg.h")) then
+            local fallback = path.join(os.getenv("HOME") or "", "Work/devkita64-rootfs/opt/devkitpro")
+            if os.isfile(path.join(fallback, "portlibs/switch/include/mbedtls/ctr_drbg.h")) then
+                DEVKITPRO = fallback
+            end
+        end
         local DKA64    = path.join(DEVKITPRO, "devkitA64")
         local LIBNX    = path.join(DEVKITPRO, "libnx")
         local bin      = path.join(DKA64, "bin")
@@ -45,6 +51,7 @@ toolchain("devkita64")
         -- libnx (always needed for switch.specs / <switch.h>)
         toolchain:add("includedirs", path.join(LIBNX, "include"))
         toolchain:add("linkdirs", path.join(LIBNX, "lib"))
+        toolchain:add("links", "nx")
 
         -- portlibs: devkitPro's .pc files use /opt/devkitpro paths, which
         -- don't resolve on native Windows, so add the dirs explicitly

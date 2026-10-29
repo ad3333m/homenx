@@ -14,6 +14,7 @@
 #include "settings/TextEntryScreen.hpp"
 #include "social/DiscordService.hpp"
 #include "widgets/DiscordPanel.hpp"
+#include "widgets/LockScreen.hpp"
 #include "widgets/SocialScreen.hpp"
 #include "settings/ControllerTestScreen.hpp"
 #endif
@@ -500,14 +501,24 @@ private:
     nxui::Font m_hxFont, m_hxSmall;
     bool m_hxFonts = false;
     void ensureHxFonts();
+    void showLockScreen(bool resumeMusic, bool pausedForSleep = false);
     DiscordService m_discord;
     std::shared_ptr<DiscordPanel> m_discordPanel;
+    std::shared_ptr<LockScreen> m_lockScreen;
     std::shared_ptr<TextEntryScreen> m_textEntry;
+    bool m_discordTokenEntryPending = false;
+    bool m_lockInputSuppressed = false;
+    bool m_lockMusicShouldResume = false;
+    bool m_lockMusicWasPausedForSleep = false;
+    bool m_lockMusicResumePending = false;
+    bool m_musicWasPlayingBeforeSleep = false;
+    bool m_audioReady = false;
     std::shared_ptr<SocialScreen> m_social;   // Friends, your profile, Mii Maker (HomeNX's, not Nintendo's)
     nxui::Font m_socFont, m_socSmall;         // CardsNX's typeface at the sizes HomeNX's screens are laid out for
     void ensureTextEntry();
     void enterText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
-                   std::function<void(const std::string&)> done, nxui::Widget* back);
+                   std::function<void(const std::string&)> done, nxui::Widget* back,
+                   bool sensitive = false);
     void openSocial(bool miis);
     std::shared_ptr<ControllerTestScreen> m_padTest; // Settings > Controllers: HomeNX's test screen
     void openPadTest();

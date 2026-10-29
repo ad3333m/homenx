@@ -206,7 +206,9 @@ target("SwitchU")
         add_packages("deko3d", {links = is_mode("debug") and "deko3dd" or "deko3d"})
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
-    add_syslinks("mbedtls", "mbedx509", "mbedcrypto", "nx")
+    add_linkorders("SDL2", "EGL")
+    add_linkorders("webpdemux", "webp")
+    add_syslinks("mbedtls", "mbedx509", "mbedcrypto", "glapi", "nx")
 
     if is_mode("release") then
         add_cxflags("-O3", "-ffast-math", {force = true})
@@ -307,7 +309,9 @@ target("SwitchU-Manager")
         add_packages("deko3d", {links = is_mode("debug") and "deko3dd" or "deko3d"})
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
-    add_syslinks("nx")
+    add_linkorders("SDL2", "EGL")
+    add_linkorders("webpdemux", "webp")
+    add_syslinks("glapi", "nx")
     add_defines(version_define, homenx_build_define)
 
     if is_mode("release") then
@@ -359,7 +363,9 @@ target("Homebrew-Manager")
         add_packages("deko3d", {links = is_mode("debug") and "deko3dd" or "deko3d"})
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
-    add_syslinks("nx")
+    add_linkorders("SDL2", "EGL")
+    add_linkorders("webpdemux", "webp")
+    add_syslinks("glapi", "nx")
     add_defines(version_define, homenx_build_define)
 
     before_build(function(target)
@@ -397,6 +403,7 @@ target("CardsNX")
     add_includedirs("projects/menu/src", {public = false})
     add_includedirs("projects/cards/src", {public = false})
     add_files("projects/cards/src/*.cpp")
+    add_files("projects/menu/src/widgets/LockScreen.cpp")
     add_files("projects/menu/src/homebrew/HomebrewStore.cpp") -- the Homebrew page's .nro list
     add_files("projects/updater/src/Catalog.cpp") -- homebrew updates, as the Homebrew Manager finds them
     add_links("minizip")
@@ -409,7 +416,9 @@ target("CardsNX")
         add_packages("deko3d", {links = is_mode("debug") and "deko3dd" or "deko3d"})
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
-    add_syslinks("nx")
+    add_linkorders("SDL2", "EGL")
+    add_linkorders("webpdemux", "webp")
+    add_syslinks("glapi", "nx")
     add_defines(version_define, homenx_build_define)
 
     before_build(function(target)

@@ -230,9 +230,15 @@ void Application::run() {
             // daemon is read; anything else it does is skipped on its side.
             if (m_activity)
                 m_activity->onUpdate(dt);
-            svcSleepThread(50'000'000ULL);
-            prevTick = armGetSystemTick();
-            continue;
+            // If the activity just woke up (e.g. showed the lock screen), do
+            // not sleep and skip the render frame: fall through so the lock
+            // screen is drawn immediately instead of showing the stale
+            // pre-sleep home screen framebuffer for up to 50 ms.
+            if (m_sleeping) {
+                svcSleepThread(50'000'000ULL);
+                prevTick = armGetSystemTick();
+                continue;
+            }
         }
 
         setPhase("reading the buttons");
@@ -249,6 +255,10 @@ void Application::run() {
         if (m_activity) {
             setPhase("update");
             m_activity->onUpdate(dt);
+            // The activity may have just entered sleep (e.g. power button
+            // pressed). Don't render another frame of the home screen — go
+            // straight to the sleep loop so the screen goes dark immediately.
+            if (m_sleeping) continue;
             setPhase("changing screens");
             if (!applyPendingActivity()) {
                 m_running = false;
@@ -289,6 +299,28 @@ void Application::run() {
             }
         }
     }
+}
+
+void Application::setSleeping(bool s) {
+    if (m_sleeping == s) return;
+    m_sleeping = s;
+    if (m_sleeping) {
+        renderSleepFrames();
+    }
+}
+
+void Application::renderSleepFrames() {
+    if (!m_activity || !m_renderer || !m_renderEnabled) return;
+    setPhase("rendering sleep frames");
+    for (int i = 0; i < GpuDevice::NUM_FB; ++i) {
+        m_activity->m_rootBox->update(0.016f);
+        m_gpu.beginFrame();
+        m_renderer->beginFrame();
+        m_activity->m_rootBox->render(*m_renderer);
+        m_renderer->endFrame();
+        m_gpu.endFrame();
+    }
+    m_gpu.waitIdle();
 }
 
 void Application::shutdown() {
