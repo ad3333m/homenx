@@ -1,0 +1,51 @@
+
+name: Mirror to self-hosted GitLab
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the complete repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync branches and tags to GitLab
+        env:
+          GITLAB_USER: ${{ secrets.GITLAB_USER }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_REPOSITORY_URL: ${{ vars.GITLAB_REPOSITORY_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GITLAB_USER" ||
+                -z "$GITLAB_TOKEN" ||
+                -z "$GITLAB_REPOSITORY_URL" ]]; then
+            echo "GitLab credentials or repository URL are missing."
+            exit 1
+          fi
+
+          if [[ "$GITLAB_REPOSITORY_URL" != https://* ]]; then
+            echo "GitLab repository URL must start with https://"
+            exit 1
+          fi
+
+          git remote add gitlab \
+            "https://${GITLAB_USER}:${GITLAB_TOKEN}@${GITLAB_REPOSITORY_URL#https://}"
+
+          git push --prune gitlab \
+            '+refs/remotes/origin/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*'
