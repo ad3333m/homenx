@@ -46,6 +46,6 @@ jobs:
           git remote add gitlab \
             "https://${GITLAB_USER}:${GITLAB_TOKEN}@${GITLAB_REPOSITORY_URL#https://}"
 
-          git push --prune gitlab \
+          git push gitlab \
             '+refs/remotes/origin/*:refs/heads/*' \
             '+refs/tags/*:refs/tags/*'
