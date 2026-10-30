@@ -2,6 +2,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -41,6 +42,12 @@ struct Settings {
     // Homebrew moved by hand (+ > Move to Media / Move to Homebrew): .nro paths,
     // NRO forwarders' title IDs. Out: the ones Media takes by itself, kept out.
     std::vector<std::string> mediaIn, mediaOut;
+    std::vector<std::string> gamesIn, gamesOut; // moved by hand onto / off the Games page (ports, ...)
+    std::uint64_t nroHash = 0;  // the .nro files at the last full read (homebrewHash)
+    int titles = -1;            // the installed titles then (installedTitleCount)
+    bool askUser = false;       // starting a game asks who's playing, as Nintendo's HOME does
+    std::string panelApp = "news"; // the panel's right button: "news", "" nothing, else a card's id (hex)
+    bool lockScreen = false;    // a lock screen when the console wakes
     std::vector<std::string> sheetOrder; // Settings' tabs by name, in his order (new ones after)
     std::string user;         // who games start as (hex), "" = the last one who played
     std::string lastGame;     // the last game (or app) started from here, hex
@@ -81,6 +88,13 @@ struct Settings {
             titlePics = j.value("titlePics", titlePics);
             mediaIn = j.value("mediaIn", mediaIn);
             mediaOut = j.value("mediaOut", mediaOut);
+            gamesIn = j.value("gamesIn", gamesIn);
+            gamesOut = j.value("gamesOut", gamesOut);
+            nroHash = j.value("nroHash", nroHash);
+            titles = j.value("titles", titles);
+            askUser = j.value("askUser", askUser);
+            panelApp = j.value("panelApp", panelApp);
+            lockScreen = j.value("lockScreen", lockScreen);
             sheetOrder = j.value("sheetOrder", sheetOrder);
             user = j.value("user", user);
             lastGame = j.value("lastGame", lastGame);
@@ -97,7 +111,9 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut},
+                            {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
+                            {"lockScreen", lockScreen}, {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
         writeLater(kPath, j.dump(2));

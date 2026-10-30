@@ -42,6 +42,10 @@ std::vector<Game> listGames();
 // (SwitchCord) and the Homebrew Manager first.
 std::vector<Game> listHomebrew();
 std::vector<std::uint8_t> gameIcon(const Game& game); // JPEG
+// Quick checks (no names or icons read): the .nro files' paths, and how many
+// titles are installed. Different from the last full read: something new.
+std::uint64_t homebrewHash();
+int installedTitleCount();
 
 // The network, for the worker threads. Each keeps its connections open between
 // pictures; threadDone() lets them go when a worker ends.

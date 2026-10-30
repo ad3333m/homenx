@@ -229,6 +229,7 @@ std::string fromFileName(const std::string& path) {
 // The songs, their titles and lengths, and the sounds: read on a thread (the
 // SD card can be busy for seconds; HOME's start waited 250 ms on these).
 bool Audio::start() {
+    std::srand(static_cast<unsigned>(armGetSystemTick())); // HOME starts afresh after every game: else the same "random" songs
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096) < 0) return false;
     Mix_AllocateChannels(8);
     m_open = true;
@@ -359,13 +360,23 @@ void Audio::update() {
     if (!m_music || m_tracks.empty() || !g_trackEnded.exchange(false)) return;
     m_isPlaying = false;
     if (m_repeat && m_playing >= 0) startTrack(static_cast<size_t>(m_playing));
-    else startTrack(m_shuffle && m_tracks.size() > 1 ? static_cast<size_t>(std::rand()) % m_tracks.size() : m_track);
+    else startTrack(m_shuffle && m_tracks.size() > 1 ? shuffled() : m_track);
+}
+
+size_t Audio::shuffled() const {
+    size_t i = static_cast<size_t>(std::rand()) % (m_tracks.size() - 1);
+    if (m_playing >= 0 && i >= static_cast<size_t>(m_playing)) ++i; // never the same song again
+    return i;
 }
 
 void Audio::skip(int dir) {
     if (!m_open || m_tracks.empty()) return;
     m_music = true;
     const long n = static_cast<long>(m_tracks.size());
+    if (m_shuffle && dir > 0 && n > 1) {
+        startTrack(shuffled());
+        return;
+    }
     const long from = m_playing < 0 ? 0 : m_playing;
     startTrack(static_cast<size_t>(((from + dir) % n + n) % n));
 }
@@ -391,6 +402,7 @@ void Audio::play(const char* sound) {
 }
 
 void Audio::fadeOut(int ms) {
+    m_music = false; // the fade's end isn't a song ending: no next song during a launch (setMusic brings it back)
     if (m_open && m_isPlaying) Mix_FadeOutMusic(ms);
 }
 

@@ -5,6 +5,7 @@
 // else to the hbmenu that was there before. No UI, it only picks the next .nro.
 #include <switch.h>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <sys/stat.h>
 
@@ -53,18 +54,33 @@ bool chain(const std::string& path) {
     return true;
 }
 
+// An NRO forwarder (an installed title, ID 05...) runs the homebrew loader with
+// its own .nro; we only run in it once that .nro has exited.
+bool inForwarder() {
+    u64 program = 0;
+    return appletGetAppletType() == AppletType_Application
+        && R_SUCCEEDED(svcGetInfo(&program, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0)) && (program >> 56) == 0x05;
+}
+
 } // namespace
 
-int main(int, char**) {
+int main(int argc, char** argv) {
     if (readLine(kChained) == processId()) {
         std::remove(kChained);
         svcExitProcess();
+    }
+    // Started with an .nro to run (forwarders that go through hbmenu): run it.
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg.size() > 4 && arg.compare(arg.size() - 4, 4, ".nro") == 0 && chain(arg)) return 0;
     }
     const std::string next = readLine(kNext);
     if (!next.empty()) {
         std::remove(kNext);
         if (chain(next)) return 0;
     }
+    // A forwarder's app closed: back to HOME, not into Sphaira.
+    if (inForwarder()) svcExitProcess();
     if (chain(kBundledSphaira)) return 0;
     if (chain(readLine(kSphairaPath))) return 0;
     for (const char* path : {"sdmc:/switch/sphaira/sphaira.nro", "sdmc:/switch/sphaira.nro"})

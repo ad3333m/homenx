@@ -15,6 +15,8 @@
 #include "system_action_queue.hpp"
 #include <cstdio>
 #include <cstring>
+#include <cctype>
+#include <map>
 #include <atomic>
 #include <mutex>
 #include <vector>
@@ -999,9 +1001,16 @@ static void startPowerSequence(const char* source, smi::SystemMessage action) {
         case smi::SystemMessage::Shutdown:
             requestPowerStateChange(source, false);
             break;
-        case smi::SystemMessage::Reboot:
-            requestPowerStateChange(source, true);
+        case smi::SystemMessage::Reboot: {
+            // Through am, as Nintendo's HOME restarts: Atmosphère then reboots the
+            // way it's set up to (its reboot payload by default). spsm's plain
+            // restart left consoles with AutoRCM on a black screen (RCM).
+            const Result rc = appletStartRebootSequence();
+            switchu::FileLog::logCommit("[power] %s am reboot rc=0x%X", source, rc);
+            if (R_FAILED(rc))
+                requestPowerStateChange(source, true);
             break;
+        }
         case smi::SystemMessage::RebootToPayload: {
             // Through am: Atmosphère's bpc mitm only sends reboots from am (omm
             // on 14.0.0+), fatal and hbl to the payload set with bpc:ams. spsm's
@@ -1278,30 +1287,99 @@ static bool consumeForegroundAppletHomeRequest() {
 // HomeNX: the title currently borrowed to run homebrew as an application.
 static uint64_t g_homebrewHostTitleId = 0;
 static uint64_t g_homebrewLaunchedAt = 0;
-// Once application mode has failed on this console, the menu goes straight to
-// the Album (applet-mode hbloader) path, which is known to work.
+// Settings > HomeNX "Sphaira as an application" off (it writes "settings" in it):
+// the menu uses the Album. Older builds wrote it themselves after one failed
+// launch, which turned application mode off for good; those are cleared at boot.
 static constexpr const char* kHomebrewAppletFlag = "sdmc:/switch/SwitchU/homebrew_applet_mode";
+
+static void clearAutoAppletFlag() {
+    std::FILE* f = std::fopen(kHomebrewAppletFlag, "r");
+    if (!f) return;
+    char buf[16] = {};
+    std::fgets(buf, sizeof(buf), f);
+    std::fclose(f);
+    if (std::strncmp(buf, "settings", 8) != 0) {
+        std::remove(kHomebrewAppletFlag);
+        switchu::FileLog::log("[homebrew] application mode back on (it was turned off by a failed launch: %s)", buf);
+    }
+}
 
 // The menu sets this for homebrew that must run as an application (Nextendo):
 // if that fails, back to HOME, never the Album (applet mode).
 static constexpr const char* kApplicationOnlyFlag = "sdmc:/config/SwitchU/homebrew_application_only";
 
+// Atmosphère starts the homebrew loader in place of the Album unless it was set
+// up otherwise (override_config.ini [hbl_config]: other programs, or a key that
+// has to be held). Then the Album fallback only opened the Album.
+static bool albumRunsHbl() {
+    std::FILE* f = std::fopen("sdmc:/atmosphere/config/override_config.ini", "r");
+    if (!f) return true; // Atmosphère's default: the Album, unless R is held
+    std::map<std::string, std::string> programs, keys; // by their suffix: "" or "_0", "_1", ...
+    bool inHbl = false;
+    char line[256];
+    while (std::fgets(line, sizeof(line), f)) {
+        std::string s;
+        for (const char* c = line; *c; ++c)
+            if (!std::isspace(static_cast<unsigned char>(*c))) s += static_cast<char>(std::tolower(static_cast<unsigned char>(*c)));
+        if (s.empty() || s[0] == ';' || s[0] == '#') continue;
+        if (s[0] == '[') {
+            inHbl = s == "[hbl_config]";
+            continue;
+        }
+        const size_t eq = s.find('=');
+        if (!inHbl || eq == std::string::npos) continue;
+        const std::string k = s.substr(0, eq), v = s.substr(eq + 1);
+        for (const char* base : {"program_id", "title_id"})
+            if (k.rfind(base, 0) == 0) programs[k.substr(std::strlen(base))] = v;
+        if (k.rfind("override_key", 0) == 0) keys[k.substr(std::strlen("override_key"))] = v;
+    }
+    std::fclose(f);
+    if (programs.empty()) return true;
+    for (const auto& [suffix, program] : programs)
+        if (program == "010000000000100d" || program == "0x010000000000100d") {
+            const auto key = keys.find(suffix);
+            return key == keys.end() || key->second.empty() || key->second[0] == '!'; // "!R": unless R is held
+        }
+    return false;
+}
+
 static void fallBackToAlbum(const char* why) {
+    bool applicationOnly = false;
     if (std::FILE* only = std::fopen(kApplicationOnlyFlag, "r")) {
         std::fclose(only);
         std::remove(kApplicationOnlyFlag);
-        switchu::FileLog::log("[homebrew] application mode failed (%s); application only, back to HOME", why);
+        applicationOnly = true;
+    }
+    if (applicationOnly || !albumRunsHbl()) {
+        switchu::FileLog::log("[homebrew] application mode failed (%s); %s, back to HOME", why,
+                              applicationOnly ? "application only" : "the Album doesn't run homebrew here");
         daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
         return;
     }
-    switchu::FileLog::log("[homebrew] application mode failed (%s); using Album", why);
-    if (FILE* f = std::fopen(kHomebrewAppletFlag, "w")) {
-        std::fputs(why, f);
-        std::fclose(f);
-    }
+    switchu::FileLog::log("[homebrew] application mode failed (%s); using Album this once", why);
     daemon::SystemAction album{};
     album.type = daemon::SystemActionType::OpenAlbum;
     g_actionQueue.enqueue(album);
+}
+
+// Games to borrow for homebrew as an application: the menu's pick, then a few
+// other installed ones that can start now. One that couldn't (archived, needing
+// an update, a game card) used to send every homebrew launch to the Album.
+static std::vector<uint64_t> homebrewHostCandidates(uint64_t preferred) {
+    using namespace switchu::ns;
+    std::vector<uint64_t> out;
+    if (preferred && (preferred >> 56) != 0x05) out.push_back(preferred);
+    std::vector<ExtApplicationRecord> records;
+    std::vector<ExtApplicationView> views;
+    if (listApplicationRecords(records, "hbhost") && queryApplicationViews(records, views, "hbhost"))
+        for (size_t i = 0; i < views.size() && out.size() < 5; ++i) {
+            const uint32_t f = views[i].flags;
+            const uint64_t id = records[i].id;
+            if (id == preferred || (id >> 56) == 0x05) continue; // NRO forwarders: homebrew themselves
+            if ((f & AppViewFlag_CanLaunch) && !(f & AppViewFlag_IsGameCard) && !(f & AppViewFlag_NeedsUpdate))
+                out.push_back(id);
+        }
+    return out;
 }
 
 static void releaseHomebrewHost() {
@@ -1816,17 +1894,26 @@ static bool handleAction(daemon::SystemAction& action) {
     switch (action.type) {
         case daemon::SystemActionType::LaunchHomebrewApp: {
             // Serve hbloader as the host title's code for this launch; released
-            // again when the application exits (releaseHomebrewHost).
-            Result rc = daemon::registerExternalContent(action.titleId, "/switch/SwitchU/bin/hbl");
-            if (R_SUCCEEDED(rc)) {
-                g_homebrewHostTitleId = action.titleId;
-                g_homebrewLaunchedAt = armGetSystemTick();
-                rc = daemon::app::launch(action.titleId, action.uid);
+            // again when the application exits (releaseHomebrewHost). The next
+            // game is tried when one can't start.
+            Result rc = MAKERESULT(Module_Libnx, LibnxError_NotFound);
+            for (const uint64_t host : homebrewHostCandidates(action.titleId)) {
+                rc = daemon::registerExternalContent(host, "/switch/SwitchU/bin/hbl");
+                if (R_SUCCEEDED(rc)) {
+                    g_homebrewHostTitleId = host;
+                    g_homebrewLaunchedAt = armGetSystemTick();
+                    rc = daemon::app::launch(host, action.uid);
+                }
+                if (R_SUCCEEDED(rc)) {
+                    action.titleId = host;
+                    break;
+                }
+                switchu::FileLog::log("[action] homebrew host 0x%016lX FAIL: 0x%X", host, rc);
+                releaseHomebrewHost();
             }
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchHomebrewApp, rc, action.titleId);
             if (R_FAILED(rc)) {
-                switchu::FileLog::log("[action] homebrew app 0x%016lX FAIL: 0x%X", action.titleId, rc);
-                releaseHomebrewHost();
+                switchu::FileLog::log("[action] homebrew app FAIL: 0x%X (no game could be borrowed)", rc);
                 char why[48];
                 std::snprintf(why, sizeof(why), "launch rc=0x%X", rc);
                 fallBackToAlbum(why);
@@ -2504,6 +2591,7 @@ int main(int argc, char* argv[]) {
         switchu::FileLog::log("[daemon] general channel event unavailable: 0x%X", generalEventRc);
 
     appletLoadAndApplyIdlePolicySettings();
+    clearAutoAppletFlag();
 
     rebuildAppCatalog("boot");
 

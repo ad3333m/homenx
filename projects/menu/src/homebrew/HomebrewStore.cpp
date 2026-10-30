@@ -96,7 +96,35 @@ void scanDir(const std::string& dir, int depth, const std::string& skip, bool wi
     closedir(d);
 }
 
+void listNros(const std::string& dir, int depth, const std::string& skip, std::vector<std::string>& out) {
+    DIR* d = opendir(dir.c_str());
+    if (!d) return;
+    while (dirent* e = readdir(d)) {
+        if (e->d_name[0] == '.') continue;
+        const std::string path = dir + "/" + e->d_name;
+        if (e->d_type == DT_DIR) {
+            if (depth > 0) listNros(path, depth - 1, skip, out);
+        } else if (endsWithNro(e->d_name) && strcasecmp(path.c_str(), skip.c_str()) != 0) {
+            out.push_back(path);
+        }
+    }
+    closedir(d);
+}
+
 } // namespace
+
+std::uint64_t nroPathsHash(const std::string& skipPath) {
+    std::vector<std::string> paths;
+    listNros("sdmc:/switch", 1, skipPath, paths);
+    std::sort(paths.begin(), paths.end());
+    std::uint64_t h = 1469598103934665603ULL; // FNV-1a
+    for (const std::string& p : paths)
+        for (unsigned char c : p + '\n') {
+            h ^= c;
+            h *= 1099511628211ULL;
+        }
+    return h;
+}
 
 std::vector<HomebrewApp> scanHomebrew(const std::string& skipPath, bool withIcons) {
     std::vector<HomebrewApp> apps;

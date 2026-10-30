@@ -78,6 +78,7 @@ jobs:
           path: out/*.nro
 
       - name: Publish release "latest"
+        if: github.ref == 'refs/heads/master' # other branches only build (checking a change compiles)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -189,6 +190,7 @@ jobs:
             out/HomeNX-full.zip
 
       - name: Publish release "latest"
+        if: github.ref == 'refs/heads/master' # other branches only build (checking a change compiles)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -23,8 +23,9 @@ float applyGyroDeadzone(float value) {
 } // namespace
 
 void Input::initialize() {
-    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-    padInitializeDefault(&m_pad);
+    // Every controller drives the menu (players 1-8 and handheld), not only player 1.
+    padConfigureInput(8, HidNpadStyleSet_NpadStandard);
+    padInitializeAny(&m_pad);
     hidInitializeTouchScreen();
 
     recenterVirtualPointer();

@@ -402,6 +402,21 @@ std::vector<Game> listHomebrew() {
     return apps;
 }
 
+std::uint64_t homebrewHash() { return nroPathsHash("sdmc:/switch/CardsNX/CardsNX.nro"); }
+
+int installedTitleCount() {
+    NsApplicationRecord records[30] = {};
+    int count = 0;
+    for (s32 offset = 0; offset < 1024;) {
+        s32 got = 0;
+        if (R_FAILED(nsListApplicationRecord(records, 30, offset, &got)) || got <= 0) break;
+        count += got;
+        offset += got;
+        if (got < 30) break;
+    }
+    return count;
+}
+
 std::vector<std::uint8_t> gameIcon(const Game& game) {
     return game.path.empty() ? switchu::control_cache::readIcon(game.id) : readHomebrewIcon(game.path);
 }

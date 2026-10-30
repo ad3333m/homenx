@@ -43,6 +43,7 @@ public:
 private:
     void startTrack(size_t index);
     void loadWanted();
+    size_t shuffled() const; // a random song, not the one playing (2+ songs)
 
     bool m_open = false, m_sounds = true, m_music = true, m_shuffle = false, m_repeat = false;
     int m_volume = 60, m_soundVolume = 80;

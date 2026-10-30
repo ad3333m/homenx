@@ -539,10 +539,11 @@ static bool startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid
     } else {
         std::filesystem::remove(kApplicationOnly, ec);
     }
-    // The daemon drops this flag once application mode fails on this console.
+    // Settings > HomeNX "Sphaira as an application" off. No game to borrow
+    // (hostTitleId 0): the daemon finds one itself.
     const bool appletOnly = !applicationOnly
         && std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec);
-    if (!appletOnly && hostTitleId != 0 && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {
+    if (!appletOnly && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {
         const Result rc = switchu::menu::smi_cmd::launchHomebrewApp(uid, hostTitleId);
         DebugLog::log("[launcher] homebrew as application via %016lX rc=0x%X", hostTitleId, rc);
         if (R_SUCCEEDED(rc)) {

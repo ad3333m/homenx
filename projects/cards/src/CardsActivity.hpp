@@ -74,7 +74,16 @@ private:
         std::vector<Game> games, homebrew;
         float ms = 0.f;         // how long reading them took
         bool gamesOnly = false; // the installed titles only: the .nro apps stay as they are
+        int titles = -1;        // installed titles (Settings.titles)
+        std::uint64_t nroHash = 0;
     };
+    // Back from a game, last time's lists show; this checks quickly on a thread
+    // whether apps or games were added meanwhile (then they're read again).
+    struct Changes {
+        int titles = -1;
+        std::uint64_t nroHash = 0;
+    };
+    std::future<Changes> m_changesJob;
     // Every game and .nro (slow: seconds), on whatever thread calls it; or only
     // the installed titles (a game installed, updated or removed).
     static Lists readAllLists(bool gamesOnly = false);
@@ -139,7 +148,7 @@ private:
     // The Media page: your media apps off the Homebrew page, and the ones
     // GitHub has that aren't on the SD card yet ("Get").
     void splitMedia();
-    void moveToMedia(const Game& g, bool toMedia); // + > Move to Media / Move to Homebrew
+    void moveToPage(const Game& g, int to); // + > Move to Games / Homebrew / Media
     std::vector<Game> homebrewToSave() const; // Homebrew and Media's .nro apps, for lists.json
     void getMedia(const Game& g);
     std::atomic<bool> m_updatesSaved{false}; // the last updates came from the saved list
@@ -178,6 +187,7 @@ private:
     float othersAlpha() const;    // the rest of the row while launching
     void comeBack(); // it didn't happen: the screen as it was
     void handleHome();
+    void askClose(); // X: close the open game or app, after asking
     bool closeEverything();
 
     // Popups and screens.
@@ -347,6 +357,7 @@ private:
     nxui::Rect m_leaveFrom{};
     std::function<void()> m_leaveThen;
     bool m_left = false; // `then` ran: hold the black frame until the app closes
+    float m_leftAt = 0.f; // when (12 s on, it's given up)
     std::unique_ptr<nxui::Texture> m_launchTex; // the game's art at full size
     std::uint64_t m_launchTexId = 0;
     float m_launchTexIn = 0.f;

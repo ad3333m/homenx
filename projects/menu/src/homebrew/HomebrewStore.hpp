@@ -17,6 +17,9 @@ struct HomebrewApp {
 // `withIcons` the icons stay on the SD (see readHomebrewIcon) so it's quick.
 std::vector<HomebrewApp> scanHomebrew(const std::string& skipPath, bool withIcons = true);
 std::vector<std::uint8_t> readHomebrewIcon(const std::string& path);
+// The same .nro files by path only (none is opened): changes when one is added,
+// removed or renamed. HOME compares it with the last full read's.
+std::uint64_t nroPathsHash(const std::string& skipPath);
 
 // Reads one .nro's name/author/version/icon. False if the file can't be opened.
 bool readHomebrew(const std::string& path, HomebrewApp& app, bool withIcon = true);

@@ -517,13 +517,25 @@ bool CardsActivity::onCreate() {
     const bool stale = atBoot || nowSec - m_settings.listsAt > 30 * 60 || nowSec < m_settings.listsAt;
     bool scanned = false;
     if (loadLists(m_pages[kGames], m_pages[kHomebrew])) {
-        if (stale) startListRefresh();
+        if (stale) {
+            startListRefresh();
+        } else { // anything downloaded or installed meanwhile? (paths and a count: quick)
+            m_changesJob = std::async(std::launch::async, []() {
+                offScreenCore();
+                Changes c;
+                c.titles = installedTitleCount();
+                c.nroHash = homebrewHash();
+                return c;
+            });
+        }
     } else { // the very first time: read them now
         Lists l = readAllLists();
         m_pages[kGames] = std::move(l.games);
         m_pages[kHomebrew] = std::move(l.homebrew);
         saveLists(m_pages[kGames], homebrewToSave());
         m_settings.listsAt = nowSec;
+        m_settings.titles = l.titles;
+        m_settings.nroHash = l.nroHash;
         scanned = true;
     }
     splitMedia();
@@ -615,11 +627,14 @@ CardsActivity::Lists CardsActivity::readAllLists(bool gamesOnly) {
     const std::uint64_t t0 = armGetSystemTick();
     Lists l;
     l.gamesOnly = gamesOnly;
-    for (Game& g : listGames()) (g.homebrew ? l.homebrew : l.games).push_back(std::move(g));
+    std::vector<Game> titles = listGames();
+    l.titles = static_cast<int>(titles.size());
+    for (Game& g : titles) (g.homebrew ? l.homebrew : l.games).push_back(std::move(g));
     if (gamesOnly) {
         l.ms = ticksMs(armGetSystemTick() - t0);
         return l;
     }
+    l.nroHash = homebrewHash();
     std::vector<Game> nros = listHomebrew();
     l.homebrew.insert(l.homebrew.begin(), std::make_move_iterator(nros.begin()), std::make_move_iterator(nros.end()));
     for (size_t i = 0; i < l.homebrew.size(); ++i) l.homebrew[i].order = static_cast<int>(i);
@@ -657,6 +672,7 @@ void CardsActivity::onDestroy() {
     if (m_browserJob.valid()) m_browserJob.wait();
     if (m_getJob.valid()) m_getJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
+    if (m_changesJob.valid()) m_changesJob.wait();
     if (m_updatesJob.valid()) m_updatesJob.wait();
     if (m_nroUpdateJob.valid()) m_nroUpdateJob.wait();
     if (!m_perfOut.empty()) {
@@ -1272,10 +1288,16 @@ void CardsActivity::takeLists(Lists lists) {
         return m_sels[p] > 0 && m_sels[p] < static_cast<int>(page.size()) ? page[(size_t)m_sels[p]].id : 0;
     };
     const std::uint64_t keep[2] = {chosen(kGames), chosen(kHomebrew)};
-    if (lists.gamesOnly) { // the .nro apps as they were, then the new NRO forwarders
+    m_settings.titles = lists.titles;
+    if (!lists.gamesOnly) m_settings.nroHash = lists.nroHash;
+    m_settings.save();
+    if (lists.gamesOnly) { // the .nro apps as they were (wherever they are), then the new NRO forwarders
         std::vector<Game> all;
         for (Game& g : homebrewToSave())
             if (!g.path.empty()) all.push_back(std::move(g));
+        for (const Game& g : m_pages[kGames])
+            if (!g.path.empty()) all.push_back(g); // moved onto Games: placed there again
+        std::sort(all.begin(), all.end(), [](const Game& a, const Game& b) { return a.order < b.order; });
         all.insert(all.end(), std::make_move_iterator(lists.homebrew.begin()), std::make_move_iterator(lists.homebrew.end()));
         for (size_t i = 0; i < all.size(); ++i) all[i].order = static_cast<int>(i);
         lists.homebrew = std::move(all);
@@ -1297,12 +1319,30 @@ void CardsActivity::takeLists(Lists lists) {
 }
 
 void CardsActivity::splitMedia() {
+    auto& games = m_pages[kGames];
     auto& homebrew = m_pages[kHomebrew];
     std::vector<Game> media;
     auto listed = [](const std::vector<std::string>& list, const Game& g) {
         const std::string key = g.path.empty() ? idText(g.id) : g.path;
         return std::find(list.begin(), list.end(), key) != list.end();
     };
+    // Moved by hand between Games and Homebrew first (+ > Move to ...); Media takes from Homebrew.
+    for (auto it = games.begin(); it != games.end();) {
+        if (listed(m_settings.gamesOut, *it)) {
+            homebrew.push_back(std::move(*it));
+            it = games.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = homebrew.begin(); it != homebrew.end();) {
+        if (listed(m_settings.gamesIn, *it)) {
+            games.push_back(std::move(*it));
+            it = homebrew.erase(it);
+        } else {
+            ++it;
+        }
+    }
     for (auto it = homebrew.begin(); it != homebrew.end();) {
         const bool own = !it->path.empty() && mediaAppOf(it->name, it->path); // Adam's media apps, by name
         if ((own && !listed(m_settings.mediaOut, *it)) || listed(m_settings.mediaIn, *it)) {
@@ -1333,24 +1373,35 @@ void CardsActivity::splitMedia() {
     m_sels[kMedia] = std::clamp(m_sels[kMedia], 0, std::max(0, static_cast<int>(m_pages[kMedia].size()) - 1));
 }
 
-void CardsActivity::moveToMedia(const Game& g, bool toMedia) {
+// + > Move to Games / Homebrew / Media: anything onto any of the three (a port
+// with the games, a game with the media apps). Kept by .nro path or title ID.
+void CardsActivity::moveToPage(const Game& g, int to) {
     const std::string key = g.path.empty() ? idText(g.id) : g.path;
-    for (auto* list : {&m_settings.mediaIn, &m_settings.mediaOut})
+    for (auto* list : {&m_settings.mediaIn, &m_settings.mediaOut, &m_settings.gamesIn, &m_settings.gamesOut})
         list->erase(std::remove(list->begin(), list->end(), key), list->end());
-    const bool own = !g.path.empty() && mediaAppOf(g.name, g.path); // goes to Media by itself
-    if (toMedia && !own) m_settings.mediaIn.push_back(key);
-    if (!toMedia && own) m_settings.mediaOut.push_back(key);
-    // The pages again: everything back on Homebrew, then Media takes its own.
+    const bool ownMedia = !g.path.empty() && mediaAppOf(g.name, g.path); // goes to Media by itself
+    if (to == kGames && g.homebrew) m_settings.gamesIn.push_back(key);
+    if (to != kGames && !g.homebrew) m_settings.gamesOut.push_back(key);
+    if (to == kMedia && !ownMedia) m_settings.mediaIn.push_back(key);
+    if (to == kHomebrew && ownMedia) m_settings.mediaOut.push_back(key);
+    // Every game and app back where it was read, then placed again.
+    std::vector<Game> games, homebrew;
+    for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
+        for (Game& x : m_pages[p])
+            if (x.action.empty()) (x.homebrew ? homebrew : games).push_back(std::move(x));
+    std::sort(homebrew.begin(), homebrew.end(), [](const Game& a, const Game& b) { return a.order < b.order; });
     const int from = m_page;
-    m_pages[kHomebrew] = homebrewToSave();
-    applyOrder(kHomebrew);
+    m_pages[kGames] = std::move(games);
+    m_pages[kHomebrew] = std::move(homebrew);
     splitMedia();
+    applyOrder(kHomebrew);
+    sortGames(m_settings.sort, false);
     m_sels[from] = std::clamp(m_sels[from], 0, std::max(0, static_cast<int>(m_pages[from].size()) - 1));
     m_scroll = static_cast<float>(sel());
-    saveOrder(toMedia ? kMedia : kHomebrew); // (saves the settings too)
+    saveOrder(to); // (saves the settings too)
     saveLists(m_pages[kGames], homebrewToSave());
     m_audio.play("toggle_on");
-    say(g.name + (toMedia ? " is on the Media page now." : " is back on the Homebrew page."));
+    say(g.name + " is on the " + kPageNames[to] + " page now.");
     wantArt();
 }
 
@@ -1474,7 +1525,7 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
 #ifdef SWITCHU_MENU
     m_newsOpen = false;
 #endif
-    m_audio.play("launch_game");
+    m_audio.play(m_leaveIndex >= 0 ? "launch_game" : "activation"); // Settings' Nintendo screens aren't a game
     m_audio.fadeOut(static_cast<int>(seconds * 1000.f));
 }
 
@@ -1966,7 +2017,8 @@ void CardsActivity::openHomebrewUpdates() {
 std::uint64_t CardsActivity::hostTitleId() const {
     using namespace switchu::ns;
     for (const Game& g : m_pages[kGames])
-        if (g.id && !isRunning(g.id) && (g.flags == 0 || ((g.flags & AppViewFlag_CanLaunch) && !(g.flags & AppViewFlag_IsGameCard))))
+        if (g.id && !isRunning(g.id) && g.path.empty() && !g.homebrew // apps moved onto Games aren't games to borrow
+            && (g.flags == 0 || ((g.flags & AppViewFlag_CanLaunch) && !(g.flags & AppViewFlag_IsGameCard))))
             return g.id;
     return 0;
 }
@@ -2088,6 +2140,29 @@ bool CardsActivity::closeEverything() {
     return any;
 }
 
+// X: close the open game or app (a homebrew app runs as the game it borrowed,
+// which may be on no page), after asking. Nothing else: X has no menu.
+void CardsActivity::askClose() {
+#ifdef SWITCHU_MENU
+    const std::uint64_t open = runningId();
+    if (!open) {
+        say("Nothing is open.");
+        return;
+    }
+    std::string name = "the open software";
+    for (const auto& page : m_pages)
+        for (const Game& g : page)
+            if (g.id == open) name = g.name;
+    openMenu("Close " + name + "?", {
+        action("Close it", [this, name]() {
+            m_launcher.terminateApplication();
+            say("Closing " + name + "...");
+        }, true),
+        action("Cancel", [] {}),
+    });
+#endif
+}
+
 // HOME pressed while HOME shows: things close; else back to the open game;
 // else the first card.
 void CardsActivity::handleHome() {
@@ -2142,11 +2217,12 @@ void CardsActivity::openOptions() {
 #endif
     items.push_back(action("Move", [this]() { startMove(); }));
     items.back().glyph = "arrows";
-    if (g.homebrew && g.action.empty() && (m_page == kHomebrew || m_page == kMedia)) { // its page
-        const bool toMedia = m_page == kHomebrew;
-        items.push_back(action(toMedia ? "Move to Media" : "Move to Homebrew", [this, g, toMedia]() { moveToMedia(g, toMedia); }));
-        items.back().glyph = toMedia ? "music" : "dots";
-    }
+    if (g.action.empty() && m_page != kNintendo) // onto another page: ports with the games, ...
+        for (int to : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
+            if (to != m_page) {
+                items.push_back(action(std::string("Move to ") + kPageNames[to], [this, g, to]() { moveToPage(g, to); }));
+                items.back().glyph = to == kMedia ? "music" : to == kGames ? "play" : "dots";
+            }
     if (g.action.empty()) {
         const std::uint64_t id = g.id;
         items.push_back(action("Download new pictures", [this, id]() {
@@ -2205,7 +2281,7 @@ void CardsActivity::openOptions() {
         }, true));
         items.back().glyph = "trash";
     }
-    if (g.path.empty() && g.homebrew && g.action.empty()) { // an NRO forwarder: uninstalled from the console
+    if (g.path.empty() && g.action.empty()) { // a game or an NRO forwarder: uninstalled from the console
         const std::uint64_t id = g.id;
         const std::string name = g.name;
         items.push_back(action("Delete", [this, id, name]() {
@@ -3595,7 +3671,7 @@ void CardsActivity::buildSettings() {
 #ifdef SWITCHU_MENU
     MenuItem network = action("Network", [this]() {
         m_sheetOpen = false;
-        leave(sel(), 0.75f, [this]() {
+        leave(-1, 0.75f, [this]() {
             m_discord.beginShutdown();
             m_launcher.launchNetConnect();
         });
@@ -3635,7 +3711,7 @@ void CardsActivity::buildSettings() {
     auto nintendo = [this](void (AppletLauncher::*open)()) -> std::function<void()> {
         return [this, open]() {
             m_sheetOpen = false;
-            leave(sel(), 0.75f, [this, open]() {
+            leave(-1, 0.75f, [this, open]() {
                 m_discord.beginShutdown();
                 (m_launcher.*open)();
             });
@@ -4871,6 +4947,14 @@ void CardsActivity::onUpdate(float dt) {
     if (m_listJob.valid() && !m_moving && !m_leaving
         && m_listJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         takeLists(m_listJob.get());
+    if (m_changesJob.valid() && m_changesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const Changes c = m_changesJob.get();
+        const bool nros = c.nroHash != m_settings.nroHash, titles = c.titles != m_settings.titles;
+        if (nros || titles) {
+            perfLine(nros ? "new or removed .nro apps: reading the lists again" : "installed titles changed: reading them again");
+            startListRefresh(!nros);
+        }
+    }
     perfMark("lists");
 
     // Homebrew updates: the saved list at once; asked again a little after start.
@@ -4934,17 +5018,20 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
 
-    // An NRO forwarder was uninstalled (or wasn't).
+    // A game or NRO forwarder was uninstalled (or wasn't).
     if (m_deleteJob.valid() && m_deleteJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const std::uint32_t rc = m_deleteJob.get();
         if (R_SUCCEEDED(rc)) {
             switchu::control_cache::remove(m_deleteId);
-            auto& page = m_pages[kHomebrew];
             const std::uint64_t id = m_deleteId;
-            page.erase(std::remove_if(page.begin(), page.end(), [id](const Game& x) { return x.id == id; }), page.end());
-            m_sels[kHomebrew] = std::clamp(m_sels[kHomebrew], 0, std::max(0, static_cast<int>(page.size()) - 1));
-            if (m_page == kHomebrew) m_scroll = static_cast<float>(sel());
-            saveOrder(kHomebrew);
+            for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)}) {
+                auto& page = m_pages[p];
+                page.erase(std::remove_if(page.begin(), page.end(), [id](const Game& x) { return x.id == id; }), page.end());
+                m_sels[p] = std::clamp(m_sels[p], 0, std::max(0, static_cast<int>(page.size()) - 1));
+            }
+            m_scroll = static_cast<float>(sel());
+            if (m_settings.titles > 0) --m_settings.titles; // not "something new" next time
+            saveOrder(m_page);
             saveLists(m_pages[kGames], homebrewToSave());
             m_audio.play("toggle_off");
             say(m_deleteName + " was deleted.");
@@ -5113,10 +5200,15 @@ void CardsActivity::onUpdate(float dt) {
         m_leaveT = std::min(1.f, m_leaveT + dt / std::max(0.05f, m_leaveFor));
         if (m_leaveT >= 1.f && !m_left) {
             m_left = true;
+            m_leftAt = m_time;
             m_settings.save();
             auto then = std::move(m_leaveThen);
             m_leaveThen = nullptr;
             if (then) then();
+        } else if (m_left && m_time - m_leftAt > 12.f) {
+            // Nothing took over (a restart that didn't happen): HOME again, not a black screen.
+            comeBack();
+            say("That didn't go through. Try again.");
         }
         return;
     }
@@ -5124,10 +5216,10 @@ void CardsActivity::onUpdate(float dt) {
     auto& in = app().input();
     using B = nxui::Button;
     const bool aDown = in.isDown(B::A), bDown = in.isDown(B::B);
-    const bool upDown = in.isDown(B::DUp) || in.isDown(B::LStickU);
-    const bool downDown = in.isDown(B::DDown) || in.isDown(B::LStickD);
-    const bool leftDown = in.isDown(B::DLeft) || in.isDown(B::LStickL);
-    const bool rightDown = in.isDown(B::DRight) || in.isDown(B::LStickR);
+    const bool upDown = in.isDown(B::DUp) || in.isDown(B::LStickU) || in.isDown(B::RStickU);
+    const bool downDown = in.isDown(B::DDown) || in.isDown(B::LStickD) || in.isDown(B::RStickD);
+    const bool leftDown = in.isDown(B::DLeft) || in.isDown(B::LStickL) || in.isDown(B::RStickL);
+    const bool rightDown = in.isDown(B::DRight) || in.isDown(B::LStickR) || in.isDown(B::RStickR);
 
     if (handleTouch()) return;
 
@@ -5177,8 +5269,8 @@ void CardsActivity::onUpdate(float dt) {
     }
 
     // Left / right: repeating while held.
-    const bool left = in.isHeld(B::DLeft) || in.isHeld(B::LStickL);
-    const bool right = in.isHeld(B::DRight) || in.isHeld(B::LStickR);
+    const bool left = in.isHeld(B::DLeft) || in.isHeld(B::LStickL) || in.isHeld(B::RStickL);
+    const bool right = in.isHeld(B::DRight) || in.isHeld(B::LStickR) || in.isHeld(B::RStickR);
     int move = 0;
     if (leftDown) {
         move = -1;
@@ -5244,7 +5336,8 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
     if (bDown && m_zone != Zone::Cards) m_zone = Zone::Cards;
-    if (in.isDown(B::Plus) || in.isDown(B::X)) openOptions();
+    if (in.isDown(B::Plus)) openOptions();
+    if (in.isDown(B::X)) askClose();
     if (in.isDown(B::Y)) activateTop(kTopSort);
     if (in.isDown(B::Minus)) openNotifications();
     if (in.isDown(B::L)) openDiscord();
