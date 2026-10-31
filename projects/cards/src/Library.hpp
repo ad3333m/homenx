@@ -112,6 +112,8 @@ std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, 
 bool chooseCoverArt(const Game& game, const TitleChoice* choice);
 // Halves a picture until it's at most maxW wide.
 void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
+// Scales it to maxW wide exactly (averaging), when it's wider: backgrounds at the screen's size.
+void scaleDown(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
 // SteamGridDB swaps a picture taken down (DMCA) for a flat notice: one mostly
 // of a single colour. Those are passed over for the next picture it has.
 bool removedNotice(const std::uint8_t* rgba, int w, int h);

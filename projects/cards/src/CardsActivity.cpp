@@ -936,15 +936,16 @@ void CardsActivity::worker(int index) {
             if (px) {
                 done.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
                 stbi_image_free(px);
-                // Backgrounds sharp, at full size up to 1920 (halving a 1280 banner to 640, or a box
-                // cover to 300, and stretching it over the screen was the blur); an icon a wash of
-                // its colours; cards as drawn.
+                // Backgrounds sharp: scaled to the screen's 1280 (halving a 1280 banner to 640, or a
+                // box cover to 300, and stretching it was the blur); an icon a wash of its colours;
+                // cards as drawn.
                 const int maxW = job.what == kLaunch ? 1280
                                : job.what == kIcon ? 160
                                : job.what == kCard ? 300 // drawn ~250 wide: a whole page of them fits
                                : done.kind == ArtKind::Icon ? 32
-                                                            : 1920;
-                shrink(done.rgba, w, h, maxW);
+                                                            : 1280;
+                if (job.what == kBackground || job.what == kLaunch) scaleDown(done.rgba, w, h, maxW);
+                else shrink(done.rgba, w, h, maxW);
                 done.w = w;
                 done.h = h;
             }
@@ -2288,7 +2289,7 @@ void CardsActivity::loadWallpaper() {
         if (stbi_uc* p = data.empty() ? nullptr : stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4)) {
             px.rgba.assign(p, p + static_cast<size_t>(w) * h * 4);
             stbi_image_free(p);
-            shrink(px.rgba, w, h, 1920);
+            scaleDown(px.rgba, w, h, 1280);
             px.w = w;
             px.h = h;
         }
@@ -5201,10 +5202,11 @@ void CardsActivity::onUpdate(float dt) {
         if (interval > 34.f) ++m_perfVerySlow;
         const auto waits = app().gpu().takeWaitStats();
         const auto frees = app().renderer().takeFreeStats();
-        // A GPU that can't keep up (frames waiting over two refreshes on it, for
-        // a second or so): the glass goes plain for this session.
+        // A GPU that can't keep 60 frames a second (waiting over 22 ms a frame on it,
+        // for a second or so): the glass goes plain and the background stays still for
+        // this session. At 34 ms, consoles stuck at exactly 30 fps (33 ms) never got it.
         m_gpuWaitAvg += (std::min(waits.frameMs, 120.f) - m_gpuWaitAvg) * 0.05f;
-        if (!m_gpuSlow && m_gpuWaitAvg > 34.f && m_time > 2.f) {
+        if (!m_gpuSlow && m_gpuWaitAvg > 22.f && m_time > 3.f && !m_leaving) {
             m_gpuSlow = true;
             char line[120];
             std::snprintf(line, sizeof(line), "the GPU is slow here (%.0f ms a frame): the glass is plain until HOME starts again",
@@ -5881,7 +5883,7 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
     };
     const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
     // A slow drift (zoom and pan), so the art feels alive; launching, it leans in.
-    const bool motion = m_settings.motion && m_settings.bgMotion;
+    const bool motion = m_settings.motion && m_settings.bgMotion && !m_gpuSlow; // (a slow GPU: it stays still)
     const int style = launchStyle();
     const float lean = !m_leaving ? 0.f
                      : style == kDive ? 0.45f * easeIn(m_leaveT)

@@ -1,3 +1,4 @@
+#include <switchu/tls_roots.hpp>
 #include "net/http.h"
 
 #include <atomic>
@@ -109,7 +110,14 @@ Response Perform(const Request& req) {
         }
     }
 
+    if (switchu::tls::usesRoots(req.url)) curl_easy_setopt(c, CURLOPT_CAINFO, switchu::tls::kHomeRoots);
     CURLcode rc = curl_easy_perform(c);
+    // The console's older store refused the server's chain: once more with HomeNX's roots.
+    if (switchu::tls::retryWithRoots(req.url, rc, switchu::tls::kHomeRoots)) {
+        curl_easy_setopt(c, CURLOPT_CAINFO, switchu::tls::kHomeRoots);
+        res.body.clear();
+        rc = curl_easy_perform(c);
+    }
     if (rc != CURLE_OK && !sink.overflow) {
         res.error = curl_easy_strerror(rc);
         LOG("http %s %s failed: %s", req.method.c_str(), req.url.c_str(), res.error.c_str());

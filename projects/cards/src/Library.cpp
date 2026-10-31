@@ -5,6 +5,7 @@
 #include <switchu/control_cache.hpp>
 #include <switchu/hekate_rtc.hpp>
 #include <switchu/ns_ext.hpp>
+#include <switchu/tls_roots.hpp>
 #include "homebrew/HomebrewStore.hpp"
 #ifdef SWITCHU_MENU
 #include "themeshop/ThemeHttp.hpp"
@@ -70,10 +71,11 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
     curl_easy_reset(c); // the open connections stay
     curl_slist* list = nullptr;
     for (const std::string& h : headers) list = curl_slist_append(list, h.c_str());
-    // art.gametdb.com is on Let's Encrypt's newest chain (ISRG Root X1), which
-    // the console's own store may not have: its root ships with the app.
-    const std::string ca = std::string(kAssets) + "certs/isrg-root-x1.pem";
-    if (url.find("gametdb.com") != std::string::npos) curl_easy_setopt(c, CURLOPT_CAINFO, ca.c_str());
+    // Servers the console's older store refuses (GameTDB's Let's Encrypt chain,
+    // nlib.cc's and SteamGridDB's Google Trust Services one): CardsNX's roots.
+    const std::string roots = std::string(kAssets) + "certs/roots.pem";
+    if (url.find("gametdb.com") != std::string::npos || switchu::tls::usesRoots(url))
+        curl_easy_setopt(c, CURLOPT_CAINFO, roots.c_str());
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
     curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
@@ -85,7 +87,14 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, toString);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &out);
     long status = 0;
-    if (curl_easy_perform(c) == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+    CURLcode rc = curl_easy_perform(c);
+    if (switchu::tls::retryWithRoots(url, rc, roots.c_str())) { // refused: once more with the roots
+        curl_easy_setopt(c, CURLOPT_CAINFO, roots.c_str());
+        out.clear();
+        rc = curl_easy_perform(c);
+    }
+    if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+    else switchu::tls::noteFailure(url, rc, "sdmc:/config/CardsNX/net.log"); // (for the next bug report)
     curl_slist_free_all(list);
     return status;
 }
@@ -934,6 +943,30 @@ bool chooseTitleArt(const Game& game, const TitleChoice* choice) {
     }
     writeFile(base + ".titleme", data); // empty: its own icon
     return true;
+}
+
+void scaleDown(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
+    if (w <= maxW || w <= 0 || h <= 0) return;
+    const int nw = maxW, nh = std::max(1, static_cast<int>(static_cast<long long>(h) * maxW / w));
+    std::vector<std::uint8_t> out(static_cast<size_t>(nw) * nh * 4);
+    for (int y = 0; y < nh; ++y) {
+        const int y0 = y * h / nh, y1 = std::max(y0 + 1, (y + 1) * h / nh);
+        for (int x = 0; x < nw; ++x) {
+            const int x0 = x * w / nw, x1 = std::max(x0 + 1, (x + 1) * w / nw);
+            unsigned sum[4] = {0, 0, 0, 0};
+            for (int sy = y0; sy < y1; ++sy)
+                for (int sx = x0; sx < x1; ++sx) {
+                    const std::uint8_t* p = &rgba[(static_cast<size_t>(sy) * w + sx) * 4];
+                    for (int c = 0; c < 4; ++c) sum[c] += p[c];
+                }
+            const unsigned n = static_cast<unsigned>((y1 - y0) * (x1 - x0));
+            std::uint8_t* o = &out[(static_cast<size_t>(y) * nw + x) * 4];
+            for (int c = 0; c < 4; ++c) o[c] = static_cast<std::uint8_t>(sum[c] / n);
+        }
+    }
+    rgba.swap(out);
+    w = nw;
+    h = nh;
 }
 
 void forgetPicture(std::uint64_t id, bool background) {
