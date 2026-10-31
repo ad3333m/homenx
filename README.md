@@ -1,165 +1,150 @@
 # HomeNX
 
-Wii U-style home menu for modded Switch consoles, forked from
-[SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX (GPL-3.0). It ships two ways:
+A new HOME menu for modded Switch consoles. It has two looks: **CardsNX** shows box-art cards and the
+**Wii U look** shows a grid. Your games, News, Social, Miis, Discord and Sphaira are one button away in both.
+It's based on [SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX and is free and open source (GPL-3.0).
 
-- **HomeNX.nro**: run it from Sphaira/hbmenu like any homebrew.
-- **HomeNX-full.zip**: replaces the console's HOME menu (needs Atmosphere).
-  (`HomeNX-frontend.zip` is the smaller update package the console downloads itself.)
+Website: **[homenx.pages.dev](https://homenx.pages.dev)**
 
-| Left | Right |
+![CardsNX on a Switch OLED](screenshots/cardsnx.jpg)
+
+## Downloads
+
+Everything is in the [latest release](https://github.com/ad3333m/homenx/releases/tag/latest).
+
+| File | What it is |
 |---|---|
-| Sphaira, Discord, News, Custom button, Settings | Nintendo eShop, Controllers, Social, Theme Shop, Sleep |
+| `HomeNX-full.zip` | Replaces the HOME menu. This is the one to install. Needs Atmosphère. |
+| `HomeNX.nro` | The Wii U look as a normal app, opened from Sphaira or hbmenu. It changes nothing. |
+| [`CardsNX.nro`](https://github.com/ad3333m/homenx/releases/tag/cardsnx) | The card look as a normal app. |
+| `NXToggle.nro` | Picks the look, installs updates, and turns HomeNX off and on. HomeNX installs it for you. |
+| `HomeNX-frontend.zip` | The smaller update package that NXToggle downloads. You don't need it by hand. |
 
-Settings > HomeNX: the custom button's app and icon, the order of the side
-buttons, and Glass effects (off = steady 60 FPS).
+## Installing
 
-- **Games** are the ones installed on the console. **Profiles** are always chosen.
-- **News** reads the console's own saved HOME-menu news.
-- **Social** reads the console's friend list; Add Friend and Friend Requests open
-  Nintendo's screens (they need the console to go online). The **Mii Editor** is in
-  Social too: your Miis with a HomeNX portrait; create/edit opens Mii Maker.
-- **Discord** slides in from the left: friends online, your DMs (read and reply).
-  Sign in once with a QR code, or HomeNX uses your SwitchCord account. Discord can
-  flag accounts that use third-party clients; that risk is yours.
-- **Controllers** opens HomeNX's Controllers menu (Change Grip/Order, Find
-  Controllers, Test Input Devices, Button Mapping).
-- R opens Quick Settings.
+1. You need a Switch running Atmosphère.
+2. Extract `HomeNX-full.zip` to the root of the SD card. It adds the `atmosphere/` and `switch/` folders.
+3. Restart the console. HomeNX is now your HOME menu.
+4. Open **NXToggle** from your homebrew menu. From there you can switch between CardsNX and the Wii U look,
+   check for updates (it downloads and installs them on the console), or turn HomeNX off and on.
 
-## Installing the frontend
+```
+sdmc:/
+├── atmosphere/contents/
+│   └── 0100000000001000/   HomeNX
+├── switch/
+│   ├── SwitchU/            its files
+│   ├── NXToggle/           look, updates, on/off
+│   └── CardsNX/            the card look as an app
+└── hbmenu.nro              HomeNX Loader (your old one is kept as hbmenu.nro.homenx-original)
+```
 
-1. Extract `HomeNX-full.zip` to the root of the SD card (it adds
-   `atmosphere/` and `switch/` folders) and reboot. It's on straight away.
-2. **HomeNX Toggle** (`switch/HomeNX-Toggle/HomeNX-Toggle.nro`, copied there
-   by HomeNX on its first start) has buttons to
-   turn the frontend off and on, and **Check for updates** downloads the newest
-   frontend from this repo's `latest` release and installs it on the console.
-   Settings > power tab > **Turn Off HomeNX** also turns it off.
-
-**If the console won't reach the HOME menu**, put the SD card in a PC and delete
+**If the console stops at a black screen**, put the SD card in a computer and delete
 `atmosphere/contents/0100000000001000`. The normal HOME menu comes back.
 
-In the frontend, HomeNX installs **HomeNX Loader** as `sdmc:/hbmenu.nro` (the
-old one is kept as `hbmenu.nro.homenx-original`). The Album's homebrew loader
-always starts that file, so the Loader opens Sphaira, or the .nro picked on the
-Homebrew page. Settings > HomeNX checks for updates and turns HomeNX off.
+## CardsNX
 
-HomeNX ships [Sphaira](https://github.com/ITotalJustice/sphaira) 1.0.8 by
-ITotalJustice (GPL-3.0) unmodified, at `switch/SwitchU/bin/sphaira.nro`.
+- Your games are big box-art cards on frosted glass, with play time. The pages are Games, Homebrew, Media and
+  Nintendo. Either stick moves through them.
+- Art comes from SteamGridDB (add your own API key in Settings > Pictures) and GameTDB.
+- **+** on a card lets you:
+  - pick its cover or title picture (**Y** searches SteamGridDB for any name)
+  - rename it
+  - move it to another page (homebrew ports onto Games, for example)
+  - put it on the panel button
+  - delete it
+- **X** asks whether to close the software that's open.
+- **R** opens Quick Settings: music player, volumes, brightness, Airplane mode, Wi-Fi, Bluetooth and power.
+- Settings > Look:
+  - one background picture for everything (your own, or your newest screenshots)
+  - the lock screen and its PIN
+  - the launch animation
+  - TV resolution
+- Settings > Home: **Ask who's playing** lets you choose the profile when a game starts. **Panel button**
+  picks what the button under the cards opens (News, nothing, or any app).
+- Settings > Sound > Music player can show **Spotify** instead of HOME music.
+  - It shows and controls what plays on your phone, computer or speaker, with the song, cover and volume.
+  - You sign in by scanning a QR code with your phone on the same Wi-Fi.
+  - You need your own Spotify app's Client ID from [developer.spotify.com](https://developer.spotify.com/dashboard).
+    Its redirect URI must be `https://homenx.pages.dev/spotify/`.
+  - The Switch doesn't play Spotify's audio itself, and Spotify only lets Premium accounts use the buttons.
 
----
+## The Wii U look
 
-<div align="center">
-    <h1>SwitchU</h1>
-    <p>A Wii U-style custom home menu replacement for Nintendo Switch</p>
-</div>
+- Games sit in a grid with folders and widgets (weather, calendar, a now-playing bar).
+- There are ten side buttons, picked and ordered in Settings > HomeNX > Sidebar buttons from 17:
+  - Sphaira, Discord, News and Settings
+  - a custom button (any .nro, with your own icon)
+  - Nintendo eShop, Controllers, Social, Theme Shop and Sleep
+  - Nextendo, Music, Storage, Mii Maker and NXToggle
+  - Reboot to Hekate and Homebrew Manager
+- **R** opens Quick Settings and **L** opens Discord.
+- **Glass effects** can be turned off for a steady 60 FPS.
 
-<p align="center">
-  <a rel="LICENSE" href="https://github.com/PoloNX/SwitchU/blob/master/LICENSE">
-    <img src="https://img.shields.io/static/v1?label=license&message=GPLV3&labelColor=111111&color=0057da&style=for-the-badge" alt="License">
-  </a>
-  <a rel="VERSION" href="https://github.com/PoloNX/SwitchU/releases">
-    <img src="https://img.shields.io/static/v1?label=version&message=1.2.0&labelColor=111111&color=06f&style=for-the-badge" alt="Version">
-  </a>
-  <a rel="BUILD" href="https://github.com/PoloNX/SwitchU/actions">
-      <img src="https://img.shields.io/github/actions/workflow/status/PoloNX/SwitchU/switch.yml?branch=master&labelColor=111111&color=06f&style=for-the-badge" alt=Build>
-  </a>
-</p>
+## In both looks
 
----
+- **Discord** is in HOME. Sign in with a QR code or a token. Over games, **L+ZL** opens it if you have the
+  Ultrahand overlay. Discord may flag accounts that use third-party clients, so using it is at your own risk.
+- **News** shows what's saved on your Switch, newest first, with unread dots.
+- **Social** shows your friend list, friend requests, Add Friend and your play history. The **Mii Maker** is built
+  in and shows real Mii faces.
+- **Sphaira** is included. It and any other .nro can open as an application with full memory.
+  - HomeNX borrows an installed game to run it.
+  - **HomeNX Loader** (`sdmc:/hbmenu.nro`) chains to the app you picked.
+- **The lock screen** shows when the console starts or wakes. It can ask for a 4-digit PIN, which both looks share.
+  If you forget it, delete `sdmc:/config/SwitchU/lock_pin` on a computer.
+- **1080p when docked** is a setting. It's off by default and starts the next time HOME opens.
+- Every controller works, not only player 1.
+- **Reboot to Hekate** is in the power menu.
+- Updates install on the console with NXToggle, and HomeNX can be turned off without a PC.
 
-- [Screenshots](#screenshots)
-  [Installation](#installation)
-- [How to build](#how-to-build)
-- [SwitchU Manager](#switchu-manager)
-- [Help me](#help-me)
-- [Credits](#credits)
-- [License](#license)
+## Building
 
-
-## Screenshots
-
-![](./screenshots/1.jpg)
-
-<details>
-  <summary><b>More screenshots</b></summary>
-
-![](./screenshots/2.jpg)
-![](./screenshots/3.jpg)
-![](./screenshots/4.jpg)
-![](./screenshots/5.jpg)
-
-</details>
-
-## Installation
-
-Download ``SwitchU.zip`` [here](https://github.com/PoloNX/SwitchU/releases/latest) and extract ``atmosphere`` and ``switch`` folders at the root of your sdcard
-
-## How to build
-
-### Requirements
-
-- [devkitPro](https://devkitpro.org/wiki/Getting_Started)
-- [Xmake](https://xmake.io/#/)
-
-### Clone
+You need [devkitPro](https://devkitpro.org/wiki/Getting_Started) devkitA64 (CI uses the `devkitpro/devkita64`
+image), [xmake](https://xmake.io) and Python 3.
 
 ```bash
-git clone --recursive https://github.com/PoloNX/SwitchU
-cd SwitchU
+git clone --recursive https://github.com/ad3333m/homenx
+cd homenx
 ```
 
-### Build (production daemon + external menu mode)
+The apps:
 
 ```bash
-xmake f -p cross --toolchain=devkita64 --homebrew=n --backend=deko3d
+xmake f -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y
+xmake build SwitchU          # HomeNX.nro
+xmake build SwitchU-Manager  # NXToggle.nro
+xmake build CardsNX          # CardsNX.nro
+```
+
+The HOME menu replacement. The Loader is built into the menu, so build and embed it first:
+
+```bash
+xmake f -p cross -m release -a aarch64 --toolchain=devkita64
+xmake build HomeNX-Loader
+python3 tools/embed_loader.py build/cross/aarch64/release/HomeNX-Loader.nro projects/menu/src/generated/loader_nro.inc
 xmake
 ```
 
-### Build (homebrew .nro mode)
+The output goes to `build/cross/aarch64/release/`.
+[`.github/workflows/switch.yml`](.github/workflows/switch.yml) does the rest:
 
-```bash
-xmake f -p cross --toolchain=devkita64 --homebrew=y --backend=deko3d
-xmake
-```
-
-### Clean
-
-```bash
-xmake clean
-```
-
-Build outputs are generated under `build/cross/aarch64/<mode>/`.
-
-## SwitchU Manager
-
-`SwitchU-Manager.nro` enables or disables SwitchU
-
-## Know issues
-- Some settings are not implemented yet
-- Current icons are very ugly, feel free to replace them with better ones
-- You may experience some crash when using a lot of sysmodules. I tried to reduce the ram usage but I still get some instability when launching a game.
-
-## Unsorted roadmap
-- [x] Add a pannel when pressing + on a game to show more information about it    
-- [x] Add controller/screen test window
-- [x] Add Wii U-style folders
-- [ ] Improve theme shop UI and metadata
-- [ ] Add eshop and news applet  
-- [ ] Add a setting to switch the theme based on the time of day  
-- [x] Add a steamgriddb integration to get game banners and backgrounds  
-- [ ] Replace temporary icons with polished assets
-- [ ] Add more animations inspired by Wii U
-- [ ] Improve localization coverage
-
-## Help me
-
-If you want to help, open an issue when you find a bug and open a pull request if you have a fix.
+- bundles Sphaira
+- builds the Discord overlay (`make -C projects/overlay`)
+- builds CardsNX's GameTDB index
+- packs the SD card layout into the zips
 
 ## Credits
 
-- Thanks to [Xortroll](https://github.com/Xortroll) for the help and for [uLaunch](https://github.com/Xortroll/uLaunch) which inspired this project a lot
+- [SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX: HomeNX is built on it (GPL-3.0).
+- [Sphaira](https://github.com/ITotalJustice/sphaira) 1.0.8 by ITotalJustice, shipped unmodified (GPL-3.0).
+- [uLaunch](https://github.com/XorTroll/uLaunch) by XorTroll, which inspired SwitchU.
+- [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere), [libnx](https://github.com/switchbrew/libnx) and deko3d.
+- [libtesla](https://github.com/WerWolv/libtesla) for the Discord overlay (GPL-2.0-or-later).
+- PowerCmptr for the HomeNX lock screen and Discord token sign-in
+  ([ad3333m/homenx#5](https://github.com/ad3333m/homenx/pull/5)).
+- Box art from SteamGridDB, GameTDB and nlib.cc, weather from Open-Meteo, and Mii faces from Nintendo's Mii Studio.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. See the [LICENSE](https://github.com/PoloNX/SwitchU/blob/master/LICENSE) file for details.
+GPL-3.0: see [LICENSE](LICENSE). HomeNX is not affiliated with Nintendo. No games are provided.
