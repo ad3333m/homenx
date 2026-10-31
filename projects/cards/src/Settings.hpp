@@ -59,6 +59,7 @@ struct Settings {
     std::string lastGame;     // the last game (or app) started from here, hex
     long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
     bool perfLog = true;      // sdmc:/config/CardsNX/perf.log: start-up times and slow frames
+    std::string language;     // "es", "ja", ... ("" = the console's)
     std::vector<std::string> order[4]; // My order, per page: ids (hex)
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
@@ -111,6 +112,7 @@ struct Settings {
             lastGame = j.value("lastGame", lastGame);
             listsAt = j.value("listsAt", listsAt);
             perfLog = j.value("perfLog", perfLog);
+            language = j.value("language", language);
             const char* const keys[4] = {"orderGames", "orderHomebrew", "orderNintendo", "orderMedia"};
             for (int p = 0; p < 4; ++p) order[p] = j.value(keys[p], order[p]);
         } catch (...) {
@@ -125,7 +127,7 @@ struct Settings {
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut},
                             {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
                             {"lockScreen", lockScreen}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
-                            {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
+                            {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
         writeLater(kPath, j.dump(2));

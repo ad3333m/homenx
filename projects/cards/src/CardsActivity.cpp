@@ -154,21 +154,32 @@ nxui::Rect lerpRect(const nxui::Rect& a, const nxui::Rect& b, float t) {
 // Games page measured every long name letter by letter every frame (it lagged).
 nxui::Vec2 measured(nxui::Font& font, const std::string& s) {
     static std::unordered_map<std::string, nxui::Vec2> cache;
+    static int language = -1;
+    if (language != languageGeneration()) { // another language: other words
+        cache.clear();
+        language = languageGeneration();
+    }
     std::string key = std::to_string(reinterpret_cast<std::uintptr_t>(&font)) + '|' + s;
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
     if (cache.size() > 6000) cache.clear();
-    return cache[key] = font.measure(s);
+    return cache[key] = font.measure(tr(s));
 }
 
 // As much of `text` as fits in maxW (cut between letters, "..." added), remembered.
-std::string fit(nxui::Font& font, const std::string& text, float maxW, float scale = 1.f) {
+std::string fit(nxui::Font& font, const std::string& english, float maxW, float scale = 1.f) {
     static std::unordered_map<std::string, std::string> cache;
+    static int language = -1;
+    if (language != languageGeneration()) {
+        cache.clear();
+        language = languageGeneration();
+    }
     std::string key = std::to_string(reinterpret_cast<std::uintptr_t>(&font)) + '|' + std::to_string(int(maxW)) + '|'
-                    + std::to_string(int(scale * 100.f)) + '|' + text;
+                    + std::to_string(int(scale * 100.f)) + '|' + english;
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
     if (cache.size() > 3000) cache.clear();
+    const std::string text = tr(english);
     if (measured(font, text).x * scale <= maxW) return cache[key] = text;
     std::vector<size_t> cuts; // where letters start
     for (size_t i = 1; i < text.size(); ++i)
@@ -190,8 +201,9 @@ float fitScale(nxui::Font& font, const std::string& text, float maxW, float minS
 }
 
 // Text drawn with its middle at y.
-void textMid(nxui::Renderer& r, nxui::Font& font, const std::string& s, float x, float y, const nxui::Color& c,
+void textMid(nxui::Renderer& r, nxui::Font& font, const std::string& english, float x, float y, const nxui::Color& c,
              float scale = 1.f) {
+    const std::string s = tr(english);
     r.drawText(s, {x, y - measured(font, s.empty() ? std::string("A") : s).y * scale * 0.5f}, &font, c, scale);
 }
 
@@ -209,29 +221,28 @@ std::string lower(std::string s) {
 
 std::string playTime(std::uint64_t seconds) {
     const std::uint64_t m = seconds / 60, h = m / 60;
-    if (m == 0) return seconds ? "<1m" : "0m";
-    if (h == 0) return std::to_string(m) + "m";
-    if (h >= 100 || m % 60 == 0) return std::to_string(h) + "h";
-    return std::to_string(h) + "h " + std::to_string(m % 60) + "m";
+    if (m == 0) return seconds ? tr("<1m") : trf("{m}m", {"0"});
+    if (h == 0) return trf("{m}m", {std::to_string(m)});
+    if (h >= 100 || m % 60 == 0) return trf("{h}h", {std::to_string(h)});
+    return trf("{h}h {m}m", {std::to_string(h), std::to_string(m % 60)});
 }
 
 std::string lastPlayed(std::uint64_t at) {
-    if (at == 0) return "Never played";
+    if (at == 0) return tr("Never played");
     const std::uint64_t now = static_cast<std::uint64_t>(std::time(nullptr));
     const std::uint64_t s = now > at ? now - at : 0;
-    auto unit = [](std::uint64_t n, const char* one) {
-        return std::to_string(n) + " " + one + (n == 1 ? "" : "s") + " ago";
-    };
-    if (s < 60) return "Last played just now";
-    if (s < 3600) return "Last played " + unit(s / 60, "minute");
-    if (s < 86400) return "Last played " + unit(s / 3600, "hour");
-    if (s < 30 * 86400) return "Last played " + unit(s / 86400, "day");
+    auto ago = [](std::uint64_t n, const char* one, const char* many) { return trf(n == 1 ? one : many, {std::to_string(n)}); };
+    if (s < 60) return tr("Last played just now");
+    if (s < 3600) return ago(s / 60, "Last played {n} minute ago", "Last played {n} minutes ago");
+    if (s < 86400) return ago(s / 3600, "Last played {n} hour ago", "Last played {n} hours ago");
+    if (s < 30 * 86400) return ago(s / 86400, "Last played {n} day ago", "Last played {n} days ago");
     TimeCalendarTime t{};
     TimeCalendarAdditionalInfo info{};
-    if (R_FAILED(timeToCalendarTimeWithMyRule(at, &t, &info))) return "Last played a while ago";
+    if (R_FAILED(timeToCalendarTimeWithMyRule(at, &t, &info))) return tr("Last played a while ago");
     static const char* const kMonths[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    return "Last played " + std::to_string(t.day) + " " + kMonths[(t.month + 11) % 12] + " " + std::to_string(t.year);
+    return trf("Last played {date}",
+               {trf("{day} {month} {year}", {std::to_string(t.day), tr(kMonths[(t.month + 11) % 12]), std::to_string(t.year)})});
 }
 
 // Halves a picture until it's at most maxW wide (a softer, cheaper texture).
@@ -254,8 +265,10 @@ nxui::Rect scaled(const nxui::Rect& r, float s) {
     return {r.x + (r.width - w) * 0.5f, r.y + (r.height - h) * 0.5f, w, h};
 }
 
-// Text broken into lines of at most maxW (at spaces; newlines kept).
-std::vector<std::string> wrap(nxui::Font& font, const std::string& text, float maxW) {
+// Text broken into lines of at most maxW (at spaces, else between letters:
+// Japanese and Chinese have none; newlines kept).
+std::vector<std::string> wrap(nxui::Font& font, const std::string& english, float maxW) {
+    const std::string text = tr(english);
     std::vector<std::string> out;
     size_t start = 0;
     for (;;) {
@@ -272,6 +285,20 @@ std::vector<std::string> wrap(nxui::Font& font, const std::string& text, float m
                 line = word;
             } else {
                 line = trial;
+            }
+            while (measured(font, line).x > maxW) { // a word longer than a line
+                std::vector<size_t> cuts;           // where letters start
+                for (size_t k = 1; k < line.size(); ++k)
+                    if ((static_cast<unsigned char>(line[k]) & 0xC0) != 0x80) cuts.push_back(k);
+                size_t lo = 0, hi = cuts.size(); // the most letters that fit
+                while (lo < hi) {
+                    const size_t mid = (lo + hi + 1) / 2;
+                    if (measured(font, line.substr(0, cuts[mid - 1])).x <= maxW) lo = mid;
+                    else hi = mid - 1;
+                }
+                if (lo == 0) break;
+                out.push_back(line.substr(0, cuts[lo - 1]));
+                line.erase(0, cuts[lo - 1]);
             }
             i = sp + 1;
         }
@@ -452,6 +479,7 @@ bool CardsActivity::onCreate() {
     nxui::GpuDevice::setImageBudget(std::clamp<u64>(total / 4, 64ull << 20, 160ull << 20));
 
     m_settings.load();
+    setLanguage(m_settings.language);
     m_boxArt = m_settings.boxArt;
     m_titleArt = m_settings.titlePics;
     applyTheme();
@@ -862,7 +890,7 @@ void CardsActivity::worker(int index) {
                 static const char* const kMonths[] = {"January", "February", "March", "April", "May", "June", "July",
                                                       "August", "September", "October", "November", "December"};
                 if (info.wday < 7 && t.month >= 1 && t.month <= 12)
-                    s.date = std::string(kDays[info.wday]) + " " + std::to_string(t.day) + " " + kMonths[t.month - 1];
+                    s.date = trf("{weekday} {day} {month}", {tr(kDays[info.wday]), std::to_string(t.day), tr(kMonths[t.month - 1])});
             }
             u32 charge = 0;
             if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) s.battery = std::to_string(charge) + "%";
@@ -1345,10 +1373,11 @@ void CardsActivity::takeLists(Lists lists) {
         for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
             for (const Game& g : m_pages[p])
                 if (g.action.empty() && std::find(m_scanBefore.begin(), m_scanBefore.end(), g.id) == m_scanBefore.end()) {
-                    if (++count <= 3) found += (found.empty() ? "" : ", ") + g.name + " (" + kPageNames[p] + ")";
+                    if (++count <= 3) found += (found.empty() ? "" : ", ") + g.name + " (" + tr(kPageNames[p]) + ")";
                 }
         say(count == 0 ? "Nothing new: everything installed is on HOME."
-                       : "Found " + found + (count > 3 ? " and " + std::to_string(count - 3) + " more" : std::string()));
+                       : count > 3 ? trf("Found {list} and {n} more", {found, std::to_string(count - 3)})
+                                   : trf("Found {list}", {found}));
     }
 }
 
@@ -1435,7 +1464,7 @@ void CardsActivity::moveToPage(const Game& g, int to) {
     saveOrder(to); // (saves the settings too)
     saveLists(m_pages[kGames], homebrewToSave());
     m_audio.play("toggle_on");
-    say(g.name + " is on the " + kPageNames[to] + " page now.");
+    say(trf("{game} is on the {page} page now.", {g.name, tr(kPageNames[to])}));
     wantArt();
 }
 
@@ -1450,14 +1479,14 @@ void CardsActivity::getMedia(const Game& g) {
     const MediaApp* m = mediaAppOf(g.name, g.path);
     if (!m || !m->url) return;
     if (m_getJob.valid()) {
-        say("Still getting " + m_getName + "...");
+        say(trf("Still getting {app}...", {m_getName}));
         return;
     }
     if (!m_netUp) {
-        say("Connect to the internet to get " + g.name + ".");
+        say(trf("Connect to the internet to get {app}.", {g.name}));
         return;
     }
-    say("Getting " + g.name + " from GitHub...");
+    say(trf("Getting {app} from GitHub...", {g.name}));
     m_getPath = g.path;
     m_getName = g.name;
     const std::string url = m->url, path = g.path;
@@ -1493,7 +1522,7 @@ void CardsActivity::openSheetOrder() {
 void CardsActivity::openPageOrder(int select) {
     std::vector<MenuItem> items;
     auto label = [this](int pos) {
-        return std::to_string(pos + 1) + ".  " + kPageNames[m_settings.pageOrder[(size_t)pos]];
+        return std::to_string(pos + 1) + ".  " + tr(kPageNames[m_settings.pageOrder[(size_t)pos]]);
     };
     for (int pos = 0; pos < kPageCount; ++pos)
         items.push_back(choice(label(pos), []() { return std::string("Move"); }, [this, pos, label](int d) {
@@ -1593,11 +1622,11 @@ void CardsActivity::launchGame(const Game& g) {
     m_settings.lastGame = idText(id); // back from it, it's chosen
     if (!isRunning(id) && g.flags && !(g.flags & AppViewFlag_CanLaunch)) {
         if ((g.flags & AppViewFlag_IsGameCard) && !(g.flags & AppViewFlag_IsGameCardInserted))
-            say("Put the game card in to play " + g.name + ".");
-        else if (g.flags & AppViewFlag_NeedsUpdate) say(g.name + " needs an update first.");
-        else if (g.flags & AppViewFlag_NeedsVerify) say(g.name + "'s data needs checking (System Settings > Data).");
-        else if (g.flags & AppViewFlag_IsDownloading) say(g.name + " is still downloading.");
-        else say(g.name + " can't start right now.");
+            say(trf("Put the game card in to play {game}.", {g.name}));
+        else if (g.flags & AppViewFlag_NeedsUpdate) say(trf("{game} needs an update first.", {g.name}));
+        else if (g.flags & AppViewFlag_NeedsVerify) say(trf("{game}'s data needs checking (System Settings > Data).", {g.name}));
+        else if (g.flags & AppViewFlag_IsDownloading) say(trf("{game} is still downloading.", {g.name}));
+        else say(trf("{game} can't start right now.", {g.name}));
         return;
     }
     // Which card it is on this page (the zoom starts from it).
@@ -1628,7 +1657,7 @@ void CardsActivity::launchGame(const Game& g) {
                 items.push_back(std::move(row));
             }
             items.push_back(action("Cancel", [] {}));
-            openMenu("Who's playing " + g.name + "?", std::move(items));
+            openMenu(trf("Who's playing {game}?", {g.name}), std::move(items));
             return;
         }
     }
@@ -1640,16 +1669,16 @@ void CardsActivity::launchGame(const Game& g) {
         return;
     }
     if (const std::uint64_t open = runningId()) { // another one is open: it closes first
-        std::string name = "the game that's open";
+        std::string name = tr("the game that's open");
         for (const auto& page : m_pages)
             for (const Game& o : page)
                 if (o.id == open) name = o.name;
         const std::string title = g.name;
-        openMenu("Close " + name + "?", {
-            action("Close it and start " + title, [this, id, name]() {
+        openMenu(trf("Close {game}?", {name}), {
+            action(trf("Close it and start {game}", {title}), [this, id, name]() {
                 m_pendingLaunch = id;
                 m_launcher.terminateApplication();
-                say("Closing " + name + "...");
+                say(trf("Closing {game}...", {name}));
             }, true),
             action("Cancel", [] {}),
         });
@@ -1771,7 +1800,7 @@ void CardsActivity::enterText(const std::string& title, const std::string& guide
         if (back) focusManager().setFocus(back);
     });
     m_audio.play("show_modal");
-    m_textEntry->show({title, guide, initial, std::max(1, maxLength), false, sensitive});
+    m_textEntry->show({tr(title), tr(guide), initial, std::max(1, maxLength), false, sensitive});
     focusManager().setFocus(m_textEntry.get());
 }
 
@@ -1857,7 +1886,7 @@ void CardsActivity::openDiscord() {
         DiscordPanel::Callbacks cb;
         cb.onClosed = [this]() { m_audio.play("hide_modal"); };
         cb.onReply = [this](Snowflake channelId, const std::string& name) {
-            enterText("Message " + name, std::string(), std::string(), 2000, [this, channelId](const std::string& text) {
+            enterText(trf("Message {name}", {name}), std::string(), std::string(), 2000, [this, channelId](const std::string& text) {
                 if (!text.empty()) m_discord.send(channelId, text);
             }, m_discordPanel.get());
         };
@@ -2046,7 +2075,7 @@ void CardsActivity::updateNro(const std::string& path) {
         std::string error;
         const bool ok = updater::installUpdate(a, m_nroProgress, error);
         threadDone();
-        return ok ? std::string() : (error.empty() ? std::string("it didn't download") : error);
+        return ok ? std::string() : (error.empty() ? tr("it didn't download") : error);
     });
 }
 
@@ -2066,7 +2095,7 @@ void CardsActivity::openHomebrewUpdates() {
     if (paths.empty()) {
         items.push_back(info("Everything is up to date", [] { return std::string(); }));
     } else {
-        items.insert(items.begin(), action("Update all (" + std::to_string(paths.size()) + ")", [this, paths]() {
+        items.insert(items.begin(), action(trf("Update all ({n})", {std::to_string(paths.size())}), [this, paths]() {
             for (const std::string& p : paths) updateNro(p);
         }));
     }
@@ -2166,9 +2195,9 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::OperationFailed: {
                 char buf[80];
-                std::snprintf(buf, sizeof(buf), "That didn't work (0x%X).", n.payload);
+                std::snprintf(buf, sizeof(buf), "0x%X", n.payload);
                 if (m_leaving) comeBack();
-                say(buf);
+                say(trf("That didn't work ({code}).", {buf}));
                 break;
             }
             default:
@@ -2232,14 +2261,14 @@ void CardsActivity::askClose() {
         say("Nothing is open.");
         return;
     }
-    std::string name = "the open software";
+    std::string name = tr("the open software");
     for (const auto& page : m_pages)
         for (const Game& g : page)
             if (g.id == open) name = g.name;
-    openMenu("Close " + name + "?", {
+    openMenu(trf("Close {game}?", {name}), {
         action("Close it", [this, name]() {
             m_launcher.terminateApplication();
-            say("Closing " + name + "...");
+            say(trf("Closing {game}...", {name}));
         }, true),
         action("Cancel", [] {}),
     });
@@ -2290,7 +2319,7 @@ void CardsActivity::applyNames() {
 
 void CardsActivity::renameCard(const Game& g) {
     const std::string real = g.original.empty() ? g.name : g.original;
-    askText("Rename " + real, "Leave it empty for its own name", g.name, 64, [this, g, real](const std::string& text) {
+    askText(trf("Rename {game}", {real}), "Leave it empty for its own name", g.name, 64, [this, g, real](const std::string& text) {
         std::string t = text;
         while (!t.empty() && std::isspace(static_cast<unsigned char>(t.back()))) t.pop_back();
         while (!t.empty() && std::isspace(static_cast<unsigned char>(t.front()))) t.erase(t.begin());
@@ -2303,7 +2332,7 @@ void CardsActivity::renameCard(const Game& g) {
         selectById(g.id);
         saveLists(m_pages[kGames], homebrewToSave());
         m_audio.play("toggle_on");
-        say(t.empty() || t == real ? real + " has its own name again." : real + " is \"" + t + "\" now.");
+        say(t.empty() || t == real ? trf("{game} has its own name again.", {real}) : trf("{game} is \"{name}\" now.", {real, t}));
     });
 }
 
@@ -2393,9 +2422,9 @@ void CardsActivity::openWallpapers(bool lockScreen) {
         for (const std::string& path : own) add(path, std::filesystem::path(path).stem().string());
         for (const std::string& path : switchu::lockpicture::newestScreenshots(11 - own.size())) {
             const std::string n = std::filesystem::path(path).filename().string(); // YYYYMMDDhhmmss...
-            add(path, n.size() >= 12 ? "Screenshot " + n.substr(6, 2) + "/" + n.substr(4, 2) + " " + n.substr(8, 2) + ":"
-                                           + n.substr(10, 2)
-                                     : std::string("Screenshot"));
+            add(path, n.size() >= 12 ? trf("Screenshot {day}/{month} {time}",
+                                           {n.substr(6, 2), n.substr(4, 2), n.substr(8, 2) + ":" + n.substr(10, 2)})
+                                     : tr("Screenshot"));
         }
         threadDone();
         return out;
@@ -2761,7 +2790,7 @@ void CardsActivity::openOptions() {
             m_settings.panelApp = idText(g.id);
             m_settings.save();
             m_audio.play("toggle_on");
-            say(g.name + " is on the panel's right button now (where News was).");
+            say(trf("{app} is on the panel's right button now (where News was).", {g.name}));
         }));
         items.back().glyph = "copy";
     }
@@ -2769,7 +2798,7 @@ void CardsActivity::openOptions() {
     if (g.action.empty() && m_page != kNintendo) // onto another page: ports with the games, ...
         for (int to : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
             if (to != m_page) {
-                items.push_back(action(std::string("Move to ") + kPageNames[to], [this, g, to]() { moveToPage(g, to); }));
+                items.push_back(action(trf("Move to {page}", {tr(kPageNames[to])}), [this, g, to]() { moveToPage(g, to); }));
                 items.back().glyph = to == kMedia ? "music" : to == kGames ? "play" : "dots";
             }
     if (g.action.empty()) {
@@ -2798,7 +2827,7 @@ void CardsActivity::openOptions() {
     if (const NroUpdate* u = nroUpdate(g)) { // a newer version
         const std::string path = g.path;
         const std::string to = versionName(u->latest);
-        MenuItem up = action(to.empty() ? "Update to the latest version" : "Update to " + to, [this, path]() { updateNro(path); });
+        MenuItem up = action(to.empty() ? tr("Update to the latest version") : trf("Update to {version}", {to}), [this, path]() { updateNro(path); });
         up.glyph = "download";
         const std::string source = u->source;
         up.value = [source]() { return source; };
@@ -2809,11 +2838,11 @@ void CardsActivity::openOptions() {
         const std::uint64_t id = g.id;
         const int pg = m_page;
         items.push_back(action("Delete", [this, path, name, id, pg]() {
-            openMenu("Delete " + name + "?", {
+            openMenu(trf("Delete {game}?", {name}), {
                 action("Delete it from the SD card", [this, path, name, id, pg]() {
                     std::error_code ec;
                     if (!std::filesystem::remove(path, ec) || ec) {
-                        say("Couldn't delete " + name + ".");
+                        say(trf("Couldn't delete {game}.", {name}));
                         return;
                     }
                     auto& page = m_pages[pg];
@@ -2824,7 +2853,7 @@ void CardsActivity::openOptions() {
                     saveOrder(pg);
                     saveLists(m_pages[kGames], homebrewToSave());
                     m_audio.play("toggle_off");
-                    say(name + " was deleted.");
+                    say(trf("{game} was deleted.", {name}));
                     wantArt();
                 }, true),
                 action("Cancel", [] {}),
@@ -2837,18 +2866,18 @@ void CardsActivity::openOptions() {
         const std::string name = g.name;
         items.push_back(action("Delete", [this, id, name]() {
             if (isRunning(id)) {
-                say("Close " + name + " first.");
+                say(trf("Close {game} first.", {name}));
                 return;
             }
-            openMenu("Delete " + name + "?", {
+            openMenu(trf("Delete {game}?", {name}), {
                 action("Delete it from the console", [this, id, name]() {
                     if (m_deleteJob.valid()) {
-                        say("Still deleting " + m_deleteName + "...");
+                        say(trf("Still deleting {game}...", {m_deleteName}));
                         return;
                     }
                     m_deleteId = id;
                     m_deleteName = name;
-                    say("Deleting " + name + "...");
+                    say(trf("Deleting {game}...", {name}));
                     m_deleteJob = std::async(std::launch::async, [id]() {
                         offScreenCore();
                         return static_cast<std::uint32_t>(nsDeleteApplicationCompletely(id));
@@ -2955,7 +2984,7 @@ void CardsActivity::searchPicker() {
             threadDone();
             return found;
         });
-        say("Searching SteamGridDB for \"" + text + "\"...");
+        say(trf("Searching SteamGridDB for \"{words}\"...", {text}));
     });
 }
 
@@ -2968,8 +2997,8 @@ void CardsActivity::askText(const std::string& title, const std::string& guide, 
     SwkbdConfig kbd;
     if (R_FAILED(swkbdCreate(&kbd, 0))) return;
     swkbdConfigMakePresetDefault(&kbd);
-    swkbdConfigSetHeaderText(&kbd, title.c_str());
-    swkbdConfigSetGuideText(&kbd, guide.c_str());
+    swkbdConfigSetHeaderText(&kbd, tr(title).c_str());
+    swkbdConfigSetGuideText(&kbd, tr(guide).c_str());
     swkbdConfigSetInitialText(&kbd, initial.c_str());
     swkbdConfigSetStringLenMax(&kbd, static_cast<u32>(maxLength));
     char out[512] = {};
@@ -3120,7 +3149,7 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
         }
         r.drawGradientRect({0.f, 620.f, 1280.f, 100.f}, nxui::Color(0.f, 0.f, 0.f, 0.f), nxui::Color(0.f, 0.f, 0.f, 0.7f));
         const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
-        const std::string where = std::to_string(m_galleryAt + 1) + " of " + std::to_string(n);
+        const std::string where = trf("{n} of {total}", {std::to_string(m_galleryAt + 1), std::to_string(n)});
         const std::string hint = "Left / Right more    Y Use as background    X Use on the lock screen    B Back";
         textMid(r, m_fBody, where, 40.f, 684.f, kMuted);
         textMid(r, m_fBody, hint, 1240.f - measured(m_fBody, hint).x, 684.f, kWhite.withAlpha(0.9f));
@@ -3144,7 +3173,7 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
     const std::string what = m_pickWall == 3 ? "Your newest screenshots"
                            : m_pickWall ? "Yours (config/CardsNX/backgrounds) and your newest screenshots"
                            : m_pickQuery.empty() ? m_pickGame.name
-                           : m_pickQuery[0] == '#' ? m_pickLabel : "Results for \"" + m_pickQuery + "\"";
+                           : m_pickQuery[0] == '#' ? m_pickLabel : trf("Results for \"{words}\"", {m_pickQuery});
     textMid(r, m_fBody, fit(m_fBody, what, kPickCard.x + kPickCard.width - 60.f - hintW - nameX), nameX,
             kPickCard.y + 48.f + dy, kMuted.withAlpha(a));
     textMid(r, m_fBody, hint, kPickCard.x + kPickCard.width - 36.f - hintW, kPickCard.y + 48.f + dy, kMuted.withAlpha(0.8f * a));
@@ -3285,8 +3314,8 @@ void CardsActivity::drawOptions(nxui::Renderer& r) {
     r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, kOptCard.y + 50.f + dy}, &m_fTitle, kWhite.withAlpha(a), ts);
     std::string about;
     if (!g.action.empty()) about = g.author;
-    else if (g.homebrew) about = g.path.empty() ? "NRO forwarder" : (g.author.empty() ? "Homebrew" : "Homebrew by " + g.author);
-    else about = playTime(g.playSeconds) + " played    " + lastPlayed(g.lastPlayed);
+    else if (g.homebrew) about = g.path.empty() ? tr("NRO forwarder") : (g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author}));
+    else about = trf("{time} played", {playTime(g.playSeconds)}) + "    " + lastPlayed(g.lastPlayed);
     if (!g.version.empty()) about += "    " + (versionName(g.version).empty() ? g.version : versionName(g.version));
     r.drawText(fit(m_fBody, about, maxW), {tx, kOptCard.y + 94.f + dy}, &m_fBody, kMuted.withAlpha(a));
 
@@ -4291,8 +4320,9 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? "Nothing on Spotify" : "A signs in to Spotify";
     const float ts = fitScale(m_fTitle, song, kMusicInfoW, 0.7f);
     r.drawText(fit(m_fTitle, song, kMusicInfoW, ts), {kMusicInfoX, 150.f + dy}, &m_fTitle, kWhite.withAlpha(a), ts);
-    std::string sub = "HOME music";
-    if (now >= 0 && !titles.empty()) sub += "    Song " + std::to_string(now + 1) + " of " + std::to_string(titles.size());
+    std::string sub = tr("HOME music");
+    if (now >= 0 && !titles.empty())
+        sub += "    " + trf("Song {n} of {total}", {std::to_string(now + 1), std::to_string(titles.size())});
     if (!m_settings.music) sub = "Music is off: play to start it";
     if (spot) sub = m_sp.active ? m_sp.artist : std::string("Play something in Spotify first");
     r.drawText(fit(m_fBody, sub, kMusicInfoW), {kMusicInfoX, 194.f + dy}, &m_fBody, kMuted.withAlpha(a));
@@ -4338,7 +4368,7 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     textMid(r, m_fPill, spot ? "Spotify" : "Playlist", kMusicListX + 30.f, 106.f + dy, kMuted.withAlpha(a), 0.9f);
     const int songs = spot ? 0 : static_cast<int>(titles.size());
     if (spot) { // where it plays, instead of the songs
-        const std::string where = m_sp.device.empty() ? std::string("No device playing") : "Playing on " + m_sp.device;
+        const std::string where = m_sp.device.empty() ? std::string("No device playing") : trf("Playing on {device}", {m_sp.device});
         textMid(r, m_fBody, fit(m_fBody, where, kMusicListW - 10.f, 0.9f), kMusicListX + 10.f, 152.f + dy, kWhite.withAlpha(a), 0.9f);
         textMid(r, m_fBody, "The buttons need Spotify Premium", kMusicListX + 10.f, 184.f + dy, kMuted.withAlpha(0.8f * a), 0.85f);
     }
@@ -4395,7 +4425,7 @@ void CardsActivity::openUsers() {
         MenuItem row = action(name, [this, uid, name]() {
             setUser(uid);
             m_audio.play("toggle_on");
-            say("Games start as " + name + " now.");
+            say(trf("Games start as {user} now.", {name}));
         });
         row.picture = pic;
         row.value = [this, uid]() {
@@ -4421,16 +4451,16 @@ void CardsActivity::openUsers() {
                 const AccountUidLike uid = u.uid;
                 const std::string name = u.name;
                 who.push_back(action(name, [this, uid, name]() {
-                    openMenu("Remove " + name + "?", {
+                    openMenu(trf("Remove {user}?", {name}), {
                         info("Back up their saves first", [] { return std::string(); }),
-                        action("Remove " + name + " from this console", [this, uid, name]() {
+                        action(trf("Remove {user} from this console", {name}), [this, uid, name]() {
                             std::string error;
                             if (!deleteUser(uid, error)) {
                                 say(error);
                                 return;
                             }
                             m_audio.play("toggle_off");
-                            say(name + " was removed.");
+                            say(trf("{user} was removed.", {name}));
                             if (uid.uid[0] == m_user.uid[0] && uid.uid[1] == m_user.uid[1]) {
                                 const std::vector<User> left = listUsers();
                                 setUser(left.empty() ? AccountUidLike{} : left.front().uid);
@@ -4460,7 +4490,7 @@ void CardsActivity::openNotifications() {
 }
 
 void CardsActivity::say(const std::string& message) {
-    m_message = plain(message);
+    m_message = plain(tr(message)); // (split into two lines as it's shown)
     m_messageFor = 4.5f;
 }
 
@@ -4483,7 +4513,7 @@ void CardsActivity::buildSettings() {
     });
     order.value = [this]() {
         std::string s;
-        for (int p : m_settings.pageOrder) s += (s.empty() ? "" : ", ") + std::string(kPageNames[p]);
+        for (int p : m_settings.pageOrder) s += (s.empty() ? "" : ", ") + tr(kPageNames[p]);
         return s;
     };
     order.detail = "CardsNX opens on the first; ZL / ZR go in this order";
@@ -4718,7 +4748,7 @@ void CardsActivity::buildSettings() {
 #ifdef SWITCHU_MENU
     MenuItem pair = action("Pair a controller", [this]() { startPairing(); });
     pair.value = [this]() {
-        return m_pairing ? "Looking... " + std::to_string(static_cast<int>(m_pairingLeft + 0.99f)) + " s" : std::string();
+        return m_pairing ? trf("Looking... {n} s", {std::to_string(static_cast<int>(m_pairingLeft + 0.99f))}) : std::string();
     };
     pair.detail = "Then hold the SYNC button on the controller";
     pads.rows.push_back(std::move(pair));
@@ -4768,6 +4798,21 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(pads));
 
     Section console{"Console", "power", {}};
+    console.rows.push_back(choice("Language", [this]() {
+        for (const auto& [tag, name] : languages())
+            if (tag == m_settings.language) return name;
+        return tr("Same as the console");
+    }, [this](int d) {
+        const auto all = languages();
+        const int n = static_cast<int>(all.size()) + 1; // the console's, then each
+        int at = 0;
+        for (int i = 0; i + 1 < n; ++i)
+            if (all[i].first == m_settings.language) at = i + 1;
+        at = (at + d + n) % n;
+        m_settings.language = at == 0 ? std::string() : all[at - 1].first;
+        setLanguage(m_settings.language);
+        m_settings.save();
+    }, "CardsNX's words. Same as the console: the one in System Settings"));
 #ifdef SWITCHU_MENU
     m_autoClock = autoClock();
     console.rows.push_back(toggle("Set the time automatically", [this]() { return m_autoClock; }, [this]() {
@@ -4841,7 +4886,7 @@ void CardsActivity::buildSettings() {
     MenuItem keep = action("Save every picture now", [this]() { saveAllPictures(); });
     keep.value = [this]() {
         if (m_saveAllJob.valid() && m_saveAllJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-            return "Saving " + std::to_string(m_saveAllDone.load()) + " of " + std::to_string(m_saveAllTotal.load());
+            return trf("Saving {n} of {total}", {std::to_string(m_saveAllDone.load()), std::to_string(m_saveAllTotal.load())});
         return m_saveAllTotal > 0 ? std::string("All saved") : std::string();
     };
     keep.detail = "Every game's, on the SD card for good: one taken down later stays";
@@ -4888,7 +4933,7 @@ void CardsActivity::buildSettings() {
         if (m_updatesJob.valid()) return std::string("Checking...");
         int n = 0;
         for (Page p : {kHomebrew, kMedia}) for (const Game& g : m_pages[p]) n += nroUpdate(g) ? 1 : 0;
-        return n ? std::to_string(n) + " to update" : std::string("Up to date");
+        return n ? trf("{n} to update", {std::to_string(n)}) : std::string("Up to date");
     };
     hb.detail = "Newer versions of your .nro apps";
     updates.rows.push_back(std::move(hb));
@@ -5032,7 +5077,7 @@ void CardsActivity::openNextendo(int mode) {
         say("Getting Nextendo's app (Prelude, 25 MB)...");
         return;
     }
-    if (mode >= 0) say(std::string("In Prelude, choose ") + (mode == 1 ? "NEXTENDO" : "NINTENDO") + ": it switches and restarts the console.");
+    if (mode >= 0) say(trf("In Prelude, choose {mode}: it switches and restarts the console.", {mode == 1 ? "NEXTENDO" : "NINTENDO"}));
     m_sheetOpen = false;
 #ifdef SWITCHU_MENU
     const std::uint64_t host = hostTitleId();
@@ -5143,8 +5188,8 @@ void CardsActivity::startPairing() {
     }
     if (R_FAILED(rc)) {
         char buf[64];
-        std::snprintf(buf, sizeof(buf), "Pairing couldn't start (0x%X).", rc);
-        say(buf);
+        std::snprintf(buf, sizeof(buf), "0x%X", rc);
+        say(trf("Pairing couldn't start ({code}).", {buf}));
         return;
     }
     m_pairing = true;
@@ -5201,12 +5246,12 @@ std::string CardsActivity::updateRowLabel() {
         case Update::UpToDate: return "Up to date";
         case Update::Available: {
             std::lock_guard<std::mutex> lk(m_mu);
-            return "Install " + m_release.version;
+            return trf("Install {version}", {m_release.version});
         }
         case Update::Installing: {
             const bool downloading = m_updateStage.load() == static_cast<int>(switchu::manager::UpdateWorkerStage::Downloading);
             const int pct = static_cast<int>((downloading ? m_updateDownload.load() : m_updateInstall.load()) * 100.f);
-            return (downloading ? "Downloading " : "Installing ") + std::to_string(std::clamp(pct, 0, 100)) + "%";
+            return trf(downloading ? "Downloading {n}%" : "Installing {n}%", {std::to_string(std::clamp(pct, 0, 100))});
         }
         case Update::Installed: return "Restart to finish";
         case Update::Failed: return "Didn't work: try again";
@@ -5321,7 +5366,7 @@ void CardsActivity::openNews() {
         }
         char code[16];
         std::snprintf(code, sizeof(code), "0x%X", rc);
-        const std::string empty = R_FAILED(rc) ? "The console's news couldn't be read (" + std::string(code) + ")."
+        const std::string empty = R_FAILED(rc) ? trf("The console's news couldn't be read ({code}).", {code})
                                                : std::string("There's no news saved on this console yet.");
         std::lock_guard<std::mutex> lk(m_mu);
         m_newsReady = std::move(items);
@@ -5510,7 +5555,7 @@ void CardsActivity::activateTop(int index) {
         case kTopUser: openUsers(); break;
         case kTopPlayers:
             say(m_playersTotal < 0 ? "Counting Nextendo players..."
-                                   : std::to_string(m_playersTotal) + " players online in Nextendo.");
+                                   : trf("{n} players online in Nextendo.", {std::to_string(m_playersTotal)}));
             break;
         case kTopBell: openNotifications(); break;
         case kTopMusic: openMusic(); break;
@@ -6129,7 +6174,8 @@ void CardsActivity::onUpdate(float dt) {
         int n = 0;
         for (Page p : {kHomebrew, kMedia}) for (const Game& g : m_pages[p]) n += nroUpdate(g) ? 1 : 0;
         if (n > 0 && !m_updatesSaved) // (known since last time: not said again)
-            say(std::to_string(n) + (n == 1 ? " homebrew app has" : " homebrew apps have") + " an update (+ on it, or Settings).");
+            say(trf(n == 1 ? "{n} homebrew app has an update (+ on it, or Settings)." : "{n} homebrew apps have an update (+ on it, or Settings).",
+                {std::to_string(n)}));
     }
     if (m_nroUpdateJob.valid()) {
         std::string name = m_nroUpdating;
@@ -6163,10 +6209,10 @@ void CardsActivity::onUpdate(float dt) {
                 }
                 saveLists(m_pages[kGames], homebrewToSave());
                 m_audio.play("toggle_on");
-                say(name + " is updated" + (latest.empty() ? std::string(" to the latest version.") : " to " + latest + "."));
+                say(latest.empty() ? trf("{app} is updated to the latest version.", {name}) : trf("{app} is updated to {version}.", {name, latest}));
                 wantArt();
             } else {
-                say("Couldn't update " + name + ": " + error);
+                say(trf("Couldn't update {app}: {error}", {name, error}));
             }
             m_nroUpdating.clear();
             if (!m_nroQueue.empty()) {
@@ -6175,7 +6221,7 @@ void CardsActivity::onUpdate(float dt) {
                 updateNro(next);
             }
         } else {
-            m_message = "Updating " + name + "  " + std::to_string(static_cast<int>(m_nroProgress.load() * 100.f)) + "%";
+            m_message = trf("Updating {app}  {n}%", {name, std::to_string(static_cast<int>(m_nroProgress.load() * 100.f))});
             m_messageFor = std::max(m_messageFor, 1.f);
         }
     }
@@ -6188,15 +6234,16 @@ void CardsActivity::onUpdate(float dt) {
             m_settings.save();
         } else if (!m_saveAllStop) {
             const int got = m_saveAllGot.load(), all = m_saveAllTotal.load();
-            say("Saved " + std::to_string(got) + " of " + std::to_string(all) + " games' pictures: config/CardsNX/pictures"
-                + (got < all ? " (the rest have none online)" : ""));
+            say(trf(got < all ? "Saved {n} of {total} games' pictures: config/CardsNX/pictures (the rest have none online)"
+                         : "Saved {n} of {total} games' pictures: config/CardsNX/pictures",
+                {std::to_string(got), std::to_string(all)}));
         }
     }
     // SteamGridDB's games for the picker's Search: pick one, its pictures show.
     if (m_searchJob.valid() && m_searchJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const auto found = m_searchJob.get();
         if (found.empty()) {
-            say("Nothing on SteamGridDB for \"" + m_searchFor + "\". Try fewer words.");
+            say(trf("Nothing on SteamGridDB for \"{words}\". Try fewer words.", {m_searchFor}));
         } else {
             std::vector<MenuItem> items;
             for (const auto& [id, name] : found) {
@@ -6207,7 +6254,7 @@ void CardsActivity::onUpdate(float dt) {
                 }));
             }
             m_pickOpen = false; // (the list in its place; picking reopens it)
-            openMenu("Which game? \"" + m_searchFor + "\"", std::move(items));
+            openMenu(trf("Which game? \"{words}\"", {m_searchFor}), std::move(items));
         }
     }
     // Play times and last played, as the console has them now (a second after start).
@@ -6276,12 +6323,12 @@ void CardsActivity::onUpdate(float dt) {
             saveOrder(m_page);
             saveLists(m_pages[kGames], homebrewToSave());
             m_audio.play("toggle_off");
-            say(m_deleteName + " was deleted.");
+            say(trf("{game} was deleted.", {m_deleteName}));
             wantArt();
         } else {
             char buf[32];
-            std::snprintf(buf, sizeof(buf), " (0x%X).", rc);
-            say("Couldn't delete " + m_deleteName + buf);
+            std::snprintf(buf, sizeof(buf), "0x%X", rc);
+            say(trf("Couldn't delete {game} ({code}).", {m_deleteName, buf}));
         }
     }
 
@@ -6330,10 +6377,10 @@ void CardsActivity::onUpdate(float dt) {
                 }
             saveLists(m_pages[kGames], homebrewToSave());
             m_audio.play("toggle_on");
-            say(m_getName + " is ready: A to open it.");
+            say(trf("{app} is ready: A to open it.", {m_getName}));
             wantArt();
         } else {
-            say(m_getName + " didn't download. Check the internet connection.");
+            say(trf("{app} didn't download. Check the internet connection.", {m_getName}));
         }
     }
 
@@ -6408,7 +6455,7 @@ void CardsActivity::onUpdate(float dt) {
                 else if (now == static_cast<int>(Update::Available)) say("An update is ready: choose Install.");
                 else if (now == static_cast<int>(Update::Failed)) {
                     std::lock_guard<std::mutex> lk(m_mu);
-                    say("The update didn't work: " + m_updateError);
+                    say(trf("The update didn't work: {error}", {m_updateError}));
                 }
             }
             lastUpdate = now;
@@ -7168,8 +7215,8 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
         const float ts = fitScale(m_fTitle, g->name, 1000.f);
         const std::string name = fit(m_fTitle, g->name, 1000.f, ts);
         textMid(r, m_fTitle, name, 640.f - measured(m_fTitle, name).x * ts * 0.5f, 410.f, kWhite.withAlpha(show), ts);
-        const std::string starting = std::string("Starting") + std::string(1 + static_cast<int>(m_time * 3.f) % 3, '.');
-        textMid(r, m_fBody, starting, 640.f - measured(m_fBody, "Starting..").x * 0.5f, 450.f, kMuted.withAlpha(show));
+        const std::string starting = tr("Starting") + std::string(1 + static_cast<int>(m_time * 3.f) % 3, '.');
+        textMid(r, m_fBody, starting, 640.f - measured(m_fBody, tr("Starting") + "..").x * 0.5f, 450.f, kMuted.withAlpha(show));
         black = smoothstep(0.8f, 1.f, t);
     } else if (style == kZoom) {
         const float lift = easeOut(t / 0.14f);
@@ -7267,12 +7314,12 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, panel.y + 20.f + (1.f - ts) * 14.f}, &m_fTitle, kWhite.withAlpha(da), ts);
     std::string about;
     if (!g.action.empty()) about = g.author;
-    else if (g.homebrew) about = g.path.empty() ? "NRO forwarder" : (g.author.empty() ? "Homebrew" : "Homebrew by " + g.author);
-    else if (running) about = playTime(g.playSeconds) + "    Open now: Resume carries on";
+    else if (g.homebrew) about = g.path.empty() ? tr("NRO forwarder") : (g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author}));
+    else if (running) about = playTime(g.playSeconds) + "    " + tr("Open now: Resume carries on");
     else about = playTime(g.playSeconds) + "    " + lastPlayed(g.lastPlayed);
     if (const NroUpdate* u = nroUpdate(g)) {
         const std::string to = versionName(u->latest);
-        about += "    Update to " + (to.empty() ? std::string("the latest version") : to) + " (+)";
+        about += "    " + (to.empty() ? tr("Update to the latest version") : trf("Update to {version}", {to})) + " (+)";
     }
     r.drawText(fit(m_fBody, about, maxW), {tx, panel.y + 60.f}, &m_fBody, kMuted.withAlpha(da));
     if (!g.version.empty()) {
@@ -7412,9 +7459,9 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
         nxui::Rect box{kGearX + 38.f - 460.f, 84.f - 12.f * (1.f - a), 460.f, 60.f + rows * 64.f + 40.f};
         frost(r, box, 24.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.82f * a));
         r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 24.f, 1.5f);
-        r.drawText("Notifications", {box.x + 22.f, box.y + 16.f}, &m_fLabel, kWhite.withAlpha(a));
+        r.drawText(tr("Notifications"), {box.x + 22.f, box.y + 16.f}, &m_fLabel, kWhite.withAlpha(a));
         if (m_notifRows.empty())
-            r.drawText("You're all caught up", {box.x + 22.f, box.y + 70.f}, &m_fBody, kMuted.withAlpha(a));
+            r.drawText(tr("You're all caught up"), {box.x + 22.f, box.y + 70.f}, &m_fBody, kMuted.withAlpha(a));
         for (size_t i = 0; i < m_notifRows.size(); ++i) {
             const float y = box.y + 60.f + static_cast<float>(i) * 64.f;
             r.drawText(fit(m_fPill, m_notifRows[i].first, box.width - 44.f), {box.x + 22.f, y + 6.f}, &m_fPill,
@@ -7422,7 +7469,7 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
             r.drawText(fit(m_fBody, m_notifRows[i].second, box.width - 44.f), {box.x + 22.f, y + 32.f}, &m_fBody,
                        kMuted.withAlpha(a));
         }
-        r.drawText(m_notifRows.empty() ? "B  Close" : "X  Clear all      B  Close",
+        r.drawText(tr(m_notifRows.empty() ? "B  Close" : "X  Clear all      B  Close"),
                    {box.x + 22.f, box.y + box.height - 32.f}, &m_fBody, kMuted.withAlpha(a));
         return;
     }
@@ -7471,12 +7518,12 @@ void CardsActivity::drawQuick(nxui::Renderer& r) {
     r.drawRoundedRect({batt.x + 3.f, batt.y + 3.f, (batt.width - 6.f) * level, batt.height - 6.f},
                       (m_quick.battery >= 0 && m_quick.battery <= 15 ? kRed : kGreen).withAlpha(a), 2.f);
     std::string power = m_quick.battery < 0 ? std::string("-") : std::to_string(m_quick.battery) + "%";
-    if (m_quick.charging) power += "  Charging";
+    if (m_quick.charging) power += "  " + tr("Charging");
     textMid(r, m_fPill, power, batt.x + batt.width + 14.f, sy, kWhite.withAlpha(a));
     if (m_quick.temperature >= 0) {
         const int t = m_quick.temperature;
         const nxui::Color tone = t >= 60 ? kRed : t >= 48 ? nxui::Color(1.f, 0.72f, 0.3f, 1.f) : kGreen;
-        const std::string temp = std::to_string(t) + "\xC2\xB0" "C  " + (t >= 60 ? "Hot" : t >= 48 ? "Warm" : "Optimal");
+        const std::string temp = std::to_string(t) + "\xC2\xB0" "C  " + tr(t >= 60 ? "Hot" : t >= 48 ? "Warm" : "Optimal");
         const float tx = status.x + status.width - 18.f - measured(m_fPill, temp).x;
         r.drawCircle({tx - 12.f, sy}, 5.f, tone.withAlpha(a), 16);
         textMid(r, m_fPill, temp, tx, sy, kWhite.withAlpha(a));
@@ -7490,7 +7537,7 @@ void CardsActivity::drawQuick(nxui::Renderer& r) {
     if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? "Nothing on Spotify" : "Play signs in to Spotify";
     const float ss = fitScale(m_fPill, song, w - 36.f, 0.8f);
     textMid(r, m_fPill, fit(m_fPill, song, w - 36.f, ss), player.x + 18.f, player.y + 26.f, kWhite.withAlpha(a), ss);
-    const std::string from = !spot ? std::string("HOME music") : m_sp.artist.empty() ? std::string("Spotify") : "Spotify    " + m_sp.artist;
+    const std::string from = !spot ? tr("HOME music") : m_sp.artist.empty() ? std::string("Spotify") : "Spotify    " + m_sp.artist;
     textMid(r, m_fBody, fit(m_fBody, from, w - 36.f, 0.9f), player.x + 18.f, player.y + 50.f, kMuted.withAlpha(0.8f * a), 0.9f);
     const bool playing = spot ? m_sp.playing : m_settings.music && !m_audio.paused();
     const char* buttons[kQPlayerButtons] = {"prev", playing ? "pause" : "play", "next", "repeat", "shuffle", "playlist"};

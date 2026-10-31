@@ -1,5 +1,6 @@
 #ifdef SWITCHU_MENU
 #include "Spotify.hpp"
+#include "Library.hpp"
 #include "Settings.hpp"
 
 #include <curl/curl.h>
@@ -382,7 +383,7 @@ void Spotify::serveOnce() {
             lk.unlock();
             page(fd, "Signed in", "Go back to your Switch: Spotify is in HOME's music player now.");
         } else {
-            m_loginError = error == "access_denied" ? "You didn't allow HomeNX on Spotify's page." : "Spotify said: " + error;
+            m_loginError = error == "access_denied" ? tr("You didn't allow HomeNX on Spotify's page.") : trf("Spotify said: {error}", {error});
             m_login = Login::Failed;
             lk.unlock();
             page(fd, "Not signed in", "Try again from your Switch.");
@@ -422,7 +423,7 @@ void Spotify::exchange() {
         }
         m_loginError = "Spotify refused the sign-in: " + j.value("error_description", j.value("error", std::string("?")));
     } catch (...) {
-        m_loginError = status ? "Spotify's answer couldn't be read (HTTP " + std::to_string(status) + ")."
+        m_loginError = status ? trf("Spotify's answer couldn't be read (HTTP {code}).", {std::to_string(status)})
                               : "Spotify couldn't be reached.";
     }
     m_login = Login::Failed;

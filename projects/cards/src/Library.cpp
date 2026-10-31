@@ -30,6 +30,7 @@
 #include <mutex>
 #include <thread>
 #include <nxui/core/ThreadPool.hpp>
+#include <nxui/core/I18n.hpp>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -1308,9 +1309,9 @@ bool openSystem(const std::string& action, AccountUidLike user, std::string& err
         rc = showWeb("https://duckduckgo.com/?kae=d", uid, false);
     }
     if (R_FAILED(rc)) {
-        char buf[120];
-        std::snprintf(buf, sizeof(buf), "Couldn't open that here (0x%X). Start CardsNX over a game.", rc);
-        error = buf;
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "0x%X", rc);
+        error = trf("Couldn't open that here ({code}). Start CardsNX over a game.", {buf});
         return false;
     }
     return true;
@@ -1721,7 +1722,7 @@ std::vector<User> listUsers() {
             }
             accountProfileClose(&profile);
         }
-        if (u.name.empty()) u.name = "User " + std::to_string(i + 1);
+        if (u.name.empty()) u.name = trf("User {n}", {std::to_string(i + 1)});
         out.push_back(std::move(u));
     }
     return out;
@@ -1740,9 +1741,9 @@ bool deleteUser(AccountUidLike user, std::string& error) {
         serviceClose(&su);
     }
     if (R_SUCCEEDED(rc)) return true;
-    char buf[96];
-    std::snprintf(buf, sizeof(buf), "The console didn't remove that user (0x%X).", rc);
-    error = buf;
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "0x%X", rc);
+    error = trf("The console didn't remove that user ({code}).", {buf});
     return false;
 }
 
@@ -1771,7 +1772,9 @@ bool power(Power what, std::string& error) {
                 spsmExit();
             }
             if (R_SUCCEEDED(rc)) return true;
-            error = "The console didn't take that (0x" + std::to_string(rc) + ").";
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "0x%X", rc);
+            error = trf("The console didn't take that ({code}).", {buf});
             return false;
         }
         case Power::Hekate: {
@@ -1843,6 +1846,91 @@ bool power(Power what, std::string& error) {
         }
     }
     return false;
+}
+
+// ---- languages ----
+
+namespace {
+using LangMap = std::unordered_map<std::string, std::string>;
+// The table in use, swapped whole (never changed in place: the pictures' and
+// lists' threads read it too).
+// ponytail: an old table is never freed (some KB at each change in Settings).
+std::atomic<const LangMap*> g_lang{nullptr};
+std::atomic<int> g_langGen{0};
+
+std::vector<std::string> tsvCells(const std::string& line) {
+    std::vector<std::string> out(1);
+    for (size_t i = 0; i < line.size(); ++i) {
+        if (line[i] == '\t') out.emplace_back();
+        else if (line[i] == '\\' && i + 1 < line.size() && line[i + 1] == 'n') out.back() += '\n', ++i;
+        else out.back() += line[i];
+    }
+    return out;
+}
+} // namespace
+
+void setLanguage(const std::string& tag) {
+    std::string want = tag.empty() ? nxui::I18n::detectSystemLanguageTag() : tag;
+    want = want.substr(0, want.find('-')); // "es-419", "pt-BR", "zh-TW": one column a language
+    auto* map = new LangMap;
+    std::ifstream in(std::string(kAssets) + "lang.tsv");
+    std::string line;
+    size_t col = 0;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+        const std::vector<std::string> row = tsvCells(line);
+        if (col == 0) { // the first row: the languages ("en" first)
+            col = std::find(row.begin(), row.end(), want) - row.begin();
+            if (col == 0 || col >= row.size()) break; // English, or one there isn't
+            continue;
+        }
+        if (row.size() > col && !row[col].empty()) (*map)[row[0]] = row[col];
+    }
+    if (map->empty()) {
+        delete map;
+        map = nullptr;
+    }
+    g_lang = map;
+    ++g_langGen;
+}
+
+std::vector<std::pair<std::string, std::string>> languages() {
+    return {{"en", "English"}, {"es", "Español"},  {"pt", "Português (Brasil)"}, {"ru", "Русский"}, {"fr", "Français"},
+            {"de", "Deutsch"}, {"it", "Italiano"}, {"ja", "日本語"},             {"zh", "简体中文"}};
+}
+
+int languageGeneration() { return g_langGen; }
+
+std::string tr(const std::string& english) {
+    const LangMap* map = g_lang;
+    if (!map) return english;
+    const auto it = map->find(english);
+    return it == map->end() ? english : it->second;
+}
+
+std::string trf(const std::string& english, std::initializer_list<std::string> parts) {
+    std::vector<std::string> names; // the English's {placeholders}, in order
+    for (size_t i = english.find('{'); i != std::string::npos; i = english.find('{', i + 1)) {
+        const size_t end = english.find('}', i);
+        if (end == std::string::npos) break;
+        names.push_back(english.substr(i + 1, end - i - 1));
+    }
+    const std::string text = tr(english);
+    std::string out;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const size_t end = text[i] == '{' ? text.find('}', i) : std::string::npos;
+        const size_t at = end == std::string::npos
+                              ? names.size()
+                              : std::find(names.begin(), names.end(), text.substr(i + 1, end - i - 1)) - names.begin();
+        if (at >= names.size() || at >= parts.size()) {
+            out += text[i]; // (not a placeholder: as it is)
+            continue;
+        }
+        out += parts.begin()[at];
+        i = end;
+    }
+    return out;
 }
 
 } // namespace cards

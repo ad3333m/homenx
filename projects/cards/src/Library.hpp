@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <initializer_list>
 #include <map>
 #include <string>
 #include <vector>
@@ -14,6 +15,18 @@ inline constexpr const char* kAssets = "sdmc:/switch/SwitchU/cards/";
 #else
 inline constexpr const char* kAssets = "romfs:/";
 #endif
+
+// CardsNX in other languages. lang.tsv (with the fonts): the English, then a
+// column per language. Text is translated where it's measured and drawn
+// (CardsActivity's measured / fit / textMid / wrap, and say); text made of
+// parts goes through trf.
+void setLanguage(const std::string& tag); // "" = the console's language
+std::vector<std::pair<std::string, std::string>> languages(); // {tag, its own name} (Settings)
+int languageGeneration(); // changes with the language (text caches start again)
+std::string tr(const std::string& english);
+// tr(english) with its {placeholders} filled in by `parts`, in the order they
+// come in the English ("Close {game}?"); a translation can move them.
+std::string trf(const std::string& english, std::initializer_list<std::string> parts);
 
 // An account's id (AccountUid), without <switch.h> here.
 struct AccountUidLike {

@@ -421,6 +421,7 @@ target("CardsNX")
         os.cp(path.join(os.projectdir(), "projects/cards/romfs/icons/*.png"), path.join(romfs_dir, "icons"))
         os.mkdir(path.join(romfs_dir, "certs"))
         os.cp(path.join(os.projectdir(), "projects/cards/romfs/certs/*.pem"), path.join(romfs_dir, "certs"))
+        os.cp(path.join(os.projectdir(), "projects/cards/romfs/lang.tsv"), romfs_dir)
         -- The Nintendo page shows HomeNX's own icons (as HOME, from switch/SwitchU/icons).
         os.mkdir(path.join(romfs_dir, "icons/hx"))
         for _, name in ipairs({"news", "eshop", "controller", "mii_editor", "friends", "settings"}) do
