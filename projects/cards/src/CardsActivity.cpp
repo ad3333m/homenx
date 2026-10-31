@@ -2540,6 +2540,20 @@ void CardsActivity::lock() {
         m_fLock.load(app().gpu(), app().renderer(), fonts + "Inter-600.ttf", 104);
         m_fLockDate.load(app().gpu(), app().renderer(), fonts + "Inter-500.ttf", 28);
     }
+    closeEverything(); // (Discord's panel and the rest were drawn over the lock)
+    if (m_lockGameTex) {
+        app().gpu().waitIdle(); // the last one may still be drawing
+        m_lockGameTex.reset();
+    }
+    if (runningId()) { // a game is open: its last picture behind the lock, as Nintendo's HOME shows it
+        std::vector<std::uint8_t> px(1280u * 720u * 4u);
+        bool ok = false;
+        if (R_SUCCEEDED(appletGetLastApplicationCaptureImageEx(px.data(), px.size(), &ok)) && ok) {
+            for (size_t i = 3; i < px.size(); i += 4) px[i] = 0xFF; // games leave alpha undefined
+            auto tex = std::make_unique<nxui::Texture>();
+            if (tex->loadFromPixels(app().gpu(), app().renderer(), px.data(), 1280, 720)) m_lockGameTex = std::move(tex);
+        }
+    }
     m_locked = true;
     m_lockIn = m_settings.motion ? 0.f : 1.f;
     m_unlockT = -1.f;
@@ -2635,7 +2649,10 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
     const float out = m_unlockT < 0.f ? 0.f : easeInOut(std::min(1.f, m_unlockT));
     const float a = in * (1.f - out), lift = -110.f * out;
     const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
-    if (m_lockTex && m_lockTex->valid()) { // its own picture, sharp; a little shade keeps the clock readable
+    if (m_lockGameTex && m_lockGameTex->valid()) { // the game that's open
+        r.drawTexture(m_lockGameTex.get(), screen, kWhite.withAlpha(a));
+        r.drawGradientRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.25f * a), nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    } else if (m_lockTex && m_lockTex->valid()) { // its own picture, sharp; a little shade keeps the clock readable
         drawCover(r, m_lockTex.get(), screen, 0.f, kWhite.withAlpha(a));
         r.drawGradientRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.18f * a), nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
     } else {
@@ -3076,6 +3093,14 @@ void CardsActivity::pickChoice(int index) {
     c.rgba.clear();
     const Game g = m_pickGame;
     const bool cover = m_pickCover, hero = m_pickHero;
+    if (cover && g.homebrew && g.fullCard == c.own) { // an app's cover is drawn as a game's card
+        const std::string key = g.path.empty() ? idText(g.id) : g.path;
+        auto& list = m_settings.fullCards;
+        if (c.own) list.erase(std::remove(list.begin(), list.end(), key), list.end());
+        else list.push_back(key);
+        m_settings.save();
+        applyNames();
+    }
     m_pickSaveId = g.id;
     m_pickSaveCover = cover;
     m_pickSaveHero = hero;
@@ -5227,7 +5252,7 @@ BtAddr btAddr(const BtdrvAddress& a) {
     return out;
 }
 std::string btName(const BtmAudioDevice& d) {
-    const std::string name(d.name, strnlen(d.name, sizeof(d.name)));
+    const std::string name(d.name, std::find(d.name, d.name + sizeof(d.name), '\0'));
     return name.empty() ? tr("A Bluetooth device") : name;
 }
 } // namespace

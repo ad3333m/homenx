@@ -220,6 +220,7 @@ private:
     void loadLockPicture();
     std::string m_lockPicture, m_lockTexFor;
     std::unique_ptr<nxui::Texture> m_lockTex;
+    std::unique_ptr<nxui::Texture> m_lockGameTex; // the open game's last picture, behind the lock
     std::future<Pixels> m_lockJob;
     // Settings > Look > Lock screen: the time and date when the console wakes.
     bool m_tv1080 = false; // Settings > Look > TV resolution (config/SwitchU/resolution.txt)

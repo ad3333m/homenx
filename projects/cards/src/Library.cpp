@@ -795,20 +795,24 @@ unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h
     return px;
 }
 
+// Automatic time is the time service's (IStaticService 100 / 101, as System
+// Settings does it; HOME's time:a may change it). Only the setting was changed
+// before: the clock kept correcting itself until a restart, so the Date, Hour
+// and Minute rows seemed to do nothing.
 bool autoClock() {
-    bool on = false;
+    u8 on = 0;
+    if (R_SUCCEEDED(serviceDispatchOut(timeGetServiceSession(), 100, on))) return on != 0;
+    bool flag = false;
     if (R_SUCCEEDED(setsysInitialize())) {
-        setsysIsUserSystemClockAutomaticCorrectionEnabled(&on);
+        setsysIsUserSystemClockAutomaticCorrectionEnabled(&flag);
         setsysExit();
     }
-    return on;
+    return flag;
 }
 
 bool setAutoClock(bool on) {
-    if (R_FAILED(setsysInitialize())) return false;
-    const bool ok = R_SUCCEEDED(setsysSetUserSystemClockAutomaticCorrectionEnabled(on));
-    setsysExit();
-    return ok;
+    const u8 flag = on;
+    return R_SUCCEEDED(serviceDispatchIn(timeGetServiceSession(), 101, flag));
 }
 
 bool setClock(long long posixSeconds) {
