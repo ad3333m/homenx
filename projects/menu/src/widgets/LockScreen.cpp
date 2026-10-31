@@ -1,6 +1,7 @@
 #include "widgets/LockScreen.hpp"
 
 #include <nxui/core/I18n.hpp>
+#include <switchu/lock_picture.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -46,6 +47,7 @@ void LockScreen::show(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
     m_slideTarget = 0.f;
     m_animatingHide = false;
 
+    if (switchu::lockpicture::get() != m_wallpaperFor) m_wallpaperLoaded = false; // Settings changed it
     if (!m_wallpaperLoaded) {
         loadWallpaper(gpu, renderer);
     }
@@ -116,8 +118,10 @@ void LockScreen::pinKey(int key) {
 void LockScreen::loadWallpaper(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
     if (m_wallpaperLoaded) return;
     m_wallpaper = nxui::Texture{};
-    if (!m_wallpaper.loadFromFile(gpu, renderer, kWallpaper, 1920))
-        m_wallpaper.loadFromFile(gpu, renderer, "sdmc:/switch/SwitchU/lockscreen/wallpaper.jpg", 1920);
+    m_wallpaperFor = switchu::lockpicture::get(); // Settings > HomeNX > Lock screen picture first
+    if (m_wallpaperFor.empty() || !m_wallpaper.loadFromFile(gpu, renderer, m_wallpaperFor, 1920))
+        if (!m_wallpaper.loadFromFile(gpu, renderer, kWallpaper, 1920))
+            m_wallpaper.loadFromFile(gpu, renderer, "sdmc:/switch/SwitchU/lockscreen/wallpaper.jpg", 1920);
     m_wallpaperLoaded = true;
 }
 
@@ -186,9 +190,13 @@ void LockScreen::onRender(nxui::Renderer& renderer) {
     const float yOffset = m_slide * kSlideDist;
 
     renderer.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.035f, 0.045f, 0.075f, 1.f));
-    if (m_wallpaper.valid())
-        renderer.drawTexture(&m_wallpaper, {0.f, yOffset, 1280.f, 720.f}, nxui::Color::white());
-    renderer.drawRect({0.f, yOffset, 1280.f, 720.f}, nxui::Color(0.015f, 0.02f, 0.04f, 0.40f));
+    if (m_wallpaper.valid()) { // filling the screen, cropped to its shape (not stretched)
+        const float tw = static_cast<float>(m_wallpaper.width()), th = static_cast<float>(m_wallpaper.height());
+        const float s = std::max(1280.f / tw, 720.f / th), sw = 1280.f / s, sh = 720.f / s;
+        renderer.drawTextureSub(&m_wallpaper, {(tw - sw) * 0.5f, (th - sh) * 0.5f, sw, sh}, {0.f, yOffset, 1280.f, 720.f},
+                                nxui::Color::white());
+    }
+    renderer.drawRect({0.f, yOffset, 1280.f, 720.f}, nxui::Color(0.015f, 0.02f, 0.04f, m_wallpaper.valid() ? 0.25f : 0.40f));
 
     // Clock
     std::time_t now = std::time(nullptr);

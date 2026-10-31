@@ -213,6 +213,7 @@ private:
     void openHomeNXSettings();
     void openCustomButtonAppPicker();
     void openCustomButtonIconPicker();
+    void openLockPicturePicker();
     void openNextendoAppPicker();
     void activateNextendo();
     void openToggle();

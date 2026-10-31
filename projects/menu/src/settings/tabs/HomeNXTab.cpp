@@ -224,9 +224,8 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         SettingItem it;
         it.label = i18n.tr("settings.homenx.lock", "Lock screen");
         it.description = i18n.tr("settings.homenx.lock_desc",
-            "The time and date when the console starts or wakes, over your wallpaper "
-            "(sdmc:/switch/SwitchU/lockscreen/wallpaper.png or .jpg). A opens HOME; after a while "
-            "with nothing pressed the console sleeps again.");
+            "The time and date when the console starts or wakes, over your picture (Lock screen "
+            "picture, below). A opens HOME; after a while with nothing pressed the console sleeps again.");
         it.type = ItemType::Toggle;
         it.boolVal = std::filesystem::exists(kLockFlag, ec);
         it.onChange = [](SettingItem& self) {
@@ -247,6 +246,17 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
             "Leave it empty to turn the PIN off. Forgot it? Delete sdmc:/config/SwitchU/lock_pin on a PC.");
         it.type = ItemType::Action;
         it.onChange = [&screen](SettingItem&) { if (screen.m_lockPinCb) screen.m_lockPinCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.lock_picture", "Lock screen picture");
+        it.buttonLabel = i18n.tr("button.choose", "Choose");
+        it.description = i18n.tr("settings.homenx.lock_picture_desc",
+            "Your own picture behind the clock, sharp (not frosted): from sdmc:/switch/SwitchU/lockscreen/ "
+            "or your newest screenshots. CardsNX's lock screen shows it too.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_lockPictureCb) screen.m_lockPictureCb(); };
         t.items.push_back(std::move(it));
     }
     {

@@ -206,7 +206,14 @@ private:
     std::unique_ptr<nxui::Texture> m_wallTex;
     std::future<Pixels> m_wallJob;
     void loadWallpaper();
-    void openWallpapers();
+    void openWallpapers(bool lockScreen = false); // lockScreen: the lock screen's picture instead
+    static Pixels readPicture(const std::string& path, int maxW);
+    // Settings > Look > Lock screen picture: drawn sharp behind the clock
+    // (shared with HomeNX's look: switchu/lock_picture.hpp).
+    void loadLockPicture();
+    std::string m_lockPicture, m_lockTexFor;
+    std::unique_ptr<nxui::Texture> m_lockTex;
+    std::future<Pixels> m_lockJob;
     // Settings > Look > Lock screen: the time and date when the console wakes.
     bool m_tv1080 = false; // Settings > Look > TV resolution (config/SwitchU/resolution.txt)
     bool m_locked = false, m_lockFonts = false;

@@ -75,6 +75,7 @@ private:
     float m_slideTarget = 0.f;
     static constexpr float kSlideDist = 80.f; // pixels to slide up when hiding
     bool m_wallpaperLoaded = false;
+    std::string m_wallpaperFor; // the lock screen picture it was loaded for
 
     // Input debounce for A button
     float m_lastPressTime = 0.f;

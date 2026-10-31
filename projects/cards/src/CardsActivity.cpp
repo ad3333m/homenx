@@ -15,6 +15,7 @@
 #include "widgets/BatteryDrawing.hpp"
 #include <nlohmann/json.hpp>
 #include <switchu/control_cache.hpp>
+#include <switchu/lock_picture.hpp>
 #include <switchu/ns_ext.hpp>
 #include <SDL2/SDL_mixer.h>
 
@@ -686,6 +687,7 @@ void CardsActivity::onDestroy() {
     if (m_listJob.valid()) m_listJob.wait();
     if (m_changesJob.valid()) m_changesJob.wait();
     if (m_wallJob.valid()) m_wallJob.wait();
+    if (m_lockJob.valid()) m_lockJob.wait();
     if (m_updatesJob.valid()) m_updatesJob.wait();
     if (m_nroUpdateJob.valid()) m_nroUpdateJob.wait();
     if (!m_perfOut.empty()) {
@@ -2295,65 +2297,80 @@ void CardsActivity::loadWallpaper() {
     if (m_wallJob.valid()) m_wallJob.wait();
     m_wallJob = std::async(std::launch::async, [path]() {
         offScreenCore();
-        Pixels px;
-        std::ifstream in(path, std::ios::binary);
-        const std::vector<std::uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        int w = 0, h = 0, ch = 0;
-        if (stbi_uc* p = data.empty() ? nullptr : stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4)) {
-            px.rgba.assign(p, p + static_cast<size_t>(w) * h * 4);
-            stbi_image_free(p);
-            scaleDown(px.rgba, w, h, 1280);
-            px.w = w;
-            px.h = h;
-        }
-        return px;
+        return readPicture(path, 1280);
+    });
+}
+
+// A picture from the SD card, decoded and halved until it's at most maxW wide.
+CardsActivity::Pixels CardsActivity::readPicture(const std::string& path, int maxW) {
+    Pixels px;
+    std::ifstream in(path, std::ios::binary);
+    const std::vector<std::uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    int w = 0, h = 0, ch = 0;
+    if (stbi_uc* p = data.empty() ? nullptr : stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &ch, 4)) {
+        px.rgba.assign(p, p + static_cast<size_t>(w) * h * 4);
+        stbi_image_free(p);
+        scaleDown(px.rgba, w, h, maxW);
+        px.w = w;
+        px.h = h;
+    }
+    return px;
+}
+
+void CardsActivity::loadLockPicture() {
+    const std::string path = m_lockPicture;
+    if (path == m_lockTexFor) return; // asked for already
+    m_lockTexFor = path;
+    if (path.empty()) {
+        if (m_lockTex) app().gpu().waitIdle(); // it may still be drawing
+        m_lockTex.reset();
+        return;
+    }
+    if (m_lockJob.valid()) m_lockJob.wait();
+    m_lockJob = std::async(std::launch::async, [path]() {
+        offScreenCore();
+        return readPicture(path, 1280);
     });
 }
 
 // The pictures to choose: his own (sdmc:/config/CardsNX/backgrounds) and the
 // newest screenshots in the Album (its folders are the date: newest first).
-void CardsActivity::openWallpapers() {
+void CardsActivity::openWallpapers(bool lockScreen) {
     auto picture = [](const std::filesystem::path& p) {
         const std::string e = lower(p.extension().string());
         return e == ".jpg" || e == ".jpeg" || e == ".png";
     };
-    auto sortedDirs = [](const std::string& dir) {
-        std::vector<std::string> out;
-        std::error_code ec;
-        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
-            if (e.is_directory(ec)) out.push_back(e.path().string());
-        std::sort(out.rbegin(), out.rend());
-        return out;
-    };
-    std::vector<std::string> own, shots;
+    std::vector<std::string> own;
     std::error_code ec;
     for (const auto& e : std::filesystem::directory_iterator("sdmc:/config/CardsNX/backgrounds", ec))
         if (e.is_regular_file(ec) && picture(e.path())) own.push_back(e.path().string());
     std::sort(own.begin(), own.end());
     if (own.size() > 6) own.resize(6);
-    const size_t wantShots = 7 - own.size();
-    [&]() { // newest first, until there are enough
-        for (const std::string& year : sortedDirs("sdmc:/Nintendo/Album"))
-            for (const std::string& month : sortedDirs(year))
-                for (const std::string& day : sortedDirs(month)) {
-                    std::vector<std::string> files;
-                    for (const auto& e : std::filesystem::directory_iterator(day, ec))
-                        if (e.is_regular_file(ec) && lower(e.path().extension().string()) == ".jpg") files.push_back(e.path().string());
-                    std::sort(files.rbegin(), files.rend());
-                    for (const std::string& f : files) {
-                        if (shots.size() >= wantShots) return;
-                        shots.push_back(f);
-                    }
-                }
-    }();
+    const std::vector<std::string> shots = switchu::lockpicture::newestScreenshots(7 - own.size());
     std::vector<MenuItem> items;
-    auto choose = [this](const std::string& path) {
-        m_settings.wallpaper = path;
-        m_settings.save();
-        loadWallpaper();
+    auto choose = [this, lockScreen](const std::string& path) {
         m_audio.play("toggle_on");
+        if (!lockScreen) {
+            m_settings.wallpaper = path;
+            m_settings.save();
+            loadWallpaper();
+            return;
+        }
+        switchu::lockpicture::set(path);
+        m_lockPicture = path;
+        loadLockPicture();
+        if (path.empty()) return;
+        if (!m_settings.lockScreen) { // a picture needs the lock screen
+            m_settings.lockScreen = true;
+            m_settings.save();
+        }
+        bool preview = true; // how it looks: any button goes back
+#ifdef SWITCHU_MENU
+        preview = !switchu::lockpin::isSet(); // (not through the PIN)
+#endif
+        if (preview) lock();
     };
-    items.push_back(action("Each game's art", [choose]() { choose(""); }));
+    items.push_back(action(lockScreen ? "Frosted HOME" : "Each game's art", [choose]() { choose(""); }));
     for (const std::string& path : own)
         items.push_back(action(std::filesystem::path(path).filename().string(), [choose, path]() { choose(path); }));
     for (const std::string& path : shots) {
@@ -2364,7 +2381,7 @@ void CardsActivity::openWallpapers() {
         items.push_back(action(label, [choose, path]() { choose(path); }));
     }
     if (own.empty() && shots.empty()) say("Put pictures in sdmc:/config/CardsNX/backgrounds, or take a screenshot.");
-    openMenu("Background", std::move(items));
+    openMenu(lockScreen ? "Lock screen picture" : "Background", std::move(items));
 }
 
 // The lock screen (Settings > Look): the time and date over the art, frosted.
@@ -2378,6 +2395,8 @@ void CardsActivity::lock() {
     m_locked = true;
     m_lockIn = m_settings.motion ? 0.f : 1.f;
     m_unlockT = -1.f;
+    m_lockPicture = switchu::lockpicture::get(); // (HomeNX's look may have chosen it)
+    loadLockPicture();
 #ifdef SWITCHU_MENU
     m_pinSet = switchu::lockpin::isSet();
     m_pinEntry = false;
@@ -2448,8 +2467,13 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
     const float out = m_unlockT < 0.f ? 0.f : easeInOut(std::min(1.f, m_unlockT));
     const float a = in * (1.f - out), lift = -110.f * out;
     const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
-    frost(r, screen, 0.f, nxui::Color(0.03f, 0.04f, 0.07f, 0.5f * a));
-    r.drawGradientRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.10f * a), nxui::Color(0.f, 0.f, 0.f, 0.55f * a));
+    if (m_lockTex && m_lockTex->valid()) { // its own picture, sharp; a little shade keeps the clock readable
+        drawCover(r, m_lockTex.get(), screen, 0.f, kWhite.withAlpha(a));
+        r.drawGradientRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.18f * a), nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
+    } else {
+        frost(r, screen, 0.f, nxui::Color(0.03f, 0.04f, 0.07f, 0.5f * a));
+        r.drawGradientRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.10f * a), nxui::Color(0.f, 0.f, 0.f, 0.55f * a));
+    }
     const float rise = 18.f * (1.f - in);
     textMid(r, m_fLock, m_clock, 640.f - measured(m_fLock, m_clock).x * 0.5f, 268.f + rise + lift, kWhite.withAlpha(a));
     textMid(r, m_fLockDate, m_date, 640.f - measured(m_fLockDate, m_date).x * 0.5f, 350.f + rise + lift, kMuted.withAlpha(a));
@@ -4281,6 +4305,15 @@ void CardsActivity::buildSettings() {
     pin.detail = "4 digits before HOME opens. Forgot it? Delete config/SwitchU/lock_pin on a PC";
     look.rows.push_back(std::move(pin));
 #endif
+    m_lockPicture = switchu::lockpicture::get();
+    MenuItem lockPicture = action("Lock screen picture", [this]() { openWallpapers(true); });
+    lockPicture.value = [this]() {
+        if (m_lockPicture.empty()) return std::string("Frosted HOME");
+        if (m_lockPicture.find("/Nintendo/Album/") != std::string::npos) return std::string("Screenshot");
+        return std::filesystem::path(m_lockPicture).filename().string();
+    };
+    lockPicture.detail = "Your own picture behind the clock, sharp (not frosted)";
+    look.rows.push_back(std::move(lockPicture));
     look.rows.push_back(slider("Background softness", [this]() { return m_settings.haze * 100 / 80; },
         [this, save](int v) { m_settings.haze = v * 80 / 100; save(); }, "A haze over the game's art"));
     look.rows.push_back(toggle("Moving background", [this]() { return m_settings.bgMotion; },
@@ -5706,6 +5739,16 @@ void CardsActivity::onUpdate(float dt) {
             if (tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h)) m_wallTex = std::move(tex);
         }
         if (!m_wallTex && !m_settings.wallpaper.empty()) say("That picture couldn't be read.");
+    }
+    if (m_lockJob.valid() && m_lockJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        Pixels px = m_lockJob.get();
+        if (m_lockTex) app().gpu().waitIdle(); // the old one may still be drawing
+        m_lockTex.reset();
+        if (!px.rgba.empty() && !m_lockPicture.empty()) {
+            auto tex = std::make_unique<nxui::Texture>();
+            if (tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h)) m_lockTex = std::move(tex);
+        }
+        if (!m_lockTex && !m_lockPicture.empty()) say("The lock screen picture couldn't be read.");
     }
     if (m_changesJob.valid() && m_changesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const Changes c = m_changesJob.get();

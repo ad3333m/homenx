@@ -57,7 +57,7 @@ sdmc:/
 - **R** opens Quick Settings: music player, volumes, brightness, Airplane mode, Wi-Fi, Bluetooth and power.
 - Settings > Look:
   - one background picture for everything (your own, or your newest screenshots)
-  - the lock screen and its PIN
+  - the lock screen, its picture and its PIN
   - the launch animation
   - TV resolution
 - Settings > Home: **Ask who's playing** lets you choose the profile when a game starts. **Panel button**
@@ -91,8 +91,10 @@ sdmc:/
 - **Sphaira** is included. It and any other .nro can open as an application with full memory.
   - HomeNX borrows an installed game to run it.
   - **HomeNX Loader** (`sdmc:/hbmenu.nro`) chains to the app you picked.
-- **The lock screen** shows when the console starts or wakes. It can ask for a 4-digit PIN, which both looks share.
-  If you forget it, delete `sdmc:/config/SwitchU/lock_pin` on a computer.
+- **The lock screen** shows when the console starts or wakes.
+  - It can show your own picture, sharp, picked from your pictures or your newest screenshots.
+  - It can ask for a 4-digit PIN. If you forget it, delete `sdmc:/config/SwitchU/lock_pin` on a computer.
+  - Both looks share the picture and the PIN.
 - **1080p when docked** is a setting. It's off by default and starts the next time HOME opens.
 - Every controller works, not only player 1.
 - **Reboot to Hekate** is in the power menu.

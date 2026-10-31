@@ -1,4 +1,5 @@
 #include <switchu/lock_pin.hpp>
+#include <switchu/lock_picture.hpp>
 #include "WiiUMenuApp.hpp"
 #include "FontChoice.hpp"
 #include "themeshop/ThemePackageInstaller.hpp"
@@ -484,6 +485,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->onPointerModeChange([this](int mode) {
         app().input().setPointerMode(static_cast<nxui::Input::PointerMode>(mode));
     });
+    m_settings->onLockPicture([this]() { openLockPicturePicker(); });
     m_settings->onLockPin([this]() {
         requestTextEntry("Lock screen PIN", "4 digits. Leave it empty to turn the PIN off.", std::string(), 4, false,
             [this](const std::string& text) {
@@ -1824,6 +1826,60 @@ void WiiUMenuApp::openNroPicker(const std::string& title, const std::string& cur
         entries.push_back(std::move(e));
     }
     showDetailScreen(std::move(entries), title, std::string(), m_settings ? m_settings.get() : nullptr);
+}
+
+// Settings > HomeNX > Lock screen picture (both looks): HomeNX's own, a picture
+// in sdmc:/switch/SwitchU/lockscreen/, or one of the newest screenshots.
+void WiiUMenuApp::openLockPicturePicker() {
+    auto& i18n = nxui::I18n::instance();
+    const std::string dir = "sdmc:/switch/SwitchU/lockscreen";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const std::string current = switchu::lockpicture::get();
+    auto choose = [this](const std::string& picture) {
+        switchu::lockpicture::set(picture);
+        m_audio.playSfx(Sfx::ConfirmPositive);
+        if (m_detail) m_detail->hide();
+    };
+    auto loadImage = [this](std::string path) {
+        return [this, path]() -> std::shared_ptr<nxui::Texture> {
+            auto tex = std::make_shared<nxui::Texture>();
+            if (!tex->loadFromFile(app().gpu(), app().renderer(), path, 640)) return nullptr;
+            return tex;
+        };
+    };
+    std::vector<std::string> pictures;
+    for (const auto& file : std::filesystem::directory_iterator(dir, ec)) {
+        std::string ext = file.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") pictures.push_back(file.path().string());
+    }
+    std::sort(pictures.begin(), pictures.end());
+    const size_t own = pictures.size();
+    for (std::string& shot : switchu::lockpicture::newestScreenshots(8)) pictures.push_back(std::move(shot));
+    const std::string hint = i18n.tr("custom.choose_hint", "Press A to choose");
+    const std::string inUse = "  (in use)";
+    std::vector<ListDetailScreen::Entry> entries;
+    ListDetailScreen::Entry plain;
+    plain.title = i18n.tr("lock.picture_default", "HomeNX's own");
+    plain.listName = plain.title + (current.empty() ? inUse : std::string());
+    plain.body = i18n.tr("lock.picture_hint",
+                         "Put .png or .jpg pictures in sdmc:/switch/SwitchU/lockscreen/, or take a screenshot, to choose one here.");
+    plain.actionHint = hint;
+    plain.onActivate = [choose]() { choose(std::string()); };
+    entries.push_back(plain);
+    for (size_t i = 0; i < pictures.size(); ++i) {
+        const std::string path = pictures[i];
+        ListDetailScreen::Entry e;
+        e.title = i < own ? std::filesystem::path(path).filename().string() : i18n.tr("lock.picture_shot", "Screenshot");
+        e.listName = e.title + (path == current ? inUse : std::string());
+        e.lazyImage = loadImage(path);
+        e.actionHint = hint;
+        e.onActivate = [choose, path]() { choose(path); };
+        entries.push_back(std::move(e));
+    }
+    showDetailScreen(std::move(entries), i18n.tr("lock.picture_title", "Lock screen picture"), std::string(),
+                     m_settings ? m_settings.get() : nullptr);
 }
 
 // Settings > HomeNX > Custom button icon: the app's own icon, or any picture

@@ -53,6 +53,7 @@ public:
     void onDiagnostics(VoidCb cb) { m_diagnosticsCb = std::move(cb); }
     void onDiscordAppId(VoidCb cb) { m_discordAppIdCb = std::move(cb); }
     void onLockPin(VoidCb cb) { m_lockPinCb = std::move(cb); }
+    void onLockPicture(VoidCb cb) { m_lockPictureCb = std::move(cb); }
     void onFontsChange(VoidCb cb) { m_fontsCb = std::move(cb); }
     void onPointerModeChange(std::function<void(int)> cb) { m_pointerModeCb = std::move(cb); }
     void onReturnTimings(VoidCb cb) { m_returnTimingsCb = std::move(cb); }
@@ -163,6 +164,7 @@ private:
     VoidCb m_diagnosticsCb;
     VoidCb m_discordAppIdCb;
     VoidCb m_lockPinCb;
+    VoidCb m_lockPictureCb;
     VoidCb m_fontsCb;
     std::function<void(int)> m_pointerModeCb;
     VoidCb m_returnTimingsCb;
