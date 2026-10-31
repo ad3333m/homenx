@@ -57,32 +57,26 @@ void LockScreen::show(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
     setFocusable(true);
     clearActions();
 
-    m_pinSet = switchu::lockpin::isSet();
-    m_pinEntry = false;
-    m_pinWrong = 0.f;
+    m_pwSet = switchu::lockpw::isSet();
+    m_setup = false;
+    m_pw.startUnlock();
 
-    // A: unlock (with a PIN: ask for it first, then check it).
+    // A: unlock (with a password, the D-pad does); making one, A says it's done.
     addAction(static_cast<std::uint64_t>(nxui::Button::A), [this]() {
         if (!m_active || m_animatingHide) return;
         m_idleTime = 0.f;
-        if (m_pinSet) {
-            if (!m_pinEntry) {
-                m_pinEntry = true;
-                m_pin.reset();
-                return;
-            }
-            if (!switchu::lockpin::check(m_pin.code())) {
-                m_pinWrong = 1.f;
-                m_pin.reset();
-                return;
-            }
-            m_pinEntry = false;
-        }
-        beginHide();
+        if (m_setup) m_pw.confirm();
+        else if (!m_pwSet) beginHide();
     });
+    // B: clears what was pressed; with nothing pressed, stops making one.
     addAction(static_cast<std::uint64_t>(nxui::Button::B), [this]() {
         m_idleTime = 0.f;
-        m_pinEntry = false;
+        if (m_setup && m_pw.presses.empty() && !m_animatingHide) {
+            m_setup = false;
+            beginHide();
+            return;
+        }
+        m_pw.presses.clear();
     });
     // The PIN's wheels: the D-pad or either stick.
     const std::pair<nxui::Button, int> moves[] = {
@@ -91,7 +85,7 @@ void LockScreen::show(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
         {nxui::Button::RStickU, 0}, {nxui::Button::RStickD, 1}, {nxui::Button::RStickL, 2}, {nxui::Button::RStickR, 3}};
     for (const auto& [button, key] : moves) {
         const int k = key;
-        addAction(static_cast<std::uint64_t>(button), [this, k]() { pinKey(k); });
+        addAction(static_cast<std::uint64_t>(button), [this, k]() { press(k); });
     }
     // Swallow the rest (they only keep it awake).
     for (const auto button : {nxui::Button::X, nxui::Button::Y, nxui::Button::Plus, nxui::Button::Minus, nxui::Button::L,
@@ -106,13 +100,24 @@ void LockScreen::beginHide() {
     m_animatingHide = true;
 }
 
-void LockScreen::pinKey(int key) {
+void LockScreen::press(int key) {
     m_idleTime = 0.f;
-    if (!m_pinEntry) return;
-    if (key == 0) m_pin.up();
-    else if (key == 1) m_pin.down();
-    else if (key == 2) m_pin.left();
-    else m_pin.right();
+    if ((!m_pwSet && !m_setup) || m_animatingHide) return;
+    using E = switchu::lockpw::Entry;
+    const E::Result r = m_pw.press(switchu::lockpw::directionOf(key));
+    if (r == E::Unlocked) beginHide();
+    if (r == E::Made) {
+        m_pwSet = true;
+        m_setup = false;
+        beginHide();
+    }
+}
+
+void LockScreen::beginSetup(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
+    show(gpu, renderer);
+    m_setup = true;
+    m_wasSetup = true;
+    m_pw.startMaking();
 }
 
 void LockScreen::loadWallpaper(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
@@ -136,6 +141,11 @@ void LockScreen::hide() {
 void LockScreen::unlock() {
     // Called after hide animation finishes
     hide();
+    if (m_wasSetup) { // (made from Settings: back there, not to HOME)
+        m_wasSetup = false;
+        if (m_onSetupDone) m_onSetupDone();
+        return;
+    }
     if (m_onUnlock) m_onUnlock();
 }
 
@@ -151,7 +161,7 @@ void LockScreen::openSelectedNotif() {
 void LockScreen::onUpdate(float dt) {
     if (!m_active) return;
     m_time += dt;
-    m_pinWrong = std::max(0.f, m_pinWrong - dt * 1.6f);
+    m_pw.update(dt);
 
     if (!m_wallpaperLoaded && m_gpu && m_renderer) {
         loadWallpaper(*m_gpu, *m_renderer);
@@ -177,7 +187,7 @@ void LockScreen::onUpdate(float dt) {
     }
 
     m_idleTime += dt;
-    if (m_idleTime >= kAutoSleepSeconds && m_onAutoSleep) {
+    if (m_idleTime >= kAutoSleepSeconds && m_onAutoSleep && !m_setup) {
         m_idleTime = 0.f;
         m_onAutoSleep();
     }
@@ -189,7 +199,13 @@ void LockScreen::onRender(nxui::Renderer& renderer) {
     // Apply slide offset
     const float yOffset = m_slide * kSlideDist;
 
-    renderer.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.035f, 0.045f, 0.075f, 1.f));
+    if (!m_wallpaper.valid() && renderer.gpu().offscreenReady()) { // HOME behind it, frosted
+        renderer.captureToOffscreen(false);
+        renderer.applyBlur(3.f, 3);
+        renderer.drawOffscreen(0, {0.f, yOffset, 1280.f, 720.f});
+    } else {
+        renderer.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.035f, 0.045f, 0.075f, 1.f));
+    }
     if (m_wallpaper.valid()) { // filling the screen, cropped to its shape (not stretched)
         const float tw = static_cast<float>(m_wallpaper.width()), th = static_cast<float>(m_wallpaper.height());
         const float s = std::max(1280.f / tw, 720.f / th), sw = 1280.f / s, sh = 720.f / s;
@@ -215,35 +231,16 @@ void LockScreen::onRender(nxui::Renderer& renderer) {
                            nxui::Color(1.f, 1.f, 1.f, 0.92f), 1.f);
     }
 
-    // The PIN: four wheels where the prompt was.
-    if (m_pinEntry) {
-        constexpr float kBoxW = 70.f, kBoxH = 90.f, kGap = 18.f, kTop = 440.f;
-        const float shake = std::sin(m_time * 46.f) * 14.f * m_pinWrong;
-        const float x0 = (1280.f - (kBoxW * 4.f + kGap * 3.f)) * 0.5f + shake;
-        const std::string title = m_pinWrong > 0.f ? "Wrong PIN" : "Enter your PIN";
+    // The password: its dots where the prompt was (entering it, or making it).
+    if (m_pwSet || m_setup) {
+        const std::string title = m_pw.prompt();
         const nxui::Vec2 ts = m_small->measure(title);
-        renderer.drawText(title, {(1280.f - ts.x) * 0.5f, kTop - 46.f + yOffset}, m_small,
-                          m_pinWrong > 0.f ? nxui::Color(1.f, 0.55f, 0.5f, 1.f) : nxui::Color::white(), 1.f);
-        for (int i = 0; i < 4; ++i) {
-            const nxui::Rect box{x0 + (kBoxW + kGap) * static_cast<float>(i), kTop + yOffset, kBoxW, kBoxH};
-            const bool on = i == m_pin.at;
-            renderer.drawRoundedRect(box, nxui::Color(1.f, 1.f, 1.f, on ? 0.20f : 0.09f), 16.f);
-            renderer.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, on ? 0.85f : 0.25f), 16.f, on ? 2.5f : 1.2f);
-            const std::string d(1, static_cast<char>('0' + m_pin.digit[i]));
-            const nxui::Vec2 ds = m_large->measure(d);
-            renderer.drawText(d, {box.x + (box.width - ds.x * 1.4f) * 0.5f, box.y + (box.height - ds.y * 1.4f) * 0.5f},
-                              m_large, nxui::Color::white(), 1.4f);
-            if (on) { // up and down arrows on the chosen wheel
-                const float cx = box.x + box.width * 0.5f;
-                renderer.drawTriangle({cx - 9.f, box.y - 8.f}, {cx + 9.f, box.y - 8.f}, {cx, box.y - 18.f},
-                                      nxui::Color(1.f, 1.f, 1.f, 0.8f));
-                renderer.drawTriangle({cx - 9.f, box.bottom() + 8.f}, {cx + 9.f, box.bottom() + 8.f}, {cx, box.bottom() + 18.f},
-                                      nxui::Color(1.f, 1.f, 1.f, 0.8f));
-            }
-        }
-        const std::string hint = "Up / Down change    Left / Right move    A unlock    B back";
+        renderer.drawText(title, {(1280.f - ts.x) * 0.5f, 420.f + yOffset}, m_small,
+                          m_pw.wrong > 0.f ? nxui::Color(1.f, 0.55f, 0.5f, 1.f) : nxui::Color::white(), 1.f);
+        switchu::lockpw::drawDots(renderer, m_pw, 500.f + yOffset, 1.f, m_time);
+        const std::string hint = m_setup ? "A Done    B Clear (again to stop)" : "B Clear";
         const nxui::Vec2 hs = m_small->measure(hint);
-        renderer.drawText(hint, {(1280.f - hs.x * 0.85f) * 0.5f, kTop + kBoxH + 34.f + yOffset}, m_small,
+        renderer.drawText(hint, {(1280.f - hs.x * 0.85f) * 0.5f, 560.f + yOffset}, m_small,
                           nxui::Color(1.f, 1.f, 1.f, 0.7f), 0.85f);
     } else
     // --- Single-press unlock prompt ---------------------------------------

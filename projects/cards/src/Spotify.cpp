@@ -60,13 +60,7 @@ long request(const std::string& method, const std::string& url, const std::strin
         curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
         curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
     }
-    if (switchu::tls::usesRoots(url)) curl_easy_setopt(c, CURLOPT_CAINFO, switchu::tls::kHomeRoots);
-    CURLcode rc = curl_easy_perform(c);
-    if (switchu::tls::retryWithRoots(url, rc, switchu::tls::kHomeRoots)) { // the console's store refused it
-        curl_easy_setopt(c, CURLOPT_CAINFO, switchu::tls::kHomeRoots);
-        out.clear();
-        rc = curl_easy_perform(c);
-    }
+    CURLcode rc = switchu::tls::perform(c, url, switchu::tls::kHomeCerts, [&out]() { out.clear(); });
     long status = 0;
     if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
     curl_slist_free_all(list);
@@ -227,10 +221,6 @@ void Spotify::signOut() {
 
 std::string Spotify::beginLogin(const std::string& consoleIp, std::string& error) {
     std::lock_guard<std::mutex> lk(m_mu);
-    if (m_clientId.empty()) {
-        error = "Add your Spotify app's Client ID first.";
-        return {};
-    }
     if (consoleIp.empty()) {
         error = "Connect the Switch to Wi-Fi first.";
         return {};
@@ -353,6 +343,26 @@ void Spotify::serveOnce() {
     const std::string path = target.substr(0, q), query = q == std::string::npos ? std::string() : target.substr(q + 1);
     std::unique_lock<std::mutex> lk(m_mu);
     if (path == "/login" && m_login == Login::Waiting) {
+        const std::string pasted = param(query, "id");
+        if (pasted.size() == 32 && pasted.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos) {
+            m_clientId = pasted; // the phone gave it: kept for next time
+            m_refresh.clear();
+            m_access.clear();
+            save();
+        }
+    }
+    if (path == "/login" && m_login == Login::Waiting && m_clientId.empty()) {
+        lk.unlock();
+        page(fd, "One-time setup",
+             "Spotify signs in through an app of yours (free, a minute):</p><ol style='text-align:left'>"
+             "<li>Open <a style='color:#1ed760' href='https://developer.spotify.com/dashboard'>developer.spotify.com/dashboard</a>"
+             " and log in.</li><li>Create app: any name, Redirect URI <b>https://homenx.pages.dev/spotify/</b>,"
+             " tick Web API, save.</li><li>Copy its Client ID into this box:</li></ol>"
+             "<form action='/login'><input name=id autocomplete=off placeholder='Client ID' "
+             "style='width:100%;box-sizing:border-box;padding:12px;font-size:16px;border-radius:10px;border:0'>"
+             "<button style='margin-top:14px;padding:12px 28px;font-size:16px;border:0;border-radius:24px;"
+             "background:#1ed760;color:#08130c;font-weight:600'>Continue</button></form><p>");
+    } else if (path == "/login" && m_login == Login::Waiting) {
         unsigned char digest[32];
 #if MBEDTLS_VERSION_MAJOR >= 3
         mbedtls_sha256(reinterpret_cast<const unsigned char*>(m_verifier.data()), m_verifier.size(), digest, 0);

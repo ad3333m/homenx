@@ -430,7 +430,7 @@ private:
     void openQuickSettings();
     void openDiscordPanel();
     void ensureDiscordPanel();
-    void showLockScreen(bool resumeMusic);
+    void showLockScreen(bool resumeMusic = false, bool makePassword = false);
     void applyDiscordFont();
     void openNotifications();
     void persistMusicPlaybackState(bool updateEnabledFlag = false);

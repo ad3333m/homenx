@@ -83,12 +83,7 @@ bool WebSocket::Connect(const std::string& url, const std::vector<std::string>& 
     // WebSockets need HTTP/1.1; never let ALPN pick HTTP/2.
     curl_easy_setopt(c, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_1_1);
     curl_easy_setopt(c, CURLOPT_SSL_ENABLE_ALPN, 0L);
-    if (switchu::tls::usesRoots(target)) curl_easy_setopt(c, CURLOPT_CAINFO, switchu::tls::kHomeRoots);
-    CURLcode rc = curl_easy_perform(c);
-    if (switchu::tls::retryWithRoots(target, rc, switchu::tls::kHomeRoots)) { // the console's store refused it
-        curl_easy_setopt(c, CURLOPT_CAINFO, switchu::tls::kHomeRoots);
-        rc = curl_easy_perform(c);
-    }
+    CURLcode rc = switchu::tls::perform(c, target, switchu::tls::kHomeCerts); // (refused: HomeNX's roots)
     if (rc != CURLE_OK) {
         err = Str::Format("connect: %s", curl_easy_strerror(rc));
         Close();

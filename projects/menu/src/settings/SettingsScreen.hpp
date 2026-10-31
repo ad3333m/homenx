@@ -52,7 +52,9 @@ public:
     void onHomePages(VoidCb cb) { m_homePagesCb = std::move(cb); }
     void onDiagnostics(VoidCb cb) { m_diagnosticsCb = std::move(cb); }
     void onDiscordAppId(VoidCb cb) { m_discordAppIdCb = std::move(cb); }
-    void onLockPin(VoidCb cb) { m_lockPinCb = std::move(cb); }
+    void onLockPassword(VoidCb cb) { m_lockPasswordCb = std::move(cb); }
+    void onLockPasswordOff(VoidCb cb) { m_lockPasswordOffCb = std::move(cb); }
+    void onRescanApps(VoidCb cb) { m_rescanCb = std::move(cb); }
     void onLockPicture(VoidCb cb) { m_lockPictureCb = std::move(cb); }
     void onFontsChange(VoidCb cb) { m_fontsCb = std::move(cb); }
     void onPointerModeChange(std::function<void(int)> cb) { m_pointerModeCb = std::move(cb); }
@@ -163,7 +165,7 @@ private:
     VoidCb m_homePagesCb;
     VoidCb m_diagnosticsCb;
     VoidCb m_discordAppIdCb;
-    VoidCb m_lockPinCb;
+    VoidCb m_lockPasswordCb, m_lockPasswordOffCb, m_rescanCb;
     VoidCb m_lockPictureCb;
     VoidCb m_fontsCb;
     std::function<void(int)> m_pointerModeCb;

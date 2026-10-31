@@ -239,13 +239,33 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     }
     {
         SettingItem it;
-        it.label = i18n.tr("settings.homenx.lock_pin", "Lock screen PIN");
-        it.buttonLabel = i18n.tr("button.set", "Set");
-        it.description = i18n.tr("settings.homenx.lock_pin_desc",
-            "4 digits the lock screen asks for before HOME opens (CardsNX's lock screen too). "
-            "Leave it empty to turn the PIN off. Forgot it? Delete sdmc:/config/SwitchU/lock_pin on a PC.");
+        it.label = i18n.tr("settings.homenx.rescan", "Look for new software");
+        it.buttonLabel = i18n.tr("button.look", "Look");
+        it.description = i18n.tr("settings.homenx.rescan_desc",
+            "Reads what's installed again, for anything HOME doesn't show yet.");
         it.type = ItemType::Action;
-        it.onChange = [&screen](SettingItem&) { if (screen.m_lockPinCb) screen.m_lockPinCb(); };
+        it.onChange = [&screen](SettingItem&) { if (screen.m_rescanCb) screen.m_rescanCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.lock_password", "Lock screen password");
+        it.buttonLabel = i18n.tr("button.make", "Make");
+        it.description = i18n.tr("settings.homenx.lock_password_desc",
+            "4 to 8 D-pad presses the lock screen asks for before HOME opens (CardsNX's too). You make it on "
+            "the lock screen: press it, A, then once more.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_lockPasswordCb) screen.m_lockPasswordCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.lock_password_off", "Turn off the password");
+        it.buttonLabel = i18n.tr("button.off", "Turn off");
+        it.description = i18n.tr("settings.homenx.lock_password_off_desc",
+            "Forgot it? Delete config/HomeNX/lock_password from the SD card on a computer.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_lockPasswordOffCb) screen.m_lockPasswordOffCb(); };
         t.items.push_back(std::move(it));
     }
     {

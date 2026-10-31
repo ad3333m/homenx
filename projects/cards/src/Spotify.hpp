@@ -16,9 +16,10 @@ namespace cards {
 // Signing in: a QR code opens this console's little web server (same Wi-Fi),
 // which sends the phone to Spotify's sign-in; Spotify answers at
 // homenx.pages.dev/spotify/, which hands the answer back to this console. The
-// sign-in stays in sdmc:/config/CardsNX/spotify.json. Each person uses their own
-// Spotify app's Client ID (developer.spotify.com, redirect URI
-// https://homenx.pages.dev/spotify/): Spotify lets an app have 25 users unless it
+// sign-in stays in sdmc:/config/CardsNX/spotify.json. Spotify signs in through
+// an app (a Client ID): the built-in one when there is one, else the person's
+// own, which the phone's page asks for once (developer.spotify.com, redirect URI
+// https://homenx.pages.dev/spotify/). Spotify lets an app have 25 users unless it
 // approves it, and it doesn't approve apps of people on their own.
 // (Built in HOME only: Spotify.cpp is empty in the .nro.)
 class Spotify {

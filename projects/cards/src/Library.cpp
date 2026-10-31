@@ -73,9 +73,7 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
     for (const std::string& h : headers) list = curl_slist_append(list, h.c_str());
     // Servers the console's older store refuses (GameTDB's Let's Encrypt chain,
     // nlib.cc's and SteamGridDB's Google Trust Services one): CardsNX's roots.
-    const std::string roots = std::string(kAssets) + "certs/roots.pem";
-    if (url.find("gametdb.com") != std::string::npos || switchu::tls::usesRoots(url))
-        curl_easy_setopt(c, CURLOPT_CAINFO, roots.c_str());
+    if (url.find("gametdb.com") != std::string::npos) switchu::tls::preferRoot(url, "isrg-root-x1.pem"); // (it always did)
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
     curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
@@ -87,12 +85,7 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, toString);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &out);
     long status = 0;
-    CURLcode rc = curl_easy_perform(c);
-    if (switchu::tls::retryWithRoots(url, rc, roots.c_str())) { // refused: once more with the roots
-        curl_easy_setopt(c, CURLOPT_CAINFO, roots.c_str());
-        out.clear();
-        rc = curl_easy_perform(c);
-    }
+    CURLcode rc = switchu::tls::perform(c, url, std::string(kAssets) + "certs/", [&out]() { out.clear(); });
     if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
     else switchu::tls::noteFailure(url, rc, "sdmc:/config/CardsNX/net.log"); // (for the next bug report)
     curl_slist_free_all(list);
@@ -223,8 +216,7 @@ std::string steamGridDbPicture(const Game& game, const std::string& key, const c
     for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(game.name, key), key, kind, query, tries, answered)) {
         if (url.empty() || get(url, body) != 200 || !isPicture(body)) continue;
         int w = 0, h = 0, ch = 0;
-        stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
-                                            &w, &h, &ch, 4);
+        stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()), w, h);
         const bool good = px && (clear ? clearEdges(px, w, h) : !removedNotice(px, w, h));
         stbi_image_free(px);
         if (good) return body;
@@ -329,8 +321,9 @@ std::string eshopBanner(const Game& game, int w, int h) {
 
 } // namespace
 
+// (Halving below maxW made a 660-wide cover 165 wide on a 250-wide card: the blur.)
 void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
-    while (w > maxW && w >= 2 && h >= 2) {
+    while (w / 2 >= maxW && h >= 2) {
         const int nw = w / 2, nh = h / 2;
         std::vector<std::uint8_t> out(static_cast<size_t>(nw) * nh * 4);
         for (int y = 0; y < nh; ++y)
@@ -399,7 +392,28 @@ std::vector<Game> listGames() {
             g.launches = st.total_launches;
         }
     }
+    // The statistics' "last" is the last launch: a game kept open for days looked
+    // older than it was. The last time it was played is in the play log.
+    std::vector<std::uint64_t> ids;
+    for (const Game& g : games) ids.push_back(g.id);
+    const auto last = lastPlayTimes(ids);
+    for (Game& g : games)
+        if (const auto it = last.find(g.id); it != last.end()) g.lastPlayed = it->second;
     return games;
+}
+
+std::map<std::uint64_t, std::uint64_t> lastPlayTimes(const std::vector<std::uint64_t>& ids) {
+    std::map<std::uint64_t, std::uint64_t> out;
+    for (size_t at = 0; at < ids.size(); at += 100) {
+        const s32 n = static_cast<s32>(std::min<size_t>(100, ids.size() - at));
+        std::vector<PdmLastPlayTime> times(static_cast<size_t>(n));
+        s32 total = 0;
+        if (R_FAILED(pdmqryQueryLastPlayTime(false, times.data(), ids.data() + at, n, &total))) continue;
+        for (s32 i = 0; i < total && i < n; ++i)
+            if (times[(size_t)i].timestamp_user)
+                out[times[(size_t)i].application_id] = pdmPlayTimestampToPosix(times[(size_t)i].timestamp_user);
+    }
+    return out;
 }
 
 std::vector<Game> listHomebrew() {
@@ -657,11 +671,12 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
         kind = ArtKind::Icon;
         return readFile(systemIconPath(game.action));
     }
-    if (game.homebrew) { // apps have no box art: their icon makes the card
+    const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
+    if (game.homebrew) { // apps have no box art: their icon makes the card (unless one was chosen)
+        if (boxArt && std::filesystem::exists(base + ".coverme")) return readFile(base + ".coverme");
         kind = ArtKind::Icon;
         return gameIcon(game);
     }
-    const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     const std::string grid = base + ".grid", box = base + ".box", banner = base + ".card";
     kind = ArtKind::Grid;
     // Chosen by hand (+ > Card picture): kept for good.
@@ -718,12 +733,19 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind) {
     kind = ArtKind::Icon;
     if (!game.action.empty()) return readFile(systemIconPath(game.action));
+    kind = ArtKind::Banner;
+    const std::string chosen = std::string(kCacheDir) + "/" + hexId(game.id) + ".bgme"; // chosen by hand (+ > Background)
+    if (std::filesystem::exists(chosen)) return readFile(chosen);
+    kind = ArtKind::Icon;
     if (game.homebrew) return gameIcon(game); // drawn huge and soft: its colours
     kind = ArtKind::Banner;
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bg";
     if (std::filesystem::exists(path)) return readFile(path);
     std::string got;
-    if (!key.empty())
+    if (!key.empty()) // the usual 1920 wide first: a 3840 one takes long to open, and lags
+        got = steamGridDbPicture(game, key, "heroes",
+                                 "dimensions=1920x620,1600x650&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false");
+    if (!key.empty() && got.empty())
         got = steamGridDbPicture(game, key, "heroes", "types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false");
     if (got.empty() && keptBack(game.id, ".bg")) return readFile(path); // taken down since: the one saved
     if (got.empty()) got = eshopBanner(game, 1280, 720);
@@ -742,6 +764,60 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
     }
     kind = ArtKind::Icon;
     return gameIcon(game);
+}
+
+unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h) {
+    int ch = 0;
+    if (!data || size <= 0 || !stbi_info_from_memory(data, size, &w, &h, &ch)) return nullptr;
+    if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || static_cast<long long>(w) * h > 9LL * 1024 * 1024) return nullptr;
+    const bool big = static_cast<long long>(w) * h >= 2LL * 1024 * 1024;
+    static std::mutex mu;
+    static std::condition_variable cv;
+    static int bigNow = 0;
+    if (big) {
+        std::unique_lock<std::mutex> lk(mu);
+        cv.wait(lk, [] { return bigNow < 2; });
+        ++bigNow;
+    }
+    unsigned char* px = stbi_load_from_memory(data, size, &w, &h, &ch, 4);
+    if (big) {
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            --bigNow;
+        }
+        cv.notify_one();
+    }
+    return px;
+}
+
+bool autoClock() {
+    bool on = false;
+    if (R_SUCCEEDED(setsysInitialize())) {
+        setsysIsUserSystemClockAutomaticCorrectionEnabled(&on);
+        setsysExit();
+    }
+    return on;
+}
+
+bool setAutoClock(bool on) {
+    if (R_FAILED(setsysInitialize())) return false;
+    const bool ok = R_SUCCEEDED(setsysSetUserSystemClockAutomaticCorrectionEnabled(on));
+    setsysExit();
+    return ok;
+}
+
+bool setClock(long long posixSeconds) {
+    return posixSeconds > 0 && R_SUCCEEDED(timeSetCurrentTime(TimeType_UserSystemClock, static_cast<u64>(posixSeconds)));
+}
+
+bool artCached(const Game& game, bool title) {
+    const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
+    std::error_code ec;
+    auto has = [&](const char* ext) { return std::filesystem::exists(base + ext, ec); };
+    const bool card = has(".coverme") || has(".grid") || has(".box") || has(".card");
+    const bool background = has(".bg") || has(".box");
+    const bool picture = !title || has(".titleme") || has(".titlepick") || has(".title") || has(".title2");
+    return card && background && picture;
 }
 
 // "Download them again" puts the old ones aside (kept/): if the new one can't
@@ -833,7 +909,31 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, boo
 }
 
 // The games a picker looks at: the search's, else the game's names (searchNames).
+std::vector<std::pair<long long, std::string>> steamGridDbFind(const std::string& query, const std::string& key, size_t n) {
+    std::vector<std::pair<long long, std::string>> out;
+    const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
+    std::string body;
+    if (get(std::string(kSteamGridDb) + "/search/autocomplete/" + percentEncode(query), body, headers) != 200) return out;
+    try {
+        const auto j = nlohmann::json::parse(body);
+        if (j.contains("data") && j["data"].is_array())
+            for (const auto& g : j["data"]) {
+                const long long id = g.value("id", -1LL);
+                if (id <= 0 || out.size() >= n) continue;
+                std::string name = g.value("name", std::string("?"));
+                if (g.contains("release_date") && g["release_date"].is_number()) {
+                    const std::time_t at = static_cast<std::time_t>(g["release_date"].get<long long>());
+                    if (const std::tm* t = std::gmtime(&at)) name += " (" + std::to_string(1900 + t->tm_year) + ")";
+                }
+                out.emplace_back(id, std::move(name));
+            }
+    } catch (...) {
+    }
+    return out;
+}
+
 static std::vector<long long> pickerGames(const Game& game, const std::string& key, const std::string& query) {
+    if (!query.empty() && query[0] == '#') return {std::atoll(query.c_str() + 1)}; // one of the Search's games
     if (!query.empty()) return steamGridDbSearch(query, key, 3);
     std::vector<long long> ids;
     for (const Game& g : searchNames(game)) ids.push_back(steamGridDbGame(g.name, key));
@@ -846,7 +946,7 @@ std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, 
     std::vector<std::uint8_t> old = query.empty() ? readFile(base + ".title") : std::vector<std::uint8_t>{};
     if (!old.empty()) { // the one picked before
         int w = 0, h = 0, ch = 0;
-        if (stbi_uc* px = stbi_load_from_memory(old.data(), static_cast<int>(old.size()), &w, &h, &ch, 4)) {
+        if (stbi_uc* px = decodePicture(old.data(), static_cast<int>(old.size()), w, h)) {
             TitleChoice c;
             c.file = base + ".title";
             c.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
@@ -871,8 +971,7 @@ std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, 
                 if ((thumb.empty() || get(thumb, body) != 200 || !isPicture(body)) && (get(url, body) != 200 || !isPicture(body)))
                     continue;
                 int w = 0, h = 0, ch = 0;
-                stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
-                                                    &w, &h, &ch, 4);
+                stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()), w, h);
                 if (!px) continue;
                 TitleChoice c;
                 c.url = url;
@@ -902,8 +1001,7 @@ std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, 
             if ((thumb.empty() || get(thumb, body) != 200 || !isPicture(body)) && (get(url, body) != 200 || !isPicture(body)))
                 continue;
             int w = 0, h = 0, ch = 0;
-            stbi_uc* px = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()),
-                                                &w, &h, &ch, 4);
+            stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()), w, h);
             if (!px) continue;
             const bool removed = removedNotice(px, w, h); // (a taken-down one's notice)
             TitleChoice c;
@@ -917,6 +1015,46 @@ std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, 
             out.push_back(std::move(c));
         }
     return out;
+}
+
+std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, size_t max, const std::string& query) {
+    std::vector<TitleChoice> out;
+    if (key.empty()) return out;
+    std::set<std::string> seen;
+    std::string body;
+    for (const long long gameId : pickerGames(game, key, query))
+        for (const auto& [url, thumb] : steamGridDbAssets(gameId, key, "heroes",
+                 "types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
+            if (out.size() >= max || url.empty() || thumb.empty() || !seen.insert(url).second) continue;
+            if (get(thumb, body) != 200 || !isPicture(body)) continue; // (the small copy: a hero itself is huge)
+            int w = 0, h = 0;
+            unsigned char* px = decodePicture(reinterpret_cast<const unsigned char*>(body.data()), static_cast<int>(body.size()), w, h);
+            if (!px) continue;
+            const bool removed = removedNotice(px, w, h);
+            TitleChoice c;
+            c.url = url;
+            c.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
+            stbi_image_free(px);
+            if (removed) continue;
+            scaleDown(c.rgba, w, h, 320);
+            c.w = w;
+            c.h = h;
+            out.push_back(std::move(c));
+        }
+    return out;
+}
+
+bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
+    const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bgme";
+    std::error_code ec;
+    if (!choice) {
+        std::filesystem::remove(path, ec);
+        return true;
+    }
+    std::string data;
+    if (get(choice->url, data) != 200 || !isPicture(data)) return false;
+    writeFile(path, data);
+    return true;
 }
 
 bool chooseCoverArt(const Game& game, const TitleChoice* choice) {
@@ -1123,7 +1261,7 @@ std::vector<Game> listSystem() {
         {"nso", "Switch Online", "Online and classics"},
 #endif
         {"eshop", "eShop", "Games and add-ons"},
-        {"album", "Album", "Screenshots, videos"},
+        {"album", "Album", "Your screenshots"},
         {"controllers", "Controllers", "Pair controllers"},
         {"mii", "Mii Maker", "Make your Miis"},
         {"friends", "Friends", "Your friend list"},

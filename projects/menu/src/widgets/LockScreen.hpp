@@ -12,7 +12,7 @@
 #include <vector>
 
 #include <social/NotificationLog.hpp>
-#include <switchu/lock_pin.hpp>
+#include <switchu/lock_password.hpp>
 
 // Wake acknowledgement screen shared by HomeNX and CardsNX when used as HOME.
 // It is deliberately a simple press-to-continue lock, like the Switch wake UI.
@@ -22,6 +22,9 @@ public:
     void setFonts(nxui::Font* large, nxui::Font* small);
     void onUnlock(std::function<void()> callback) { m_onUnlock = std::move(callback); }
     void onAutoSleep(std::function<void()> callback) { m_onAutoSleep = std::move(callback); }
+    // Settings > HomeNX > Lock screen password: made here, D-pad presses twice.
+    void onSetupDone(std::function<void()> callback) { m_onSetupDone = std::move(callback); }
+    void beginSetup(nxui::GpuDevice& gpu, nxui::Renderer& renderer);
     void setNotifications(const std::vector<notifications::Item>& items);
     // Call once on show: sets active/visible immediately so the first frame
     // covers the home screen. Wallpaper is loaded lazily on the first update.
@@ -37,11 +40,11 @@ protected:
 private:
     void unlock();
     void beginHide(); // the unlock's slide and fade
-    void pinKey(int key); // 0 up, 1 down, 2 left, 3 right
-    // Settings > HomeNX > Lock screen PIN: A asks for it (the wheels) before unlocking.
-    bool m_pinSet = false, m_pinEntry = false;
-    switchu::lockpin::Wheels m_pin;
-    float m_pinWrong = 0.f, m_time = 0.f;
+    void press(int key); // 0 up, 1 down, 2 left, 3 right
+    // The password (switchu/lock_password.hpp): entered here, or made here (m_setup).
+    bool m_pwSet = false, m_setup = false, m_wasSetup = false;
+    switchu::lockpw::Entry m_pw;
+    float m_time = 0.f;
     void openSelectedNotif();
     void moveNotifSel(int delta);
 
@@ -51,6 +54,7 @@ private:
     nxui::GpuDevice* m_gpu = nullptr;
     nxui::Renderer* m_renderer = nullptr;
     std::function<void()> m_onUnlock;
+    std::function<void()> m_onSetupDone;
     std::function<void()> m_onAutoSleep;
     bool m_active = false;
     int m_pressCount = 0;

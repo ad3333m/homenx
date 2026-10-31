@@ -86,6 +86,19 @@ enum class ArtKind { Grid, Box, Banner, Icon, Title }; // Icon: a homebrew app's
 std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool boxArt, ArtKind& kind);
 // The background: SteamGridDB hero, the eShop banner, the box cover, the icon.
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind);
+// Its card, background (and title picture) are on the SD card already (only the names are looked at).
+bool artCached(const Game& game, bool title);
+// stb_image's decode (RGBA), refusing pictures too big to hold (over 4096 on a side or 9 MP)
+// and letting only two big ones (2 MP and up) decode at once: crashes came from many at once.
+unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h);
+// The console's clock: automatic (from the internet), or set by hand (HOME only).
+bool autoClock();
+bool setAutoClock(bool on);
+bool setClock(long long posixSeconds);
+// SteamGridDB's games for what was typed (part of a name is enough): id and "Name (year)".
+std::vector<std::pair<long long, std::string>> steamGridDbFind(const std::string& query, const std::string& key, size_t n);
+// When each was last played (POSIX seconds), from the console's play log.
+std::map<std::uint64_t, std::uint64_t> lastPlayTimes(const std::vector<std::uint64_t>& ids);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
 // The game's own picture with no background (the Wonder Flower for Super Mario
 // Bros. Wonder): the first SteamGridDB icon with clear edges. Empty: none.
@@ -98,6 +111,7 @@ struct TitleChoice {
     std::vector<std::uint8_t> rgba; // a small copy to show, decoded
     int w = 0, h = 0;
     bool clear = false, before = false, own = false; // own: its own icon (the chooser adds it)
+    std::string label;              // under it (the pictures chooser's)
 };
 // query: what was typed in the picker's Search (else the game's own name).
 std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, size_t max = 19,
@@ -110,6 +124,10 @@ std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, 
                                       const std::string& query = {});
 // Downloads it and keeps it as the game's card for good; nullptr: back to the usual one.
 bool chooseCoverArt(const Game& game, const TitleChoice* choice);
+// + > Background picture: SteamGridDB's heroes to choose; the one chosen is kept (.bgme).
+std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, size_t max = 11,
+                                     const std::string& query = {});
+bool chooseHeroArt(const Game& game, const TitleChoice* choice);
 // Halves a picture until it's at most maxW wide.
 void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
 // Scales it to maxW wide exactly (averaging), when it's wider: backgrounds at the screen's size.

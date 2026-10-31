@@ -1,4 +1,4 @@
-#include <switchu/lock_pin.hpp>
+#include <switchu/lock_password.hpp>
 #include <switchu/lock_picture.hpp>
 #include "WiiUMenuApp.hpp"
 #include "FontChoice.hpp"
@@ -486,19 +486,24 @@ void WiiUMenuApp::createSettings() {
         app().input().setPointerMode(static_cast<nxui::Input::PointerMode>(mode));
     });
     m_settings->onLockPicture([this]() { openLockPicturePicker(); });
-    m_settings->onLockPin([this]() {
-        requestTextEntry("Lock screen PIN", "4 digits. Leave it empty to turn the PIN off.", std::string(), 4, false,
-            [this](const std::string& text) {
-                const bool ok = switchu::lockpin::save(text);
-                if (!m_dialog) return;
-                m_dialog->show("Lock screen PIN",
-                               !ok ? "The PIN has to be 4 digits. Nothing changed."
-                                   : text.empty()   ? "The lock screen has no PIN now."
-                                   : lockScreenOn() ? "PIN set: the lock screen asks for it."
-                                                    : "PIN set. Turn on Lock screen too: it's what asks for it.",
-                               {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
-                focusManager().setFocus(m_dialog.get());
-            }, true);
+    m_settings->onLockPassword([this]() {
+        if (!lockScreenOn()) std::ofstream("sdmc:/config/SwitchU/lock_screen") << "1"; // a password needs the lock screen
+        showLockScreen(false, true);
+    });
+    m_settings->onRescanApps([this]() {
+        refreshAppList();
+        if (!m_dialog) return;
+        m_dialog->show("Look for new software", "Done: everything installed is on HOME now.",
+                       {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
+    });
+    m_settings->onLockPasswordOff([this]() {
+        const bool had = switchu::lockpw::isSet();
+        switchu::lockpw::save(std::string());
+        if (!m_dialog) return;
+        m_dialog->show("Lock screen password", had ? "The lock screen has no password now." : "There's no password.",
+                       {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+        focusManager().setFocus(m_dialog.get());
     });
     m_settings->onDiscordAppId([this]() {
         // Read and written as the overlay reads it (config/SwitchU/discord_app_id.txt).
@@ -946,7 +951,7 @@ void WiiUMenuApp::openDiscordPanel() {
     m_audio.playSfx(Sfx::ModalShow);
 }
 
-void WiiUMenuApp::showLockScreen(bool resumeMusic) {
+void WiiUMenuApp::showLockScreen(bool resumeMusic, bool makePassword) {
     if (!m_lockScreen) {
         m_lockScreen = std::make_shared<LockScreen>();
         m_lockScreen->setFonts(&m_fontNormal, &m_fontSmall);
@@ -964,10 +969,16 @@ void WiiUMenuApp::showLockScreen(bool resumeMusic) {
             updateCursor();
         });
         m_lockScreen->onAutoSleep([this]() { handleLockScreenAutoSleep(); });
+        m_lockScreen->onSetupDone([this]() {
+            if (m_settings && m_settings->isVisible()) focusManager().setFocus(m_settings.get());
+            if (!m_dialog) return;
+            m_dialog->show("Lock screen password", switchu::lockpw::isSet() ? "Password set: the lock screen asks for it."
+                                                                            : "Nothing changed.",
+                           {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+            focusManager().setFocus(m_dialog.get());
+        });
     }
-    // Hide the home screen so it isn't visible behind the lock screen.
-    if (m_bgLayer) m_bgLayer->setVisible(false);
-    if (m_contentLayer) m_contentLayer->setVisible(false);
+    // HOME stays drawn behind it: the lock frosts it (its own picture covers it).
 
     // Pass recent notifications to the lock screen.
     m_lockScreen->setNotifications(notifications::recent(50));
@@ -975,6 +986,11 @@ void WiiUMenuApp::showLockScreen(bool resumeMusic) {
     if (m_overlayLayer) {
         m_overlayLayer->removeChild(m_lockScreen.get());
         m_overlayLayer->addChild(m_lockScreen);
+    }
+    if (makePassword) { // (from Settings: the music plays on)
+        m_lockScreen->beginSetup(app().gpu(), app().renderer());
+        focusManager().setFocus(m_lockScreen.get());
+        return;
     }
     m_lockMusicShouldResume = resumeMusic || m_audio.isPlaying();
     if (m_audio.isPlaying()) m_audio.pause();

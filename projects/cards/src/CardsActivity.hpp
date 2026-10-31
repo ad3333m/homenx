@@ -17,7 +17,7 @@
 #include "widgets/DiscordPanel.hpp"
 #include "widgets/SocialScreen.hpp"
 #include "settings/ControllerTestScreen.hpp"
-#include <switchu/lock_pin.hpp>
+#include <switchu/lock_password.hpp>
 #endif
 
 #include <array>
@@ -52,6 +52,9 @@ public:
     // the console just booted).
     explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false, bool atBoot = true);
     bool onCreate() override;
+#ifdef SWITCHU_MENU
+    bool presentInitialFrame(nxui::Renderer& ren) override;
+#endif
     void onDestroy() override;
     void onUpdate(float dt) override;
     void onRender(nxui::Renderer&) override {}
@@ -159,7 +162,9 @@ private:
     std::future<void> m_saveAllJob;
     std::atomic<int> m_saveAllDone{0}, m_saveAllTotal{0};
     std::atomic<bool> m_saveAllStop{false};
-    void saveAllPictures();
+    void saveAllPictures(bool quiet = false);
+    bool m_saveAllQuiet = false, m_autoSaveAsked = false;
+    std::atomic<int> m_saveAllGot{0};
     std::future<bool> m_getJob;
     std::string m_getPath, m_getName;
     void openPageOrder(int select);
@@ -224,10 +229,10 @@ private:
     bool updateLock(float dt);
     void drawLock(nxui::Renderer& r);
 #ifdef SWITCHU_MENU
-    // The lock screen's PIN (the same as HomeNX's): a button shows the wheels, A checks.
-    bool m_pinSet = false, m_pinEntry = false;
-    switchu::lockpin::Wheels m_pin;
-    float m_pinWrong = 0.f;
+    // The lock screen's password (the same as HomeNX's): D-pad presses, made on the lock screen.
+    bool m_pwSet = false, m_pwSetup = false;
+    switchu::lockpw::Entry m_pw;
+    void startPasswordSetup();
 #endif
     bool closeEverything();
 
@@ -280,8 +285,43 @@ private:
     std::future<bool> m_pickSave;
     std::uint64_t m_pickSaveId = 0;
     bool m_pickCover = false, m_pickSaveCover = false; // the card's picture (not the title's)
+    bool m_pickHero = false, m_pickSaveHero = false;   // the background's
+    float m_pictureScale = 1.f; // 1.5 at 1080p: cards and icons are kept that much bigger
+    struct PlayStat {
+        std::uint64_t id = 0, last = 0, seconds = 0;
+        std::uint32_t launches = 0;
+    };
+    std::future<std::vector<PlayStat>> m_statsJob;
+    bool m_statsAsked = false;
+    bool m_scanAsked = false;              // Settings > Home > Look for new software
+    bool m_autoClock = true;               // Settings > Console > Set the time automatically
+    // The first time: a few pages on the basics.
+    bool m_introOpen = false;
+    int m_introPage = 0;
+    float m_introIn = 0.f;
+    void updateIntro(float dt);
+    // Back from a game: its last picture, shrinking into its card as HOME appears.
+    std::unique_ptr<nxui::Texture> m_returnTex;
+    float m_returnT = 0.f;
+    void drawReturn(nxui::Renderer& r);
+    void drawIntro(nxui::Renderer& r);
+    std::vector<std::uint64_t> m_scanBefore; // what HOME showed before it
     std::string m_pickQuery; // the Search's text ("" = the game's own name)
-    void openTitlePicker(const Game& g, bool cover = false, const std::string& query = {});
+    int m_pickWall = 0;      // 1 Background, 2 the lock screen's picture (else the game's pictures)
+    std::string m_pickLabel; // the Search's game it shows (its query is "#id")
+    std::future<std::vector<std::pair<long long, std::string>>> m_searchJob; // the Search's games
+    std::string m_searchFor;
+    int pickKind() const { return m_pickWall || m_pickHero ? 2 : m_pickCover ? 1 : 0; }
+    void chooseWallpaper(const std::string& path, bool lockScreen);
+    // The Album (m_pickWall 3): the newest screenshots, then one full screen.
+    void openGallery();
+    void loadGalleryPicture();
+    bool m_galleryView = false;
+    int m_galleryAt = 0;
+    std::shared_ptr<std::vector<std::string>> m_galleryAll; // every screenshot, newest first
+    std::unique_ptr<nxui::Texture> m_galleryTex;
+    std::future<Pixels> m_galleryJob;
+    void openTitlePicker(const Game& g, bool cover = false, const std::string& query = {}, bool hero = false);
     void searchPicker();
     // Text typed in: HomeNX's keyboard as HOME, the system's as an app.
     void askText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
