@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -265,9 +266,12 @@ std::string Spotify::loginError() const {
 }
 
 void Spotify::setWatching(bool on) {
-    std::lock_guard<std::mutex> lk(m_mu);
-    if (on && !m_watching) m_pollAt = 0; // at once
-    m_watching = on;
+    {
+        std::lock_guard<std::mutex> lk(m_mu);
+        if (on && !m_watching) m_pollAt = 0; // at once
+        m_watching = on;
+    }
+    m_cv.notify_all();
 }
 
 Spotify::Now Spotify::now() const {
@@ -331,14 +335,14 @@ void Spotify::closeServer() {
 // Spotify's answer (through homenx.pages.dev/spotify/).
 void Spotify::serveOnce() {
     pollfd p{m_server, POLLIN, 0};
-    if (m_server < 0 || poll(&p, 1, 0) <= 0) return;
+    if (m_server < 0 || ::poll(&p, 1, 0) <= 0) return;
     const int fd = accept(m_server, nullptr, nullptr);
     if (fd < 0) return;
     std::string req;
     char buf[1024];
     for (int i = 0; i < 30 && req.find("\r\n") == std::string::npos && req.size() < 8192; ++i) {
         pollfd q{fd, POLLIN, 0};
-        if (poll(&q, 1, 100) <= 0) continue;
+        if (::poll(&q, 1, 100) <= 0) continue;
         const ssize_t n = recv(fd, buf, sizeof(buf), 0);
         if (n <= 0) break;
         req.append(buf, static_cast<size_t>(n));
@@ -462,7 +466,7 @@ long Spotify::api(const char* method, const std::string& path, std::string& out)
             access = m_access;
         }
         const long status = request(method, "https://api.spotify.com/v1" + path, "",
-                                    {"Authorization: Bearer " + access}, out);
+                                    {"Authorization: Bearer " + access, "Content-Type:"}, out);
         if (status != 401) return status;
         std::lock_guard<std::mutex> lk(m_mu);
         m_expires = 0; // refreshed on the next try
@@ -570,9 +574,12 @@ void Spotify::run() {
         std::pair<Cmd, int> cmd{Cmd::Next, -1};
         {
             std::unique_lock<std::mutex> lk(m_mu);
-            m_cv.wait_for(lk, std::chrono::milliseconds(m_login == Login::Waiting ? 60 : 250),
-                          [this]() { return m_quit || !m_cmds.empty() || m_login == Login::Exchanging; });
+            // Quick while the sign-in page waits or the player shows; idle, every 2 s.
+            m_cv.wait_for(lk, std::chrono::milliseconds(m_login == Login::Waiting ? 60 : m_watching ? 250 : 2000), [this]() {
+                return m_quit || !m_cmds.empty() || m_login == Login::Exchanging || (m_watching && m_pollAt == 0);
+            });
             if (m_quit) break;
+            if (m_server >= 0 && m_login != Login::Waiting && m_login != Login::Exchanging) closeServer(); // done with the page
             login = m_login;
             watching = m_watching;
             signedIn = !m_refresh.empty();
@@ -583,7 +590,6 @@ void Spotify::run() {
             }
         }
         if (login == Login::Waiting) serveOnce();
-        else if (m_server >= 0 && login != Login::Exchanging) closeServer(); // done with the page
         if (login == Login::Exchanging) exchange();
         if (cmd.second != -1 && signedIn) doCommand(cmd.first, cmd.second);
         if (watching && signedIn && due) {

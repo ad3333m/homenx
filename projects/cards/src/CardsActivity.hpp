@@ -2,6 +2,7 @@
 #include "Audio.hpp"
 #include "Library.hpp"
 #include "Settings.hpp"
+#include "Spotify.hpp"
 
 #include <nxui/Activity.hpp>
 #include <nxui/core/Font.hpp>
@@ -237,6 +238,30 @@ private:
     bool musicTouch();
     void drawMusic(nxui::Renderer& r);
     void musicControl(int col); // shuffle, previous, play / pause, next, repeat
+    // Spotify in the music player (Settings > Sound > Music player; HOME only):
+    // what plays on a phone, computer or speaker, read every few seconds while
+    // the Music screen or Quick Settings shows it, and their buttons.
+    bool spotifyOn() const;
+    bool spotifySignedIn() const;
+    bool homeMusic() const { return m_settings.music && !spotifyOn(); } // HOME's own songs play
+    void spotifyDo(Spotify::Cmd c, int value = 0);
+    float spotifyPos() const; // seconds into the song (it moves on from when it was read)
+    void updateSpotify();
+    Spotify::Now m_sp;
+    nxui::Texture m_spCover;
+    // Signing in: a QR code for a phone on the same Wi-Fi.
+    void signInSpotify();
+    void updateSpotifyQr();
+    void closeSpotifyQr();
+    void drawSpotifyQr(nxui::Renderer& r);
+    bool m_spQrOpen = false;
+    std::string m_spQrText;
+    std::vector<std::uint8_t> m_spQr; // its squares, row by row
+    int m_spQrSize = 0;
+#ifdef SWITCHU_MENU
+    Spotify m_spotify;
+    bool m_spWatch = false;
+#endif
     // + > Title picture: the game's pictures to choose from, in a grid.
     bool m_pickOpen = false;
     Game m_pickGame;

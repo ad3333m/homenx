@@ -1,5 +1,4 @@
 #pragma once
-#ifdef SWITCHU_MENU
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -21,6 +20,7 @@ namespace cards {
 // Spotify app's Client ID (developer.spotify.com, redirect URI
 // https://homenx.pages.dev/spotify/): Spotify lets an app have 25 users unless it
 // approves it, and it doesn't approve apps of people on their own.
+// (Built in HOME only: Spotify.cpp is empty in the .nro.)
 class Spotify {
 public:
     struct Now {
@@ -90,4 +90,3 @@ private:
 };
 
 } // namespace cards
-#endif

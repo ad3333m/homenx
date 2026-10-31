@@ -49,6 +49,7 @@ struct Settings {
     bool askUser = false;       // starting a game asks who's playing, as Nintendo's HOME does
     std::string panelApp = "news"; // the panel's right button: "news", "" nothing, else a card's id (hex)
     bool lockScreen = false;    // a lock screen when the console wakes
+    bool spotify = false;       // the music player shows Spotify, not HOME music (HOME only)
     std::string wallpaper;      // one picture behind everything ("" = each game's art)
     std::map<std::string, std::string> names; // + > Rename: by title ID (hex) or .nro path
     std::vector<std::string> sheetOrder; // Settings' tabs by name, in his order (new ones after)
@@ -98,6 +99,7 @@ struct Settings {
             askUser = j.value("askUser", askUser);
             panelApp = j.value("panelApp", panelApp);
             lockScreen = j.value("lockScreen", lockScreen);
+            spotify = j.value("spotify", spotify);
             wallpaper = j.value("wallpaper", wallpaper);
             names = j.value("names", names);
             sheetOrder = j.value("sheetOrder", sheetOrder);
@@ -118,7 +120,7 @@ struct Settings {
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut},
                             {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"wallpaper", wallpaper}, {"names", names},
+                            {"lockScreen", lockScreen}, {"spotify", spotify}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
