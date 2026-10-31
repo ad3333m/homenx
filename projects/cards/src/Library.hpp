@@ -25,6 +25,7 @@ struct AccountUidLike {
 struct Game {
     std::uint64_t id = 0;
     std::string name, version, author;
+    std::string original;          // renamed (+ > Rename): its real name, which finds its pictures
     std::string path;              // a .nro (else it's an installed title)
     std::string action;            // a Nintendo page entry: "eshop", "album", ... (see openSystem)
     bool homebrew = false;
@@ -34,6 +35,12 @@ struct Game {
     std::uint32_t flags = 0;       // ns's view flags (game card, can launch, ...); 0 = not known
     int order = 0;                 // the system's order (most recent first)
 };
+
+// Pictures are found by a game's real name, not one it was renamed to.
+inline Game forLookup(Game g) {
+    if (!g.original.empty()) g.name = g.original;
+    return g;
+}
 
 // Installed games in the system's order, names and versions from HOME's cache
 // (sdmc:/config/SwitchU/control_cache) or the system, with play time from pdm.
@@ -60,6 +67,7 @@ void saveLists(const std::vector<Game>& games, const std::vector<Game>& homebrew
 
 // HomeNX's SteamGridDB key (Settings > SteamGridDB), "" = none.
 std::string steamGridDbKey();
+void setSteamGridDbKey(const std::string& key); // Settings > Pictures (HomeNX reads the same file)
 
 std::string idText(std::uint64_t id); // 16 hex digits
 
@@ -91,12 +99,15 @@ struct TitleChoice {
     int w = 0, h = 0;
     bool clear = false, before = false, own = false; // own: its own icon (the chooser adds it)
 };
-std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, size_t max = 19);
+// query: what was typed in the picker's Search (else the game's own name).
+std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, size_t max = 19,
+                                      const std::string& query = {});
 // Downloads it and keeps it as the game's title picture for good (kept through
 // "Download new pictures"); nullptr: its own icon instead.
 bool chooseTitleArt(const Game& game, const TitleChoice* choice);
 // + > Card picture: SteamGridDB's covers (600x900) for the game to choose from.
-std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max = 15);
+std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max = 15,
+                                      const std::string& query = {});
 // Downloads it and keeps it as the game's card for good; nullptr: back to the usual one.
 bool chooseCoverArt(const Game& game, const TitleChoice* choice);
 // Halves a picture until it's at most maxW wide.
@@ -132,7 +143,7 @@ bool openSystem(const std::string& action, AccountUidLike uid, std::string& erro
 
 // Quick Settings (R): the console's switches, as HomeNX's Quick Settings reads them.
 struct QuickStatus {
-    bool wifi = true, airplane = false, charging = false;
+    bool wifi = true, airplane = false, charging = false, bluetooth = true;
     float brightness = -1.f; // 0..1, -1 = not known
     int battery = -1;        // %
     int temperature = -1;    // the chip, degrees C
@@ -142,6 +153,7 @@ int chipTemperature(); // degrees C, -1 not known
 int gpuMhz();          // the GPU's clock now (the perf log: a hot chip is throttled), 0 not known
 bool setWifi(bool on);         // turning it on also ends Airplane mode
 bool setAirplaneMode(bool on);
+bool setBluetooth(bool on);
 void setBrightness(float level); // 0..1
 
 // Power. Hekate: the payload is handed to Atmosphere and this process (hbl)

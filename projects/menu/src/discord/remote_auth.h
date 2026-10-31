@@ -44,5 +44,5 @@ private:
     std::atomic<bool> done_{true};
     mutable std::mutex mu_;
     Snapshot snap_;
-    bool hashedProof_ = false;
+    bool hashedProof_ = true; // Discord's current revision: SHA-256 of the nonce (the raw nonce is the fallback)
 };

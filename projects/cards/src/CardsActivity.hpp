@@ -188,6 +188,31 @@ private:
     void comeBack(); // it didn't happen: the screen as it was
     void handleHome();
     void askClose(); // X: close the open game or app, after asking
+    // The panel's right button: News, nothing, or a card (Settings.panelApp).
+    const Game* panelCard() const;
+    void openCard(const Game& g);
+    void wantPanelIcon(const Game& g);
+    // + > Rename (Settings.names): applied to the pages wherever they're made.
+    void applyNames();
+    void renameCard(const Game& g);
+    AccountUidLike m_launchAs{}; // Settings > Home > Ask who's playing: the one chosen for this launch
+    // Settings > Look > Background: one picture behind everything.
+    struct Pixels {
+        std::vector<std::uint8_t> rgba;
+        int w = 0, h = 0;
+    };
+    std::unique_ptr<nxui::Texture> m_wallTex;
+    std::future<Pixels> m_wallJob;
+    void loadWallpaper();
+    void openWallpapers();
+    // Settings > Look > Lock screen: the time and date when the console wakes.
+    bool m_locked = false, m_lockFonts = false;
+    float m_lockIn = 0.f, m_unlockT = -1.f; // opening it: 0 -> 1, then it's gone
+    nxui::Font m_fLock, m_fLockDate;
+    std::string m_date;
+    void lock();
+    bool updateLock(float dt);
+    void drawLock(nxui::Renderer& r);
     bool closeEverything();
 
     // Popups and screens.
@@ -215,7 +240,12 @@ private:
     std::future<bool> m_pickSave;
     std::uint64_t m_pickSaveId = 0;
     bool m_pickCover = false, m_pickSaveCover = false; // the card's picture (not the title's)
-    void openTitlePicker(const Game& g, bool cover = false);
+    std::string m_pickQuery; // the Search's text ("" = the game's own name)
+    void openTitlePicker(const Game& g, bool cover = false, const std::string& query = {});
+    void searchPicker();
+    // Text typed in: HomeNX's keyboard as HOME, the system's as an app.
+    void askText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
+                 std::function<void(const std::string&)> done);
     void updatePicker();
     bool pickerTouch();
     void drawPicker(nxui::Renderer& r);
@@ -375,10 +405,11 @@ private:
     // took the screen's time once a second).
     std::unique_ptr<nxui::Texture> m_avatar;
     std::string m_clock, m_battery, m_free;
-    bool m_online = false;
+    bool m_online = false, m_charging = false;
     struct Status {
         std::string clock, battery, free;
-        bool online = false;
+        bool online = false, charging = false;
+        std::string date; // "Friday 31 October" (the lock screen)
     };
     Status m_statusIn;
     bool m_statusFresh = false;
@@ -422,7 +453,7 @@ private:
 
     // Quick Settings (R), laid out as HomeNX's: the status, the music player,
     // three sliders, two switches, the power buttons; the playlist beside it.
-    enum QuickRow { kQPlayer, kQMusic, kQSounds, kQBrightness, kQAirplane, kQWifi, kQPower, kQRows };
+    enum QuickRow { kQPlayer, kQMusic, kQSounds, kQBrightness, kQAirplane, kQWifi, kQBluetooth, kQPower, kQRows };
     bool m_quickOpen = false, m_quickPlaylist = false;
     float m_quickIn = 0.f, m_quickRefreshIn = 0.f, m_quickListIn = 0.f;
     int m_quickRow = kQPlayer, m_quickCol = 1, m_quickListSel = 0;

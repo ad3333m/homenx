@@ -153,6 +153,22 @@ long long steamGridDbGame(const std::string& name, const std::string& key) {
     return gameId;
 }
 
+// The pickers' Search: SteamGridDB's first few games for what was typed.
+std::vector<long long> steamGridDbSearch(const std::string& query, const std::string& key, size_t n) {
+    std::vector<long long> ids;
+    const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
+    std::string body;
+    if (get(std::string(kSteamGridDb) + "/search/autocomplete/" + percentEncode(query), body, headers) != 200) return ids;
+    try {
+        const auto j = nlohmann::json::parse(body);
+        if (j.contains("data") && j["data"].is_array())
+            for (const auto& g : j["data"])
+                if (ids.size() < n && g.value("id", -1LL) > 0) ids.push_back(g.value("id", -1LL));
+    } catch (...) {
+    }
+    return ids;
+}
+
 // Its pictures of `kind` ("grids", "heroes", "icons", "logos"): each one's
 // url and thumbnail, best first. answered: the list came.
 std::vector<std::pair<std::string, std::string>> steamGridDbAssets(long long gameId, const std::string& key, const char* kind,
@@ -452,6 +468,18 @@ std::string steamGridDbKey() {
     }
 }
 
+void setSteamGridDbKey(const std::string& key) {
+    nlohmann::json j = nlohmann::json::object();
+    try {
+        std::ifstream in(kSettings);
+        if (in) j = nlohmann::json::parse(in);
+    } catch (...) {
+    }
+    if (!j.is_object()) j = nlohmann::json::object();
+    j["steamGridDbApiKey"] = key;
+    writeLater(kSettings, j.dump(2));
+}
+
 std::string idText(std::uint64_t id) { return hexId(id); }
 
 namespace {
@@ -460,7 +488,7 @@ constexpr const char* kLists = "sdmc:/config/CardsNX/lists.json";
 nlohmann::json toJson(const std::vector<Game>& list) {
     nlohmann::json a = nlohmann::json::array();
     for (const Game& g : list)
-        a.push_back({{"id", g.id}, {"name", g.name}, {"version", g.version}, {"author", g.author}, {"path", g.path},
+        a.push_back({{"id", g.id}, {"name", g.original.empty() ? g.name : g.original}, {"version", g.version}, {"author", g.author}, {"path", g.path},
                      {"homebrew", g.homebrew}, {"lastPlayed", g.lastPlayed}, {"playSeconds", g.playSeconds},
                      {"launches", g.launches}, {"flags", g.flags}, {"order", g.order}});
     return a;
@@ -795,10 +823,19 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, boo
     return std::vector<std::uint8_t>(got.begin(), got.end());
 }
 
-std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, size_t max) {
+// The games a picker looks at: the search's, else the game's names (searchNames).
+static std::vector<long long> pickerGames(const Game& game, const std::string& key, const std::string& query) {
+    if (!query.empty()) return steamGridDbSearch(query, key, 3);
+    std::vector<long long> ids;
+    for (const Game& g : searchNames(game)) ids.push_back(steamGridDbGame(g.name, key));
+    return ids;
+}
+
+std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, size_t max, const std::string& query) {
     std::vector<TitleChoice> out;
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
-    if (std::vector<std::uint8_t> old = readFile(base + ".title"); !old.empty()) { // the one picked before
+    std::vector<std::uint8_t> old = query.empty() ? readFile(base + ".title") : std::vector<std::uint8_t>{};
+    if (!old.empty()) { // the one picked before
         int w = 0, h = 0, ch = 0;
         if (stbi_uc* px = stbi_load_from_memory(old.data(), static_cast<int>(old.size()), &w, &h, &ch, 4)) {
             TitleChoice c;
@@ -816,9 +853,9 @@ std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, 
     if (key.empty()) return out;
     std::set<std::string> seen;
     std::string body;
-    for (const Game& g : searchNames(game))
+    for (const long long gameId : pickerGames(game, key, query))
         for (const char* kind : {"icons", "logos"})
-            for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(g.name, key), key, kind,
+            for (const auto& [url, thumb] : steamGridDbAssets(gameId, key, kind,
                                                               "types=static&mimes=image/png&nsfw=false&humor=false", 14, nullptr)) {
                 if (out.size() >= max || url.empty() || !seen.insert(url).second) continue;
                 // The thumbnail (small) when it's a picture stb reads, else the picture.
@@ -843,14 +880,15 @@ std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, 
     return out;
 }
 
-std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max) {
+std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max, const std::string& query) {
     std::vector<TitleChoice> out;
     if (key.empty()) return out;
     std::set<std::string> seen;
     std::string body;
-    for (const Game& g : searchNames(game))
-        for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(g.name, key), key, "grids",
-                 "dimensions=600x900&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
+    // Every tall size SteamGridDB has (600x900 alone left few to choose from).
+    for (const long long gameId : pickerGames(game, key, query))
+        for (const auto& [url, thumb] : steamGridDbAssets(gameId, key, "grids",
+                 "dimensions=600x900,342x482,660x930&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
             if (out.size() >= max || url.empty() || !seen.insert(url).second) continue;
             if ((thumb.empty() || get(thumb, body) != 200 || !isPicture(body)) && (get(url, body) != 200 || !isPicture(body)))
                 continue;
@@ -1131,6 +1169,7 @@ QuickStatus readQuickStatus() {
     if (R_SUCCEEDED(setsysInitialize())) {
         bool on = true;
         if (R_SUCCEEDED(setsysGetWirelessLanEnableFlag(&on))) q.wifi = on;
+        if (R_SUCCEEDED(setsysGetBluetoothEnableFlag(&on))) q.bluetooth = on;
         setsysExit();
     }
     {
@@ -1454,6 +1493,13 @@ void testConnection(NetTest& t) {
         if (t.upKbps > 0) break;
     }
     t.stage = 4;
+}
+
+bool setBluetooth(bool on) {
+    if (R_FAILED(setsysInitialize())) return false;
+    const bool ok = R_SUCCEEDED(setsysSetBluetoothEnableFlag(on));
+    setsysExit();
+    return ok;
 }
 
 bool setAirplaneMode(bool on) {

@@ -268,8 +268,9 @@ bool RemoteAuth::Session(Key& key) {
         if (!alive) {
             int code = ws.CloseCode();
             LOG("remote auth: closed with %d", code);
-            if (proofSent && Get().phase == Phase::Preparing && (code == 4001 || code == 4002 || code == 1000)) {
-                // The proof format was rejected: try the other revision next time.
+            if (proofSent && Get().phase == Phase::Preparing) {
+                // Closed after the proof and before a QR code: the proof format was
+                // rejected (whatever the close code), so the other revision next time.
                 hashedProof_ = !hashedProof_;
             }
             return true;  // timeout (4003) or network drop: new code
