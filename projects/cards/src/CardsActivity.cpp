@@ -2371,6 +2371,10 @@ void CardsActivity::lock() {
     m_locked = true;
     m_lockIn = m_settings.motion ? 0.f : 1.f;
     m_unlockT = -1.f;
+#ifdef SWITCHU_MENU
+    m_pinSet = switchu::lockpin::isSet();
+    m_pinEntry = false;
+#endif
 }
 
 bool CardsActivity::updateLock(float dt) {
@@ -2386,10 +2390,45 @@ bool CardsActivity::updateLock(float dt) {
     }
     auto& in = app().input();
     using B = nxui::Button;
+#ifdef SWITCHU_MENU
+    m_pinWrong = std::max(0.f, m_pinWrong - dt * 1.6f);
+    if (m_pinEntry) { // the wheels (either stick: mergeRightStick)
+        const bool up = in.isDown(B::DUp) || in.isDown(B::LStickU), down = in.isDown(B::DDown) || in.isDown(B::LStickD);
+        const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
+        if (up) m_pin.up();
+        if (down) m_pin.down();
+        if (left) m_pin.left();
+        if (right) m_pin.right();
+        if (up || down || left || right) m_audio.play("navigation");
+        if (in.isDown(B::B)) {
+            m_pinEntry = false;
+            m_audio.play("hide_modal");
+        } else if (in.isDown(B::A)) {
+            if (switchu::lockpin::check(m_pin.code())) {
+                m_pinEntry = false;
+                m_unlockT = 0.f;
+                m_audio.play("activation");
+            } else {
+                m_pinWrong = 1.f;
+                m_pin.reset();
+                m_audio.play("toggle_off");
+            }
+        }
+        return true;
+    }
+#endif
     bool pressed = in.touchUp();
     for (B b : {B::A, B::B, B::X, B::Y, B::L, B::R, B::ZL, B::ZR, B::Plus, B::Minus, B::DUp, B::DDown, B::DLeft, B::DRight})
         pressed |= in.isDown(b);
     if (pressed && m_lockIn > 0.25f) {
+#ifdef SWITCHU_MENU
+        if (m_pinSet) { // first the PIN
+            m_pinEntry = true;
+            m_pin.reset();
+            m_audio.play("show_modal");
+            return true;
+        }
+#endif
         m_unlockT = 0.f;
         m_audio.play("activation");
     }
@@ -2413,6 +2452,34 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
     if (m_charging)
         switchu::battery_drawing::drawLightningBolt(r, {bx - 26.f, 33.f + lift, 22.f, 22.f}, kGreen.withAlpha(a),
                                                     nxui::Color(0.f, 0.f, 0.f, 0.f), 0.f);
+#ifdef SWITCHU_MENU
+    if (m_pinEntry) { // the PIN: four wheels
+        constexpr float kBoxW = 70.f, kBoxH = 90.f, kGap = 18.f, kTop = 440.f;
+        const float shake = std::sin(m_time * 46.f) * 14.f * m_pinWrong;
+        const float x0 = (1280.f - (kBoxW * 4.f + kGap * 3.f)) * 0.5f + shake;
+        const std::string title = m_pinWrong > 0.f ? "Wrong PIN" : "Enter your PIN";
+        textMid(r, m_fLabel, title, 640.f - measured(m_fLabel, title).x * 0.5f, kTop - 30.f + lift,
+                (m_pinWrong > 0.f ? kRed : kWhite).withAlpha(a));
+        for (int i = 0; i < 4; ++i) {
+            const nxui::Rect box{x0 + (kBoxW + kGap) * static_cast<float>(i), kTop + lift, kBoxW, kBoxH};
+            const bool on = i == m_pin.at;
+            frost(r, box, 18.f, nxui::Color(1.f, 1.f, 1.f, (on ? 0.20f : 0.09f) * a));
+            r.drawRoundedRectOutline(box, on ? accent(a) : nxui::Color(1.f, 1.f, 1.f, 0.25f * a), 18.f, on ? 3.f : 1.2f);
+            const std::string d(1, static_cast<char>('0' + m_pin.digit[i]));
+            textMid(r, m_fTitle, d, box.x + (box.width - measured(m_fTitle, d).x * 1.3f) * 0.5f, box.y + box.height * 0.5f,
+                    kWhite.withAlpha(a), 1.3f);
+            if (on) {
+                const float cx = box.x + box.width * 0.5f;
+                r.drawTriangle({cx - 9.f, box.y - 8.f}, {cx + 9.f, box.y - 8.f}, {cx, box.y - 18.f}, kWhite.withAlpha(0.8f * a));
+                r.drawTriangle({cx - 9.f, box.y + box.height + 8.f}, {cx + 9.f, box.y + box.height + 8.f},
+                               {cx, box.y + box.height + 18.f}, kWhite.withAlpha(0.8f * a));
+            }
+        }
+        const std::string hint = "Up / Down change    Left / Right move    A unlock    B back";
+        textMid(r, m_fBody, hint, 640.f - measured(m_fBody, hint).x * 0.5f, kTop + kBoxH + 44.f + lift, kMuted.withAlpha(a));
+        return;
+    }
+#endif
     // The way in, breathing.
     const float pulse = 0.55f + 0.45f * (0.5f + 0.5f * std::sin(m_time * 2.4f));
     const std::string hint = "Press any button";
@@ -2423,7 +2490,16 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
 // HOME pressed while HOME shows: things close; else back to the open game;
 // else the first card.
 void CardsActivity::handleHome() {
-    if (m_locked) { // HOME opens the lock screen too
+    if (m_locked) { // HOME opens the lock screen too (with a PIN: asks for it)
+#ifdef SWITCHU_MENU
+        if (m_pinSet) {
+            if (!m_pinEntry) {
+                m_pinEntry = true;
+                m_pin.reset();
+            }
+            return;
+        }
+#endif
         if (m_unlockT < 0.f) m_unlockT = 0.f;
         return;
     }
@@ -3986,6 +4062,25 @@ void CardsActivity::buildSettings() {
     look.rows.push_back(toggle("Lock screen", [this]() { return m_settings.lockScreen; },
         [this, save]() { m_settings.lockScreen = !m_settings.lockScreen; save(); },
         "The time and date when the console wakes; any button opens HOME"));
+#ifdef SWITCHU_MENU
+    MenuItem pin = action("Lock screen PIN", [this, save]() {
+        enterText("Lock screen PIN", "4 digits. Leave it empty to turn the PIN off.", std::string(), 4,
+                  [this, save](const std::string& text) {
+                      const bool ok = switchu::lockpin::save(text);
+                      m_pinSet = switchu::lockpin::isSet();
+                      if (m_pinSet && !m_settings.lockScreen) { // a PIN needs the lock screen
+                          m_settings.lockScreen = true;
+                          save();
+                      }
+                      say(!ok ? "The PIN has to be 4 digits. Nothing changed."
+                              : text.empty() ? "The lock screen has no PIN now." : "PIN set: the lock screen asks for it.");
+                  }, nullptr, true);
+    });
+    m_pinSet = switchu::lockpin::isSet();
+    pin.value = [this]() { return std::string(m_pinSet ? "On" : "Off"); };
+    pin.detail = "4 digits before HOME opens. Forgot it? Delete config/SwitchU/lock_pin on a PC";
+    look.rows.push_back(std::move(pin));
+#endif
     look.rows.push_back(slider("Background softness", [this]() { return m_settings.haze * 100 / 80; },
         [this, save](int v) { m_settings.haze = v * 80 / 100; save(); }, "A haze over the game's art"));
     look.rows.push_back(toggle("Moving background", [this]() { return m_settings.bgMotion; },

@@ -16,6 +16,7 @@
 #include "widgets/DiscordPanel.hpp"
 #include "widgets/SocialScreen.hpp"
 #include "settings/ControllerTestScreen.hpp"
+#include <switchu/lock_pin.hpp>
 #endif
 
 #include <array>
@@ -214,6 +215,12 @@ private:
     void lock();
     bool updateLock(float dt);
     void drawLock(nxui::Renderer& r);
+#ifdef SWITCHU_MENU
+    // The lock screen's PIN (the same as HomeNX's): a button shows the wheels, A checks.
+    bool m_pinSet = false, m_pinEntry = false;
+    switchu::lockpin::Wheels m_pin;
+    float m_pinWrong = 0.f;
+#endif
     bool closeEverything();
 
     // Popups and screens.

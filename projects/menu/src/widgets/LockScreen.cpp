@@ -2,7 +2,9 @@
 
 #include <nxui/core/I18n.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 
 #include <cstdio>
 #include <cstdlib>
@@ -53,28 +55,62 @@ void LockScreen::show(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
     setFocusable(true);
     clearActions();
 
-    // A – immediate unlock (no debounce, no confirmation).
-    addAction(static_cast<std::uint64_t>(nxui::Button::A), [this]() {
-        if (!m_active) return;
-        m_idleTime = 0.f;
-        m_fadeTarget = 0.f;
-        m_slideTarget = 1.f;
-        m_animatingHide = true;
-    });
+    m_pinSet = switchu::lockpin::isSet();
+    m_pinEntry = false;
+    m_pinWrong = 0.f;
 
-    // Swallow other buttons to reset idle timer.
-    for (const auto button : {nxui::Button::X, nxui::Button::Y,
-                              nxui::Button::Plus, nxui::Button::Minus, nxui::Button::R,
-                              nxui::Button::ZL, nxui::Button::ZR, nxui::Button::LStick,
-                              nxui::Button::RStick, nxui::Button::LStickL, nxui::Button::LStickR,
-                              nxui::Button::RStickL, nxui::Button::RStickR}) {
+    // A: unlock (with a PIN: ask for it first, then check it).
+    addAction(static_cast<std::uint64_t>(nxui::Button::A), [this]() {
+        if (!m_active || m_animatingHide) return;
+        m_idleTime = 0.f;
+        if (m_pinSet) {
+            if (!m_pinEntry) {
+                m_pinEntry = true;
+                m_pin.reset();
+                return;
+            }
+            if (!switchu::lockpin::check(m_pin.code())) {
+                m_pinWrong = 1.f;
+                m_pin.reset();
+                return;
+            }
+            m_pinEntry = false;
+        }
+        beginHide();
+    });
+    addAction(static_cast<std::uint64_t>(nxui::Button::B), [this]() {
+        m_idleTime = 0.f;
+        m_pinEntry = false;
+    });
+    // The PIN's wheels: the D-pad or either stick.
+    const std::pair<nxui::Button, int> moves[] = {
+        {nxui::Button::DUp, 0}, {nxui::Button::DDown, 1}, {nxui::Button::DLeft, 2}, {nxui::Button::DRight, 3},
+        {nxui::Button::LStickU, 0}, {nxui::Button::LStickD, 1}, {nxui::Button::LStickL, 2}, {nxui::Button::LStickR, 3},
+        {nxui::Button::RStickU, 0}, {nxui::Button::RStickD, 1}, {nxui::Button::RStickL, 2}, {nxui::Button::RStickR, 3}};
+    for (const auto& [button, key] : moves) {
+        const int k = key;
+        addAction(static_cast<std::uint64_t>(button), [this, k]() { pinKey(k); });
+    }
+    // Swallow the rest (they only keep it awake).
+    for (const auto button : {nxui::Button::X, nxui::Button::Y, nxui::Button::Plus, nxui::Button::Minus, nxui::Button::L,
+                              nxui::Button::R, nxui::Button::ZL, nxui::Button::ZR, nxui::Button::LStick, nxui::Button::RStick}) {
         addAction(static_cast<std::uint64_t>(button), [this]() { m_idleTime = 0.f; });
     }
-    for (const auto button : {nxui::Button::DUp, nxui::Button::DDown,
-                              nxui::Button::DLeft, nxui::Button::DRight,
-                              nxui::Button::B, nxui::Button::L}) {
-        addAction(static_cast<std::uint64_t>(button), [this]() { m_idleTime = 0.f; });
-    }
+}
+
+void LockScreen::beginHide() {
+    m_fadeTarget = 0.f;
+    m_slideTarget = 1.f;
+    m_animatingHide = true;
+}
+
+void LockScreen::pinKey(int key) {
+    m_idleTime = 0.f;
+    if (!m_pinEntry) return;
+    if (key == 0) m_pin.up();
+    else if (key == 1) m_pin.down();
+    else if (key == 2) m_pin.left();
+    else m_pin.right();
 }
 
 void LockScreen::loadWallpaper(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
@@ -110,6 +146,8 @@ void LockScreen::openSelectedNotif() {
 
 void LockScreen::onUpdate(float dt) {
     if (!m_active) return;
+    m_time += dt;
+    m_pinWrong = std::max(0.f, m_pinWrong - dt * 1.6f);
 
     if (!m_wallpaperLoaded && m_gpu && m_renderer) {
         loadWallpaper(*m_gpu, *m_renderer);
@@ -169,6 +207,37 @@ void LockScreen::onRender(nxui::Renderer& renderer) {
                            nxui::Color(1.f, 1.f, 1.f, 0.92f), 1.f);
     }
 
+    // The PIN: four wheels where the prompt was.
+    if (m_pinEntry) {
+        constexpr float kBoxW = 70.f, kBoxH = 90.f, kGap = 18.f, kTop = 440.f;
+        const float shake = std::sin(m_time * 46.f) * 14.f * m_pinWrong;
+        const float x0 = (1280.f - (kBoxW * 4.f + kGap * 3.f)) * 0.5f + shake;
+        const std::string title = m_pinWrong > 0.f ? "Wrong PIN" : "Enter your PIN";
+        const nxui::Vec2 ts = m_small->measure(title);
+        renderer.drawText(title, {(1280.f - ts.x) * 0.5f, kTop - 46.f + yOffset}, m_small,
+                          m_pinWrong > 0.f ? nxui::Color(1.f, 0.55f, 0.5f, 1.f) : nxui::Color::white(), 1.f);
+        for (int i = 0; i < 4; ++i) {
+            const nxui::Rect box{x0 + (kBoxW + kGap) * static_cast<float>(i), kTop + yOffset, kBoxW, kBoxH};
+            const bool on = i == m_pin.at;
+            renderer.drawRoundedRect(box, nxui::Color(1.f, 1.f, 1.f, on ? 0.20f : 0.09f), 16.f);
+            renderer.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, on ? 0.85f : 0.25f), 16.f, on ? 2.5f : 1.2f);
+            const std::string d(1, static_cast<char>('0' + m_pin.digit[i]));
+            const nxui::Vec2 ds = m_large->measure(d);
+            renderer.drawText(d, {box.x + (box.width - ds.x * 1.4f) * 0.5f, box.y + (box.height - ds.y * 1.4f) * 0.5f},
+                              m_large, nxui::Color::white(), 1.4f);
+            if (on) { // up and down arrows on the chosen wheel
+                const float cx = box.x + box.width * 0.5f;
+                renderer.drawTriangle({cx - 9.f, box.y - 8.f}, {cx + 9.f, box.y - 8.f}, {cx, box.y - 18.f},
+                                      nxui::Color(1.f, 1.f, 1.f, 0.8f));
+                renderer.drawTriangle({cx - 9.f, box.bottom() + 8.f}, {cx + 9.f, box.bottom() + 8.f}, {cx, box.bottom() + 18.f},
+                                      nxui::Color(1.f, 1.f, 1.f, 0.8f));
+            }
+        }
+        const std::string hint = "Up / Down change    Left / Right move    A unlock    B back";
+        const nxui::Vec2 hs = m_small->measure(hint);
+        renderer.drawText(hint, {(1280.f - hs.x * 0.85f) * 0.5f, kTop + kBoxH + 34.f + yOffset}, m_small,
+                          nxui::Color(1.f, 1.f, 1.f, 0.7f), 0.85f);
+    } else
     // --- Single-press unlock prompt ---------------------------------------
     {
         auto& i18n = nxui::I18n::instance();

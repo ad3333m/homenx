@@ -2299,6 +2299,7 @@ void WiiUMenuApp::handleSystemAction(SysAction a) {
             // Physical HOME while already browsing the menu.
             DebugLog::log("[pump] HomeDismiss -> close folder/overlays");
             m_launcher.setAppHasForeground(false);
+            if (m_lockScreen && m_lockScreen->isActive()) break; // (not past the lock screen)
             const std::uint32_t folderBefore = m_openFolderId;
             closeActiveOverlays(true);
             if (folderBefore != 0) {

@@ -1,3 +1,4 @@
+#include <switchu/lock_pin.hpp>
 #include "WiiUMenuApp.hpp"
 #include "FontChoice.hpp"
 #include "themeshop/ThemePackageInstaller.hpp"
@@ -482,6 +483,20 @@ void WiiUMenuApp::createSettings() {
     m_settings->onFontsChange([this]() { m_fontsChanged = true; });
     m_settings->onPointerModeChange([this](int mode) {
         app().input().setPointerMode(static_cast<nxui::Input::PointerMode>(mode));
+    });
+    m_settings->onLockPin([this]() {
+        requestTextEntry("Lock screen PIN", "4 digits. Leave it empty to turn the PIN off.", std::string(), 4, false,
+            [this](const std::string& text) {
+                const bool ok = switchu::lockpin::save(text);
+                if (!m_dialog) return;
+                m_dialog->show("Lock screen PIN",
+                               !ok ? "The PIN has to be 4 digits. Nothing changed."
+                                   : text.empty()   ? "The lock screen has no PIN now."
+                                   : lockScreenOn() ? "PIN set: the lock screen asks for it."
+                                                    : "PIN set. Turn on Lock screen too: it's what asks for it.",
+                               {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
+                focusManager().setFocus(m_dialog.get());
+            }, true);
     });
     m_settings->onDiscordAppId([this]() {
         // Read and written as the overlay reads it (config/SwitchU/discord_app_id.txt).

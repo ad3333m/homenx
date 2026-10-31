@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <social/NotificationLog.hpp>
+#include <switchu/lock_pin.hpp>
 
 // Wake acknowledgement screen shared by HomeNX and CardsNX when used as HOME.
 // It is deliberately a simple press-to-continue lock, like the Switch wake UI.
@@ -35,6 +36,12 @@ protected:
 
 private:
     void unlock();
+    void beginHide(); // the unlock's slide and fade
+    void pinKey(int key); // 0 up, 1 down, 2 left, 3 right
+    // Settings > HomeNX > Lock screen PIN: A asks for it (the wheels) before unlocking.
+    bool m_pinSet = false, m_pinEntry = false;
+    switchu::lockpin::Wheels m_pin;
+    float m_pinWrong = 0.f, m_time = 0.f;
     void openSelectedNotif();
     void moveNotifSel(int delta);
 
