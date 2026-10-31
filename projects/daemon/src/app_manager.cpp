@@ -151,6 +151,20 @@ void ApplicationSession::resetToIdle() {
     m_titleId = 0;
 }
 
+// Waits for the application's process to end, at most timeoutNs (its state event
+// stays signalled, so the join then returns at once). appletApplicationJoin alone
+// waits forever: a homebrew app stuck in a driver call (OpenNOW's video) never
+// ended after HOME, and the daemon, which runs HOME, froze the whole console with it.
+static bool joinWithin(AppletApplication* app, std::uint64_t timeoutNs) {
+    if (R_FAILED(eventWait(&app->StateChangedEvent, timeoutNs))) {
+        switchu::FileLog::log("[app] still exiting after %lu ms; going on without it",
+                              static_cast<unsigned long>(timeoutNs / 1'000'000ULL));
+        return false;
+    }
+    appletApplicationJoin(app);
+    return true;
+}
+
 Result ApplicationSession::failTransition(Result rc,
                                           const char* stage,
                                           bool applicationStarted) {
@@ -163,8 +177,8 @@ Result ApplicationSession::failTransition(Result rc,
         m_state = SessionState::Terminating;
         const Result terminateRc = appletApplicationTerminate(&m_application);
         switchu::FileLog::log("[app] rollback terminate rc=0x%X", terminateRc);
-        appletApplicationJoin(&m_application);
-        m_lastExitReason = appletApplicationGetExitReason(&m_application);
+        if (joinWithin(&m_application, 3'000'000'000ULL))
+            m_lastExitReason = appletApplicationGetExitReason(&m_application);
     }
 
     closeAccessor();
@@ -203,10 +217,11 @@ Result ApplicationSession::stopCurrent(std::uint64_t gracefulTimeoutNs,
         }
     }
 
-    appletApplicationJoin(&m_application);
-    m_lastExitReason = appletApplicationGetExitReason(&m_application);
-    switchu::FileLog::log("[app] joined exitReason=%d",
-                          static_cast<int>(m_lastExitReason));
+    if (joinWithin(&m_application, 3'000'000'000ULL)) {
+        m_lastExitReason = appletApplicationGetExitReason(&m_application);
+        switchu::FileLog::log("[app] joined exitReason=%d",
+                              static_cast<int>(m_lastExitReason));
+    }
     resetToIdle();
 
     // RequestExit can fail when the application has already started exiting;
@@ -340,8 +355,8 @@ Result ApplicationSession::kill() {
     }
     m_state = SessionState::Terminating;
     const Result rc = appletApplicationTerminate(&m_application);
-    appletApplicationJoin(&m_application);
-    m_lastExitReason = appletApplicationGetExitReason(&m_application);
+    if (joinWithin(&m_application, 3'000'000'000ULL))
+        m_lastExitReason = appletApplicationGetExitReason(&m_application);
     switchu::FileLog::log("[app] session=%lu killed rc=0x%X",
                           static_cast<unsigned long>(m_sessionId), rc);
     resetToIdle();
