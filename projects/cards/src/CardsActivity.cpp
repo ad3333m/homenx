@@ -561,8 +561,12 @@ bool CardsActivity::onCreate() {
     const bool stale = atBoot || nowSec - m_settings.listsAt > 30 * 60 || nowSec < m_settings.listsAt;
     bool scanned = false;
     if (loadLists(m_pages[kGames], m_pages[kHomebrew])) {
+        // Old lists: the games are read again (the console's lists, quick: what was played
+        // since); the .nro files only when their paths changed, in the first look for new
+        // software (10 s): reading all of them at start took 22 s and froze HOME.
+        m_changesChecks = 5;
         if (stale) {
-            startListRefresh();
+            startListRefresh(true);
         } else { // anything downloaded or installed meanwhile? (paths and a count: quick)
             m_changesJob = std::async(std::launch::async, []() {
                 offScreenCore();
@@ -655,7 +659,8 @@ bool CardsActivity::onCreate() {
     }
 #endif
     m_pictureScale = std::max(1.f, app().gpu().scale()); // (before the workers read it)
-    for (int i = 0; i < 5; ++i) m_threads.emplace_back([this, i]() { worker(i); });
+    // Three picture threads: five at once kept the SD card too busy (HOME froze).
+    for (int i = 0; i < 3; ++i) m_threads.emplace_back([this, i]() { worker(i); });
     if (m_settings.perfLog) m_threads.emplace_back([this]() { watchdog(); });
     wantArt();
     m_intro = m_settings.motion ? 0.f : 1.f;
@@ -1398,20 +1403,6 @@ void CardsActivity::takeLists(Lists lists) {
 void CardsActivity::splitMedia() {
     auto& games = m_pages[kGames];
     auto& homebrew = m_pages[kHomebrew];
-    // NRO forwarders (installed ports and apps): with the games when Settings > Home
-    // says so (a cover, last played), else with the homebrew.
-    auto forwarder = [](const Game& g) { return g.path.empty() && g.action.empty() && (g.id >> 56) == 0x05; };
-    for (auto* from : {&games, &homebrew})
-        for (auto it = from->begin(); it != from->end();) {
-            if (forwarder(*it)) it->homebrew = !m_settings.forwardersAsGames;
-            auto* to = it->homebrew ? &homebrew : &games;
-            if (forwarder(*it) && to != from) {
-                to->push_back(std::move(*it));
-                it = from->erase(it);
-            } else {
-                ++it;
-            }
-        }
     std::vector<Game> media;
     auto listed = [](const std::vector<std::string>& list, const Game& g) {
         const std::string key = g.path.empty() ? idText(g.id) : g.path;
@@ -4168,11 +4159,7 @@ void CardsActivity::drawReturn(nxui::Renderer& r) {
 }
 
 bool CardsActivity::spotifyOn() const {
-#ifdef SWITCHU_MENU
-    return m_settings.spotify;
-#else
-    return false;
-#endif
+    return false; // Spotify was taken out (2026-10-31): HOME music only
 }
 
 bool CardsActivity::spotifySignedIn() const {
@@ -4612,11 +4599,6 @@ void CardsActivity::buildSettings() {
     panel.detail = "The panel's right button. Any app: + on its card > Put on the panel button";
     home.rows.push_back(std::move(panel));
 #endif
-    home.rows.push_back(toggle("NRO forwarders are games", [this]() { return m_settings.forwardersAsGames; }, [this, save]() {
-        m_settings.forwardersAsGames = !m_settings.forwardersAsGames;
-        save();
-        startListRefresh(true); // (read again, then put where they go)
-    }, "Installed forwarders (ports, apps) on Games, with a cover and last played"));
     MenuItem scan = action("Look for new software", [this]() {
         if (m_listJob.valid()) {
             say("Already looking...");
@@ -4736,27 +4718,6 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(lockTab));
 
     Section sound{"Sound", "music", {}};
-#ifdef SWITCHU_MENU
-    m_spotify.start(); // (reads its sign-in)
-    sound.rows.push_back(choice("Music player", [this]() { return std::string(m_settings.spotify ? "Spotify" : "HOME music"); },
-        [this, save](int) {
-            m_settings.spotify = !m_settings.spotify;
-            m_audio.setMusic(homeMusic(), m_settings.musicVolume);
-            save();
-        }, "Spotify: what plays on your phone, computer or speaker, with its buttons"));
-    MenuItem account = action("Spotify", [this]() {
-        if (!m_spotify.signedIn()) {
-            signInSpotify();
-            return;
-        }
-        m_spotify.signOut();
-        m_sp = Spotify::Now{};
-        say("Signed out of Spotify");
-    });
-    account.value = [this]() { return std::string(m_spotify.signedIn() ? "Signed in (A signs out)" : "Sign in"); };
-    account.detail = "One QR code: scan it with your phone on the same Wi-Fi";
-    sound.rows.push_back(std::move(account));
-#endif
     sound.rows.push_back(toggle("Music", [this]() { return m_settings.music; }, [this, save]() {
         m_settings.music = !m_settings.music;
         m_audio.setMusic(homeMusic(), m_settings.musicVolume);
@@ -6503,6 +6464,7 @@ void CardsActivity::onUpdate(float dt) {
     // Settings > Pictures > Save every picture now: done (you may have left Settings).
     if (m_saveAllJob.valid() && m_saveAllJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_saveAllJob.get();
+        if (m_saveAllQuiet && m_saveAllStop) m_autoSaveAsked = false; // stopped by a press: again at the next quiet
         if (m_saveAllQuiet && !m_saveAllStop) {
             m_settings.picturesAt = static_cast<long long>(std::time(nullptr));
             m_settings.save();
@@ -6573,9 +6535,15 @@ void CardsActivity::onUpdate(float dt) {
             if (chosen) selectById(chosen);
         }
     }
-    // Pictures for every game, on their own: after start-up settles, at most every 6 hours
-    // (or when new software came), so scrolling never waits on the internet.
-    if (!m_autoSaveAsked && m_netReady && !m_leaving && m_time > 12.f && !m_saveAllJob.valid()) {
+    // Pictures for every game, on their own, so scrolling never waits on the internet: only
+    // after 45 s with nothing pressed, stopped by the next press (it carries on at the next
+    // quiet), at most every 6 hours (or when new software came). It used to start 12 s in and
+    // kept the SD card busy while you scrolled: HOME froze.
+    if (app().input().hasUserActivity()) {
+        m_lastActivity = m_time;
+        if (m_saveAllQuiet && m_saveAllJob.valid()) m_saveAllStop = true;
+    }
+    if (!m_autoSaveAsked && m_netReady && !m_leaving && m_time - m_lastActivity > 45.f && !m_saveAllJob.valid()) {
         m_autoSaveAsked = true;
         const long long now = static_cast<long long>(std::time(nullptr));
         if (now - m_settings.picturesAt > 6 * 3600 || now < m_settings.picturesAt) saveAllPictures(true);
@@ -6737,6 +6705,7 @@ void CardsActivity::onUpdate(float dt) {
     }
     perfMark("news");
     updatePairing(dt);
+    perfMark("pairing");
     // HomeNX's screens have the buttons while they're open.
     if (m_textEntry && m_textEntry->isActive()) { // the keyboard: buttons and touch
         m_textEntry->handleTouch(app().input());
@@ -6780,7 +6749,9 @@ void CardsActivity::onUpdate(float dt) {
         return;
     }
 
+    perfMark("HomeNX's screens, leaving");
     if (updateLock(dt)) return;
+    perfMark("lock screen");
     if (!m_settings.introDone && !m_introOpen && m_time > 0.8f && !m_leaving) { // the first time
         m_introOpen = true;
         m_introPage = 0;
@@ -6986,7 +6957,9 @@ void CardsActivity::draw(nxui::Renderer& r) {
     const int leaveStyle = launchStyle();
     const float ui = m_leaving && leaveStyle != kNoAnimation && leaveStyle != kFade ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
     drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
+    drawStep("draw: the panel");
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
+    drawStep("draw: the messages");
     if (m_moving) { // what Move does
         const std::string hint = "Move it with  < >      A  Done      B  Put it back";
         const float w = measured(m_fBody, hint).x + 44.f;

@@ -383,7 +383,10 @@ std::vector<Game> listGames() {
         g.name = meta.name[0] ? meta.name : meta.english_name;
         g.version = meta.display_version;
         g.author = meta.publisher;
-        g.homebrew = (g.id >> 56) == 0x05; // NRO forwarders' title IDs
+        // NRO forwarders' title IDs: 05 then random digits. 0500...: an official app
+        // patched to a 05 ID (its 0100... with one digit changed, as YouTube's
+        // 05003A400C3DA000 is), a game.
+        g.homebrew = (g.id >> 56) == 0x05 && (g.id >> 48) != 0x0500;
         if (g.name.empty()) g.name = hexId(g.id);
 
         PdmPlayStatistics st{};

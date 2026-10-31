@@ -90,6 +90,7 @@ private:
     };
     std::future<Changes> m_changesJob;
     float m_changesIn = 10.f; // the next look for new software (installed titles, .nro files)
+    float m_lastActivity = 0.f; // when something was last pressed (pictures for every game wait for quiet)
     int m_changesChecks = 0;
     // Every game and .nro (slow: seconds), on whatever thread calls it; or only
     // the installed titles (a game installed, updated or removed).
