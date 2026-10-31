@@ -166,8 +166,15 @@ nxui::Vec2 measured(nxui::Font& font, const std::string& s) {
     return cache[key] = font.measure(tr(s));
 }
 
+// Room for text in steps of 16 px: text that slides or grows (the panel's
+// details coming in, a card being chosen) was cut, shaped and drawn again at
+// every frame, 10 to 200 ms each (perf.log, build 162). In steps, it's mostly
+// the text already made.
+float textRoom(float maxW) { return std::floor(maxW / 16.f) * 16.f; }
+
 // As much of `text` as fits in maxW (cut between letters, "..." added), remembered.
 std::string fit(nxui::Font& font, const std::string& english, float maxW, float scale = 1.f) {
+    maxW = textRoom(maxW);
     static std::unordered_map<std::string, std::string> cache;
     static int language = -1;
     if (language != languageGeneration()) {
@@ -197,7 +204,8 @@ std::string fit(nxui::Font& font, const std::string& english, float maxW, float 
 // little before they're cut.
 float fitScale(nxui::Font& font, const std::string& text, float maxW, float minScale = 0.78f) {
     const float w = measured(font, text).x;
-    return w <= maxW ? 1.f : std::max(minScale, maxW / w);
+    maxW = textRoom(maxW);
+    return w <= maxW ? 1.f : std::max(minScale, std::floor(maxW / w * 50.f) / 50.f); // (in steps too)
 }
 
 // Text drawn with its middle at y.
@@ -7162,7 +7170,7 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     }
 
     // The label: the sort (or page) and how many, in the room left of the pill.
-    const std::string label = (m_page == kGames ? std::string(kSortNames[m_settings.sort]) : std::string(kPageNames[m_page]))
+    const std::string label = tr(m_page == kGames ? kSortNames[m_settings.sort] : kPageNames[m_page])
                             + "  " + std::to_string(games().size());
     const float room = std::max(40.f, pill.x - 14.f - kLabelX);
     const float ls = fitScale(m_fLabel, label, room, 0.72f);
