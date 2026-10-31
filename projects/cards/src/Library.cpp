@@ -834,46 +834,7 @@ bool artCached(const Game& game, bool title) {
 
 // "Download them again" puts the old ones aside (kept/): if the new one can't
 // be had -- taken down for DMCA since -- the old one comes back (keptBack).
-std::string shownPath(std::uint64_t id, const std::string& what) {
-    return std::string(kCacheDir) + "/shown/" + hexId(id) + "." + what;
-}
-
-bool readShown(const std::string& path, std::vector<std::uint8_t>& rgba, int& w, int& h, ArtKind& kind) {
-    const std::vector<std::uint8_t> data = readFile(path);
-    std::int32_t head[4] = {};
-    if (data.size() < sizeof(head)) return false;
-    std::memcpy(head, data.data(), sizeof(head));
-    if (head[0] != 0x31584E43 || head[1] <= 0 || head[2] <= 0 || head[1] > 4096 || head[2] > 4096) return false; // "CNX1"
-    const size_t bytes = static_cast<size_t>(head[1]) * static_cast<size_t>(head[2]) * 4u;
-    if (data.size() != sizeof(head) + bytes) return false;
-    rgba.assign(data.begin() + sizeof(head), data.end());
-    w = head[1];
-    h = head[2];
-    kind = static_cast<ArtKind>(head[3]);
-    return true;
-}
-
-void writeShown(const std::string& path, const std::vector<std::uint8_t>& rgba, int w, int h, ArtKind kind) {
-    static std::once_flag made;
-    std::call_once(made, [] {
-        std::error_code ec;
-        std::filesystem::create_directories(std::string(kCacheDir) + "/shown", ec);
-    });
-    const std::int32_t head[4] = {0x31584E43, w, h, static_cast<std::int32_t>(kind)};
-    std::string data(reinterpret_cast<const char*>(head), sizeof(head));
-    data.append(reinterpret_cast<const char*>(rgba.data()), rgba.size());
-    writeLater(path, std::move(data));
-}
-
-void forgetShown(std::uint64_t id) {
-    const std::string start = hexId(id) + ".";
-    std::error_code ec;
-    for (const auto& e : std::filesystem::directory_iterator(std::string(kCacheDir) + "/shown", ec))
-        if (e.path().filename().string().rfind(start, 0) == 0) std::filesystem::remove(e.path(), ec);
-}
-
 void forgetArt(std::uint64_t id) {
-    forgetShown(id);
     std::error_code ec;
     const std::string kept = std::string(kCacheDir) + "/kept";
     std::filesystem::create_directories(kept, ec);
@@ -1096,7 +1057,6 @@ std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, s
 }
 
 bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
-    forgetShown(game.id);
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bgme";
     std::error_code ec;
     if (!choice) {
@@ -1110,7 +1070,6 @@ bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
 }
 
 bool chooseCoverArt(const Game& game, const TitleChoice* choice) {
-    forgetShown(game.id);
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".coverme";
     if (!choice) {
         std::error_code ec;
