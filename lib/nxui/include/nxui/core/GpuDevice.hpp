@@ -52,9 +52,17 @@ struct GpuPool {
 
 class GpuDevice {
 public:
+    // Screens are laid out at 1280x720 (the logical size: FB_WIDTH, FB_HEIGHT);
+    // the framebuffers can be bigger (1920x1080 on a TV, setResolution): the
+    // renderer scales everything and text is rendered at the real size. Captures
+    // (readback) stay 1280x720, as before.
     static constexpr int FB_WIDTH  = 1280;
     static constexpr int FB_HEIGHT = 720;
     static constexpr int NUM_FB    = 2;
+    // Before initialize(): the framebuffers' real size (1280x720 or 1920x1080).
+    static void setResolution(int w, int h) { s_fbW = w; s_fbH = h; }
+    // Once the first frame is on screen (a new resolution that works: see the menu's main).
+    static void setFirstFrameHook(void (*hook)()) { s_firstFrameHook = hook; }
 
     static constexpr int MAX_TEXTURES   = 2048;
     static constexpr int MAX_SAMPLERS   = 16;
@@ -96,8 +104,9 @@ public:
     const uint8_t* finishFramebufferReadback(int& outW, int& outH);
 #endif
 
-    int  width()  const { return FB_WIDTH; }
-    int  height() const { return FB_HEIGHT; }
+    int  width()  const { return m_fbW; }  // the framebuffers' real size
+    int  height() const { return m_fbH; }
+    float scale() const { return static_cast<float>(m_fbW) / static_cast<float>(FB_WIDTH); } // real / logical
 
 #ifdef NXUI_BACKEND_DEKO3D
     // deko3d-specific accessors
@@ -293,6 +302,9 @@ private:
     SDL_Renderer* m_sdlRenderer = nullptr;
 #endif
     int m_slot = -1;
+    int m_fbW = FB_WIDTH, m_fbH = FB_HEIGHT;
+    static inline int s_fbW = FB_WIDTH, s_fbH = FB_HEIGHT;
+    static inline void (*s_firstFrameHook)() = nullptr;
 };
 
 } // namespace nxui

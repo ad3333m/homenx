@@ -24,6 +24,11 @@ static void dkDebugCallback(void* userData, const char* context, DkResult result
 }
 
 bool GpuDevice::initialize() {
+    m_fbW = s_fbW;
+    m_fbH = s_fbH;
+    // A bigger picture than the 1280x720 the window starts with (1080p on a TV).
+    if (m_fbW != FB_WIDTH || m_fbH != FB_HEIGHT)
+        nwindowSetDimensions(nwindowGetDefault(), static_cast<u32>(m_fbW), static_cast<u32>(m_fbH));
     m_dev   = dk::DeviceMaker{}.setCbDebug(dkDebugCallback).create();
     m_queue = dk::QueueMaker{m_dev}.setFlags(DkQueueFlags_Graphics).create();
 
@@ -80,7 +85,7 @@ void GpuDevice::createFramebuffers() {
         .setFlags(DkImageFlags_UsageRender | DkImageFlags_UsagePresent |
                   DkImageFlags_Usage2DEngine | DkImageFlags_HwCompression)
         .setFormat(DkImageFormat_RGBA8_Unorm)
-        .setDimensions(FB_WIDTH, FB_HEIGHT)
+        .setDimensions(static_cast<uint32_t>(m_fbW), static_cast<uint32_t>(m_fbH))
         .initialize(fbLayout);
 
     uint64_t fbSize  = fbLayout.getSize();
@@ -105,7 +110,7 @@ void GpuDevice::createDepthStencil() {
     dk::ImageLayoutMaker{m_dev}
         .setFlags(DkImageFlags_UsageRender | DkImageFlags_HwCompression)
         .setFormat(DkImageFormat_S8)
-        .setDimensions(FB_WIDTH, FB_HEIGHT)
+        .setDimensions(static_cast<uint32_t>(m_fbW), static_cast<uint32_t>(m_fbH))
         .initialize(dsLayout);
 
     uint32_t dsSize = dsLayout.getSize();
@@ -168,6 +173,11 @@ void GpuDevice::endFrame() {
     auto cmdList = m_cmdbuf[m_slot].finishList();
     m_queue.submitCommands(cmdList);
     m_queue.presentImage(m_swapchain, m_slot);
+    if (s_firstFrameHook) { // the first frame is up: the resolution works
+        auto hook = s_firstFrameHook;
+        s_firstFrameHook = nullptr;
+        hook();
+    }
 }
 
 bool GpuDevice::downloadFramebufferRgba(std::vector<uint8_t>& outRgba,
@@ -244,11 +254,13 @@ bool GpuDevice::beginFramebufferReadback() {
 
     // Queued after the frame that was just presented and before the next one,
     // so it copies exactly what is on screen. Same steps as copyFramebuffer().
+    // (A bigger framebuffer is scaled into the 1280x720 capture.)
     const DkImageRect rect{0, 0, 0, static_cast<uint32_t>(FB_WIDTH), static_cast<uint32_t>(FB_HEIGHT), 1};
+    const DkImageRect srcRect{0, 0, 0, static_cast<uint32_t>(m_fbW), static_cast<uint32_t>(m_fbH), 1};
     dk::ImageView srcView{m_fbImages[m_slot]};
     dk::ImageView dstView{m_readImage};
     m_readCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
-    m_readCmdbuf.blitImage(srcView, rect, dstView, rect, 0);
+    m_readCmdbuf.blitImage(srcView, srcRect, dstView, rect, 0);
     m_readCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
     m_readCmdbuf.copyImageToBuffer(dstView, rect, DkCopyBuf{m_readStaging.getGpuAddr(), 0, 0});
     const uint32_t threedNop = 0x80000040u;
@@ -330,8 +342,8 @@ bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& out
     if (useHalf) {
         dk::ImageView dstView{m_offImages[0]};
         const DkImageRect srcRect{0, 0, 0,
-                                  static_cast<uint32_t>(fullW),
-                                  static_cast<uint32_t>(fullH), 1};
+                                  static_cast<uint32_t>(m_fbW),
+                                  static_cast<uint32_t>(m_fbH), 1};
         const DkImageRect dstRect{0, 0, 0,
                                   static_cast<uint32_t>(outW),
                                   static_cast<uint32_t>(outH), 1};
@@ -343,7 +355,8 @@ bool GpuDevice::copyFramebuffer(dk::UniqueMemBlock& staging, int& outW, int& out
         const DkImageRect rect{0, 0, 0,
                                static_cast<uint32_t>(fullW),
                                static_cast<uint32_t>(fullH), 1};
-        m_uploadCmdbuf.blitImage(srcView, rect, dstView, rect, 0);
+        const DkImageRect srcRect{0, 0, 0, static_cast<uint32_t>(m_fbW), static_cast<uint32_t>(m_fbH), 1};
+        m_uploadCmdbuf.blitImage(srcView, srcRect, dstView, rect, 0);
         m_uploadCmdbuf.barrier(DkBarrier_Full, DkInvalidateFlags_Image);
         srcView = dstView;
     }

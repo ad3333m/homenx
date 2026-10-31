@@ -46,6 +46,10 @@ public:
                    std::size_t maxBytes = 2u * 1024u * 1024u);
 
     int ptSize() const { return m_ptSize; }
+    // Text is rendered this many times its size (the framebuffer's scale: 1.5 at
+    // 1080p) so it stays sharp; measure() and draw() are in logical units. A
+    // texture from renderTo() is drawn at its size divided by this.
+    float pixelScale() const { return m_pixelScale; }
     std::uint64_t revision() const { return m_revision; }
 
     // Fonts every Font falls back to for characters it doesn't have (the
@@ -66,7 +70,9 @@ private:
     mutable std::vector<TTF_Font*> m_fallbacks; // the fallbacks at this size, opened on first need
 
     TTF_Font* m_font = nullptr;
-    int       m_ptSize = 0;
+    int       m_ptSize = 0;    // logical
+    int       m_pxSize = 0;    // what it's opened at
+    float     m_pixelScale = 1.f;
     GpuDevice* m_gpu = nullptr;
     Renderer*  m_ren = nullptr;
     std::uint64_t m_revision = 0;

@@ -206,6 +206,7 @@ private:
     void loadWallpaper();
     void openWallpapers();
     // Settings > Look > Lock screen: the time and date when the console wakes.
+    bool m_tv1080 = false; // Settings > Look > TV resolution (config/SwitchU/resolution.txt)
     bool m_locked = false, m_lockFonts = false;
     float m_lockIn = 0.f, m_unlockT = -1.f; // opening it: 0 -> 1, then it's gone
     nxui::Font m_fLock, m_fLockDate;

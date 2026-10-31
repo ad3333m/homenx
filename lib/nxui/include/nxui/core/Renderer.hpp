@@ -141,9 +141,10 @@ public:
     void pushClipRect(const Rect& r);
     void popClipRect();
 
-    // Screen dimensions
-    int width()  const { return m_gpu.width(); }
-    int height() const { return m_gpu.height(); }
+    // Screen dimensions: the logical 1280x720 everything is laid out in (the
+    // framebuffer can be bigger: gpu().width(), gpu().scale()).
+    int width()  const { return GpuDevice::FB_WIDTH; }
+    int height() const { return GpuDevice::FB_HEIGHT; }
 
     // Flush current batch
     void flush();
@@ -196,6 +197,7 @@ private:
                      const Color& cTop, const Color& cBot);
 
 #ifdef NXUI_BACKEND_DEKO3D
+    DkScissor scissorFor(const Rect& r) const; // a logical clip rectangle in the framebuffer's real pixels
     bool loadShaders();
     void setupSampler();
     void updateProjection();

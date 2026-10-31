@@ -218,6 +218,27 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         t.items.push_back(std::move(it));
     }
     {
+        // Read when HOME starts (main.cpp): 1920x1080 when docked.
+        static constexpr const char* kResolution = "sdmc:/config/SwitchU/resolution.txt";
+        std::string want;
+        std::getline(std::ifstream(kResolution), want);
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.tv1080", "1080p on the TV");
+        it.description = i18n.tr("settings.homenx.tv1080_desc",
+            "Docked, HOME is drawn at 1920x1080: sharper text and pictures. Off: 1280x720, lighter "
+            "for the console. Handheld is always 720p. It changes the next time HOME opens.");
+        it.type = ItemType::Toggle;
+        it.boolVal = want.rfind("1080", 0) == 0;
+        it.onChange = [](SettingItem& self) {
+            std::error_code err;
+            if (self.boolVal)
+                std::ofstream(kResolution) << "1080";
+            else
+                std::filesystem::remove(kResolution, err);
+        };
+        t.items.push_back(std::move(it));
+    }
+    {
         std::string installed = "build 0";
         std::ifstream in("sdmc:/switch/SwitchU/homenx-build.txt");
         std::getline(in, installed);

@@ -369,7 +369,7 @@ void Renderer::updateProjection() {
     int slot = m_gpu.slot();
     auto* ubo = static_cast<uint8_t*>(m_gpu.vsUboCpuAddr(slot));
     VsUniforms vs;
-    ortho(vs.projection, (float)m_gpu.width(), (float)m_gpu.height());
+    ortho(vs.projection, (float)GpuDevice::FB_WIDTH, (float)GpuDevice::FB_HEIGHT); // laid out at 1280x720
     std::memcpy(ubo, &vs, sizeof(vs));
 
     auto cmd = m_gpu.cmdBuf();
@@ -445,9 +445,7 @@ void Renderer::restoreRenderTarget() {
     if (m_clipStack.empty()) {
         cmd.setScissors(0, DkScissor{0, 0, (uint32_t)m_gpu.width(), (uint32_t)m_gpu.height()});
     } else {
-        auto& r = m_clipStack.back();
-        cmd.setScissors(0, DkScissor{(uint32_t)std::max(0.f, r.x), (uint32_t)std::max(0.f, r.y),
-                                     (uint32_t)std::max(0.f, r.width), (uint32_t)std::max(0.f, r.height)});
+        cmd.setScissors(0, scissorFor(m_clipStack.back()));
     }
 
     updateProjection();
@@ -480,8 +478,8 @@ void Renderer::captureToOffscreen(bool reuseIfValid) {
         0,
         0,
         0,
-        (uint32_t)m_gpu.width() / 2,
-        (uint32_t)m_gpu.height() / 2,
+        (uint32_t)GpuDevice::FB_WIDTH / 2, // the blur targets are half the logical size
+        (uint32_t)GpuDevice::FB_HEIGHT / 2,
         1,
     };
     cmd.blitImage(src, srcRect, dst, dstRect, 0);
@@ -516,8 +514,8 @@ void Renderer::copyOffscreen(int srcTarget, int dstTarget) {
         0,
         0,
         0,
-        (uint32_t)m_gpu.width() / 2,
-        (uint32_t)m_gpu.height() / 2,
+        (uint32_t)GpuDevice::FB_WIDTH / 2,
+        (uint32_t)GpuDevice::FB_HEIGHT / 2,
         1,
     };
     cmd.blitImage(src, rect, dst, rect, 0);
@@ -536,10 +534,10 @@ void Renderer::drawOffscreenRounded(int target, const Rect& dest, float radius, 
     if (target < 0 || target >= GpuDevice::NUM_OFFSCREEN) return;
     useShader(ShaderProgram::Backdrop);
     bindTexture(m_offDescSlot[target]);
-    const Rect uv{dest.x / static_cast<float>(m_gpu.width()),
-                  dest.y / static_cast<float>(m_gpu.height()),
-                  dest.width / static_cast<float>(m_gpu.width()),
-                  dest.height / static_cast<float>(m_gpu.height())};
+    const Rect uv{dest.x / static_cast<float>(GpuDevice::FB_WIDTH),
+                  dest.y / static_cast<float>(GpuDevice::FB_HEIGHT),
+                  dest.width / static_cast<float>(GpuDevice::FB_WIDTH),
+                  dest.height / static_cast<float>(GpuDevice::FB_HEIGHT)};
     if (radius > 0.f) {
         drawRoundedMasked(dest,
                           std::min(radius, std::min(dest.width, dest.height) * 0.5f),
@@ -594,8 +592,8 @@ void Renderer::drawLiquidGlass(int target, const Rect& panelRect, float radius,
     fs.extra[21] = panelRect.y;
     fs.extra[22] = panelRect.width;
     fs.extra[23] = panelRect.height;
-    fs.extra[24] = static_cast<float>(m_gpu.width());
-    fs.extra[25] = static_cast<float>(m_gpu.height());
+    fs.extra[24] = static_cast<float>(GpuDevice::FB_WIDTH); // (panel rects are logical)
+    fs.extra[25] = static_cast<float>(GpuDevice::FB_HEIGHT);
     fs.extra[26] = std::clamp(shade, 0.f, 1.f);
     fs.extra[27] = std::max(0.f, radius);
     pushFsUniforms(fs);
@@ -667,7 +665,7 @@ void Renderer::applyWave(float time, float amplitude, float frequency) {
     fs.param3 = frequency;
     pushFsUniforms(fs);
 
-    Rect dest = {0, 0, (float)m_gpu.width(), (float)m_gpu.height()};
+    Rect dest = {0, 0, (float)GpuDevice::FB_WIDTH, (float)GpuDevice::FB_HEIGHT};
     bindTexture(m_offDescSlot[0]);
     addQuad(dest.x, dest.y, dest.right(), dest.bottom(), 0, 0, 1, 1, Color::white());
     flush();
@@ -903,9 +901,15 @@ void Renderer::pushClipRect(const Rect& r) {
         clip = {x0, y0, std::max(0.f, x1 - x0), std::max(0.f, y1 - y0)};
     }
     m_clipStack.push_back(clip);
-    m_gpu.cmdBuf().setScissors(0, DkScissor{
-        (uint32_t)std::max(0.f, clip.x), (uint32_t)std::max(0.f, clip.y),
-        (uint32_t)std::max(0.f, clip.width), (uint32_t)std::max(0.f, clip.height)});
+    m_gpu.cmdBuf().setScissors(0, scissorFor(clip));
+}
+
+// A logical clip rectangle in the real framebuffer's pixels.
+DkScissor Renderer::scissorFor(const Rect& r) const {
+    const float s = m_gpu.scale();
+    const float x0 = std::max(0.f, std::floor(r.x * s)), y0 = std::max(0.f, std::floor(r.y * s));
+    const float x1 = std::max(x0, std::ceil(r.right() * s)), y1 = std::max(y0, std::ceil(r.bottom() * s));
+    return DkScissor{(uint32_t)x0, (uint32_t)y0, (uint32_t)(x1 - x0), (uint32_t)(y1 - y0)};
 }
 
 void Renderer::popClipRect() {
@@ -915,10 +919,7 @@ void Renderer::popClipRect() {
         m_gpu.cmdBuf().setScissors(0, DkScissor{
             0, 0, (uint32_t)m_gpu.width(), (uint32_t)m_gpu.height()});
     } else {
-        auto& r = m_clipStack.back();
-        m_gpu.cmdBuf().setScissors(0, DkScissor{
-            (uint32_t)std::max(0.f, r.x), (uint32_t)std::max(0.f, r.y),
-            (uint32_t)std::max(0.f, r.width), (uint32_t)std::max(0.f, r.height)});
+        m_gpu.cmdBuf().setScissors(0, scissorFor(m_clipStack.back()));
     }
 }
 

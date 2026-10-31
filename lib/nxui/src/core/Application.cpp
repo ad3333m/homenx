@@ -40,7 +40,7 @@ bool Application::applyPendingActivity() {
     m_navRepeatCountdown = 0;
 
     if (m_activity) {
-        m_activity->m_rootBox->setRect({0, 0, (float)m_gpu.width(), (float)m_gpu.height()});
+        m_activity->m_rootBox->setRect({0, 0, (float)GpuDevice::FB_WIDTH, (float)GpuDevice::FB_HEIGHT}); // laid out at 1280x720
         return m_activity->onCreate();
     }
     return true;
@@ -66,7 +66,7 @@ bool Application::initialize() {
 
     if (m_activity) {
         // Set the root box to cover the entire screen
-        m_activity->m_rootBox->setRect({0, 0, (float)m_gpu.width(), (float)m_gpu.height()});
+        m_activity->m_rootBox->setRect({0, 0, (float)GpuDevice::FB_WIDTH, (float)GpuDevice::FB_HEIGHT}); // laid out at 1280x720
         if (!m_activity->onCreate()) return false;
     }
     return true;

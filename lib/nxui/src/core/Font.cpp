@@ -1,3 +1,4 @@
+#include <cmath>
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/GpuDevice.hpp>
@@ -58,7 +59,7 @@ TTF_Font* Font::fontFor(std::uint32_t cp) const {
     while (m_fallbacks.size() < data.size()) {
         const FallbackData& d = data[m_fallbacks.size()];
         SDL_RWops* rw = SDL_RWFromConstMem(d.data, static_cast<int>(d.size));
-        m_fallbacks.push_back(rw ? TTF_OpenFontRW(rw, 1, m_ptSize) : nullptr);
+        m_fallbacks.push_back(rw ? TTF_OpenFontRW(rw, 1, m_pxSize) : nullptr);
     }
     for (TTF_Font* f : m_fallbacks)
         if (f && provides(f, cp)) return f;
@@ -117,7 +118,8 @@ SDL_Surface* Font::renderRuns(const std::vector<std::pair<TTF_Font*, std::string
 bool Font::load(GpuDevice& gpu, Renderer& ren,
                 const std::string& path, int ptSize)
 {
-    TTF_Font* newFont = TTF_OpenFont(path.c_str(), ptSize);
+    const int pxSize = std::max(1, static_cast<int>(std::lround(ptSize * gpu.scale()))); // sharp at 1080p
+    TTF_Font* newFont = TTF_OpenFont(path.c_str(), pxSize);
     if (!newFont) {
         std::fprintf(stderr, "[Font] TTF_OpenFont failed: %s\n", TTF_GetError());
         return false;
@@ -133,6 +135,8 @@ bool Font::load(GpuDevice& gpu, Renderer& ren,
     m_gpu = &gpu;
     m_ren = &ren;
     m_ptSize = ptSize;
+    m_pxSize = pxSize;
+    m_pixelScale = static_cast<float>(pxSize) / static_cast<float>(std::max(1, ptSize));
     ++m_revision;
     clearCache();
     return true;
@@ -149,13 +153,13 @@ Vec2 Font::measure(const std::string& text) const {
     // SDL_ttf again for every label on every frame.
     const auto cached = m_lruMap.find(text);
     if (cached != m_lruMap.end())
-        return {static_cast<float>(cached->second->w),
-                static_cast<float>(cached->second->h)};
+        return {static_cast<float>(cached->second->w) / m_pixelScale,
+                static_cast<float>(cached->second->h) / m_pixelScale};
     int w = 0, h = 0;
     std::vector<std::pair<TTF_Font*, std::string>> pieces;
     if (!runs(text, pieces)) {
         TTF_SizeUTF8(m_font, text.c_str(), &w, &h);
-        return {(float)w, (float)h};
+        return {(float)w / m_pixelScale, (float)h / m_pixelScale};
     }
     int ascent = 0;
     for (const auto& pc : pieces) ascent = std::max(ascent, TTF_FontAscent(pc.first));
@@ -165,7 +169,7 @@ Vec2 Font::measure(const std::string& text) const {
         w += pw;
         h = std::max(h, ascent - TTF_FontAscent(pc.first) + ph);
     }
-    return {(float)w, (float)h};
+    return {(float)w / m_pixelScale, (float)h / m_pixelScale};
 }
 
 void Font::clearCache() {
@@ -176,6 +180,7 @@ void Font::clearCache() {
 }
 
 void Font::trimCache(std::size_t maxEntries, std::size_t maxBytes) {
+    maxBytes = static_cast<std::size_t>(static_cast<float>(maxBytes) * m_pixelScale * m_pixelScale);
     while (!m_lruList.empty() &&
            (m_lruList.size() > maxEntries || m_cacheBytes > maxBytes)) {
         auto victim = std::prev(m_lruList.end());
@@ -236,7 +241,7 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
          kTextureAllocationAlignment - 1u) &
         ~(kTextureAllocationAlignment - 1u);
     if (m_lruList.size() >= kMaxCacheEntries ||
-        m_cacheBytes + estimatedBytes > kMaxCacheBytes ||
+        m_cacheBytes + estimatedBytes > static_cast<std::size_t>(kMaxCacheBytes * m_pixelScale * m_pixelScale) ||
         gpu.imageMemoryAvailable() < estimatedBytes + kGpuHeadroom) {
         m_maintenanceRequested = true;
         SDL_UnlockSurface(rgba);
@@ -273,8 +278,8 @@ bool Font::draw(Renderer& ren, const std::string& text,
     Texture* tex = getOrRender(*m_gpu, ren, text);
     if (!tex || !tex->valid()) return false;
 
-    float w = tex->width()  * scale;
-    float h = tex->height() * scale;
+    float w = tex->width()  * scale / m_pixelScale;
+    float h = tex->height() * scale / m_pixelScale;
     ren.drawTexture(tex, {pos.x, pos.y, w, h}, color);
     return true;
 }

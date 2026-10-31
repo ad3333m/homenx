@@ -11,6 +11,7 @@
 #include <nxui/core/Renderer.hpp>
 #include <switchu/smi_protocol.hpp>
 #include <switchu/file_log.hpp>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #endif
@@ -197,6 +198,34 @@ extern "C" void __appExit(void) {
     smExit();
 }
 
+// Settings: TV resolution (config/SwitchU/resolution.txt "1080": 1920x1080 when
+// docked; handheld and otherwise 1280x720). A 1080p start that never put a frame
+// on screen (its marker is still there next time) falls back to 720p and turns
+// the setting off, so HOME can't stay black.
+static constexpr const char* kResolutionFile = "sdmc:/config/SwitchU/resolution.txt";
+static constexpr const char* kResolutionTry = "sdmc:/config/SwitchU/resolution.try";
+
+static void chooseResolution() {
+    std::string want;
+    std::getline(std::ifstream(kResolutionFile), want);
+    if (want.rfind("1080", 0) != 0) return;
+    std::error_code ec;
+    if (std::filesystem::exists(kResolutionTry, ec)) {
+        std::filesystem::remove(kResolutionTry, ec);
+        std::filesystem::remove(kResolutionFile, ec);
+        DebugLog::log("[menu] 1080p never showed a frame last time: 720p, and the setting is off");
+        return;
+    }
+    if (appletGetOperationMode() != AppletOperationMode_Console) return; // the console's own screen is 720p
+    std::ofstream(kResolutionTry) << "1";
+    nxui::GpuDevice::setResolution(1920, 1080);
+    nxui::GpuDevice::setFirstFrameHook([] {
+        std::error_code err;
+        std::filesystem::remove(kResolutionTry, err);
+    });
+    DebugLog::log("[menu] 1920x1080 (on the TV)");
+}
+
 static switchu::smi::MenuStartMode readStartMode() {
     LibAppletArgs args{};
     AppletStorage stor{};
@@ -262,6 +291,7 @@ int main(int argc, char* argv[]) {
         nxui::Renderer::setShaderBasePath(sdPath);
         DebugLog::log("[menu] shader path: %s", sdPath.c_str());
     }
+    chooseResolution();
 #endif
 
     nxui::GpuDevice::setLogSink([](const char* msg) { DebugLog::log("%s", msg); });

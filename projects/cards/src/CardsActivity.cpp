@@ -3961,6 +3961,22 @@ void CardsActivity::buildSettings() {
     };
     wall.detail = "One picture behind everything: yours (sdmc:/config/CardsNX/backgrounds) or a screenshot";
     look.rows.push_back(std::move(wall));
+#ifdef SWITCHU_MENU
+    { // Read when HOME starts (HomeNX's main.cpp): 1920x1080 when docked.
+        std::string want;
+        std::getline(std::ifstream("sdmc:/config/SwitchU/resolution.txt"), want);
+        m_tv1080 = want.rfind("1080", 0) == 0;
+    }
+    look.rows.push_back(choice("TV resolution", [this]() { return std::string(m_tv1080 ? "1080p" : "720p"); },
+        [this](int) {
+            m_tv1080 = !m_tv1080;
+            std::error_code ec;
+            if (m_tv1080) std::ofstream("sdmc:/config/SwitchU/resolution.txt") << "1080";
+            else std::filesystem::remove("sdmc:/config/SwitchU/resolution.txt", ec);
+            say(m_tv1080 ? "1080p on the TV from the next time HOME opens (handheld stays 720p)."
+                         : "720p from the next time HOME opens.");
+        }, "Sharper on a TV; 720p is lighter for the console"));
+#endif
     look.rows.push_back(toggle("Lock screen", [this]() { return m_settings.lockScreen; },
         [this, save]() { m_settings.lockScreen = !m_settings.lockScreen; save(); },
         "The time and date when the console wakes; any button opens HOME"));

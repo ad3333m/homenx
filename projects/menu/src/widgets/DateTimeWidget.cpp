@@ -110,7 +110,8 @@ float DateTimeWidget::drawGlyphs(nxui::Renderer& ren, nxui::Font* font, Glyphs& 
                 if (it != glyphs.old.end() && it->second && it->second->valid()) use = it->second.get();
             }
             if (use) {
-                ren.drawTexture(use, {x, y, use->width() * scale, use->height() * scale}, color);
+                const float px = scale / font->pixelScale(); // (rendered at the framebuffer's scale)
+                ren.drawTexture(use, {x, y, use->width() * px, use->height() * px}, color);
             } else if (!font->draw(ren, one, {x, y}, color, scale)) { // no room for our own yet: the shared cache's
                 const std::uint64_t now = armGetSystemTick();
                 if (now - m_lastMissLog > armNsToTicks(10'000'000'000ULL)) { // why the clock is blank, in menu.log
