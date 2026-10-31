@@ -961,7 +961,16 @@ void CardsActivity::worker(int index) {
         const std::uint64_t jobStart = armGetSystemTick();
         const Game look = forLookup(job.game); // (renamed: its pictures are found by its real name)
         std::vector<std::uint8_t> data;
-        if (job.what == kBackground || job.what == kLaunch) {
+        // Covers and backgrounds as shown last time (by size, box art, SteamGridDB or not).
+        const int shownW = job.what == kCard ? static_cast<int>(300.f * m_pictureScale) : 1280;
+        const std::string shown =
+            (job.what == kCard || job.what == kBackground) && job.game.action.empty()
+                ? shownPath(job.game.id, std::string(job.what == kCard ? (m_boxArt.load() ? "c1" : "c0") : "b")
+                                             + (key.empty() ? "" : "k") + "." + std::to_string(shownW))
+                : std::string();
+        if (!shown.empty() && readShown(shown, done.rgba, done.w, done.h, done.kind)) {
+            // (ready as it is)
+        } else if (job.what == kBackground || job.what == kLaunch) {
             data = backgroundArt(look, key, done.kind);
         } else if (job.what == kCard) {
             data = cardArt(look, key, m_boxArt.load(), done.kind);
@@ -996,6 +1005,12 @@ void CardsActivity::worker(int index) {
                 else shrink(done.rgba, w, h, maxW);
                 done.w = w;
                 done.h = h;
+                // Kept as shown, when it's the picture for good (not one standing in while the
+                // internet is down: an eShop banner for a cover, a box for a background).
+                const bool forGood = job.what == kCard ? done.kind == ArtKind::Grid || done.kind == ArtKind::Box
+                                                             || (done.kind == ArtKind::Banner && !m_boxArt.load())
+                                                       : done.kind == ArtKind::Banner;
+                if (!shown.empty() && forGood) writeShown(shown, done.rgba, w, h, done.kind);
             }
         }
         const float took = ticksMs(armGetSystemTick() - jobStart);
@@ -2867,6 +2882,7 @@ void CardsActivity::openOptions() {
                 else list.push_back(key);
                 m_settings.save();
                 applyNames();
+                forgetShown(id);
                 auto it = m_art.find(id);
                 if (it != m_art.end()) { // its card again, the other way
                     it->second.cardAsked = false;
