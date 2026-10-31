@@ -1323,6 +1323,11 @@ void CardsActivity::reloadGames() {
 // The real lists, read on a thread, replace last time's. Where you are stays:
 // the first card stays first, a card further along stays chosen.
 void CardsActivity::takeLists(Lists lists) {
+    // What was there: what's new is said and chosen (Settings > Look for new software, or found by itself).
+    std::vector<std::uint64_t> before = m_scanBefore;
+    if (!m_scanAsked)
+        for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
+            for (const Game& g : m_pages[p]) before.push_back(g.id);
     char line[120];
     std::snprintf(line, sizeof(line), "%s read again in %.0f ms (%zu games, %zu homebrew)",
                   lists.gamesOnly ? "installed titles" : "lists", lists.ms, lists.games.size(), lists.homebrew.size());
@@ -1366,24 +1371,39 @@ void CardsActivity::takeLists(Lists lists) {
     if (m_backTo) selectById(m_backTo);
     saveLists(m_pages[kGames], homebrewToSave());
     wantArt();
-    if (m_scanAsked) { // Settings > Home > Look for new software: what's new, and on which page
-        m_scanAsked = false;
-        std::string found;
-        int count = 0;
-        for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
-            for (const Game& g : m_pages[p])
-                if (g.action.empty() && std::find(m_scanBefore.begin(), m_scanBefore.end(), g.id) == m_scanBefore.end()) {
-                    if (++count <= 3) found += (found.empty() ? "" : ", ") + g.name + " (" + tr(kPageNames[p]) + ")";
-                }
+    std::string found; // what's new, and on which page
+    int count = 0;
+    for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
+        for (size_t i = 0; i < m_pages[p].size(); ++i) {
+            const Game& g = m_pages[p][i];
+            if (!g.action.empty() || std::find(before.begin(), before.end(), g.id) != before.end()) continue;
+            if (++count <= 3) found += (found.empty() ? "" : ", ") + g.name + " (" + tr(kPageNames[p]) + ")";
+            if (count == 1 && p == m_page && !before.empty()) m_sels[p] = static_cast<int>(i); // the cards go to it
+        }
+    if (m_scanAsked || (count > 0 && !before.empty()))
         say(count == 0 ? "Nothing new: everything installed is on HOME."
                        : count > 3 ? trf("Found {list} and {n} more", {found, std::to_string(count - 3)})
                                    : trf("Found {list}", {found}));
-    }
+    m_scanAsked = false;
 }
 
 void CardsActivity::splitMedia() {
     auto& games = m_pages[kGames];
     auto& homebrew = m_pages[kHomebrew];
+    // NRO forwarders (installed ports and apps): with the games when Settings > Home
+    // says so (a cover, last played), else with the homebrew.
+    auto forwarder = [](const Game& g) { return g.path.empty() && g.action.empty() && (g.id >> 56) == 0x05; };
+    for (auto* from : {&games, &homebrew})
+        for (auto it = from->begin(); it != from->end();) {
+            if (forwarder(*it)) it->homebrew = !m_settings.forwardersAsGames;
+            auto* to = it->homebrew ? &homebrew : &games;
+            if (forwarder(*it) && to != from) {
+                to->push_back(std::move(*it));
+                it = from->erase(it);
+            } else {
+                ++it;
+            }
+        }
     std::vector<Game> media;
     auto listed = [](const std::vector<std::string>& list, const Game& g) {
         const std::string key = g.path.empty() ? idText(g.id) : g.path;
@@ -1539,7 +1559,7 @@ void CardsActivity::openPageOrder(int select) {
 }
 
 bool CardsActivity::glassCard(const Game& g) {
-    if (g.homebrew || !g.action.empty()) return true;
+    if ((g.homebrew && !g.fullCard) || !g.action.empty()) return true;
     auto it = m_art.find(g.id);
     return it != m_art.end() && it->second.card && it->second.kind == ArtKind::Icon;
 }
@@ -2309,7 +2329,10 @@ void CardsActivity::applyNames() {
                 g.name = g.original;
                 g.original.clear();
             }
-            const auto it = m_settings.names.find(g.path.empty() ? idText(g.id) : g.path);
+            const std::string key = g.path.empty() ? idText(g.id) : g.path;
+            g.fullCard = g.homebrew && std::find(m_settings.fullCards.begin(), m_settings.fullCards.end(), key)
+                                           != m_settings.fullCards.end();
+            const auto it = m_settings.names.find(key);
             if (it != m_settings.names.end() && !it->second.empty() && it->second != g.name) {
                 g.original = g.name;
                 g.name = it->second;
@@ -2819,6 +2842,25 @@ void CardsActivity::openOptions() {
         items.back().glyph = "copy";
         items.push_back(action("Background picture", [this, g]() { openTitlePicker(g, false, {}, true); }));
         items.back().glyph = "sun";
+        if (g.homebrew) { // a port looks like a game: a cover, as a game's card
+            const std::string key = g.path.empty() ? idText(g.id) : g.path;
+            items.push_back(action(g.fullCard ? "Show as an icon" : "Show as a full card", [this, key, id]() {
+                auto& list = m_settings.fullCards;
+                const auto at = std::find(list.begin(), list.end(), key);
+                if (at != list.end()) list.erase(at);
+                else list.push_back(key);
+                m_settings.save();
+                applyNames();
+                auto it = m_art.find(id);
+                if (it != m_art.end()) { // its card again, the other way
+                    it->second.cardAsked = false;
+                    app().gpu().waitIdle(); // it may still be drawing
+                    it->second.card.reset();
+                }
+                wantArt();
+            }));
+            items.back().glyph = "copy";
+        }
         if (game) {
             items.push_back(action("Title picture", [this, g]() { openTitlePicker(g); }));
             items.back().glyph = "tag";
@@ -3314,7 +3356,7 @@ void CardsActivity::drawOptions(nxui::Renderer& r) {
     r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, kOptCard.y + 50.f + dy}, &m_fTitle, kWhite.withAlpha(a), ts);
     std::string about;
     if (!g.action.empty()) about = g.author;
-    else if (g.homebrew) about = g.path.empty() ? tr("NRO forwarder") : (g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author}));
+    else if (g.homebrew && !g.path.empty()) about = g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author});
     else about = trf("{time} played", {playTime(g.playSeconds)}) + "    " + lastPlayed(g.lastPlayed);
     if (!g.version.empty()) about += "    " + (versionName(g.version).empty() ? g.version : versionName(g.version));
     r.drawText(fit(m_fBody, about, maxW), {tx, kOptCard.y + 94.f + dy}, &m_fBody, kMuted.withAlpha(a));
@@ -3781,15 +3823,7 @@ void CardsActivity::quickActivate(int row, int col) {
         }
         m_audio.play(on ? "toggle_on" : "toggle_off");
     } else if (row == kQBluetooth) {
-        const bool on = !m_quick.bluetooth;
-        // Docked, the controllers talk over Bluetooth: off would leave nothing to turn it on with.
-        if (!on && appletGetOperationMode() != AppletOperationMode_Handheld) {
-            say("Bluetooth stays on while docked: the controllers use it.");
-            return;
-        }
-        if (setBluetooth(on)) m_quick.bluetooth = on;
-        else say("Bluetooth didn't change.");
-        m_audio.play(on ? "toggle_on" : "toggle_off");
+        flipBluetooth();
     } else if (row == kQPower && col >= 0 && col < static_cast<int>(m_quickPower.size())) {
         auto run = m_quickPower[(size_t)col].run;
         m_quickOpen = false;
@@ -4504,6 +4538,8 @@ void CardsActivity::press(int zone, int index) {
 
 void CardsActivity::buildSettings() {
     auto save = [this]() { m_settings.save(); };
+    for (std::string& tab : m_settings.sheetOrder)
+        if (tab == "Controllers") tab = "Bluetooth"; // (renamed: it keeps its place)
     m_sheet.clear();
 
     Section home{"Home", "home", {}};
@@ -4543,6 +4579,11 @@ void CardsActivity::buildSettings() {
     panel.detail = "The panel's right button. Any app: + on its card > Put on the panel button";
     home.rows.push_back(std::move(panel));
 #endif
+    home.rows.push_back(toggle("NRO forwarders are games", [this]() { return m_settings.forwardersAsGames; }, [this, save]() {
+        m_settings.forwardersAsGames = !m_settings.forwardersAsGames;
+        save();
+        startListRefresh(true); // (read again, then put where they go)
+    }, "Installed forwarders (ports, apps) on Games, with a cover and last played"));
     MenuItem scan = action("Look for new software", [this]() {
         if (m_listJob.valid()) {
             say("Already looking...");
@@ -4744,7 +4785,20 @@ void CardsActivity::buildSettings() {
         net.rows.push_back(info(kNetRows[row], [this, row]() { return netTestText(row); }));
     m_sheet.push_back(std::move(net));
 
-    Section pads{"Controllers", "pad", {}};
+    Section pads{"Bluetooth", "bluetooth", {}};
+    pads.rows.push_back(toggle("Bluetooth", [this]() { return m_quick.bluetooth; }, [this]() { flipBluetooth(); },
+                               "Controllers, headphones and speakers"));
+    refreshAudioName();
+    MenuItem audio = action("Headphones and speakers", [this]() { openAudioDevices(); });
+    audio.value = [this]() { return m_btAudioName; };
+    audio.detail = "One at a time; up to two controllers while one is connected";
+    pads.rows.push_back(std::move(audio));
+    MenuItem audioPair = action("Pair headphones or a speaker", [this]() { startAudioScan(); });
+    audioPair.value = [this]() {
+        return m_btScanLeft > 0.f ? trf("Looking... {n} s", {std::to_string(static_cast<int>(m_btScanLeft + 0.99f))}) : std::string();
+    };
+    audioPair.detail = "Put them in pairing mode first";
+    pads.rows.push_back(std::move(audioPair));
 #ifdef SWITCHU_MENU
     MenuItem pair = action("Pair a controller", [this]() { startPairing(); });
     pair.value = [this]() {
@@ -4798,6 +4852,9 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(pads));
 
     Section console{"Console", "power", {}};
+    MenuItem mtp = action("Connect to a computer", [this]() { openMtp(); });
+    mtp.detail = "USB file transfer (MTP): plug the Switch in, then copy files";
+    console.rows.push_back(std::move(mtp));
     console.rows.push_back(choice("Language", [this]() {
         for (const auto& [tag, name] : languages())
             if (tag == m_settings.language) return name;
@@ -5143,6 +5200,172 @@ std::string CardsActivity::netTestText(int row) {
         return t.signal >= 0 ? kBars[std::min(t.signal.load(), 3)] : stage == 0 ? "..." : "-";
     }
     }
+}
+
+void CardsActivity::flipBluetooth() {
+    const bool on = !m_quick.bluetooth;
+    // Docked, the controllers talk over Bluetooth: off would leave nothing to turn it on with.
+    if (!on && appletGetOperationMode() != AppletOperationMode_Handheld) {
+        say("Bluetooth stays on while docked: the controllers use it.");
+        return;
+    }
+    if (setBluetooth(on)) m_quick.bluetooth = on;
+    else say("Bluetooth didn't change.");
+    m_audio.play(on ? "toggle_on" : "toggle_off");
+}
+
+namespace {
+using BtAddr = std::array<std::uint8_t, 6>;
+BtdrvAddress btAddress(const BtAddr& a) {
+    BtdrvAddress out{};
+    std::memcpy(out.address, a.data(), a.size());
+    return out;
+}
+BtAddr btAddr(const BtdrvAddress& a) {
+    BtAddr out{};
+    std::memcpy(out.data(), a.address, out.size());
+    return out;
+}
+std::string btName(const BtmAudioDevice& d) {
+    const std::string name(d.name, strnlen(d.name, sizeof(d.name)));
+    return name.empty() ? tr("A Bluetooth device") : name;
+}
+} // namespace
+
+bool CardsActivity::bluetoothAudio() {
+    if (!hosversionAtLeast(13, 0, 0)) {
+        say("Bluetooth audio needs system version 13.0.0 or newer.");
+        return false;
+    }
+    if (R_FAILED(btmsysInitialize())) {
+        say("Bluetooth audio isn't available here.");
+        return false;
+    }
+    return true;
+}
+
+void CardsActivity::startAudioScan() {
+    if (m_btScanLeft > 0.f || !bluetoothAudio()) return;
+    if (R_FAILED(btmsysStartAudioDeviceDiscovery())) {
+        btmsysExit();
+        say("Bluetooth audio isn't available here.");
+        return;
+    }
+    m_btScanLeft = 10.f; // (btm:sys stays open while it looks)
+    say("Looking for headphones and speakers: put yours in pairing mode.");
+}
+
+void CardsActivity::updateBluetoothAudio(float dt) {
+    if (m_btScanLeft > 0.f && (m_btScanLeft -= dt) <= 0.f) { // what it found: one to choose
+        m_btScanLeft = 0.f;
+        BtmAudioDevice found[8] = {};
+        s32 n = 0;
+        if (R_FAILED(btmsysGetDiscoveredAudioDevice(found, 8, &n))) n = 0;
+        btmsysStopAudioDeviceDiscovery();
+        btmsysExit();
+        if (n <= 0) {
+            say("Nothing found. Put it in pairing mode, then try again.");
+        } else {
+            std::vector<MenuItem> items;
+            for (s32 i = 0; i < n && i < 8; ++i) {
+                const BtAddr address = btAddr(found[i].addr);
+                const std::string name = btName(found[i]);
+                items.push_back(action(name, [this, address, name]() { connectAudio(address, name); }));
+            }
+            items.push_back(action("Cancel", [] {}));
+            openMenu("Which one?", std::move(items));
+        }
+    }
+    if (m_btConnectIn > 0.f && (m_btConnectIn -= dt) <= 0.f) { // did it connect?
+        refreshAudioName();
+        say(trf(m_btAudioName == m_btConnectName ? "{device} is connected."
+                                                 : "{device} didn't connect. Put it in pairing mode and try again.",
+                {m_btConnectName}));
+    }
+}
+
+void CardsActivity::refreshAudioName() {
+    m_btAudioName.clear();
+    if (!hosversionAtLeast(13, 0, 0) || R_FAILED(btmsysInitialize())) return;
+    BtmAudioDevice on[2] = {};
+    s32 n = 0;
+    if (R_SUCCEEDED(btmsysGetConnectedAudioDevices(on, 2, &n)) && n > 0) m_btAudioName = btName(on[0]);
+    btmsysExit();
+}
+
+void CardsActivity::connectAudio(const std::array<std::uint8_t, 6>& address, const std::string& name) {
+    if (!bluetoothAudio()) return;
+    const Result rc = btmsysConnectAudioDevice(btAddress(address));
+    btmsysExit();
+    if (R_FAILED(rc)) {
+        say(trf("{device} didn't connect. Put it in pairing mode and try again.", {name}));
+        return;
+    }
+    m_btConnectName = name;
+    m_btConnectIn = 8.f;
+    say(trf("Connecting to {device}...", {name}));
+}
+
+void CardsActivity::openAudioDevices() {
+    if (!bluetoothAudio()) return;
+    BtmAudioDevice paired[10] = {}, on[2] = {};
+    s32 n = 0, connected = 0;
+    if (R_FAILED(btmsysGetPairedAudioDevices(paired, 10, &n))) n = 0;
+    if (R_FAILED(btmsysGetConnectedAudioDevices(on, 2, &connected))) connected = 0;
+    btmsysExit();
+    std::vector<MenuItem> items;
+    for (s32 i = 0; i < n && i < 10; ++i) {
+        const BtAddr address = btAddr(paired[i].addr);
+        const std::string name = btName(paired[i]);
+        bool isOn = false;
+        for (s32 k = 0; k < connected && k < 2; ++k) isOn |= btAddr(on[k].addr) == address;
+        MenuItem row = action(name, [this, address, name, isOn]() {
+            std::vector<MenuItem> what;
+            if (isOn) {
+                what.push_back(action("Disconnect", [this, address, name]() {
+                    if (!bluetoothAudio()) return;
+                    const bool ok = R_SUCCEEDED(btmsysDisconnectAudioDevice(btAddress(address)));
+                    btmsysExit();
+                    if (ok) m_btAudioName.clear();
+                    say(ok ? trf("{device} is disconnected.", {name}) : tr("That didn't change."));
+                }));
+            } else {
+                what.push_back(action("Connect", [this, address, name]() { connectAudio(address, name); }));
+            }
+            what.push_back(action("Remove", [this, address, name]() {
+                if (!bluetoothAudio()) return;
+                const bool ok = R_SUCCEEDED(btmsysRemoveAudioDevicePairing(btAddress(address)));
+                btmsysExit();
+                say(ok ? trf("{device} was removed.", {name}) : tr("That didn't change."));
+                refreshAudioName();
+            }, true));
+            what.push_back(action("Cancel", [] {}));
+            openMenu(name, std::move(what));
+        });
+        row.value = [isOn]() { return isOn ? tr("Connected") : std::string(); };
+        items.push_back(std::move(row));
+    }
+    if (n <= 0) items.push_back(info("None paired yet", nullptr));
+    items.push_back(action("Pair headphones or a speaker", [this]() { startAudioScan(); }));
+    openMenu("Headphones and speakers", std::move(items));
+}
+
+// USB file transfer: haze (it comes with Atmosphere), else DBI's MTP mode.
+void CardsActivity::openMtp() {
+    std::string path = findNro("haze");
+    std::error_code ec;
+    for (const char* p : {"sdmc:/switch/haze.nro", "sdmc:/switch/haze/haze.nro"})
+        if (path.empty() && std::filesystem::exists(p, ec)) path = p;
+    const bool haze = !path.empty();
+    if (!haze) path = findNro("dbi");
+    if (path.empty()) {
+        say("haze isn't on the SD card: it comes with Atmosphere (switch/haze.nro).");
+        return;
+    }
+    m_sheetOpen = false;
+    say(haze ? "Plug the Switch into a computer: its SD card shows up there. + closes it."
+             : "In DBI, choose Run MTP responder, then plug the Switch into a computer.");
+    openNro(path);
 }
 
 void CardsActivity::findControllersNow() {
@@ -6154,6 +6377,24 @@ void CardsActivity::onUpdate(float dt) {
         }
         if (!m_lockTex && !m_lockPicture.empty()) say("The lock screen picture couldn't be read.");
     }
+    // Installed or downloaded meanwhile (an eShop download, an installer, a .nro
+    // from a computer)? The background service says so, but not always: the count
+    // of installed titles every 10 s (quick), the .nro files every minute.
+    if ((m_changesIn -= dt) <= 0.f) {
+        m_changesIn = 10.f;
+        if (!m_changesJob.valid() && !m_listJob.valid() && !m_leaving) {
+            const bool nros = ++m_changesChecks % 6 == 0;
+            const std::uint64_t knownNros = m_settings.nroHash;
+            m_changesJob = std::async(std::launch::async, [nros, knownNros]() {
+                offScreenCore();
+                Changes c;
+                c.titles = installedTitleCount();
+                c.nroHash = nros ? homebrewHash() : knownNros;
+                return c;
+            });
+        }
+    }
+    updateBluetoothAudio(dt);
     if (m_changesJob.valid() && m_changesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const Changes c = m_changesJob.get();
         const bool nros = c.nroHash != m_settings.nroHash, titles = c.titles != m_settings.titles;
@@ -7061,7 +7302,9 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             const std::string name = fit(m_fLabel, g.name, card.width - 24.f, ns);
             r.drawText(name, {card.x + (card.width - measured(m_fLabel, name).x * ns) * 0.5f, iconRect.y + side + 26.f},
                        &m_fLabel, kWhite.withAlpha(alpha), ns);
-            const std::string about = !g.author.empty() ? g.author : (g.path.empty() ? "NRO forwarder" : "Homebrew");
+            const std::string about = !g.action.empty() ? g.author
+                                    : g.path.empty() ? lastPlayed(g.lastPlayed) // installed: a forwarder, a game without a cover
+                                    : !g.author.empty() ? g.author : tr("Homebrew");
             const std::string by = fit(m_fBody, about, card.width - 28.f);
             r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
                        kMuted.withAlpha(alpha));
@@ -7314,7 +7557,7 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, panel.y + 20.f + (1.f - ts) * 14.f}, &m_fTitle, kWhite.withAlpha(da), ts);
     std::string about;
     if (!g.action.empty()) about = g.author;
-    else if (g.homebrew) about = g.path.empty() ? tr("NRO forwarder") : (g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author}));
+    else if (g.homebrew && !g.path.empty()) about = g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author});
     else if (running) about = playTime(g.playSeconds) + "    " + tr("Open now: Resume carries on");
     else about = playTime(g.playSeconds) + "    " + lastPlayed(g.lastPlayed);
     if (const NroUpdate* u = nroUpdate(g)) {

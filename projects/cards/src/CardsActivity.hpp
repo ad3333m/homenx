@@ -89,6 +89,8 @@ private:
         std::uint64_t nroHash = 0;
     };
     std::future<Changes> m_changesJob;
+    float m_changesIn = 10.f; // the next look for new software (installed titles, .nro files)
+    int m_changesChecks = 0;
     // Every game and .nro (slow: seconds), on whatever thread calls it; or only
     // the installed titles (a game installed, updated or removed).
     static Lists readAllLists(bool gamesOnly = false);
@@ -550,6 +552,17 @@ private:
     void startConnectionTest();
     std::string netTestText(int row); // 0 the test, 1 ping, 2 download, 3 upload, 4 signal
     void findControllersNow();
+    void flipBluetooth(); // on / off (Quick Settings and Settings > Bluetooth)
+    // Bluetooth headphones and speakers (13.0.0+), as Nintendo's System Settings has them.
+    bool bluetoothAudio(); // btm:sys open (btmsysExit after), else it says why not
+    void startAudioScan();
+    void updateBluetoothAudio(float dt);
+    void refreshAudioName();
+    void openAudioDevices();
+    void connectAudio(const std::array<std::uint8_t, 6>& address, const std::string& name);
+    float m_btScanLeft = 0.f, m_btConnectIn = 0.f;
+    std::string m_btConnectName, m_btAudioName; // the one being connected; the one connected
+    void openMtp(); // USB file transfer
 
 
     // Settings: sections on the left, their rows on the right.

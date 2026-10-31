@@ -673,7 +673,7 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
         return readFile(systemIconPath(game.action));
     }
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
-    if (game.homebrew) { // apps have no box art: their icon makes the card (unless one was chosen)
+    if (game.homebrew && !game.fullCard) { // apps have no box art: their icon makes the card (unless one was chosen)
         if (boxArt && std::filesystem::exists(base + ".coverme")) return readFile(base + ".coverme");
         kind = ArtKind::Icon;
         return gameIcon(game);
@@ -710,6 +710,10 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
             return std::vector<std::uint8_t>(got.begin(), got.end());
         }
         if (keptBack(game.id, ".grid")) return readFile(grid); // taken down since: the one saved
+    }
+    if (game.homebrew) { // an app as a full card, but SteamGridDB had no cover: its icon after all
+        kind = ArtKind::Icon;
+        return gameIcon(game);
     }
     kind = ArtKind::Box;
     if (boxArt && std::filesystem::exists(box)) return readFile(box);

@@ -44,6 +44,8 @@ struct Settings {
     // NRO forwarders' title IDs. Out: the ones Media takes by itself, kept out.
     std::vector<std::string> mediaIn, mediaOut;
     std::vector<std::string> gamesIn, gamesOut; // moved by hand onto / off the Games page (ports, ...)
+    std::vector<std::string> fullCards;         // homebrew drawn as games' cards (+ > Show as a full card)
+    bool forwardersAsGames = true; // NRO forwarders (installed ports, apps) on Games, as games
     std::uint64_t nroHash = 0;  // the .nro files at the last full read (homebrewHash)
     int titles = -1;            // the installed titles then (installedTitleCount)
     bool askUser = false;       // starting a game asks who's playing, as Nintendo's HOME does
@@ -97,6 +99,8 @@ struct Settings {
             mediaOut = j.value("mediaOut", mediaOut);
             gamesIn = j.value("gamesIn", gamesIn);
             gamesOut = j.value("gamesOut", gamesOut);
+            fullCards = j.value("fullCards", fullCards);
+            forwardersAsGames = j.value("forwardersAsGames", forwardersAsGames);
             nroHash = j.value("nroHash", nroHash);
             titles = j.value("titles", titles);
             askUser = j.value("askUser", askUser);
@@ -124,7 +128,7 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"forwardersAsGames", forwardersAsGames},
                             {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
                             {"lockScreen", lockScreen}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},

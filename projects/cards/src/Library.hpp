@@ -42,6 +42,7 @@ struct Game {
     std::string path;              // a .nro (else it's an installed title)
     std::string action;            // a Nintendo page entry: "eshop", "album", ... (see openSystem)
     bool homebrew = false;
+    bool fullCard = false;         // a homebrew app drawn as a game's card (+ > Show as a full card)
     std::uint64_t lastPlayed = 0;  // seconds since 1970 (0: never)
     std::uint64_t playSeconds = 0;
     std::uint32_t launches = 0;
