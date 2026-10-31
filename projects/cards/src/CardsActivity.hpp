@@ -550,7 +550,8 @@ private:
     nxui::Font m_socFont, m_socSmall;         // CardsNX's typeface at the sizes HomeNX's screens are laid out for
     void ensureTextEntry();
     void enterText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
-                   std::function<void(const std::string&)> done, nxui::Widget* back);
+                   std::function<void(const std::string&)> done, nxui::Widget* back, bool sensitive = false);
+    bool m_discordTokenEntryPending = false; // Discord's panel asked for the token keyboard
     void openSocial(bool miis);
     std::shared_ptr<ControllerTestScreen> m_padTest; // Settings > Controllers: HomeNX's test screen
     void openPadTest();

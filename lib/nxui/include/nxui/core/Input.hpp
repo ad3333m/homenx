@@ -36,6 +36,9 @@ public:
     void initialize();
     void shutdown();
     void update();
+    // The right stick's directions count as the left stick's too, for this frame
+    // (CardsNX: either stick moves through the games and every menu).
+    void mergeRightStick();
 
     bool isDown(Button b)     const;   // Pressed this frame
     bool isUp(Button b)       const;   // Released this frame

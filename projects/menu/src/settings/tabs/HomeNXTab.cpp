@@ -218,6 +218,27 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         t.items.push_back(std::move(it));
     }
     {
+        // WiiUMenuApp::lockScreenOn reads the same flag.
+        static constexpr const char* kLockFlag = "sdmc:/config/SwitchU/lock_screen";
+        std::error_code ec;
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.lock", "Lock screen");
+        it.description = i18n.tr("settings.homenx.lock_desc",
+            "The time and date when the console starts or wakes, over your wallpaper "
+            "(sdmc:/switch/SwitchU/lockscreen/wallpaper.png or .jpg). A opens HOME; after a while "
+            "with nothing pressed the console sleeps again.");
+        it.type = ItemType::Toggle;
+        it.boolVal = std::filesystem::exists(kLockFlag, ec);
+        it.onChange = [](SettingItem& self) {
+            std::error_code err;
+            if (self.boolVal)
+                std::ofstream(kLockFlag) << "1";
+            else
+                std::filesystem::remove(kLockFlag, err);
+        };
+        t.items.push_back(std::move(it));
+    }
+    {
         // Read when HOME starts (main.cpp): 1920x1080 when docked.
         static constexpr const char* kResolution = "sdmc:/config/SwitchU/resolution.txt";
         std::string want;

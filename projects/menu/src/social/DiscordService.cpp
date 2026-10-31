@@ -337,7 +337,7 @@ void DiscordService::update() {
             if (m_state != State::Ready) next = State::Connecting;
             break;
     }
-    if (!m_auth) m_state = next; // the QR code stays up while adding an account
+    if (!m_auth && m_state != State::TokenLogin) m_state = next; // keep the active sign-in screen stable
 }
 
 std::string DiscordService::myName() const {
@@ -403,6 +403,37 @@ void DiscordService::cancelQrLogin() {
     m_error.clear();
     // Back to whatever account was connected (update() works out its state).
     m_state = m_gateway ? (m_store && m_store->ready ? State::Ready : State::Connecting) : State::SignedOut;
+}
+
+void DiscordService::signInWithUserToken(const std::string& token) {
+    if (token.empty()) {
+        m_error = "Enter a Discord user session token.";
+        m_state = State::SignedOut;
+        return;
+    }
+    if (!m_started) activate();
+    if (!m_started || (m_state == State::Failed && !m_store)) return;
+    retire(m_auth, m_oldAuths);
+    m_tokenLoginReturnState = m_state;
+    m_state = State::TokenLogin;
+    m_error.clear();
+    ++m_accountsVersion;
+    Api::FetchMe(token, [this, token](bool ok, User user, const std::string& err) {
+        if (m_state != State::TokenLogin) return;
+        if (!ok || !user.id) {
+            m_state = m_tokenLoginReturnState;
+            m_error = err.empty() ? "Discord didn't accept that user session token." : err;
+            ++m_accountsVersion;
+            return;
+        }
+        Account account{Str::Id(user.id), user.username, user.globalName, user.avatar, token};
+        m_accounts.erase(std::remove_if(m_accounts.begin(), m_accounts.end(),
+                                        [&](const Account& a) { return a.id == account.id; }), m_accounts.end());
+        m_accounts.push_back(account);
+        m_signedOut.erase(std::remove(m_signedOut.begin(), m_signedOut.end(), account.id), m_signedOut.end());
+        connect(account);
+        saveAccounts();
+    });
 }
 
 std::string DiscordService::qrUrl() const {

@@ -67,10 +67,11 @@ public:
     /// Low-power console sleep.  No frame is presented, no input is dispatched
     /// and the loop parks on a 50 ms tick; the activity is still updated slowly
     /// so it can read the wake notification and resume.
-    void setSleeping(bool s) { m_sleeping = s; }
+    void setSleeping(bool s);
     bool sleeping() const    { return m_sleeping; }
 
 private:
+    void renderSleepFrames();
     void dispatchInput();
     bool applyPendingActivity();
 

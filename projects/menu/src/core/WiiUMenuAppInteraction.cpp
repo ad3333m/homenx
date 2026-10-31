@@ -1340,6 +1340,9 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
         notifications::add(("discord/" + std::to_string(alert.channelId) + "/" + std::to_string(alert.guildId)).c_str(),
                            alert.title, alert.text);
         if (m_bell) m_bell->setUnread(m_bell->unread() + 1);
+        if (m_lockScreen && m_lockScreen->isActive()) {
+            m_lockScreen->setNotifications(notifications::recent(50));
+        }
     }
     if (gotAlert && !panelUp && !launching) {
         ensureDiscordPanel(); // loads the sender's picture
@@ -1578,6 +1581,7 @@ nxui::Widget* WiiUMenuApp::focusRoot() {
     if (leaveSplashActive()) return nullptr;
     if (m_launchAnim && m_launchAnim->isPlaying()) return nullptr;
     if (m_folderCaptureRequested || m_folderClosing) return nullptr;
+    if (m_lockScreen && m_lockScreen->isActive()) return m_lockScreen.get();
     if (m_progressDialog && m_progressDialog->isActive()) return m_progressDialog.get();
     if (m_textEntry && m_textEntry->isActive()) return m_textEntry.get();
     if (m_dialog && m_dialog->isActive()) return m_dialog.get();
@@ -1638,6 +1642,7 @@ void WiiUMenuApp::toggleAccessibilitySpeech() {
 }
 
 bool WiiUMenuApp::handleAccessibilityToggleCombo() {
+    if (m_lockScreen && m_lockScreen->isActive()) return true;
     if (m_navigator.route() == switchu::navigation::Route::ControllerTest)
         return false;
     auto& input = app().input();
@@ -2058,6 +2063,7 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
 #endif
 
 void WiiUMenuApp::handleTouch() {
+    if (m_lockScreen && m_lockScreen->isActive()) return;
     constexpr float kSwipeThreshold = 80.f;
     constexpr float kLongPressThreshold = 0.55f;
     constexpr float kLongPressMoveThreshold = 18.f;

@@ -894,7 +894,7 @@ void WiiUMenuApp::showDiagnostics() {
     if (R_SUCCEEDED(svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0))
         && R_SUCCEEDED(svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0)))
         body += "\nMemory: " + megabytes(used) + " of " + megabytes(total);
-    static const char* const kStates[] = {"signed out", "QR sign-in", "connecting", "connected", "failed"};
+    static const char* const kStates[] = {"signed out", "QR sign-in", "connecting", "connected", "failed", "token sign-in"};
     body += "\nDiscord in HOME: ";
     body += !m_discord.started() ? std::string(m_discord.hasSavedAccount() ? "not started" : "no account")
                                  : std::string(kStates[(int)m_discord.state()]);
@@ -927,6 +927,43 @@ void WiiUMenuApp::openDiscordPanel() {
     focusManager().setFocus(m_discordPanel.get());
     if (m_cursor) m_cursor->setVisible(false);
     m_audio.playSfx(Sfx::ModalShow);
+}
+
+void WiiUMenuApp::showLockScreen(bool resumeMusic) {
+    if (!m_lockScreen) {
+        m_lockScreen = std::make_shared<LockScreen>();
+        m_lockScreen->setFonts(&m_fontNormal, &m_fontSmall);
+        m_lockScreen->onUnlock([this]() {
+            // Bring the home screen back into view.
+            if (m_bgLayer) m_bgLayer->setVisible(true);
+            if (m_contentLayer) m_contentLayer->setVisible(true);
+            if (m_lockMusicShouldResume) {
+                if (m_audioStarted) m_audio.play();
+                else m_lockMusicResumePending = true;
+            }
+            m_lockMusicShouldResume = false;
+            nxui::Widget* target = m_grid ? m_grid->focusManager().current() : nullptr;
+            if (isCurrentFocusableWidget(target)) focusManager().setFocus(target);
+            updateCursor();
+        });
+        m_lockScreen->onAutoSleep([this]() { handleLockScreenAutoSleep(); });
+    }
+    // Hide the home screen so it isn't visible behind the lock screen.
+    if (m_bgLayer) m_bgLayer->setVisible(false);
+    if (m_contentLayer) m_contentLayer->setVisible(false);
+
+    // Pass recent notifications to the lock screen.
+    m_lockScreen->setNotifications(notifications::recent(50));
+
+    if (m_overlayLayer) {
+        m_overlayLayer->removeChild(m_lockScreen.get());
+        m_overlayLayer->addChild(m_lockScreen);
+    }
+    m_lockMusicShouldResume = resumeMusic || m_audio.isPlaying();
+    if (m_audio.isPlaying()) m_audio.pause();
+    m_lockScreen->show(app().gpu(), app().renderer());
+    focusManager().setFocus(m_lockScreen.get());
+    if (m_cursor) m_cursor->setVisible(false);
 }
 
 // Settings > HomeNX > Fonts: Discord in HOME's own font, else HOME's.
@@ -975,6 +1012,12 @@ void WiiUMenuApp::ensureDiscordPanel() {
             requestTextEntry(i18n.tr("discord.reply_to", "Message") + " " + name, std::string(),
                              std::string(), 2000, false,
                              [this, channelId](const std::string& text) { m_discord.send(channelId, text); });
+        };
+        cb.onUserTokenLogin = [this]() {
+            // Defer opening the keyboard until the panel's current input
+            // handler has returned. This safely transfers focus and raises
+            // the keyboard above the Discord panel.
+            m_discordTokenEntryPending = true;
         };
         cb.onNavigate = [this]() { m_audio.playSfx(Sfx::Navigate); };
         cb.onActivate = [this]() { m_audio.playSfx(Sfx::Activate); };

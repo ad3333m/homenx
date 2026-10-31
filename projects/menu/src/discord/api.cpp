@@ -79,7 +79,8 @@ std::string ErrorText(const Http::Response& r) {
     if (auto doc = J::Parse(r.body)) {
         yyjson_val* root = J::Root(doc);
         std::string msg = J::S(root, "message");
-        if (J::Get(root, "captcha_key")) return "Discord asked for a captcha, which SwitchCord can't show.";
+        if (J::Get(root, "captcha_key"))
+            return "Discord requires an interactive CAPTCHA. HomeNX can't complete it; use QR sign-in or try later.";
         if (!msg.empty()) return msg;
     }
     if (r.status == 401) return "This account's token is no longer valid.";

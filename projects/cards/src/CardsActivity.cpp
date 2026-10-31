@@ -1739,9 +1739,10 @@ void CardsActivity::ensureTextEntry() {
 }
 
 void CardsActivity::enterText(const std::string& title, const std::string& guide, const std::string& initial,
-                              int maxLength, std::function<void(const std::string&)> done, nxui::Widget* back) {
+                              int maxLength, std::function<void(const std::string&)> done, nxui::Widget* back,
+                              bool sensitive) {
     ensureTextEntry();
-    if (m_textEntry->isActive()) return;
+    if (m_textEntry->isEditing()) return; // (one fading out is replaced)
     m_textEntry->onAccept([this, done, back](const std::string& text) {
         if (done) done(text);
         if (back) focusManager().setFocus(back);
@@ -1750,7 +1751,7 @@ void CardsActivity::enterText(const std::string& title, const std::string& guide
         if (back) focusManager().setFocus(back);
     });
     m_audio.play("show_modal");
-    m_textEntry->show({title, guide, initial, std::max(1, maxLength), false});
+    m_textEntry->show({title, guide, initial, std::max(1, maxLength), false, sensitive});
     focusManager().setFocus(m_textEntry.get());
 }
 
@@ -1840,6 +1841,7 @@ void CardsActivity::openDiscord() {
                 if (!text.empty()) m_discord.send(channelId, text);
             }, m_discordPanel.get());
         };
+        cb.onUserTokenLogin = [this]() { m_discordTokenEntryPending = true; }; // (after the panel's input returns)
         cb.onNavigate = [this]() { m_audio.play("navigation"); };
         cb.onActivate = [this]() { m_audio.play("activation"); };
         m_discordPanel->setCallbacks(std::move(cb));
@@ -2126,13 +2128,17 @@ void CardsActivity::pumpDaemon() {
             case M::SleepSequence: // stop drawing (a loop that keeps drawing never lets it sleep)
                 m_asleep = true;
                 m_audio.pause();
+                if (m_settings.lockScreen) { // drawn into the last frames, so waking shows it at once
+                    lock();
+                    m_lockIn = 1.f;
+                }
                 app().setSleeping(true);
                 break;
             case M::WakeUp:
                 m_asleep = false;
                 app().setSleeping(false);
                 m_audio.resume();
-                if (m_settings.lockScreen) lock();
+                if (m_settings.lockScreen && !m_locked) lock();
                 break;
             case M::OperationFailed: {
                 char buf[80];
@@ -5207,6 +5213,9 @@ void CardsActivity::perfMark(const char* step) {
 }
 
 void CardsActivity::onUpdate(float dt) {
+    // Either stick moves through the games and every CardsNX menu (HomeNX's screens
+    // in CardsNX already read their buttons before this).
+    app().input().mergeRightStick();
     // Frame times for the log: the time since the last frame, and what the last one did.
     const std::uint64_t frameTick = armGetSystemTick();
     if (m_perfLastTick) {
@@ -5279,6 +5288,11 @@ void CardsActivity::onUpdate(float dt) {
     pumpDaemon();
     m_perfPumpMs = ticksMs(armGetSystemTick() - t);
     if (m_asleep) return;
+    if (m_discordTokenEntryPending) { // Discord > Sign in with a user session token
+        m_discordTokenEntryPending = false;
+        enterText("Discord user session token", "Enter your token below. It stays visible while typing.", std::string(), 512,
+                  [this](const std::string& token) { m_discord.signInWithUserToken(token); }, m_discordPanel.get(), true);
+    }
 #endif
     // What the first frame doesn't need starts just after it, so HOME shows sooner.
     if (m_startStage < 3) {

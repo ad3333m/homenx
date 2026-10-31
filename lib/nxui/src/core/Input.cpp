@@ -242,6 +242,14 @@ void Input::update() {
     }
 }
 
+void Input::mergeRightStick() {
+    constexpr uint64_t kRight = HidNpadButton_StickRLeft | HidNpadButton_StickRUp
+                              | HidNpadButton_StickRRight | HidNpadButton_StickRDown;
+    m_kDown |= (m_kDown & kRight) >> 4; // StickR* sit four bits above StickL*
+    m_kUp |= (m_kUp & kRight) >> 4;
+    m_kHeld |= (m_kHeld & kRight) >> 4;
+}
+
 float Input::touchDuration() const {
     uint64_t now = armGetSystemTick();
     return static_cast<float>(now - m_touchStartTick) / static_cast<float>(armGetSystemTickFreq());

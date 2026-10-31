@@ -25,6 +25,7 @@ public:
         std::function<void(Snowflake channelId, const std::string& name)> onReply;
         std::function<void()> onNavigate;  // sounds
         std::function<void()> onActivate;
+        std::function<void()> onUserTokenLogin;
     };
 
     DiscordPanel();

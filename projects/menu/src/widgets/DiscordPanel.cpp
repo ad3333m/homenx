@@ -421,6 +421,7 @@ void DiscordPanel::activateRow() {
                 m_sel = -1;
             }
             if (r.action == 3) m_service->retry();
+            if (r.action == 4 && m_cb.onUserTokenLogin) m_cb.onUserTokenLogin();
             break;
         default:
             break;
@@ -537,6 +538,7 @@ void DiscordPanel::rebuildRows() {
         info(Row::Info, i18n.tr("discord.accounts_body", "Switch between your Discord accounts, or add another one."));
         accountRows(true);
         button(1, i18n.tr("discord.add_account", "Add an account"), false, false);
+        button(4, "Add a user session token", false, false);
         const std::string me = clean(m_service->myName());
         button(2, i18n.tr("discord.log_out", "Log out") + (me.empty() ? std::string() : " " + me), false, true);
     } else if (st == S::SignedOut || st == S::Failed) {
@@ -544,10 +546,14 @@ void DiscordPanel::rebuildRows() {
         if (st == S::Failed) button(3, i18n.tr("discord.retry", "Try again"), true, false);
         accountRows(false);
         button(1, i18n.tr("discord.signin_qr", "Sign in with a QR code"), st != S::Failed, false);
+        button(4, "Sign in with a user session token", false, false);
         info(Row::Info, i18n.tr("discord.signin_body",
-            "HomeNX also signs in with your SwitchCord accounts. Third-party Discord clients are "
-            "against Discord's Terms of Service, so use this at your own risk."));
+            "OAuth2 and bot tokens are not accepted here. A user session token is sensitive and is saved "
+            "on the SD card; Discord may require a QR sign-in or interactive challenge."));
+    } else if (st == S::TokenLogin) {
+        info(Row::Info, "Checking the user session token with Discord...");
     } else {
+        if (!m_service->error().empty()) info(Row::Error, m_service->error());
         if (st == S::Connecting) {
             info(Row::Info, i18n.tr("discord.connecting", "Connecting..."));
         } else if (m_guild != 0) {
