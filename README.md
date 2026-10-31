@@ -2,7 +2,7 @@
 
 A new HOME menu for modded Switch consoles. It has two looks: **CardsNX** shows box-art cards and the
 **Wii U look** shows a grid. Your games, News, Social, Miis, Discord and Sphaira are one button away in both.
-It's based on [SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX and is free and open source (GPL-3.0).
+It's free and open source (GPL-3.0).
 
 Website: **[homenx.pages.dev](https://homenx.pages.dev)**
 
@@ -33,7 +33,6 @@ sdmc:/
 ├── atmosphere/contents/
 │   └── 0100000000001000/   HomeNX
 ├── switch/
-│   ├── SwitchU/            its files
 │   ├── NXToggle/           look, updates, on/off
 │   └── CardsNX/            the card look as an app
 └── hbmenu.nro              HomeNX Loader (your old one is kept as hbmenu.nro.homenx-original)
@@ -46,27 +45,32 @@ sdmc:/
 
 - Your games are big box-art cards on frosted glass, with play time. The pages are Games, Homebrew, Media and
   Nintendo. Either stick moves through them.
-- Art comes from SteamGridDB (add your own API key in Settings > Pictures) and GameTDB.
+- Art comes from SteamGridDB (add your own API key in Settings > Pictures) and GameTDB. Every game's pictures
+  download on their own and stay on the SD card, so the cards don't wait on the internet.
 - **+** on a card lets you:
-  - pick its cover or title picture (**Y** searches SteamGridDB for any name)
+  - pick its card picture, background picture or title picture, for games, ports, homebrew and media apps alike
+    (**Y** searches SteamGridDB: type part of a name and pick the game from the results)
   - rename it
   - move it to another page (homebrew ports onto Games, for example)
   - put it on the panel button
   - delete it
 - **X** asks whether to close the software that's open.
 - **R** opens Quick Settings: music player, volumes, brightness, Airplane mode, Wi-Fi, Bluetooth and power.
-- Settings > Look:
-  - one background picture for everything (your own, or your newest screenshots)
-  - the lock screen, its picture and its PIN
-  - the launch animation
-  - TV resolution
-- Settings > Home: **Ask who's playing** lets you choose the profile when a game starts. **Panel button**
-  picks what the button under the cards opens (News, nothing, or any app).
-- Settings > Sound > Music player can show **Spotify** instead of HOME music.
-  - It shows and controls what plays on your phone, computer or speaker, with the song, cover and volume.
-  - You sign in by scanning a QR code with your phone on the same Wi-Fi.
-  - You need your own Spotify app's Client ID from [developer.spotify.com](https://developer.spotify.com/dashboard).
-    Its redirect URI must be `https://homenx.pages.dev/spotify/`.
+- The **Album** on the Nintendo page shows your screenshots (Atmosphère's Album opens homebrew). Y makes one
+  the background, X puts it on the lock screen.
+- Leaving a game, its last picture shrinks into its card, like Nintendo's HOME.
+- The first time, a short intro shows the buttons.
+- Settings:
+  - **Home**: Ask who's playing (choose the profile when a game starts), the panel button, Look for new software
+  - **Look**: one background picture for everything, the launch animation, TV resolution
+  - **Lock screen**: on or off, a password, a picture
+  - **Sound**: HOME music or **Spotify**
+  - **Console**: sleep, and the date and time
+  - **Pictures**: SteamGridDB, and Save every picture (readable copies in `config/CardsNX/pictures`)
+- **Spotify** shows and controls what plays on your phone, computer or speaker: song, cover, volume.
+  - You sign in by scanning one QR code with your phone on the same Wi-Fi.
+  - The first time, the phone page may ask for a Spotify Client ID: it shows how to make one, and you paste it
+    there.
   - The Switch doesn't play Spotify's audio itself, and Spotify only lets Premium accounts use the buttons.
 
 ## The Wii U look
@@ -80,6 +84,7 @@ sdmc:/
   - Reboot to Hekate and Homebrew Manager
 - **R** opens Quick Settings and **L** opens Discord.
 - **Glass effects** can be turned off for a steady 60 FPS.
+- Settings > HomeNX > **Look for new software** reads what's installed again.
 
 ## In both looks
 
@@ -91,10 +96,11 @@ sdmc:/
 - **Sphaira** is included. It and any other .nro can open as an application with full memory.
   - HomeNX borrows an installed game to run it.
   - **HomeNX Loader** (`sdmc:/hbmenu.nro`) chains to the app you picked.
-- **The lock screen** shows when the console starts or wakes.
-  - It can show your own picture, sharp, picked from your pictures or your newest screenshots.
-  - It can ask for a 4-digit PIN. If you forget it, delete `sdmc:/config/SwitchU/lock_pin` on a computer.
-  - Both looks share the picture and the PIN.
+- **The lock screen** shows when the console starts or wakes, over HOME frosted or over your own picture.
+  - It can ask for a **password**: 4 to 8 D-pad presses. You make it on the lock screen itself, then press it
+    once more to check.
+  - Forgot it? Delete `config/HomeNX/lock_password` from the SD card on a computer.
+  - Both looks share the password and the picture.
 - **1080p when docked** is a setting. It's off by default and starts the next time HOME opens.
 - Every controller works, not only player 1.
 - **Reboot to Hekate** is in the power menu.
@@ -110,13 +116,11 @@ git clone --recursive https://github.com/ad3333m/homenx
 cd homenx
 ```
 
-The apps:
+The apps (HomeNX.nro, NXToggle.nro, CardsNX.nro and the rest):
 
 ```bash
 xmake f -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y
-xmake build SwitchU          # HomeNX.nro
-xmake build SwitchU-Manager  # NXToggle.nro
-xmake build CardsNX          # CardsNX.nro
+xmake
 ```
 
 The HOME menu replacement. The Loader is built into the menu, so build and embed it first:
@@ -136,16 +140,14 @@ The output goes to `build/cross/aarch64/release/`.
 - builds CardsNX's GameTDB index
 - packs the SD card layout into the zips
 
-## Credits
+## Credits and legal
 
-- [SwitchU](https://github.com/PoloNX/SwitchU) by PoloNX: HomeNX is built on it (GPL-3.0).
-- [Sphaira](https://github.com/ITotalJustice/sphaira) 1.0.8 by ITotalJustice, shipped unmodified (GPL-3.0).
-- [uLaunch](https://github.com/XorTroll/uLaunch) by XorTroll, which inspired SwitchU.
-- [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere), [libnx](https://github.com/switchbrew/libnx) and deko3d.
-- [libtesla](https://github.com/WerWolv/libtesla) for the Discord overlay (GPL-2.0-or-later).
 - PowerCmptr for the HomeNX lock screen and Discord token sign-in
   ([ad3333m/homenx#5](https://github.com/ad3333m/homenx/pull/5)).
-- Box art from SteamGridDB, GameTDB and nlib.cc, weather from Open-Meteo, and Mii faces from Nintendo's Mii Studio.
+- The code HomeNX builds on, the apps it includes and their licenses:
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- [Terms of use](TERMS.md) and [privacy](PRIVACY.md), also at
+  [homenx.pages.dev/legal](https://homenx.pages.dev/legal/).
 
 ## License
 

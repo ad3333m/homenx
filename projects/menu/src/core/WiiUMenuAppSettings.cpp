@@ -490,6 +490,7 @@ void WiiUMenuApp::createSettings() {
         if (!lockScreenOn()) std::ofstream("sdmc:/config/SwitchU/lock_screen") << "1"; // a password needs the lock screen
         showLockScreen(false, true);
     });
+#ifdef SWITCHU_MENU // (the app list is HOME's)
     m_settings->onRescanApps([this]() {
         refreshAppList();
         if (!m_dialog) return;
@@ -497,6 +498,7 @@ void WiiUMenuApp::createSettings() {
                        {{nxui::I18n::instance().tr("button.ok", "OK"), [] {}, true}}, 0, {});
         focusManager().setFocus(m_dialog.get());
     });
+#endif
     m_settings->onLockPasswordOff([this]() {
         const bool had = switchu::lockpw::isSet();
         switchu::lockpw::save(std::string());
