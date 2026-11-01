@@ -42,22 +42,19 @@ def main():
     if not builds and not news:
         print("No Discord webhooks set: nothing announced.")
         return
-    if builds:
-        post(builds, {
-            "title": f"HomeNX build {BUILD} is out",
-            "url": f"https://github.com/{REPO}/releases/tag/latest",
-            "color": BLUE,
-            "description": "\n".join([
-                f"[HomeNX-full.zip](https://github.com/{REPO}/releases/download/latest/HomeNX-full.zip): a fresh install",
-                f"[CardsNX.nro](https://github.com/{REPO}/releases/download/cardsnx/CardsNX.nro)",
-                "Already installed? Update in NXToggle, or Settings > Updates.",
-            ]),
-        })
-    if news:
-        text = "\n".join("• " + t for t in changes()) or "Small fixes."
-        if len(text) > 3900:  # (Discord's limit is 4096)
-            text = text[:3900].rsplit("\n", 1)[0] + "\n…"
-        post(news, {"title": f"What's new in build {BUILD}", "color": BLUE, "description": text})
+    downloads = "\n".join([
+        f"[HomeNX-full.zip](https://github.com/{REPO}/releases/download/latest/HomeNX-full.zip): a fresh install",
+        f"[CardsNX.nro](https://github.com/{REPO}/releases/download/cardsnx/CardsNX.nro)",
+        "Already installed? Update in NXToggle, or Settings > Updates.",
+    ])
+    log = "\n".join("• " + t for t in changes()) or "Small fixes."
+    out = {"title": f"HomeNX build {BUILD} is out", "url": f"https://github.com/{REPO}/releases/tag/latest",
+           "color": BLUE}
+    if builds and news and builds != news:  # a channel each
+        post(builds, dict(out, description=downloads))
+        post(news, {"title": f"What's new in build {BUILD}", "color": BLUE, "description": log[:3900]})
+    else:  # one channel: one message (Discord's limit is 4096)
+        post(builds or news, dict(out, description=(downloads + "\n\n**What's new**\n" + log)[:3900]))
     print("Announced build", BUILD)
 
 
