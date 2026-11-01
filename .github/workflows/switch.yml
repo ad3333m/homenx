@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 80 # (CardsNX's update log)
 
       - name: Install system dependencies
         run: |
@@ -58,6 +59,9 @@ jobs:
         run: |
           mkdir -p build/cards-romfs
           python3 tools/make_gametdb_index.py build/cards-romfs/gametdb.tsv || echo "GameTDB index skipped"
+          # CardsNX: Settings > Updates > Update log (newest first; no merges or reverts)
+          git config --global --add safe.directory "*"
+          git log -60 --no-merges --date=short --pretty=format:'%ad%x09%s' | awk -F '\t' '$2 !~ /^Revert/' > build/cards-romfs/updates.txt || true
 
       - name: Build
         run: |
@@ -103,6 +107,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 80 # (CardsNX's update log)
 
       - name: Install system dependencies
         run: |
@@ -140,6 +145,9 @@ jobs:
         run: |
           mkdir -p build/cards-romfs
           python3 tools/make_gametdb_index.py build/cards-romfs/gametdb.tsv || echo "GameTDB index skipped"
+          # CardsNX: Settings > Updates > Update log (newest first; no merges or reverts)
+          git config --global --add safe.directory "*"
+          git log -60 --no-merges --date=short --pretty=format:'%ad%x09%s' | awk -F '\t' '$2 !~ /^Revert/' > build/cards-romfs/updates.txt || true
 
       - name: Build
         run: |

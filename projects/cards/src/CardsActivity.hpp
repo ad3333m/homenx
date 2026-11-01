@@ -555,6 +555,26 @@ private:
     std::string netTestText(int row); // 0 the test, 1 ping, 2 download, 3 upload, 4 signal
     void findControllersNow();
     void flipBluetooth(); // on / off (Quick Settings and Settings > Bluetooth)
+    // Look > Pointer: the left stick moves a hand (an icon of its own), A taps where it
+    // points. It follows a little behind, presses in while A is held, rings where it
+    // taps, floats while it rests and fades in.
+    void applyPointer();
+    void updatePointer(float dt);
+    void drawPointer(nxui::Renderer& r);
+    float m_ptrX = 640.f, m_ptrY = 360.f, m_ptrSpeed = 0.f, m_ptrPress = 0.f, m_ptrIn = 0.f, m_ptrStill = 0.f;
+    float m_ptrRipple = 1.f, m_ptrRippleX = 0.f, m_ptrRippleY = 0.f;
+    // Settings > Updates > Update log: what changed, newest first (CI writes updates.txt).
+    void openUpdateLog();
+    void updateLog();
+    void drawLog(nxui::Renderer& r);
+    bool m_logOpen = false;
+    float m_logIn = 0.f, m_logScroll = 0.f, m_logEnd = 0.f;
+    struct LogEntry {
+        std::string date;
+        std::vector<std::string> lines;
+    };
+    std::vector<LogEntry> m_log;
+    void shuffleWallpaper(); // Look > Shuffle background
     // Bluetooth headphones and speakers (13.0.0+), as Nintendo's System Settings has them.
     bool bluetoothAudio(); // btm:sys open (btmsysExit after), else it says why not
     void startAudioScan();

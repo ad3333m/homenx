@@ -488,6 +488,7 @@ bool CardsActivity::onCreate() {
 
     m_settings.load();
     setLanguage(m_settings.language);
+    applyPointer();
     m_boxArt = m_settings.boxArt;
     m_titleArt = m_settings.titlePics;
     applyTheme();
@@ -540,7 +541,7 @@ bool CardsActivity::onCreate() {
     for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
                              "power", "music", "news", "discord", "arrows", "wifi", "airplane", "sun", "speaker",
                              "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate",
-                             "download", "trash", "pad", "nextendo", "bluetooth"}) {
+                             "download", "trash", "pad", "nextendo", "bluetooth", "pointer"}) {
         auto tex = std::make_unique<nxui::Texture>();
         nxui::GpuDevice::EssentialScope essential; // the buttons always draw
         if (tex->loadFromFile(gpu, ren, std::string(kAssets) + "icons/" + name + ".png", 96))
@@ -621,7 +622,8 @@ bool CardsActivity::onCreate() {
 
     m_unread = notifications::unreadCount();
     m_key = steamGridDbKey();
-    loadWallpaper();
+    if (m_settings.shuffleWall) shuffleWallpaper(); // (it loads it)
+    else loadWallpaper();
 
     m_painter = std::make_shared<Painter>([this](nxui::Renderer& r) { draw(r); });
     rootBox().addChild(m_painter);
@@ -3156,6 +3158,10 @@ void CardsActivity::updatePicker() {
         searchPicker();
         return;
     }
+    if (in.isDown(B::X) && (m_pickWall == 1 || m_pickWall == 2) && m_pickChoices.size() > 1) { // Shuffle
+        pickChoice(1 + static_cast<int>(armGetSystemTick() % (m_pickChoices.size() - 1))); // (not "none")
+        return;
+    }
     const int n = static_cast<int>(m_pickChoices.size());
     if (n == 0) return;
     int s = m_pickSel;
@@ -3238,7 +3244,7 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
                             : m_pickCover    ? "Card picture" : "Title picture";
     textMid(r, m_fTitle, title, kPickCard.x + 72.f, kPickCard.y + 46.f + dy, kWhite.withAlpha(a));
     const float nameX = kPickCard.x + 92.f + measured(m_fTitle, title).x;
-    const std::string hint = m_pickWall == 3 ? "A View    B Back" : m_pickWall ? "A Use it    B Back" : "A Use it    Y Search    B Back";
+    const std::string hint = m_pickWall == 3 ? "A View    B Back" : m_pickWall ? "A Use it    X Shuffle    B Back" : "A Use it    Y Search    B Back";
     const float hintW = measured(m_fBody, hint).x;
     const std::string what = m_pickWall == 3 ? "Your newest screenshots"
                            : m_pickWall ? "Yours (config/CardsNX/backgrounds) and your newest screenshots"
@@ -4652,6 +4658,16 @@ void CardsActivity::buildSettings() {
     };
     wall.detail = "One picture behind everything: yours (sdmc:/config/CardsNX/backgrounds) or a screenshot";
     look.rows.push_back(std::move(wall));
+    look.rows.push_back(toggle("Shuffle background", [this]() { return m_settings.shuffleWall; }, [this, save]() {
+        m_settings.shuffleWall = !m_settings.shuffleWall;
+        save();
+        if (m_settings.shuffleWall) shuffleWallpaper();
+    }, "A different one of your pictures each time HOME starts"));
+    look.rows.push_back(toggle("Pointer", [this]() { return m_settings.pointer; }, [this, save]() {
+        m_settings.pointer = !m_settings.pointer;
+        save();
+        applyPointer();
+    }, "The left stick moves a hand; A taps where it points"));
 #ifdef SWITCHU_MENU
     { // Read when HOME starts (HomeNX's main.cpp): 1920x1080 when docked.
         std::string want;
@@ -4980,6 +4996,9 @@ void CardsActivity::buildSettings() {
     upd.value = [this]() { return updateRowLabel(); };
     upd.detail = "Downloads the newest HomeNX and CardsNX";
     updates.rows.push_back(std::move(upd));
+    MenuItem log = action("Update log", [this]() { openUpdateLog(); });
+    log.detail = "What changed in each update";
+    updates.rows.push_back(std::move(log));
     MenuItem hb = action("Homebrew updates", [this]() {
         m_sheetOpen = false;
         openHomebrewUpdates();
@@ -5198,6 +5217,137 @@ std::string CardsActivity::netTestText(int row) {
         return t.signal >= 0 ? kBars[std::min(t.signal.load(), 3)] : stage == 0 ? "..." : "-";
     }
     }
+}
+
+void CardsActivity::applyPointer() {
+    auto& in = app().input();
+    in.setPointerMode(nxui::Input::PointerMode::Stick);
+    in.setVirtualPointerShortcutsEnabled(false);
+    in.setVirtualPointerEnabled(m_settings.pointer);
+}
+
+void CardsActivity::updatePointer(float dt) {
+    auto& in = app().input();
+    if (m_settings.pointer) {
+        in.setVirtualPointerEnabled(true); // (the D-pad and the right stick switch it off in nxui)
+        if (!m_locked) in.consume(nxui::Button::A); // A taps where it points, it doesn't press too
+    }
+    const bool show = m_settings.pointer && !m_locked && !m_leaving;
+    m_ptrIn = std::clamp(m_ptrIn + (show ? dt : -dt) * 5.f, 0.f, 1.f);
+    const float tx = in.virtualPointerX(), ty = in.virtualPointerY();
+    const float dx = tx - m_ptrX, dy = ty - m_ptrY;
+    const float follow = m_settings.motion ? std::min(1.f, dt * 28.f) : 1.f; // a little behind: it glides
+    m_ptrX += dx * follow;
+    m_ptrY += dy * follow;
+    m_ptrSpeed += (std::min(1.f, std::sqrt(dx * dx + dy * dy) / 60.f) - m_ptrSpeed) * std::min(1.f, dt * 10.f);
+    m_ptrStill = m_ptrSpeed > 0.05f ? 0.f : m_ptrStill + dt;
+    m_ptrPress += ((in.isTouching() ? 1.f : 0.f) - m_ptrPress) * std::min(1.f, dt * 22.f);
+    if (in.touchDown() && m_ptrIn > 0.f) {
+        m_ptrRipple = 0.f;
+        m_ptrRippleX = tx;
+        m_ptrRippleY = ty;
+    }
+    m_ptrRipple = std::min(1.f, m_ptrRipple + dt * 2.6f);
+}
+
+void CardsActivity::drawPointer(nxui::Renderer& r) {
+    if (m_ptrIn <= 0.f) return;
+    const float a = easeOut(m_ptrIn);
+    if (m_ptrRipple < 1.f) { // a ring where it tapped
+        const float e = easeOut(m_ptrRipple), rad = 8.f + 30.f * e;
+        r.drawRoundedRectOutline({m_ptrRippleX - rad, m_ptrRippleY - rad, rad * 2.f, rad * 2.f}, accent((1.f - e) * a), rad,
+                                 3.f * (1.f - e) + 1.f);
+    }
+    // Resting: a slow float. Pressed: it sinks in. Turned on: it grows into place.
+    const float bob = m_ptrStill > 1.f ? std::sin((m_ptrStill - 1.f) * 2.6f) * 3.f * std::min(1.f, m_ptrStill - 1.f) : 0.f;
+    const float size = 54.f * (1.f - 0.16f * m_ptrPress) * (0.7f + 0.3f * easeOutBack(m_ptrIn));
+    // The icon's fingertip is at (0.48, 0.06) of it: that's where it points.
+    const float cx = m_ptrX + size * 0.02f, cy = m_ptrY + size * 0.44f + bob;
+    const float lift = 4.f + 7.f * m_ptrSpeed - 3.f * m_ptrPress; // its shadow drops further while it moves
+    icon(r, "pointer", cx + lift, cy + lift * 1.3f, size, nxui::Color(0.f, 0.f, 0.f, 0.32f * a));
+    icon(r, "pointer", cx, cy, size, kWhite.withAlpha(a));
+}
+
+void CardsActivity::openUpdateLog() {
+    m_log.clear();
+    std::ifstream in(std::string(kAssets) + "updates.txt");
+    std::string line;
+    const float textW = kPickCard.width - 190.f;
+    float height = 0.f;
+    while (std::getline(in, line)) {
+        const size_t tab = line.find('\t');
+        if (tab == std::string::npos) continue;
+        LogEntry e{line.substr(0, tab), wrap(m_fBody, line.substr(tab + 1), textW)}; // (wrapped once, here)
+        height += 30.f * static_cast<float>(e.lines.size()) + 16.f;
+        m_log.push_back(std::move(e));
+    }
+    if (m_log.empty()) {
+        say("This build has no update log.");
+        return;
+    }
+    m_logEnd = std::max(0.f, height - (kPickCard.height - 120.f));
+    m_logScroll = 0.f;
+    m_logIn = m_settings.motion ? 0.f : 1.f;
+    m_logOpen = true;
+    m_audio.play("show_modal");
+}
+
+void CardsActivity::updateLog() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    if (in.isDown(B::B) || in.isDown(B::A) || in.isDown(B::Plus) || (in.touchUp() && !kPickCard.contains(in.touchX(), in.touchY()))) {
+        m_logOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    if (in.isDown(B::DDown) || in.isDown(B::LStickD) || in.isDown(B::RStickD)) m_logScroll += 120.f;
+    if (in.isDown(B::DUp) || in.isDown(B::LStickU) || in.isDown(B::RStickU)) m_logScroll -= 120.f;
+    if (in.isTouching() && !in.touchDown()) m_logScroll -= in.touchDeltaY() * 0.12f; // (a drag)
+    m_logScroll = std::clamp(m_logScroll, 0.f, m_logEnd);
+}
+
+void CardsActivity::drawLog(nxui::Renderer& r) {
+    if (!m_logOpen) return;
+    const float a = easeOut(m_logIn);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    const nxui::Rect card = scaled(kPickCard, 0.95f + 0.05f * easeOutBack(m_logIn));
+    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.88f * a));
+    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    icon(r, "sort", card.x + 46.f, card.y + 46.f, 26.f, kWhite.withAlpha(a));
+    textMid(r, m_fTitle, "Update log", card.x + 72.f, card.y + 46.f, kWhite.withAlpha(a));
+    const std::string hint = "Up / Down Scroll    B Back";
+    textMid(r, m_fBody, hint, card.x + card.width - 36.f - measured(m_fBody, hint).x, card.y + 48.f, kMuted.withAlpha(0.8f * a));
+    const float top = card.y + 92.f, bottom = card.y + card.height - 22.f;
+    r.pushClipRect({card.x, top, card.width, bottom - top});
+    float y = top - m_logScroll;
+    for (const LogEntry& e : m_log) {
+        const float h = 30.f * static_cast<float>(e.lines.size()) + 16.f;
+        if (y + h > top && y < bottom) {
+            textMid(r, m_fBody, e.date, card.x + 40.f, y + 15.f, kMuted.withAlpha(a));
+            for (size_t i = 0; i < e.lines.size(); ++i)
+                textMid(r, m_fBody, e.lines[i], card.x + 160.f, y + 15.f + 30.f * static_cast<float>(i), kWhite.withAlpha(a));
+        }
+        y += h;
+    }
+    r.popClipRect();
+}
+
+// Look > Shuffle background: one of yours (config/CardsNX/backgrounds), else a
+// recent screenshot, at random (another than last time).
+void CardsActivity::shuffleWallpaper() {
+    std::vector<std::string> all;
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator("sdmc:/config/CardsNX/backgrounds", ec)) {
+        const std::string ext = lower(e.path().extension().string());
+        if (ext == ".jpg" || ext == ".jpeg" || ext == ".png") all.push_back(e.path().string());
+    }
+    if (all.empty()) all = switchu::lockpicture::newestScreenshots(11);
+    if (all.size() > 1) all.erase(std::remove(all.begin(), all.end(), m_settings.wallpaper), all.end());
+    if (!all.empty()) {
+        m_settings.wallpaper = all[armGetSystemTick() % all.size()];
+        m_settings.save();
+    }
+    loadWallpaper();
 }
 
 void CardsActivity::flipBluetooth() {
@@ -6320,6 +6470,8 @@ void CardsActivity::onUpdate(float dt) {
     step(m_detailIn, 0.25f);
     step(m_sheen, 0.8f);
     step(m_menuIn, 0.2f);
+    step(m_logIn, 0.2f);
+    updatePointer(dt);
     step(m_pressT, 0.22f);
     step(m_bgFade, 0.45f);
     step(m_sheetIn, 0.24f);
@@ -6775,6 +6927,10 @@ void CardsActivity::onUpdate(float dt) {
     const bool leftDown = in.isDown(B::DLeft) || in.isDown(B::LStickL) || in.isDown(B::RStickL);
     const bool rightDown = in.isDown(B::DRight) || in.isDown(B::LStickR) || in.isDown(B::RStickR);
 
+    if (m_logOpen) {
+        updateLog();
+        return;
+    }
     if (handleTouch()) return;
 
     if (m_pickOpen) { // (over Settings too)
@@ -7002,6 +7158,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawDots(r);
     drawOptions(r);
     drawPicker(r);
+    drawLog(r);
     drawMusic(r);
     drawPower(r);
     drawSpotifyQr(r);
@@ -7012,6 +7169,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawLaunch(r);
     drawReturn(r);
     drawLock(r);
+    drawPointer(r);
     drawStep("after drawing"); // (ends the last step's time)
 }
 
