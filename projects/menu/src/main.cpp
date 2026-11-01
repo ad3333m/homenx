@@ -296,8 +296,11 @@ int main(int argc, char* argv[]) {
 
     nxui::GpuDevice::setLogSink([](const char* msg) { DebugLog::log("%s", msg); });
 
+    // The audio device opens with the music, well after HOME's first frame:
+    // opening it here was part of the freeze before the first frame every time
+    // HOME came back from a game (Audio::start brings SDL's audio up).
     DebugLog::log("[main] SDL_Init");
-    if (SDL_Init(SDL_INIT_AUDIO) < 0)
+    if (SDL_Init(0) < 0)
         DebugLog::log("[main] SDL_Init FAILED: %s", SDL_GetError());
 
     DebugLog::log("[main] TTF_Init");

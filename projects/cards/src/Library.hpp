@@ -118,6 +118,9 @@ void forgetArt(std::uint64_t id); // the next ask downloads them again
 // read as they are next time. Opening and shrinking a cover took 0.1 to 1 s at every
 // start of HOME (and HOME starts again after every game).
 std::string shownPath(std::uint64_t id, const std::string& what);
+// A game's cover as a very small picture (a few KB): read for every card at
+// once when HOME starts, so no card shows its name instead of its cover.
+inline std::string thumbPath(std::uint64_t id) { return shownPath(id, "t"); }
 bool readShown(const std::string& path, std::vector<std::uint8_t>& rgba, int& w, int& h, ArtKind& kind);
 void writeShown(const std::string& path, const std::vector<std::uint8_t>& rgba, int w, int h, ArtKind kind);
 void forgetShown(std::uint64_t id); // its picture changed (chosen, downloaded again, a full card)

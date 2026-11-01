@@ -67,7 +67,15 @@ struct Progress {
     std::atomic<float>* value;
 };
 
+// The job's stop flag, set when a network job starts on its worker thread.
+// While it is true every transfer aborts, so shutting HOME down (to launch or
+// close a game, for example) never has to wait out a download or a slow site.
+thread_local const std::atomic<bool>* t_stop = nullptr;
+
+bool stopping() { return t_stop && t_stop->load(); }
+
 int onProgress(void* user, curl_off_t total, curl_off_t now, curl_off_t, curl_off_t) {
+    if (stopping()) return 1; // abort the transfer
     auto* p = static_cast<Progress*>(user);
     if (p && p->value && total > 0) p->value->store(static_cast<float>(now) / static_cast<float>(total));
     return 0;
@@ -89,6 +97,7 @@ CURL* newRequest(const std::string& url) {
 std::string getText(const std::string& url, long& status) {
     std::string body;
     status = 0;
+    if (stopping()) return body;
     CURL* c = newRequest(url);
     if (!c) return body;
     curl_slist* headers = curl_slist_append(nullptr, "Accept: application/vnd.github+json");
@@ -96,6 +105,9 @@ std::string getText(const std::string& url, long& status) {
     curl_easy_setopt(c, CURLOPT_TIMEOUT, 60L);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, toString);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &body);
+    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L); // (also lets a stop abort this)
+    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, onProgress);
+    curl_easy_setopt(c, CURLOPT_XFERINFODATA, nullptr);
     const CURLcode rc = curl_easy_perform(c);
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
     curl_slist_free_all(headers);
@@ -108,6 +120,10 @@ std::string getText(const std::string& url, long& status) {
 }
 
 bool download(const std::string& url, const std::string& to, std::atomic<float>& progress, std::string& error) {
+    if (stopping()) {
+        error = "Stopped";
+        return false;
+    }
     FILE* f = std::fopen(to.c_str(), "wb");
     if (!f) {
         error = "Can't write " + to;
@@ -259,7 +275,8 @@ std::vector<App> scanApps(const std::string& self) {
     return apps;
 }
 
-void findUpdates(std::vector<App>& apps, std::atomic<int>& done) {
+void findUpdates(std::vector<App>& apps, std::atomic<int>& done, const std::atomic<bool>* stop) {
+    t_stop = stop;
     // This account's public repos, by squashed name.
     std::map<std::string, std::string> own;
     long status = 0;
@@ -285,6 +302,7 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done) {
     }
 
     for (App& app : apps) {
+        if (stopping()) return;
         const std::string key = squash(app.name);
         std::string repo;
         if (auto it = kKnown.find(key); it != kKnown.end()) repo = it->second;
@@ -339,7 +357,9 @@ bool isNewer(const std::string& latest, const std::string& installed) {
     return false;
 }
 
-bool installUpdate(const App& app, std::atomic<float>& progress, std::string& error) {
+bool installUpdate(const App& app, std::atomic<float>& progress, std::string& error,
+                   const std::atomic<bool>* stop) {
+    t_stop = stop;
     if (app.downloadUrl.empty()) {
         error = "No download";
         return false;
@@ -370,7 +390,9 @@ bool installUpdate(const App& app, std::atomic<float>& progress, std::string& er
     return true;
 }
 
-bool downloadFile(const std::string& url, const std::string& to, std::atomic<float>& progress, std::string& error) {
+bool downloadFile(const std::string& url, const std::string& to, std::atomic<float>& progress, std::string& error,
+                  const std::atomic<bool>* stop) {
+    t_stop = stop;
     const std::string part = to + ".part";
     if (!download(url, part, progress, error)) return false;
     std::remove(to.c_str());

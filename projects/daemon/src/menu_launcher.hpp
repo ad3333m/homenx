@@ -91,12 +91,17 @@ inline Result cleanupHolder() {
 }
 
 inline Result terminate();
+inline Result terminateWithin(std::uint64_t timeoutNs);
 
 inline Result prepare() {
     const uint64_t startedAt = armGetSystemTick();
     if (g_holderCreated) {
         switchu::FileLog::log("[menu_la] prepare requested while holder exists; terminating first");
-        const Result terminateRc = terminate();
+        // A menu that is closing must not hold up the next one: 2 s (the same
+        // reasoning as forceMenuGone), not the 15 s terminate() allows at
+        // shutdown. That wait froze every return to HOME whenever the previous
+        // menu was still winding down.
+        const Result terminateRc = terminateWithin(2'000'000'000ULL);
         if (R_FAILED(terminateRc))
             return terminateRc;
     } else if (g_externalRegistered) {

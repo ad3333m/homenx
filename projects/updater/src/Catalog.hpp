@@ -22,14 +22,18 @@ std::vector<App> scanApps(const std::string& self);
 
 // Where each app's updates come from and its newest version: GitHub releases
 // for known projects (and ad3333m's public repos), else the HB App Store.
-// Network; run it on a worker. `done` counts apps looked at.
-void findUpdates(std::vector<App>& apps, std::atomic<int>& done);
+// Network; run it on a worker. `done` counts apps looked at. When `stop` turns
+// true the job gives up quickly (transfers abort mid-flight).
+void findUpdates(std::vector<App>& apps, std::atomic<int>& done,
+                 const std::atomic<bool>* stop = nullptr);
 
 // Downloads the newest .nro and puts it in place of the old one.
-bool installUpdate(const App& app, std::atomic<float>& progress, std::string& error);
+bool installUpdate(const App& app, std::atomic<float>& progress, std::string& error,
+                   const std::atomic<bool>* stop = nullptr);
 
 // A file from the web to `to` (through a .part file); HomeNX's Nextendo button.
-bool downloadFile(const std::string& url, const std::string& to, std::atomic<float>& progress, std::string& error);
+bool downloadFile(const std::string& url, const std::string& to, std::atomic<float>& progress, std::string& error,
+                  const std::atomic<bool>* stop = nullptr);
 
 // Whether `latest` is a newer version than `installed` ("v1.2.0" > "1.1.9").
 bool isNewer(const std::string& latest, const std::string& installed);

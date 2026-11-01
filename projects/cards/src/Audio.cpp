@@ -1,5 +1,6 @@
 #include "Audio.hpp"
 
+#include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
 #include <nxui/core/ThreadPool.hpp>
 #include <switch.h>
@@ -230,6 +231,9 @@ std::string fromFileName(const std::string& path) {
 // SD card can be busy for seconds; HOME's start waited 250 ms on these).
 bool Audio::start() {
     std::srand(static_cast<unsigned>(armGetSystemTick())); // HOME starts afresh after every game: else the same "random" songs
+    // SDL's audio device, opened here and not at HOME's start-up (it was part
+    // of the freeze before the first frame on the way back from a game).
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) return false;
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096) < 0) return false;
     Mix_AllocateChannels(8);
     m_open = true;

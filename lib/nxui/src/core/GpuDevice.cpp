@@ -66,7 +66,7 @@ bool GpuDevice::initialize() {
     m_imgDescOff = m_dataPool.alloc(MAX_TEXTURES * sizeof(DkImageDescriptor), DK_IMAGE_DESCRIPTOR_ALIGNMENT);
     m_samDescOff = m_dataPool.alloc(MAX_SAMPLERS * sizeof(DkSamplerDescriptor), DK_SAMPLER_DESCRIPTOR_ALIGNMENT);
 
-    m_stagingPool.create(m_dev, kUploadSlots * 256 * 1024, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
+    m_stagingPool.create(m_dev, kUploadSlots * 512 * 1024, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
 
     createFramebuffers();
     createDepthStencil();

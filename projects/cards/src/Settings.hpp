@@ -51,6 +51,7 @@ struct Settings {
     bool askUser = false;       // starting a game asks who's playing, as Nintendo's HOME does
     std::string panelApp = "news"; // the panel's right button: "news", "" nothing, else a card's id (hex)
     bool lockScreen = false;    // a lock screen when the console wakes
+    bool lockMusic = false;     // the menu's music keeps playing on the lock screen
     bool spotify = false;       // the music player shows Spotify, not HOME music (HOME only)
     long long picturesAt = 0;   // when every game's pictures were last made sure of (seconds)
     bool introDone = false;     // the first-time intro was shown
@@ -106,6 +107,7 @@ struct Settings {
             askUser = j.value("askUser", askUser);
             panelApp = j.value("panelApp", panelApp);
             lockScreen = j.value("lockScreen", lockScreen);
+            lockMusic = j.value("lockMusic", lockMusic);
             spotify = j.value("spotify", spotify);
             picturesAt = j.value("picturesAt", picturesAt);
             introDone = j.value("introDone", introDone);
@@ -130,7 +132,7 @@ struct Settings {
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"shuffleWall", shuffleWall},
                             {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
+                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};

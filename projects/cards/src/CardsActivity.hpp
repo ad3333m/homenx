@@ -166,6 +166,11 @@ private:
     std::future<void> m_saveAllJob;
     std::atomic<int> m_saveAllDone{0}, m_saveAllTotal{0};
     std::atomic<bool> m_saveAllStop{false};
+    // Set first thing in onDestroy: the background jobs give up quickly, so the
+    // menu can close (for a game's launch, or HOME's hand-off) without waiting
+    // out downloads and update checks — the daemon closes a menu that takes
+    // too long, and the hand-off froze behind the wait.
+    std::atomic<bool> m_jobsStop{false};
     void saveAllPictures(bool quiet = false);
     bool m_saveAllQuiet = false, m_autoSaveAsked = false;
     std::atomic<int> m_saveAllGot{0};
@@ -228,9 +233,12 @@ private:
     bool m_tv1080 = false; // Settings > Look > TV resolution (config/SwitchU/resolution.txt)
     bool m_locked = false, m_lockFonts = false;
     float m_lockIn = 0.f, m_unlockT = -1.f; // opening it: 0 -> 1, then it's gone
+    float m_lockIdle = 0.f;                 // locked and ignored for this long
+    bool m_musicPausedForLock = false;      // the lock screen paused the music
     nxui::Font m_fLock, m_fLockDate;
     std::string m_date;
     void lock();
+    void beginUnlock(); // the unlock animation starts; what the lock held comes back
     bool updateLock(float dt);
     void drawLock(nxui::Renderer& r);
 #ifdef SWITCHU_MENU
@@ -425,7 +433,27 @@ private:
     AccountUidLike m_user;
 
     nxui::Font m_fTitle, m_fPlay, m_fLabel, m_fPill, m_fBody, m_fBadge, m_fCount;
-    std::map<std::string, std::unique_ptr<nxui::Texture>> m_icons;
+    std::map<std::string, std::unique_ptr<nxui::Texture>> m_icons; // each icon loads the first time it's drawn (icon())
+    // The buttons' icons: their small files read into RAM once, off the screen's
+    // thread (an SD read at each icon's first draw stuttered the buttons; the
+    // files are ~3 KB, all of them together one card transaction).
+    std::map<std::string, std::vector<std::uint8_t>> m_iconFiles;
+    std::future<std::vector<std::pair<std::string, std::vector<std::uint8_t>>>> m_iconFilesJob;
+    // Every game's cover as a very small picture: read and decoded for all of
+    // them at once while HOME starts, uploaded a few a frame, drawn until the
+    // full cover arrives (a card never shows its name instead of its cover).
+    struct Thumb {
+        std::unique_ptr<nxui::Texture> tex;
+        float in = 0.f;
+    };
+    struct ThumbPixels {
+        std::uint64_t id = 0;
+        std::vector<std::uint8_t> rgba;
+        int w = 0, h = 0;
+    };
+    std::map<std::uint64_t, Thumb> m_thumbs;
+    std::vector<ThumbPixels> m_thumbUploads;
+    std::future<std::vector<ThumbPixels>> m_thumbsJob;
     std::shared_ptr<nxui::Widget> m_painter;
     bool m_frosted = false;
     // The glass's blurred copy of the screen: made again only when what's behind
@@ -455,6 +483,10 @@ private:
     float m_intro = 0.f;          // 0 -> 1 as it opens
     float m_introFor = 1.1f;      // seconds (back from a game: quicker)
     float m_retryIn = 5.f;        // pictures that didn't come are asked again
+    // How far from the selection covers are asked for. It widens on the retry
+    // after HOME is up, so coming back from a game doesn't read the whole
+    // shelf at once; browsing widens it at once.
+    int m_artRadius = 1;
     std::future<Lists> m_listJob;
     float m_pageIn = 1.f;         // 0 -> 1 after a page switch
     int m_pageDir = 1;
@@ -668,7 +700,7 @@ private:
     void startPairing();
     void stopPairing();
     void updatePairing(float dt);
-    float m_discordStartIn = 4.f;
+    float m_discordStartIn = 10.f;
     bool m_discordStarted = false;
 
     // News, in CardsNX's glass: the list on the left, the article on the right.

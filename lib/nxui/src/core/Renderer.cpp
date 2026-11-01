@@ -215,7 +215,11 @@ void Renderer::retireImageMemory(dk::UniqueMemBlock&& block, uint32_t size) {
 }
 
 void Renderer::releaseDeferredImages(bool all) {
-    int budget = all ? 1 << 30 : 8; // a few a frame: each one is a call into the kernel
+    // A few a frame: each one is a call into the kernel. When the backlog grows
+    // (a text-cache trim or a page of art freed at once), free more per frame so
+    // the queue drains instead of growing and squeezing the picture budget —
+    // which made the next pictures and text fail and churn again.
+    int budget = all ? 1 << 30 : (m_deferredImages.size() > 24 ? 24 : 8);
     const u64 start = armGetSystemTick();
     for (std::size_t i = 0; i < m_deferredImages.size() && budget > 0;) {
         if (all || m_deferredImages[i].freeFrame <= m_frameSerial) {

@@ -80,6 +80,11 @@ private:
     static constexpr std::size_t kMaxCacheEntries = 144;
     static constexpr std::size_t kMaxCacheBytes = 4u * 1024u * 1024u;
     static constexpr std::size_t kGpuHeadroom = 768u * 1024u;
+    // New strings rasterized on the screen's thread per ~frame (see Font.cpp):
+    // the budget that keeps a screen change from rasterizing a dozen strings
+    // in one frame. Shared by every font: the screen draws with several at
+    // once, and a per-font budget let a single frame meet a dozen new strings.
+    static constexpr int kMaxRastersPerFrame = 3;
 
     struct CacheEntry {
         std::string key;
@@ -93,6 +98,19 @@ private:
     LruMap  m_lruMap;
     std::size_t m_cacheBytes = 0;
     bool m_maintenanceRequested = false;
+    // Strings that found no room recently (text -> the tick they were refused),
+    // so a full cache or a tight picture budget doesn't re-rasterize the same
+    // strings every frame just to throw them away again (rasterizing is the
+    // expensive part; the refusal used to happen after it).
+    std::unordered_map<std::string, std::uint64_t> m_refused;
+    // Measured sizes, so a string is shaped at most once per font (the fit
+    // binary searches and the bar's changing strings measured again and again
+    // otherwise; measuring a fresh string cost milliseconds per glyph on the
+    // screen's thread).
+    mutable std::unordered_map<std::string, Vec2> m_measureCache;
+    // The face reads its glyph tables through this: the font's file is loaded
+    // into RAM once (see load) so every glyph load is memory, not SD reads.
+    std::vector<std::uint8_t> m_fontData;
 };
 
 } // namespace nxui

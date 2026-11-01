@@ -29,7 +29,14 @@ CXXFLAGS	:= $(CFLAGS) -std=gnu++20
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--gc-sections
 
-LIBS	:=	$(shell $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config --libs --static libcurl) -lz -lnx
+CURL_LIBS := $(shell $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config --libs --static libcurl 2>/dev/null)
+ifeq ($(filter -lcurl,$(CURL_LIBS)),)
+# No libcurl.pc here (the .pc files carry the prefix curl was built with, and
+# some devkitPro installs ship the libraries without it): link the known static
+# set for devkitPro's curl — mbedtls and zlib, in dependency order.
+CURL_LIBS := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
+endif
+LIBS	:=	$(CURL_LIBS) -lz -lnx
 LIBDIRS	:= $(PORTLIBS) $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))

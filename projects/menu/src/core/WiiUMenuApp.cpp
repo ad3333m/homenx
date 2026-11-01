@@ -5972,14 +5972,30 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
         const bool requested = m_fontNormal.maintenanceRequested() ||
                                m_fontSmall.maintenanceRequested();
         const bool memoryPressure = gpu.imageMemoryAvailable() < kTextImageReserve;
-        constexpr std::size_t kPressureEntriesPerFont = 32;
-        constexpr std::size_t kPressureBytesPerFont = 1u * 1024u * 1024u;
+        // The floor a pressure trim leaves behind. It has to cover what the home
+        // screen draws at once (the labels of the grid, the sidebar and the
+        // widgets): cutting under the live set (32 strings / 1 MiB did) made
+        // every label rasterize and upload again the next frame, which pushed
+        // the caches back over the line and trimmed again — a loop that stalled
+        // HOME, worst right after a game while the pictures uploaded again.
+        constexpr std::size_t kPressureEntriesPerFont = 96;
+        constexpr std::size_t kPressureBytesPerFont = 3u * 1024u * 1024u;
         const bool usefulPressureTrim = memoryPressure &&
             (m_fontNormal.cacheEntryCount() > kPressureEntriesPerFont ||
              m_fontSmall.cacheEntryCount() > kPressureEntriesPerFont ||
              m_fontNormal.cacheBytes() > kPressureBytesPerFont ||
              m_fontSmall.cacheBytes() > kPressureBytesPerFont);
-        if (requested || usefulPressureTrim) {
+        // At most a couple of trims a second. The fonts now make room for a new
+        // string themselves (and turn strings away cheaply when there is none),
+        // so this is housekeeping — and a trim no longer drains the GPU first:
+        // the freed textures and their slots wait out the frames in flight
+        // inside nxui. The old waitIdle + force-reclaim pair cost a full
+        // pipeline stall on every maintenance.
+        static std::uint64_t s_lastTextTrim = 0;
+        const bool due = s_lastTextTrim == 0 ||
+            armTicksToNs(armGetSystemTick() - s_lastTextTrim) > 500'000'000ULL;
+        if ((requested || usefulPressureTrim) && due) {
+            s_lastTextTrim = armGetSystemTick();
             DebugLog::log(
                 "[text-cache] maintenance requested=%d pressure=%d gpu=%llu/%llu text=%zu entries=%zu",
                 requested ? 1 : 0, memoryPressure ? 1 : 0,
@@ -5987,16 +6003,11 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 static_cast<unsigned long long>(gpu.imageMemoryBudget()),
                 textBytesBefore,
                 m_fontNormal.cacheEntryCount() + m_fontSmall.cacheEntryCount());
-            // If no cached texture remains, merely acknowledge the request.
-            // This avoids an idle-wait loop when non-text artwork alone has
-            // consumed all available image memory.
-            if (textBytesBefore > 0)
-                gpu.waitIdle();
             if (memoryPressure) {
                 // A failed allocation means the fixed pressure target was not
                 // enough. Halve both caches on each request until enough room
-                // exists; a passive pressure trim keeps the normal 32/1 MiB
-                // target instead.
+                // exists; a passive pressure trim keeps the pressure target
+                // instead.
                 const std::size_t normalEntries = requested
                     ? m_fontNormal.cacheEntryCount() / 2
                     : kPressureEntriesPerFont;
@@ -6019,8 +6030,6 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 m_fontNormal.trimCache();
                 m_fontSmall.trimCache();
             }
-            if (textBytesBefore > 0)
-                app().renderer().reclaimReleasedTextureSlotsAfterIdle();
             DebugLog::log(
                 "[text-cache] maintenance done gpu=%llu/%llu text=%zu entries=%zu",
                 static_cast<unsigned long long>(gpu.imageMemoryUsed()),

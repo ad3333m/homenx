@@ -537,7 +537,26 @@ bool CardsActivity::onCreate() {
         || !m_fCount.load(gpu, ren, f7, 21))
         return false;
     const std::uint64_t tIcons = armGetSystemTick();
-    // (The buttons' icons load the first time each is drawn: see icon().)
+    // The buttons' icons: their files read into RAM off the screen's thread
+    // (a first-draw read from the SD card stuttered every button; ~100 KB all
+    // together). They're decoded the first time each is drawn: see icon().
+    m_iconFilesJob = std::async(std::launch::async, []() {
+        offScreenCore();
+        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> out;
+        for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
+                                 "power", "music", "news", "discord", "arrows", "wifi", "airplane",
+                                 "sun", "speaker", "prev", "next", "pause", "repeat", "shuffle", "playlist",
+                                 "moon", "restart", "hekate", "download", "trash", "pad", "nextendo", "bluetooth"}) {
+            std::ifstream in(std::string(kAssets) + "icons/" + name + ".png", std::ios::binary | std::ios::ate);
+            if (!in) continue;
+            std::vector<std::uint8_t> data(static_cast<std::size_t>(in.tellg()));
+            in.seekg(0);
+            in.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+            out.emplace_back(name, std::move(data));
+        }
+        threadDone();
+        return out;
+    });
 
     // The pages: games; homebrew (.nro apps, then NRO forwarders); Nintendo.
     // Last time's lists show at once. Reading every game and .nro takes
@@ -656,12 +675,25 @@ bool CardsActivity::onCreate() {
     for (int i = 0; i < 3; ++i) m_threads.emplace_back([this, i]() { worker(i); });
     if (m_settings.perfLog) m_threads.emplace_back([this]() { watchdog(); });
     wantArt();
-#ifdef SWITCHU_MENU
-    const bool backFromGame = m_startSuspended || m_startRunning;
-#else
-    const bool backFromGame = false;
-#endif
-    m_intro = m_settings.motion && !backFromGame ? 0.f : 1.f; // back from a game: just there
+    // Every game's very small cover, read and decoded off the screen's thread
+    // while HOME starts (a few KB each, all together one card transaction):
+    // each card shows its cover at once, the full one fades in over it.
+    std::vector<std::uint64_t> thumbIds;
+    for (const Game& g : games()) thumbIds.push_back(g.id);
+    m_thumbsJob = std::async(std::launch::async, [thumbIds]() {
+        offScreenCore();
+        std::vector<ThumbPixels> out;
+        for (std::uint64_t id : thumbIds) {
+            int w = 0, h = 0;
+            ArtKind kind = ArtKind::Grid;
+            std::vector<std::uint8_t> rgba;
+            if (readShown(thumbPath(id), rgba, w, h, kind)) out.push_back({id, std::move(rgba), w, h});
+        }
+        threadDone();
+        return out;
+    });
+    m_retryIn = 1.2f; // the shelf is covered by degrees, starting right away
+    m_intro = m_settings.motion ? 0.f : 1.f; // the cards rise in (the game's picture lets go first: see onUpdate)
 #ifdef SWITCHU_MENU
     if (m_atBoot && m_settings.lockScreen) lock();
 #endif
@@ -714,6 +746,7 @@ void CardsActivity::perfLine(const std::string& line) {
 }
 
 void CardsActivity::onDestroy() {
+    m_jobsStop = true; // the network jobs stop early: closing must not wait them out
     {
         std::lock_guard<std::mutex> lk(m_mu);
         m_quit = true;
@@ -864,7 +897,8 @@ void CardsActivity::worker(int index) {
     } else {
         while (!m_netReady && !m_quit) svcSleepThread(5'000'000ULL);
     }
-    std::uint64_t countsAt = 0, statusAt = 0, logAt = 0;
+    std::uint64_t countsAt = 0, statusAt = 0, logAt = 0, freeAt = 0;
+    std::string lastFree;
     for (;;) {
         // The bar's numbers, once a second: the time, battery, network, the SD
         // card's free space (that one waited on the card on the screen's thread).
@@ -912,14 +946,25 @@ void CardsActivity::worker(int index) {
             NifmInternetConnectionStatus status{};
             s.online = R_SUCCEEDED(nifmGetInternetConnectionStatus(&type, &strength, &status))
                     && status == NifmInternetConnectionStatus_Connected;
-            if (FsFileSystem* fs = fsdevGetDeviceFileSystem("sdmc")) {
-                s64 free = 0;
-                if (R_SUCCEEDED(fsFsGetFreeSpace(fs, "/", &free))) {
-                    char buf[32];
-                    const double gb = static_cast<double>(free) / 1e9;
-                    std::snprintf(buf, sizeof(buf), gb >= 100.0 ? "%.0f GB" : "%.1f GB", gb);
-                    s.free = buf;
+            // The free space changes while the console writes (and it writes a
+            // lot at start-up: lists, settings, the cover art cache), and a
+            // new string meant a fresh measurement and raster on the screen's
+            // thread — the bar's draw spikes every second. Asked for at most
+            // every 10 s now; the last answer is shown in between.
+            if (now >= freeAt) {
+                freeAt = now + 10'000;
+                if (FsFileSystem* fs = fsdevGetDeviceFileSystem("sdmc")) {
+                    s64 free = 0;
+                    if (R_SUCCEEDED(fsFsGetFreeSpace(fs, "/", &free))) {
+                        char buf[32];
+                        const double gb = static_cast<double>(free) / 1e9;
+                        std::snprintf(buf, sizeof(buf), gb >= 100.0 ? "%.0f GB" : "%.1f GB", gb);
+                        s.free = buf;
+                        lastFree = buf;
+                    }
                 }
+            } else {
+                s.free = lastFree;
             }
             std::lock_guard<std::mutex> lk(m_mu);
             m_statusIn = std::move(s);
@@ -959,11 +1004,14 @@ void CardsActivity::worker(int index) {
         const std::uint64_t jobStart = armGetSystemTick();
         const Game look = forLookup(job.game); // (renamed: its pictures are found by its real name)
         std::vector<std::uint8_t> data;
-        // Covers and backgrounds as shown last time (by size, box art, SteamGridDB or not).
-        const int shownW = job.what == kCard ? static_cast<int>(300.f * m_pictureScale) : 1280;
+        // Covers, backgrounds and icons as shown last time (by size, box art, SteamGridDB or not).
+        const int shownW = job.what == kCard     ? static_cast<int>(300.f * m_pictureScale)
+                         : job.what == kIcon     ? static_cast<int>(160.f * m_pictureScale)
+                                                 : 1280;
         const std::string shown =
-            (job.what == kCard || job.what == kBackground) && job.game.action.empty()
-                ? shownPath(job.game.id, std::string(job.what == kCard ? (m_boxArt.load() ? "c1" : "c0") : "b")
+            (job.what == kCard || job.what == kBackground || job.what == kIcon) && job.game.action.empty()
+                ? shownPath(job.game.id, std::string(job.what == kCard ? (m_boxArt.load() ? "c1" : "c0")
+                                             : job.what == kIcon ? "i" : "b")
                                              + (key.empty() ? "" : "k") + "." + std::to_string(shownW))
                 : std::string();
         if (!shown.empty() && readShown(shown, done.rgba, done.w, done.h, done.kind)) {
@@ -1004,11 +1052,23 @@ void CardsActivity::worker(int index) {
                 done.w = w;
                 done.h = h;
                 // Kept as shown, when it's the picture for good (not one standing in while the
-                // internet is down: an eShop banner for a cover, a box for a background).
+                // internet is down: an eShop banner for a cover, a box for a background). An
+                // icon is always for good: a title picture now, the plain icon, both are kept.
                 const bool forGood = job.what == kCard ? done.kind == ArtKind::Grid || done.kind == ArtKind::Box
                                                              || (done.kind == ArtKind::Banner && !m_boxArt.load())
-                                                       : done.kind == ArtKind::Banner;
-                if (!shown.empty() && forGood) writeShown(shown, done.rgba, w, h, done.kind);
+                                       : job.what == kIcon ? true
+                                                           : done.kind == ArtKind::Banner;
+                if (!shown.empty() && forGood) {
+                    writeShown(shown, done.rgba, w, h, done.kind);
+                    if (job.what == kCard) {
+                        // And a very small one, read for every card at once when
+                        // HOME starts (the full one follows through the workers).
+                        std::vector<std::uint8_t> small = done.rgba;
+                        int sw = w, sh = h;
+                        shrink(small, sw, sh, 64);
+                        writeShown(thumbPath(job.game.id), small, sw, sh, done.kind);
+                    }
+                }
             }
         }
         const float took = ticksMs(armGetSystemTick() - jobStart);
@@ -1041,7 +1101,12 @@ void CardsActivity::wantArt() {
     add(s, kCard);
     add(s, kBackground);
     add(s, kIcon); // (a title picture can mean a search online: after the pictures you see)
-    for (int d = 1; d <= 6; ++d) {
+    // Covers come in by degrees after HOME is up (m_artRadius widens on the
+    // retry timer below): reading and decoding the whole shelf at once made
+    // the first seconds wait on the SD card, worst on the way back from a
+    // game. Browsing (select / go to page) widens it at once.
+    const int near = std::min(6, m_artRadius);
+    for (int d = 1; d <= near; ++d) {
         add(s + d, kCard);
         add(s - d, kCard);
         if (d == 1) {
@@ -1049,11 +1114,12 @@ void CardsActivity::wantArt() {
             add(s - 1, kBackground);
         }
     }
-    for (int d = 7; d <= 12; ++d) { // further ahead, both ways (scrolling fast)
-        add(s + d, kCard);
-        if (d <= 9) add(s - d, kCard);
-    }
-    for (int d = 1; d <= 2; ++d) {
+    if (m_artRadius >= 12)
+        for (int d = 7; d <= 12; ++d) { // further ahead, both ways (scrolling fast)
+            add(s + d, kCard);
+            if (d <= 9) add(s - d, kCard);
+        }
+    for (int d = 1; d <= std::min(2, m_artRadius); ++d) {
         add(s + d, kIcon);
         add(s - d, kIcon);
     }
@@ -1091,6 +1157,11 @@ void CardsActivity::takeArt() {
     const Game* cur = current();
     const std::uint64_t selected = cur ? cur->id : 0;
     const std::uint64_t until = armGetSystemTick() + armNsToTicks(4'000'000ULL);
+    // The storm's uploads go out as one GPU submission, not one per picture:
+    // five little copies between the frames' own work was queue traffic the
+    // first seconds after a game paid for.
+    const bool batch = !done.empty();
+    if (batch) app().gpu().beginTextureUploadBatch();
     for (Done& d : done) {
         if (armGetSystemTick() > until) { // the rest next frame
             std::lock_guard<std::mutex> lk(m_mu);
@@ -1152,6 +1223,7 @@ void CardsActivity::takeArt() {
         }
         ++m_perfUploads;
     }
+    if (batch) app().gpu().endTextureUploadBatch();
 
     // Far from the selection, on any page: let the pictures go, now and then and
     // all together (freeing one waits for the GPU; the rest are then free).
@@ -1224,6 +1296,7 @@ void CardsActivity::selectById(std::uint64_t id) {
 
 void CardsActivity::select(int index) {
     m_backTo = 0; // you've moved on
+    m_artRadius = 12; // browsing: the covers are wanted at once now
     auto& page = games();
     if (page.empty()) return;
     index = std::clamp(index, 0, static_cast<int>(page.size()) - 1);
@@ -1257,6 +1330,7 @@ void CardsActivity::goToPage(int page, int dir) {
     if (page == m_page) return;
     if (dir == 0) dir = pagePos(page) > pagePos(m_page) ? 1 : -1;
     m_backTo = 0;
+    m_artRadius = 12; // browsing: the covers are wanted at once now
     // The Homebrew page: .nro apps added a while ago show (read on a thread).
     if (page == kHomebrew && static_cast<long long>(std::time(nullptr)) - m_settings.listsAt > 120) startListRefresh();
     if (m_moving) finishMove(true);
@@ -2069,7 +2143,7 @@ void CardsActivity::checkHomebrewUpdates(bool force) {
         }
         if (!online) return found;
         std::atomic<int> done{0};
-        updater::findUpdates(apps, done);
+        updater::findUpdates(apps, done, &m_jobsStop);
         nlohmann::json saved = {{"checkedAt", now}, {"apps", nlohmann::json::object()}};
         for (const updater::App& a : apps) {
             if (a.downloadUrl.empty() || !updater::isNewer(a.latest, a.version)) continue;
@@ -2105,7 +2179,7 @@ void CardsActivity::updateNro(const std::string& path) {
     m_nroUpdateJob = std::async(std::launch::async, [this, a]() {
         offScreenCore();
         std::string error;
-        const bool ok = updater::installUpdate(a, m_nroProgress, error);
+        const bool ok = updater::installUpdate(a, m_nroProgress, error, &m_jobsStop);
         threadDone();
         return ok ? std::string() : (error.empty() ? tr("it didn't download") : error);
     });
@@ -2226,8 +2300,18 @@ void CardsActivity::pumpDaemon() {
             case M::WakeUp:
                 m_asleep = false;
                 app().setSleeping(false);
+                if (m_settings.lockScreen && m_locked) {
+                    // Slept while locked: the lock screen is quiet (it paused
+                    // the music before the sleep; the resume below would play
+                    // it over the lock). With the setting on, it keeps playing.
+                    if (m_settings.lockMusic) m_audio.resume();
+                    break;
+                }
+                if (m_settings.lockScreen && !m_locked) {
+                    lock(); // it pauses the music itself, unless the setting says otherwise
+                    break;
+                }
                 m_audio.resume();
-                if (m_settings.lockScreen && !m_locked) lock();
                 break;
             case M::OperationFailed: {
                 char buf[80];
@@ -2573,6 +2657,11 @@ void CardsActivity::lock() {
     m_locked = true;
     m_lockIn = m_settings.motion ? 0.f : 1.f;
     m_unlockT = -1.f;
+    m_lockIdle = 0.f;
+    // The lock screen is quiet unless Settings > Lock screen says otherwise.
+    // What was playing comes back when the lock opens (beginUnlock).
+    m_musicPausedForLock = !m_settings.lockMusic;
+    if (m_musicPausedForLock) m_audio.pause();
     m_lockPicture = switchu::lockpicture::get(); // (HomeNX's look may have chosen it)
     loadLockPicture();
 #ifdef SWITCHU_MENU
@@ -2580,6 +2669,16 @@ void CardsActivity::lock() {
     m_pwSetup = false;
     m_pw.startUnlock();
 #endif
+}
+
+// The unlock animation starts: what the lock held comes back (the music, if
+// the lock screen paused it).
+void CardsActivity::beginUnlock() {
+    m_unlockT = 0.f;
+    if (m_musicPausedForLock) {
+        m_musicPausedForLock = false;
+        m_audio.resume();
+    }
 }
 
 #ifdef SWITCHU_MENU
@@ -2604,6 +2703,22 @@ bool CardsActivity::updateLock(float dt) {
     }
     auto& in = app().input();
     using B = nxui::Button;
+    // Locked and ignored: standby after 15 s. Waking comes back to this same
+    // lock screen (and the password, if there is one, is asked again).
+    bool lockActivity = false;
+    for (B b : {B::A, B::B, B::X, B::Y, B::L, B::R, B::ZL, B::ZR, B::Plus, B::Minus,
+                B::DUp, B::DDown, B::DLeft, B::DRight, B::LStickU, B::LStickD, B::LStickL,
+                B::LStickR, B::RStickU, B::RStickD, B::RStickL, B::RStickR})
+        lockActivity |= in.isDown(b);
+    lockActivity |= in.touchUp() || in.touchDown();
+    if (lockActivity) m_lockIdle = 0.f; else m_lockIdle += dt;
+    if (m_lockIdle > 15.f && m_lockIn >= 1.f) {
+        m_lockIdle = -1e9f; // once; waking lands here again
+#ifdef SWITCHU_MENU
+        m_launcher.enterSleep();
+#endif
+        return true;
+    }
 #ifdef SWITCHU_MENU
     m_pw.update(dt);
     if (m_pwSet || m_pwSetup) { // the password: D-pad presses (either stick too: mergeRightStick)
@@ -2623,7 +2738,7 @@ bool CardsActivity::updateLock(float dt) {
         } else if (in.isDown(B::B)) {
             if (m_pwSetup && m_pw.presses.empty()) { // with nothing pressed: stop making one
                 m_pwSetup = false;
-                m_unlockT = 0.f;
+                beginUnlock();
                 m_audio.play("hide_modal");
                 return true;
             }
@@ -2631,12 +2746,12 @@ bool CardsActivity::updateLock(float dt) {
             m_audio.play("hide_modal");
         }
         if (res == E::Unlocked) {
-            m_unlockT = 0.f;
+            beginUnlock();
             m_audio.play("activation");
         } else if (res == E::Made) {
             m_pwSetup = false;
             m_pwSet = true;
-            m_unlockT = 0.f;
+            beginUnlock();
             if (!m_settings.lockScreen) { // a password needs the lock screen
                 m_settings.lockScreen = true;
                 m_settings.save();
@@ -2653,7 +2768,7 @@ bool CardsActivity::updateLock(float dt) {
     for (B b : {B::A, B::B, B::X, B::Y, B::L, B::R, B::ZL, B::ZR, B::Plus, B::Minus, B::DUp, B::DDown, B::DLeft, B::DRight})
         pressed |= in.isDown(b);
     if (pressed && m_lockIn > 0.25f) {
-        m_unlockT = 0.f;
+        beginUnlock();
         m_audio.play("activation");
     }
     return true;
@@ -2777,12 +2892,12 @@ void CardsActivity::handleHome() {
 #ifdef SWITCHU_MENU
         if (m_pwSetup) { // stops making one
             m_pwSetup = false;
-            m_unlockT = 0.f;
+            beginUnlock();
             return;
         }
         if (m_pwSet) return;
 #endif
-        if (m_unlockT < 0.f) m_unlockT = 0.f;
+        if (m_unlockT < 0.f) beginUnlock();
         return;
     }
     if (m_leaving) return;
@@ -4714,6 +4829,23 @@ void CardsActivity::buildSettings() {
     lockTab.rows.push_back(toggle("Lock screen", [this]() { return m_settings.lockScreen; },
         [this, save]() { m_settings.lockScreen = !m_settings.lockScreen; save(); },
         "The time and date when the console starts or wakes"));
+    lockTab.rows.push_back(toggle("Music on the lock screen", [this]() { return m_settings.lockMusic; },
+        [this, save]() {
+            m_settings.lockMusic = !m_settings.lockMusic;
+            save();
+            if (m_locked) { // right now: what the setting says, not what it said
+                if (m_settings.lockMusic) {
+                    m_musicPausedForLock = false;
+                    m_audio.resume();
+                } else {
+                    m_audio.pause();
+                    m_musicPausedForLock = true;
+                }
+            }
+        },
+        "Keep the menu's music playing while the lock screen shows (off: it pauses)"));
+    // Locked and ignored for a while: the console goes to standby on its own
+    // (updateLock), waking back here.
 #ifdef SWITCHU_MENU
     m_pwSet = switchu::lockpw::isSet();
     MenuItem password = action("Password", [this]() { startPasswordSetup(); });
@@ -5924,9 +6056,26 @@ void CardsActivity::activateBottom(int index) {
 // frames in build 132's log). Freed textures wait out the frames in flight
 // themselves (nxui), so nothing waits for the GPU.
 void CardsActivity::keepTextCachesSmall() {
-    auto keep = [](nxui::Font& f) {
-        if (f.maintenanceRequested() || f.cacheEntryCount() > 136 || f.cacheBytes() > (3u << 20) + (768u << 10))
-            f.trimCache(108, 3u << 20);
+    // Housekeeping only, and rarely: trims used to run whenever a font passed
+    // 136 strings or 3.75 MB and cut deep (to 108 / 3 MB), so the trimmed
+    // strings were shaped and uploaded again the next frames and the caches
+    // swung between full and trimmed — the "text cache trims" that showed up
+    // in perf.log as 10-200 ms frames. Trim shallowly (just below what asked
+    // for it), at most every couple of seconds, and count the bytes the way
+    // the fonts do (their limits scale up at 1080p; the old check didn't, so
+    // on a TV it trimmed every frame and freed nothing).
+    static std::uint64_t s_lastTrim = 0;
+    const std::uint64_t now = armGetSystemTick();
+    const bool cooling = s_lastTrim != 0
+        && armTicksToNs(now - s_lastTrim) < 2'000'000'000ULL;
+    auto keep = [&](nxui::Font& f) {
+        const float scale2 = f.pixelScale() * f.pixelScale();
+        const std::size_t triggerBytes = static_cast<std::size_t>(
+            static_cast<float>((3u << 20) + (768u << 10)) * scale2);
+        const bool over = f.cacheEntryCount() > 136 || f.cacheBytes() > triggerBytes;
+        if (!f.maintenanceRequested() && (!over || cooling)) return;
+        s_lastTrim = now;
+        f.trimCache(124, 3u << 20); // (trimCache scales its byte limit too)
     };
     for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount}) keep(*f);
 #ifdef SWITCHU_MENU
@@ -6314,9 +6463,16 @@ void CardsActivity::onUpdate(float dt) {
     // in CardsNX already read their buttons before this).
     app().input().mergeRightStick();
     updateSpotify();
-    if (m_returnTex) { // (shown while HOME started; HOME is there now, at once)
-        app().gpu().waitIdle(); // it may still be drawing
-        m_returnTex.reset();
+    if (m_returnTex) { // the game's last picture: shown while HOME starts (the loading
+                       // lag stays behind a still frame of the game), then it shrinks
+                       // into its card while the cards rise in, as one movement.
+        if (m_time > 0.25f) { // HOME is up: let go and play the return
+            m_returnT += std::min(dt, 1.f / 30.f); // (a lagged frame doesn't skip the movement)
+            if (m_returnT > 0.32f) {
+                app().gpu().waitIdle(); // it may still be drawing
+                m_returnTex.reset();
+            }
+        }
     }
     // Frame times for the log: the time since the last frame, and what the last one did.
     const std::uint64_t frameTick = armGetSystemTick();
@@ -6396,18 +6552,50 @@ void CardsActivity::onUpdate(float dt) {
                   [this](const std::string& token) { m_discord.signInWithUserToken(token); }, m_discordPanel.get(), true);
     }
 #endif
-    // What the first frame doesn't need starts just after it, so HOME shows sooner.
+    // What the first frame doesn't need starts later, so HOME coming back from a
+    // game doesn't hitch on it: the audio session (opening it and reading the
+    // song were a stall on frames 2-3) at 1.5 s, the avatar at 3 s, and the
+    // icons decoded on a thread meanwhile.
     if (m_startStage < 3) {
-        ++m_startStage;
-        if (m_startStage == 2) {
+        if (m_startStage < 2 && m_time > 1.5f) {
+            m_startStage = 2;
             m_audio.start();
             m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
             m_audio.setShuffle(m_settings.shuffle);
             m_audio.setRepeat(m_settings.repeat);
             m_audio.setMusic(homeMusic(), m_settings.musicVolume);
-        } else if (m_startStage == 3) {
+        } else if (m_startStage == 2 && m_time > 3.f) {
+            m_startStage = 3;
             loadAvatar();
         }
+    }
+    // The icons' files arrived: into the RAM cache (each is decoded the first
+    // time it's drawn, from memory).
+    if (m_iconFilesJob.valid()
+        && m_iconFilesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        for (auto& f : m_iconFilesJob.get()) m_iconFiles[std::move(f.first)] = std::move(f.second);
+        m_iconFilesJob = {};
+    }
+    // The small covers arrived: uploaded a few a frame (the upload is a copy
+    // and a queue kick; the reading and decoding already happened off-thread).
+    if (m_thumbsJob.valid()
+        && m_thumbsJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        m_thumbUploads = m_thumbsJob.get();
+        m_thumbsJob = {};
+    }
+    if (!m_thumbUploads.empty()) {
+        app().gpu().beginTextureUploadBatch();
+        for (int i = 0; i < 3 && !m_thumbUploads.empty(); ++i) {
+            ThumbPixels& p = m_thumbUploads.front();
+            if (!p.rgba.empty()) {
+                auto tex = std::make_unique<nxui::Texture>();
+                nxui::GpuDevice::EssentialScope essential;
+                if (tex->loadFromPixels(app().gpu(), app().renderer(), p.rgba.data(), p.w, p.h))
+                    m_thumbs[p.id] = {std::move(tex), m_time};
+            }
+            m_thumbUploads.erase(m_thumbUploads.begin());
+        }
+        app().gpu().endTextureUploadBatch();
     }
     m_time += dt;
     perfMark("start-up");
@@ -6420,8 +6608,13 @@ void CardsActivity::onUpdate(float dt) {
     m_audio.update();
     perfMark("music");
     const bool motion = m_settings.motion;
-    auto step = [&](float& v, float seconds) { v = motion ? std::min(1.f, v + dt / seconds) : 1.f; };
-    step(m_intro, m_introFor);
+    // A lagged frame doesn't skip through the animations: they take real time
+    // (a 300 ms frame used to jump a 0.3 s movement to its end).
+    auto step = [&](float& v, float seconds) { v = motion ? std::min(1.f, v + std::min(dt, 1.f / 30.f) / seconds) : 1.f; };
+    // The cards wait for the game's picture to let go: the opening is one
+    // movement (the frame shrinks into its card while the cards rise), not a
+    // rise hidden behind a still frame.
+    if (!m_returnTex || m_returnT > 0.f) step(m_intro, m_introFor);
     step(m_pageIn, 0.38f);
     step(m_detailIn, 0.25f);
     step(m_sheen, 0.8f);
@@ -6448,9 +6641,17 @@ void CardsActivity::onUpdate(float dt) {
     }
     if (m_messageFor > 0.f) m_messageFor -= dt;
 
-    // Pictures that didn't come are asked for again now and then.
-    if ((m_retryIn -= dt) <= 0.f) {
-        m_retryIn = 5.f;
+    // Pictures that didn't come are asked for again now and then — and the
+    // shelf is covered by degrees right after HOME is up (1 → 3 → 6 → all
+    // cards from the selection, a beat apart). The tiers wait for the opening
+    // as well: nothing heavy runs behind the game's still frame.
+    if ((!m_returnTex || m_returnT > 0.f) && (m_retryIn -= dt) <= 0.f) {
+        if (m_artRadius < 12) {
+            m_artRadius = m_artRadius < 3 ? 3 : m_artRadius < 6 ? 6 : 12;
+            m_retryIn = 1.2f;
+        } else {
+            m_retryIn = 5.f;
+        }
         wantArt();
     }
     // The real lists arrived (not while a card is being moved or launched).
@@ -6511,7 +6712,7 @@ void CardsActivity::onUpdate(float dt) {
     perfMark("lists");
 
     // Homebrew updates: the saved list at once; asked again a little after start.
-    if (!m_updatesChecked && m_netReady && m_time > 6.f) {
+    if (!m_updatesChecked && m_netReady && m_time > 20.f) {
         m_updatesChecked = true;
         checkHomebrewUpdates(false);
     }
@@ -6604,8 +6805,10 @@ void CardsActivity::onUpdate(float dt) {
             openMenu(trf("Which game? \"{words}\"", {m_searchFor}), std::move(items));
         }
     }
-    // Play times and last played, as the console has them now (a second after start).
-    if (!m_statsAsked && m_time > 1.5f && !m_leaving) {
+    // Play times and last played, as the console has them now. Well after
+    // HOME has settled: the queries for every game are one IPC each, and the
+    // first seconds after a game are busy enough already.
+    if (!m_statsAsked && m_time > 6.f && !m_leaving) {
         m_statsAsked = true;
         std::vector<std::uint64_t> ids;
         for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
@@ -7053,7 +7256,13 @@ void CardsActivity::draw(nxui::Renderer& r) {
     // again when what's behind changed: at once while things move, every 6th
     // frame while only the background drifts, else kept (HomeNX's screens blur
     // into the same copy: it's made each frame while one is open).
-    m_frosted = r.gpu().offscreenReady() && !m_gpuSlow;
+    // While HOME is still settling in — the way back from a game, exactly when
+    // every cover uploads and the pop-up animates — the glass is drawn plain:
+    // re-rendering the blurred copy every frame on top of all that is what
+    // made the first seconds GPU-bound (the menu's own slow-GPU fallback used
+    // to catch it a moment later and stay plain for the whole session). Here
+    // the fancy glass only comes back once HOME is running steady.
+    m_frosted = r.gpu().offscreenReady() && !m_gpuSlow && m_time > 1.5f;
     if (m_frosted) {
         const bool moving = std::abs(m_scroll - static_cast<float>(sel())) > 0.002f || m_dragging || m_pageIn < 1.f
                          || m_bgFade < 1.f || m_intro < 1.f || m_leaving || m_moving || focusRoot() != nullptr;
@@ -7131,10 +7340,24 @@ void CardsActivity::draw(nxui::Renderer& r) {
 
 void CardsActivity::icon(nxui::Renderer& r, const char* name, float cx, float cy, float size, const nxui::Color& tint) {
     auto it = m_icons.find(name);
-    if (it == m_icons.end()) { // the first time it's drawn: all 34 at start made HOME come back slower
+    if (it == m_icons.end()) { // the first time it's drawn: decoded from RAM (see m_iconFiles)
         auto tex = std::make_unique<nxui::Texture>();
         nxui::GpuDevice::EssentialScope essential; // the buttons always draw
-        if (!tex->loadFromFile(app().gpu(), app().renderer(), std::string(kAssets) + "icons/" + name + ".png", 96))
+        bool ok = false;
+        const auto data = m_iconFiles.find(name);
+        if (data != m_iconFiles.end() && !data->second.empty()) {
+            int w = 0, h = 0;
+            std::uint8_t* px = decodePicture(data->second.data(), static_cast<int>(data->second.size()), w, h);
+            if (px) {
+                std::vector<std::uint8_t> rgba(px, px + static_cast<std::size_t>(w) * h * 4);
+                stbi_image_free(px);
+                shrink(rgba, w, h, 96);
+                ok = tex->loadFromPixels(app().gpu(), app().renderer(), rgba.data(), w, h);
+            }
+        }
+        if (!ok) // (not prefetched — a renamed icon, a new build: from the card then)
+            ok = tex->loadFromFile(app().gpu(), app().renderer(), std::string(kAssets) + "icons/" + name + ".png", 96);
+        if (!ok)
             tex.reset(); // (not there: not asked for again)
         it = m_icons.emplace(name, std::move(tex)).first;
     }
@@ -7266,11 +7489,14 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     }
 
     // The label: the sort (or page) and how many, in the room left of the pill.
-    const std::string label = tr(m_page == kGames ? kSortNames[m_settings.sort] : kPageNames[m_page])
-                            + "  " + std::to_string(games().size());
-    const float room = std::max(40.f, pill.x - 14.f - kLabelX);
-    const float ls = fitScale(m_fLabel, label, room, 0.72f);
-    textMid(r, m_fLabel, fit(m_fLabel, label, room, ls), kLabelX, y, kWhite.withAlpha(a), ls);
+    // The opening's compromise (see drawCards): it waits for the bar to arrive.
+    if (a >= 0.999f) {
+        const std::string label = tr(m_page == kGames ? kSortNames[m_settings.sort] : kPageNames[m_page])
+                                + "  " + std::to_string(games().size());
+        const float room = std::max(40.f, pill.x - 14.f - kLabelX);
+        const float ls = fitScale(m_fLabel, label, room, 0.72f);
+        textMid(r, m_fLabel, fit(m_fLabel, label, room, ls), kLabelX, y, kWhite.withAlpha(a), ls);
+    }
 
     // The bell, music, power, settings.
     icon(r, "bell", kBellX, y, 36.f, kWhite.withAlpha(a));
@@ -7345,8 +7571,15 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         const Game& g = page[(size_t)i];
         if (glassCard(g)) continue; // glass: drawn over the blur (drawCardExtras)
         const float k = std::max(0.f, static_cast<float>(i) - m_scroll + 1.f);
-        const float alpha = pageAlpha * easeOut((m_intro - 0.1f - 0.07f * k) / 0.5f) * making;
+        const float term = (m_intro - 0.1f - 0.07f * k) / 0.5f;
+        const float alpha = pageAlpha * easeOut(term) * making;
         if (alpha <= 0.01f) continue;
+        // The opening's compromise: a card that is still rising draws without
+        // its text. Fitting and rasterizing a fresh name cost milliseconds on
+        // the screen's thread — exactly during the animation — so the name
+        // waits until the card has landed; the raster budget then brings the
+        // names in over the following frames, without stalls.
+        const bool landed = m_intro >= 1.f || term >= 1.f;
         const float pressed = m_pressZone == 1 && m_pressIndex == i ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
         if (pressed > 0.f) card = scaled(card, 1.f - 0.05f * pressed);
 
@@ -7354,15 +7587,26 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         r.drawRoundedRect({card.x - 3.f, card.y + 6.f + 6.f * t, card.width + 6.f, card.height + 6.f},
                           nxui::Color(0.f, 0.f, 0.f, shadow * alpha), kCardRadius + 3.f);
         auto it = m_art.find(g.id);
-        const nxui::Texture* tex = it != m_art.end() && it->second.card && it->second.card->valid() ? it->second.card.get()
-                                                                                                    : nullptr;
-        const float artIn = tex ? easeOut((m_time - it->second.cardIn) / 0.35f) : 0.f;
+        const bool haveCard = it != m_art.end() && it->second.card && it->second.card->valid();
+        const nxui::Texture* tex = haveCard ? it->second.card.get() : nullptr;
+        const float artIn = haveCard ? easeOut((m_time - it->second.cardIn) / 0.35f) : 0.f;
+        // The very small cover: there at once (read for every game while HOME
+        // started), drawn until the full one fades in over it.
+        const auto th = m_thumbs.find(g.id);
+        const nxui::Texture* thumbTex =
+            th != m_thumbs.end() && th->second.tex && (!haveCard || artIn < 1.f) ? th->second.tex.get() : nullptr;
+        const float thumbIn = thumbTex ? easeOut(std::min(1.f, (m_time - th->second.in) / 0.2f)) : 0.f;
+        if (thumbTex) {
+            drawCover(r, thumbTex, card, kCardRadius, kWhite.withAlpha(alpha * thumbIn));
+        }
         // Under the art (and while it's coming): the name on glass.
-        if (artIn < 1.f) {
+        if (artIn < 1.f && !thumbTex) {
             r.drawRoundedRect(card, nxui::Color(0.28f, 0.31f, 0.40f, 0.85f * alpha), kCardRadius);
-            const std::string name = fit(m_fLabel, g.name, card.width - 28.f, 0.9f);
-            textMid(r, m_fLabel, name, card.x + (card.width - measured(m_fLabel, name).x * 0.9f) * 0.5f,
-                    card.y + card.height * 0.5f, kMuted.withAlpha(alpha * (1.f - artIn)), 0.9f);
+            if (landed) {
+                const std::string name = fit(m_fLabel, g.name, card.width - 28.f, 0.9f);
+                textMid(r, m_fLabel, name, card.x + (card.width - measured(m_fLabel, name).x * 0.9f) * 0.5f,
+                        card.y + card.height * 0.5f, kMuted.withAlpha(alpha * (1.f - artIn)), 0.9f);
+            }
         }
         if (tex) {
             // A Switch case cover without the red Nintendo Switch band on top:
@@ -7390,8 +7634,10 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         float t = 0.f;
         if (!cardRect(i, card, t)) continue;
         const float k = std::max(0.f, static_cast<float>(i) - m_scroll + 1.f);
-        const float alpha = easeOut(m_pageIn) * easeOut((m_intro - 0.1f - 0.07f * k) / 0.5f) * making;
+        const float term = (m_intro - 0.1f - 0.07f * k) / 0.5f;
+        const float alpha = easeOut(m_pageIn) * easeOut(term) * making;
         if (alpha <= 0.01f) continue;
+        const bool landed = m_intro >= 1.f || term >= 1.f; // the name waits for the landing (see drawCards)
 
         const Game& g = page[(size_t)i];
         if (glassCard(g)) {
@@ -7427,16 +7673,18 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             } else if (!nintendo) {
                 r.drawRoundedRect(iconRect, nxui::Color(1.f, 1.f, 1.f, 0.08f * alpha), 34.f);
             }
-            const float ns = fitScale(m_fLabel, g.name, card.width - 24.f);
-            const std::string name = fit(m_fLabel, g.name, card.width - 24.f, ns);
-            r.drawText(name, {card.x + (card.width - measured(m_fLabel, name).x * ns) * 0.5f, iconRect.y + side + 26.f},
-                       &m_fLabel, kWhite.withAlpha(alpha), ns);
-            const std::string about = !g.action.empty() ? g.author
-                                    : g.path.empty() ? lastPlayed(g.lastPlayed) // installed: a forwarder, a game without a cover
-                                    : !g.author.empty() ? g.author : tr("Homebrew");
-            const std::string by = fit(m_fBody, about, card.width - 28.f);
-            r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
-                       kMuted.withAlpha(alpha));
+            if (landed) {
+                const float ns = fitScale(m_fLabel, g.name, card.width - 24.f);
+                const std::string name = fit(m_fLabel, g.name, card.width - 24.f, ns);
+                r.drawText(name, {card.x + (card.width - measured(m_fLabel, name).x * ns) * 0.5f, iconRect.y + side + 26.f},
+                           &m_fLabel, kWhite.withAlpha(alpha), ns);
+                const std::string about = !g.action.empty() ? g.author
+                                        : g.path.empty() ? lastPlayed(g.lastPlayed) // installed: a forwarder, a game without a cover
+                                        : !g.author.empty() ? g.author : tr("Homebrew");
+                const std::string by = fit(m_fBody, about, card.width - 28.f);
+                r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
+                           kMuted.withAlpha(alpha));
+            }
             r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.20f * alpha), kCardRadius, 1.5f);
             if (nroUpdate(g)) { // a newer version: a green "Update" tag in the corner
                 const bool busy = g.path == m_nroUpdating;
@@ -7682,8 +7930,14 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     }
     const float tx = picRight + 15.f;
     const float maxW = panel.x + panel.width - 30.f - tx;
-    const float ts = fitScale(m_fTitle, g.name, maxW);
-    r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, panel.y + 20.f + (1.f - ts) * 14.f}, &m_fTitle, kWhite.withAlpha(da), ts);
+    // The opening's compromise (see drawCards): the words wait until the panel
+    // has slid into place, so the fit searches and the fresh rasters don't
+    // land in the middle of the movement.
+    const bool landed = a >= 0.999f;
+    if (landed) {
+        const float ts = fitScale(m_fTitle, g.name, maxW);
+        r.drawText(fit(m_fTitle, g.name, maxW, ts), {tx, panel.y + 20.f + (1.f - ts) * 14.f}, &m_fTitle, kWhite.withAlpha(da), ts);
+    }
     std::string about;
     if (!g.action.empty()) about = g.author;
     else if (g.homebrew && !g.path.empty()) about = g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author});
@@ -7693,11 +7947,13 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
         const std::string to = versionName(u->latest);
         about += "    " + (to.empty() ? tr("Update to the latest version") : trf("Update to {version}", {to})) + " (+)";
     }
-    r.drawText(fit(m_fBody, about, maxW), {tx, panel.y + 60.f}, &m_fBody, kMuted.withAlpha(da));
-    if (!g.version.empty()) {
-        icon(r, "tag", tx + 8.f, panel.y + 95.f, 17.f, kMuted.withAlpha(da));
-        const std::string vn = versionName(g.version), v = vn.empty() ? g.version : vn;
-        textMid(r, m_fBody, v, tx + 22.f, panel.y + 95.f, kMuted.withAlpha(da), 0.95f);
+    if (landed) {
+        r.drawText(fit(m_fBody, about, maxW), {tx, panel.y + 60.f}, &m_fBody, kMuted.withAlpha(da));
+        if (!g.version.empty()) {
+            icon(r, "tag", tx + 8.f, panel.y + 95.f, 17.f, kMuted.withAlpha(da));
+            const std::string vn = versionName(g.version), v = vn.empty() ? g.version : vn;
+            textMid(r, m_fBody, v, tx + 22.f, panel.y + 95.f, kMuted.withAlpha(da), 0.95f);
+        }
     }
 
     // Play, its options, the page button, back (as HOME: News).

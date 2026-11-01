@@ -234,8 +234,8 @@ static std::atomic<bool> g_appCatalogRefreshPending{false};
 static std::atomic<bool> g_catalogChangedWhileMenuAway{false};
 static uint64_t g_catalogHoldStartTick = 0;
 static uint64_t g_catalogHoldNs = 0;
-static constexpr uint64_t kCatalogHoldAfterHomeNs = 2'000'000'000ULL;
-static constexpr uint64_t kCatalogHoldAfterMenuLaunchNs = 800'000'000ULL;
+static constexpr uint64_t kCatalogHoldAfterHomeNs = 6'000'000'000ULL;
+static constexpr uint64_t kCatalogHoldAfterMenuLaunchNs = 3'000'000'000ULL;
 static constexpr uint64_t kCatalogHoldAfterMenuReadyNs = 200'000'000ULL;
 static constexpr const char* kAppCatalogPath = "sdmc:/config/SwitchU/applist.bin";
 static constexpr const char* kAppCatalogTmpPath = "sdmc:/config/SwitchU/applist.tmp";
@@ -288,11 +288,6 @@ static uint64_t catalogHoldRemainingNs() {
 static void armCatalogHold(uint64_t holdNs) {
     g_catalogHoldStartTick = armGetSystemTick();
     g_catalogHoldNs = holdNs;
-}
-
-static void shortenCatalogHold(uint64_t holdNs) {
-    if (catalogHoldRemainingNs() > holdNs)
-        armCatalogHold(holdNs);
 }
 
 static void clearCatalogHold() {
@@ -1866,7 +1861,14 @@ static bool handleMenuCommand() {
         switchu::FileLog::log("[smi] menu ready");
         g_lastOperationFailure = {};
         g_batteryRefreshPending.store(true);
-        shortenCatalogHold(kCatalogHoldAfterMenuReadyNs);
+        // The menu is up: the catch-up view polls behind a game's record event
+        // are pure ns traffic over its first seconds (the menu reads the view
+        // flags itself, when it reads the lists).
+        cancelViewPolling("menu-ready");
+        // Keep the catalogue hold that HOME armed. Shortening it here put the
+        // rebuild (ns queries for every title, then an SD write) right on top
+        // of the menu's own start-up, and HOME stuttered for seconds whenever
+        // it came back from a game.
         break;
 
     case smi::SystemMessage::MenuClosing:

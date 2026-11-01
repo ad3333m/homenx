@@ -1,4 +1,6 @@
 #include <cmath>
+#include <atomic>
+#include <fstream>
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/GpuDevice.hpp>
@@ -37,6 +39,12 @@ bool provides(TTF_Font* f, std::uint32_t cp) {
 
 } // namespace
 
+// New strings rasterized on the screen's thread per ~frame (see getOrRender):
+// the budget is shared by every font, since the screen draws with several at
+// once. A per-font budget let a single frame meet a dozen new strings.
+inline std::atomic<std::uint64_t> g_rasterWindow{0};
+inline std::atomic<int> g_rastersInWindow{0};
+
 std::vector<Font::FallbackData>& Font::fallbackData() {
     static std::vector<FallbackData> data;
     return data;
@@ -56,10 +64,22 @@ TTF_Font* Font::fontFor(std::uint32_t cp) const {
     if (!m_font) return nullptr;
     if (provides(m_font, cp)) return m_font;
     const auto& data = fallbackData();
-    while (m_fallbacks.size() < data.size()) {
-        const FallbackData& d = data[m_fallbacks.size()];
-        SDL_RWops* rw = SDL_RWFromConstMem(d.data, static_cast<int>(d.size));
-        m_fallbacks.push_back(rw ? TTF_OpenFontRW(rw, 1, m_pxSize) : nullptr);
+    if (m_fallbacks.size() < data.size()) {
+        // Instrumented: opening the console's own big fonts (the fallbacks)
+        // is the one operation here that can legitimately take a while.
+        const std::uint64_t t0 = armGetSystemTick();
+        while (m_fallbacks.size() < data.size()) {
+            const FallbackData& d = data[m_fallbacks.size()];
+            SDL_RWops* rw = SDL_RWFromConstMem(d.data, static_cast<int>(d.size));
+            TTF_Font* f = rw ? TTF_OpenFontRW(rw, 1, m_pxSize) : nullptr;
+            if (f) TTF_SetFontHinting(f, TTF_HINTING_NONE); // same as above
+            m_fallbacks.push_back(f);
+        }
+        const float ms = armTicksToNs(armGetSystemTick() - t0) / 1e6f;
+        if (ms > 4.f)
+            GpuDevice::logGpu("[font] fallbacks opened %.1f ms (%d fonts, this one %u KB)",
+                              ms, static_cast<int>(data.size()),
+                              static_cast<unsigned>(data[m_fallbacks.size() - 1].size >> 10));
     }
     for (TTF_Font* f : m_fallbacks)
         if (f && provides(f, cp)) return f;
@@ -119,11 +139,33 @@ bool Font::load(GpuDevice& gpu, Renderer& ren,
                 const std::string& path, int ptSize)
 {
     const int pxSize = std::max(1, static_cast<int>(std::lround(ptSize * gpu.scale()))); // sharp at 1080p
-    TTF_Font* newFont = TTF_OpenFont(path.c_str(), pxSize);
-    if (!newFont) {
-        std::fprintf(stderr, "[Font] TTF_OpenFont failed: %s\n", TTF_GetError());
+    // The face reads its glyph tables through the file stream: with the fonts
+    // on the SD card, every fresh glyph's load cost ~4-6 ms of card reads (the
+    // menu's first seconds measured ~1.4 s of text work — hinting, HarfBuzz
+    // and the caches never mattered next to that). The files are small
+    // (~70 KB): into RAM once, and every glyph load after that is memory.
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) {
+        std::fprintf(stderr, "[Font] open failed: %s\n", path.c_str());
         return false;
     }
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(in.tellg()));
+    in.seekg(0);
+    in.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    SDL_RWops* rw = SDL_RWFromConstMem(data.data(), static_cast<int>(data.size()));
+    TTF_Font* newFont = rw ? TTF_OpenFontRW(rw, 1, pxSize) : nullptr;
+    if (!newFont) {
+        std::fprintf(stderr, "[Font] TTF_OpenFontRW failed: %s\n", TTF_GetError());
+        if (rw) SDL_RWclose(rw);
+        return false;
+    }
+    // No hinting. The perf.log run (build 176) showed the first use of a glyph
+    // costing ~6 ms on the screen's thread — executing the font's hinting
+    // bytecode in this freetype build — and every new letter in a new string
+    // paid it again: the stutter whenever the selection moved or a screen
+    // changed. Unhinted glyphs load ~10x faster and look like modern TV/phone
+    // UI text at these sizes.
+    TTF_SetFontHinting(newFont, TTF_HINTING_NONE);
 
     if (m_font)
         TTF_CloseFont(m_font);
@@ -132,6 +174,7 @@ bool Font::load(GpuDevice& gpu, Renderer& ren,
     m_fallbacks.clear(); // reopened at the new size when needed
 
     m_font = newFont;
+    m_fontData = std::move(data); // the face reads its tables from here (outlives it)
     m_gpu = &gpu;
     m_ren = &ren;
     m_ptSize = ptSize;
@@ -150,16 +193,28 @@ bool Font::hasGlyph(std::uint32_t cp) const {
 Vec2 Font::measure(const std::string& text) const {
     if (!m_font || text.empty()) return {0, 0};
     // Rendered strings already carry their exact dimensions. Avoid invoking
-    // SDL_ttf again for every label on every frame.
+    // SDL_ttf again for every label on every frame. And a measurement is also
+    // cached once it has been shaped: the fit binary searches and the bar's
+    // changing strings measured fresh strings over and over, and shaping a
+    // fresh string cost milliseconds per glyph on the screen's thread even
+    // with hinting off. A string is measured at most once per font.
     const auto cached = m_lruMap.find(text);
     if (cached != m_lruMap.end())
         return {static_cast<float>(cached->second->w) / m_pixelScale,
                 static_cast<float>(cached->second->h) / m_pixelScale};
+    const auto measured = m_measureCache.find(text);
+    if (measured != m_measureCache.end()) return measured->second;
+    if (m_measureCache.size() > 4096) m_measureCache.clear();
+    const std::uint64_t t0 = armGetSystemTick();
     int w = 0, h = 0;
     std::vector<std::pair<TTF_Font*, std::string>> pieces;
-    if (!runs(text, pieces)) {
+    const bool mixed = runs(text, pieces);
+    if (!mixed) {
         TTF_SizeUTF8(m_font, text.c_str(), &w, &h);
-        return {(float)w / m_pixelScale, (float)h / m_pixelScale};
+        const float ms = armTicksToNs(armGetSystemTick() - t0) / 1e6f;
+        if (ms > 4.f)
+            GpuDevice::logGpu("[font] measure %.1f ms: %.48s", ms, text.c_str());
+        return m_measureCache[text] = {(float)w / m_pixelScale, (float)h / m_pixelScale};
     }
     int ascent = 0;
     for (const auto& pc : pieces) ascent = std::max(ascent, TTF_FontAscent(pc.first));
@@ -169,7 +224,10 @@ Vec2 Font::measure(const std::string& text) const {
         w += pw;
         h = std::max(h, ascent - TTF_FontAscent(pc.first) + ph);
     }
-    return {(float)w / m_pixelScale, (float)h / m_pixelScale};
+    const float ms = armTicksToNs(armGetSystemTick() - t0) / 1e6f;
+    if (ms > 4.f)
+        GpuDevice::logGpu("[font] measure (mixed) %.1f ms: %.48s", ms, text.c_str());
+    return m_measureCache[text] = {(float)w / m_pixelScale, (float)h / m_pixelScale};
 }
 
 void Font::clearCache() {
@@ -177,6 +235,7 @@ void Font::clearCache() {
     m_lruMap.clear();
     m_cacheBytes = 0;
     m_maintenanceRequested = false;
+    m_refused.clear();
 }
 
 void Font::trimCache(std::size_t maxEntries, std::size_t maxBytes) {
@@ -190,6 +249,7 @@ void Font::trimCache(std::size_t maxEntries, std::size_t maxBytes) {
         m_cacheBytes = bytes <= m_cacheBytes ? m_cacheBytes - bytes : 0;
     }
     m_maintenanceRequested = false;
+    m_refused.clear(); // room again: let the strings that were turned away retry
 }
 
 bool Font::renderTo(Renderer& ren, const std::string& text, Texture& out) {
@@ -220,7 +280,57 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
         return &it->second->tex;
     }
 
+    // No room right now (the cache is full, or this string was turned away
+    // moments ago): say no before rasterizing. Rendering through SDL_ttf is the
+    // expensive part, and the capacity check below used to run after it, so
+    // every uncached string was shaped and rasterized every frame and then
+    // thrown away — the multi-frame stalls when the caches were full or the
+    // picture memory was tight.
+    {
+        const std::uint64_t now = armGetSystemTick();
+        auto refused = m_refused.find(text);
+        if (refused != m_refused.end()) {
+            if (armTicksToNs(now - refused->second) < 250'000'000ULL)
+                return nullptr;
+            m_refused.erase(refused);
+        }
+        if (m_lruList.size() >= kMaxCacheEntries) {
+            m_maintenanceRequested = true;
+            if (m_refused.size() > 512) m_refused.clear();
+            m_refused[text] = now;
+            return nullptr;
+        }
+        // A raster costs several milliseconds on the screen's thread, and a
+        // frame that met a bunch of new strings at once (a screen change, the
+        // selection moving, the clock turning) drew them all in one go — the
+        // 50-100 ms draw spikes in perf.log, the stutter whenever something
+        // changed. A small budget per frame spreads them: the rest of the
+        // strings are drawn the frames after. Shared by every font: the
+        // screen draws with several at once, and a per-font budget let a
+        // single frame meet a dozen new strings.
+        const std::uint64_t win = g_rasterWindow.load(std::memory_order_relaxed);
+        if (now - win > armNsToTicks(16'000'000ULL)) {
+            g_rasterWindow.store(now, std::memory_order_relaxed);
+            g_rastersInWindow.store(0, std::memory_order_relaxed);
+        }
+        if (g_rastersInWindow.load(std::memory_order_relaxed) >= kMaxRastersPerFrame)
+            return nullptr; // (no memo: it is drawn the next frame)
+    }
+
+    // Instrumented: the whole new-string path (raster, convert, upload), so a
+    // slow one names itself in menu.log instead of staying a mystery spike.
+    struct NewTextTiming {
+        const std::string& text;
+        std::uint64_t t0;
+        ~NewTextTiming() {
+            const float ms = armTicksToNs(armGetSystemTick() - t0) / 1e6f;
+            if (ms > 4.f)
+                GpuDevice::logGpu("[font] new text %.1f ms: %.48s", ms, text.c_str());
+        }
+    } newTextTiming{text, armGetSystemTick()};
+
     // Render the string via SDL_ttf.
+    g_rastersInWindow.fetch_add(1, std::memory_order_relaxed); // budget above
     SDL_Color white = {255, 255, 255, 255};
     std::vector<std::pair<TTF_Font*, std::string>> pieces;
     SDL_Surface* surface = runs(text, pieces) ? renderRuns(pieces)
@@ -244,6 +354,8 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
         m_cacheBytes + estimatedBytes > static_cast<std::size_t>(kMaxCacheBytes * m_pixelScale * m_pixelScale) ||
         gpu.imageMemoryAvailable() < estimatedBytes + kGpuHeadroom) {
         m_maintenanceRequested = true;
+        if (m_refused.size() > 512) m_refused.clear();
+        m_refused[text] = armGetSystemTick();
         SDL_UnlockSurface(rgba);
         SDL_FreeSurface(rgba);
         return nullptr;
