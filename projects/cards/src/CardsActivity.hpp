@@ -346,6 +346,7 @@ private:
     int m_galleryAt = 0;
     int m_galleryPage = 0; // the grid's page (12 a page)
     void showGalleryPage(int page);
+    static std::vector<TitleChoice> galleryPage(const std::vector<std::string>& all, size_t from);
     std::shared_ptr<std::vector<std::string>> m_galleryAll; // every screenshot, newest first
     std::unique_ptr<nxui::Texture> m_galleryTex;
     std::future<Pixels> m_galleryJob;

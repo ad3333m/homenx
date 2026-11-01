@@ -2728,9 +2728,11 @@ void CardsActivity::openWallpapers(bool lockScreen) {
 }
 
 namespace {
+constexpr int kGalleryPage = 12; // the Album's grid: screenshots a page
+} // namespace
+
 // The Album's grid, a page at a time: the screenshots from `from`, shrunk.
-constexpr int kGalleryPage = 12;
-std::vector<TitleChoice> galleryPage(const std::vector<std::string>& all, size_t from) {
+std::vector<TitleChoice> CardsActivity::galleryPage(const std::vector<std::string>& all, size_t from) {
     std::vector<TitleChoice> out;
     for (size_t i = from; i < all.size() && i < from + kGalleryPage; ++i) {
         Pixels px = readPicture(all[i], 320);
@@ -2748,7 +2750,6 @@ std::vector<TitleChoice> galleryPage(const std::vector<std::string>& all, size_t
     }
     return out;
 }
-} // namespace
 
 // L / R (or past the grid's last row) for the next page of the Album.
 void CardsActivity::showGalleryPage(int page) {
