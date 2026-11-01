@@ -1159,6 +1159,7 @@ bool chooseTitleArt(const Game& game, const TitleChoice* choice) {
         return false;
     }
     writeFile(base + ".titleme", data); // empty: its own icon
+    forgetShown(game.id); // (the old one is kept as shown too)
     return true;
 }
 

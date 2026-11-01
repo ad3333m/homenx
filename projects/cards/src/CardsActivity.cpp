@@ -1046,11 +1046,20 @@ void CardsActivity::worker(int index) {
         const std::string shown =
             (job.what == kCard || job.what == kBackground || job.what == kIcon) && job.game.action.empty()
                 ? shownPath(job.game.id, std::string(job.what == kCard ? (m_boxArt.load() ? "c1" : "c0")
-                                             : job.what == kIcon ? "i" : "b")
+                                             : job.what == kIcon ? (m_titleArt ? "it" : "ip") : "b")
                                              + (key.empty() ? "" : "k") + "." + std::to_string(shownW))
                 : std::string();
+        // A cover's very small copy, read for every card at once when HOME starts.
+        auto keepSmall = [&]() {
+            std::vector<std::uint8_t> small = done.rgba;
+            int sw = done.w, sh = done.h;
+            shrink(small, sw, sh, 64);
+            writeShown(thumbPath(job.game.id), small, sw, sh, done.kind);
+        };
         if (!shown.empty() && readShown(shown, done.rgba, done.w, done.h, done.kind)) {
-            // (ready as it is)
+            // (ready as it is; a cover kept before the small copies existed gets its own now)
+            std::error_code ec;
+            if (job.what == kCard && !std::filesystem::exists(thumbPath(job.game.id), ec)) keepSmall();
         } else if (job.what == kBackground || job.what == kLaunch) {
             data = backgroundArt(look, key, done.kind);
         } else if (job.what == kCard) {
@@ -1088,21 +1097,17 @@ void CardsActivity::worker(int index) {
                 done.h = h;
                 // Kept as shown, when it's the picture for good (not one standing in while the
                 // internet is down: an eShop banner for a cover, a box for a background). An
-                // icon is always for good: a title picture now, the plain icon, both are kept.
+                // icon: its title picture, or the plain icon when there won't be one (title
+                // pictures off, an app) -- a plain icon kept while the search was busy or
+                // offline stayed for good, and the title pictures never came (build 174).
                 const bool forGood = job.what == kCard ? done.kind == ArtKind::Grid || done.kind == ArtKind::Box
                                                              || (done.kind == ArtKind::Banner && !m_boxArt.load())
-                                       : job.what == kIcon ? true
+                                       : job.what == kIcon ? !done.again && (done.kind == ArtKind::Title || !m_titleArt
+                                                                             || job.game.homebrew)
                                                            : done.kind == ArtKind::Banner;
                 if (!shown.empty() && forGood) {
                     writeShown(shown, done.rgba, w, h, done.kind);
-                    if (job.what == kCard) {
-                        // And a very small one, read for every card at once when
-                        // HOME starts (the full one follows through the workers).
-                        std::vector<std::uint8_t> small = done.rgba;
-                        int sw = w, sh = h;
-                        shrink(small, sw, sh, 64);
-                        writeShown(thumbPath(job.game.id), small, sw, sh, done.kind);
-                    }
+                    if (job.what == kCard) keepSmall(); // (the full one follows through the workers)
                 }
             }
         }
