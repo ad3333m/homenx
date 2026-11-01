@@ -27,25 +27,6 @@ def save(im, name):
     im.resize((96, 96), Image.LANCZOS).save(os.path.join(ROOT, "romfs", "icons", name + ".png"))
 
 
-def pointer():
-    """Look > Pointer: a white hand pointing up, dark edged (drawn in its own colours)."""
-    im = canvas(); d = ImageDraw.Draw(im)
-
-    def hand(grow, col):
-        g = q(grow)
-        d.rounded_rectangle([q(40) - g, q(6) - g, q(52) + g, q(56) + g], radius=q(6) + g, fill=col)  # the finger
-        for x in (52, 61, 70):  # the others, folded
-            d.rounded_rectangle([q(x) - g, q(38) - g, q(x + 10) + g, q(58) + g], radius=q(5) + g, fill=col)
-        d.rounded_rectangle([q(36) - g, q(46) - g, q(80) + g, q(86) + g], radius=q(14) + g, fill=col)  # the palm
-        d.rounded_rectangle([q(24) - g, q(52) - g, q(42) + g, q(66) + g], radius=q(7) + g, fill=col)  # the thumb
-
-    hand(3.5, (28, 32, 48, 255))
-    hand(0, (255, 255, 255, 255))
-    for x in (61, 70):
-        d.line([q(x), q(46), q(x), q(56)], fill=(196, 202, 218, 255), width=q(1.4))
-    return im
-
-
 def dots():
     im = canvas(); d = ImageDraw.Draw(im)
     for x in (30, 48, 66):
@@ -488,7 +469,7 @@ if __name__ == "__main__":
                      ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows),
                      ("wifi", wifi), ("airplane", airplane), ("sun", sun), ("speaker", speaker), ("prev", prev),
                      ("next", next_), ("pause", pause), ("repeat", repeat), ("shuffle", shuffle),
-                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad), ("nextendo", nextendo), ("pointer", pointer)]:
+                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad), ("nextendo", nextendo)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

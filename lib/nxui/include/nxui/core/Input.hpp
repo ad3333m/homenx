@@ -40,14 +40,6 @@ public:
     // (CardsNX: either stick moves through the games and every menu).
     void mergeRightStick();
 
-    // Drops a button for the rest of this frame (CardsNX's pointer: A only taps where it points).
-    void consume(Button b) {
-        const auto m = static_cast<uint64_t>(b);
-        m_kDown &= ~m;
-        m_kUp &= ~m;
-        m_kHeld &= ~m;
-    }
-
     bool isDown(Button b)     const;   // Pressed this frame
     bool isUp(Button b)       const;   // Released this frame
     bool isHeld(Button b)     const;   // Currently held
@@ -88,12 +80,12 @@ public:
     void setPointerMode(PointerMode mode);
     PointerMode pointerMode() const { return m_pointerMode; }
     bool stickPointerOn() const { return m_virtualPointerEnabled && m_pointerMode == PointerMode::Stick; }
-    void setVirtualPointerEnabled(bool enabled); // (CardsNX's Look > Pointer keeps it on)
 
 private:
     void recenterVirtualPointer();
     void startVirtualPointerSensors();
     void stopVirtualPointerSensors();
+    void setVirtualPointerEnabled(bool enabled);
     bool readActiveSixAxisState(HidSixAxisSensorState& out) const;
 
     PadState m_pad{};

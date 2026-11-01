@@ -488,7 +488,6 @@ bool CardsActivity::onCreate() {
 
     m_settings.load();
     setLanguage(m_settings.language);
-    applyPointer();
     m_boxArt = m_settings.boxArt;
     m_titleArt = m_settings.titlePics;
     applyTheme();
@@ -4671,11 +4670,6 @@ void CardsActivity::buildSettings() {
         save();
         if (m_settings.shuffleWall) shuffleWallpaper();
     }, "A different one of your pictures each time HOME starts"));
-    look.rows.push_back(toggle("Pointer", [this]() { return m_settings.pointer; }, [this, save]() {
-        m_settings.pointer = !m_settings.pointer;
-        save();
-        applyPointer();
-    }, "The left stick moves a hand; A taps where it points"));
 #ifdef SWITCHU_MENU
     { // Read when HOME starts (HomeNX's main.cpp): 1920x1080 when docked.
         std::string want;
@@ -5225,55 +5219,6 @@ std::string CardsActivity::netTestText(int row) {
         return t.signal >= 0 ? kBars[std::min(t.signal.load(), 3)] : stage == 0 ? "..." : "-";
     }
     }
-}
-
-void CardsActivity::applyPointer() {
-    auto& in = app().input();
-    in.setPointerMode(nxui::Input::PointerMode::Stick);
-    in.setVirtualPointerShortcutsEnabled(false);
-    in.setVirtualPointerEnabled(m_settings.pointer);
-}
-
-void CardsActivity::updatePointer(float dt) {
-    auto& in = app().input();
-    if (m_settings.pointer) {
-        in.setVirtualPointerEnabled(true); // (the D-pad and the right stick switch it off in nxui)
-        if (!m_locked) in.consume(nxui::Button::A); // A taps where it points, it doesn't press too
-    }
-    const bool show = m_settings.pointer && !m_locked && !m_leaving;
-    m_ptrIn = std::clamp(m_ptrIn + (show ? dt : -dt) * 5.f, 0.f, 1.f);
-    const float tx = in.virtualPointerX(), ty = in.virtualPointerY();
-    const float dx = tx - m_ptrX, dy = ty - m_ptrY;
-    const float follow = m_settings.motion ? std::min(1.f, dt * 28.f) : 1.f; // a little behind: it glides
-    m_ptrX += dx * follow;
-    m_ptrY += dy * follow;
-    m_ptrSpeed += (std::min(1.f, std::sqrt(dx * dx + dy * dy) / 60.f) - m_ptrSpeed) * std::min(1.f, dt * 10.f);
-    m_ptrStill = m_ptrSpeed > 0.05f ? 0.f : m_ptrStill + dt;
-    m_ptrPress += ((in.isTouching() ? 1.f : 0.f) - m_ptrPress) * std::min(1.f, dt * 22.f);
-    if (in.touchDown() && m_ptrIn > 0.f) {
-        m_ptrRipple = 0.f;
-        m_ptrRippleX = tx;
-        m_ptrRippleY = ty;
-    }
-    m_ptrRipple = std::min(1.f, m_ptrRipple + dt * 2.6f);
-}
-
-void CardsActivity::drawPointer(nxui::Renderer& r) {
-    if (m_ptrIn <= 0.f) return;
-    const float a = easeOut(m_ptrIn);
-    if (m_ptrRipple < 1.f) { // a ring where it tapped
-        const float e = easeOut(m_ptrRipple), rad = 8.f + 30.f * e;
-        r.drawRoundedRectOutline({m_ptrRippleX - rad, m_ptrRippleY - rad, rad * 2.f, rad * 2.f}, accent((1.f - e) * a), rad,
-                                 3.f * (1.f - e) + 1.f);
-    }
-    // Resting: a slow float. Pressed: it sinks in. Turned on: it grows into place.
-    const float bob = m_ptrStill > 1.f ? std::sin((m_ptrStill - 1.f) * 2.6f) * 3.f * std::min(1.f, m_ptrStill - 1.f) : 0.f;
-    const float size = 54.f * (1.f - 0.16f * m_ptrPress) * (0.7f + 0.3f * easeOutBack(m_ptrIn));
-    // The icon's fingertip is at (0.48, 0.06) of it: that's where it points.
-    const float cx = m_ptrX + size * 0.02f, cy = m_ptrY + size * 0.44f + bob;
-    const float lift = 4.f + 7.f * m_ptrSpeed - 3.f * m_ptrPress; // its shadow drops further while it moves
-    icon(r, "pointer", cx + lift, cy + lift * 1.3f, size, nxui::Color(0.f, 0.f, 0.f, 0.32f * a));
-    icon(r, "pointer", cx, cy, size, kWhite.withAlpha(a));
 }
 
 void CardsActivity::openUpdateLog() {
@@ -6479,7 +6424,6 @@ void CardsActivity::onUpdate(float dt) {
     step(m_sheen, 0.8f);
     step(m_menuIn, 0.2f);
     step(m_logIn, 0.2f);
-    updatePointer(dt);
     step(m_pressT, 0.22f);
     step(m_bgFade, 0.45f);
     step(m_sheetIn, 0.24f);
@@ -7177,7 +7121,6 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawLaunch(r);
     drawReturn(r);
     drawLock(r);
-    drawPointer(r);
     drawStep("after drawing"); // (ends the last step's time)
 }
 
