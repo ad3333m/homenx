@@ -219,3 +219,23 @@ jobs:
           gh release upload latest out/HomeNX-full.zip -R "$R" --clobber
           # Title last: HomeNX Toggle treats "HomeNX build N" as "zip N is ready".
           gh release edit latest -R "$GITHUB_REPOSITORY" --title "HomeNX build $HOMENX_BUILD"
+
+  # Discord: "build N is out" and the update log, once both jobs published the
+  # build (webhooks in the repo's Actions secrets; none set, nothing is sent).
+  announce:
+    needs: [nro, frontend]
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 80
+      - name: Announce the build on Discord
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILDS_HOOK: ${{ secrets.DISCORD_BUILDS_WEBHOOK }}
+          NEWS_HOOK: ${{ secrets.DISCORD_NEWS_WEBHOOK }}
+        run: python3 tools/announce_build.py
