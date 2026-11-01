@@ -39,6 +39,7 @@ void AppletLauncher::setStartupStatus(uint64_t suspendedTitleId, bool appRunning
     m_suspendedTitleId = suspendedTitleId;
     m_appRunning       = appRunning;
     m_appHasForeground = false;
+    if (!appRunning && !suspendedTitleId) restoreHbmenu(); // nothing open: no homebrew session to keep
     DebugLog::log("[launcher] startup status: suspended=0x%016lX running=%d",
                   suspendedTitleId, appRunning);
 }
@@ -285,6 +286,15 @@ bool AppletLauncher::installLoader() {
     }
     DebugLog::log("[launcher] HomeNX Loader installed as hbmenu.nro (%zu bytes)", loader.size());
     return true;
+}
+
+void AppletLauncher::restoreHbmenu() {
+    std::error_code ec;
+    if (!std::filesystem::exists(kHbmenuOriginal, ec) || !nroNamed(kHbmenu, "HomeNX-Loader")) return;
+    std::filesystem::remove(kHbmenu, ec);
+    ec.clear();
+    std::filesystem::rename(kHbmenuOriginal, kHbmenu, ec);
+    DebugLog::log("[launcher] the user's hbmenu.nro is back (ec=%d)", ec.value());
 }
 
 // The updaters only write inside HomeNX's folders, so apps that live elsewhere
@@ -562,8 +572,8 @@ static bool startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid
 }
 
 bool AppletLauncher::launchSphaira(uint64_t hostTitleId, AccountUid uid) {
-    std::remove(kLoaderNext); // no request: the Loader opens Sphaira
     if (!installLoader()) return false;
+    writeLine(kLoaderNext, "sphaira"); // (with nothing asked, the Loader opens the user's own hbmenu)
     startHomebrew(*this, hostTitleId, uid, m_cb);
     return true;
 }
@@ -679,6 +689,7 @@ bool AppletLauncher::launchNro(const std::string& path, uint64_t, AccountUid, bo
 }
 
 bool AppletLauncher::installLoader() { return true; }
+void AppletLauncher::restoreHbmenu() {}
 const std::string& AppletLauncher::loaderError() { static const std::string none; return none; }
 void AppletLauncher::installBundledApps() {}
 bool AppletLauncher::prepareHbl() { return false; }

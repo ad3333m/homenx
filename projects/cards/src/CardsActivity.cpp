@@ -2134,10 +2134,14 @@ void CardsActivity::openHomebrewUpdates() {
 // the one open). 0: over the Album instead.
 std::uint64_t CardsActivity::hostTitleId() const {
     using namespace switchu::ns;
-    for (const Game& g : m_pages[kGames])
-        if (g.id && !isRunning(g.id) && g.path.empty() && !g.homebrew // apps moved onto Games aren't games to borrow
-            && (g.flags == 0 || ((g.flags & AppViewFlag_CanLaunch) && !(g.flags & AppViewFlag_IsGameCard))))
-            return g.id;
+    // An official game (0100...) first; a patched app (0500...) only when there's none.
+    // (Build 165 borrowed an NRO forwarder moved onto Games: no homebrew opened.)
+    for (const bool official : {true, false})
+        for (const Game& g : m_pages[kGames])
+            if (g.id && !isRunning(g.id) && g.path.empty() && !g.homebrew // apps moved onto Games aren't games to borrow
+                && (!official || (g.id >> 56) == 0x01)
+                && (g.flags == 0 || ((g.flags & AppViewFlag_CanLaunch) && !(g.flags & AppViewFlag_IsGameCard))))
+                return g.id;
     return 0;
 }
 

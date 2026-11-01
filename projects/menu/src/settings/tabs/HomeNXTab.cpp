@@ -218,6 +218,25 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         t.items.push_back(std::move(it));
     }
     {
+        // WiiUMenuApp reads the same flag when a game starts.
+        static constexpr const char* kAskFlag = "sdmc:/config/SwitchU/ask_user";
+        std::error_code ec;
+        SettingItem it;
+        it.label = i18n.tr("settings.homenx.ask_user", "Ask who's playing");
+        it.description = i18n.tr("settings.homenx.ask_user_desc",
+            "Starting a game shows the users first, each time, as Nintendo's HOME does.");
+        it.type = ItemType::Toggle;
+        it.boolVal = std::filesystem::exists(kAskFlag, ec);
+        it.onChange = [](SettingItem& self) {
+            std::error_code err;
+            if (self.boolVal)
+                std::ofstream(kAskFlag) << "1";
+            else
+                std::filesystem::remove(kAskFlag, err);
+        };
+        t.items.push_back(std::move(it));
+    }
+    {
         // WiiUMenuApp::lockScreenOn reads the same flag.
         static constexpr const char* kLockFlag = "sdmc:/config/SwitchU/lock_screen";
         std::error_code ec;

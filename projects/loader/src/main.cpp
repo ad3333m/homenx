@@ -1,8 +1,9 @@
-// HomeNX Loader: the HomeNX frontend installs this as sdmc:/hbmenu.nro.
-// Atmosphere's homebrew loader starts sdmc:/hbmenu.nro on every visit and
-// again after every app exits, so this hands over straight away: to the .nro
-// HomeNX asked for (Homebrew page), else to Sphaira (HomeNX ships its own copy),
-// else to the hbmenu that was there before. No UI, it only picks the next .nro.
+// HomeNX Loader: the HomeNX frontend installs this as sdmc:/hbmenu.nro just
+// before it starts homebrew. Atmosphere's homebrew loader starts sdmc:/hbmenu.nro
+// on every visit and again after every app exits, so this hands over straight
+// away: to the .nro HomeNX asked for (Homebrew page) or Sphaira. When that app
+// exits it puts the hbmenu that was there before back, so the Album opens the
+// user's own (and keeps working if HomeNX is removed). No UI.
 #include <switch.h>
 #include <cstdio>
 #include <cstring>
@@ -14,6 +15,7 @@ namespace {
 constexpr const char* kNext = "sdmc:/config/SwitchU/hbl_next.txt";        // one-shot request
 constexpr const char* kSphairaPath = "sdmc:/config/SwitchU/sphaira_path.txt";
 constexpr const char* kOriginal = "sdmc:/hbmenu.nro.homenx-original";
+constexpr const char* kHbmenu = "sdmc:/hbmenu.nro";
 constexpr const char* kBundledSphaira = "sdmc:/switch/SwitchU/bin/sphaira.nro"; // ships with HomeNX
 // Process id we already handed over in. The homebrew loader starts us again
 // whenever the .nro we chose exits, so seeing our own process id here means the
@@ -54,6 +56,21 @@ bool chain(const std::string& path) {
     return true;
 }
 
+// The hbmenu that was there before, back in its place (this program is already
+// loaded). None kept: the Loader stays, or the Album would have nothing to open.
+void restoreHbmenu() {
+    if (!exists(kOriginal)) return;
+    std::remove(kHbmenu);
+    std::rename(kOriginal, kHbmenu);
+}
+
+bool chainSphaira() {
+    if (chain(kBundledSphaira) || chain(readLine(kSphairaPath))) return true;
+    for (const char* path : {"sdmc:/switch/sphaira/sphaira.nro", "sdmc:/switch/sphaira.nro"})
+        if (chain(path)) return true;
+    return false;
+}
+
 // An NRO forwarder (an installed title, ID 05...) runs the homebrew loader with
 // its own .nro; we only run in it once that .nro has exited.
 bool inForwarder() {
@@ -65,8 +82,9 @@ bool inForwarder() {
 } // namespace
 
 int main(int argc, char** argv) {
-    if (readLine(kChained) == processId()) {
+    if (readLine(kChained) == processId()) { // the app we started exited: back to HOME
         std::remove(kChained);
+        restoreHbmenu();
         svcExitProcess();
     }
     // Started with an .nro to run (forwarders that go through hbmenu): run it.
@@ -77,15 +95,16 @@ int main(int argc, char** argv) {
     const std::string next = readLine(kNext);
     if (!next.empty()) {
         std::remove(kNext);
-        if (chain(next)) return 0;
+        if (next == "sphaira" ? chainSphaira() : chain(next)) return 0;
     }
     // A forwarder's app closed: back to HOME, not into Sphaira.
     if (inForwarder()) svcExitProcess();
-    if (chain(kBundledSphaira)) return 0;
-    if (chain(readLine(kSphairaPath))) return 0;
-    for (const char* path : {"sdmc:/switch/sphaira/sphaira.nro", "sdmc:/switch/sphaira.nro"})
-        if (chain(path)) return 0;
-    if (chain(kOriginal)) return 0;
+    // Opened with nothing asked (the Album): the user's own hbmenu, put back.
+    if (exists(kOriginal)) {
+        restoreHbmenu();
+        if (R_SUCCEEDED(envSetNextLoad(kHbmenu, "\"sdmc:/hbmenu.nro\""))) return 0;
+    }
+    if (chainSphaira()) return 0;
     // Nothing to run. Returning would make the loader start us again forever,
     // so end the process; the console goes back to the HOME menu.
     svcExitProcess();

@@ -4397,7 +4397,10 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
         // StartupUserAccount=2 specifically requires a Nintendo Account.
         // libnx only validates that condition through the network-aware silent
         // selector, so do not blindly inject a configured local default UID.
-        if (m_config.defaultProfileEnabled && entry->startupUserAccount != 2) {
+        // Settings > HomeNX > Ask who's playing: the users each time (not the saved one).
+        std::error_code askEc;
+        const bool ask = std::filesystem::exists("sdmc:/config/SwitchU/ask_user", askEc);
+        if (m_config.defaultProfileEnabled && entry->startupUserAccount != 2 && !ask) {
             AccountUid defaultUid{};
             if (hexToAccountUid(m_config.defaultProfileUid, defaultUid)) {
                 startLaunch(defaultUid);
@@ -4407,8 +4410,8 @@ void WiiUMenuApp::activateApplication(GlossyIcon* source, AppEntry* entry,
 
         AccountUid silentUid{};
         const bool networkRequired = entry->startupUserAccount == 2;
-        const Result silentResult = accountTrySelectUserWithoutInteraction(
-            &silentUid, networkRequired);
+        const Result silentResult = ask ? MAKERESULT(Module_Libnx, LibnxError_NotFound)
+                                        : accountTrySelectUserWithoutInteraction(&silentUid, networkRequired);
         if (R_SUCCEEDED(silentResult) && accountUidIsValid(&silentUid)) {
             startLaunch(silentUid);
             return;

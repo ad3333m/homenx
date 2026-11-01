@@ -278,7 +278,7 @@ int main(int argc, char* argv[]) {
     // the Loader itself.
     if (startMode == switchu::smi::MenuStartMode::StartupBoot) {
         switchu::manager::ReleaseUpdater::applyPending();
-        AppletLauncher::installLoader();
+        AppletLauncher::restoreHbmenu(); // (the Loader goes in only to start homebrew)
         AppletLauncher::installBundledApps();
         AppletLauncher::prepareHbl();
     }

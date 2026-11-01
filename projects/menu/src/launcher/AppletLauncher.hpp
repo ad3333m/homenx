@@ -26,6 +26,10 @@ public:
     // as hbmenu.nro.homenx-original). Call when the menu starts.
     static bool installLoader(); // false if the Loader file is missing or the copy failed
     static const std::string& loaderError(); // why installLoader() failed
+    // The user's own hbmenu.nro back (kept as hbmenu.nro.homenx-original) while
+    // HomeNX isn't starting homebrew: the Album opens it, and it keeps working
+    // when HomeNX is removed. The Loader is installed only to start homebrew.
+    static void restoreHbmenu();
     // Frontend: copies NXToggle shipped in switch/SwitchU/bin/ to
     // switch/NXToggle/ (a running Toggle can't replace its own .nro).
     static void installBundledApps(); // the Toggle and the Discord overlay
