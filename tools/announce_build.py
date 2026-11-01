@@ -31,7 +31,7 @@ def changes():
 
 
 def post(hook, embed):
-    body = json.dumps({"username": "HomeNX", "allowed_mentions": NO_PINGS, "embeds": [embed]}).encode()
+    body = json.dumps({"username": "Claudey", "allowed_mentions": NO_PINGS, "embeds": [embed]}).encode()
     req = urllib.request.Request(hook, data=body, headers={"Content-Type": "application/json",
                                                            "User-Agent": "HomeNX-CI"})
     urllib.request.urlopen(req, timeout=20).read()
