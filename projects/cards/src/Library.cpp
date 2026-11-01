@@ -11,6 +11,7 @@
 #include "themeshop/ThemeHttp.hpp"
 #endif
 #include <curl/curl.h>
+#include <zlib.h>
 #include <nlohmann/json.hpp>
 #include <nxui/third_party/stb/stb_image.h>
 
@@ -834,7 +835,71 @@ bool artCached(const Game& game, bool title) {
 
 // "Download them again" puts the old ones aside (kept/): if the new one can't
 // be had -- taken down for DMCA since -- the old one comes back (keptBack).
+std::string shownPath(std::uint64_t id, const std::string& what) {
+    return std::string(kCacheDir) + "/shown/" + hexId(id) + "." + what;
+}
+
+// Kept as each pixel less the one on its left (neighbours are alike: small numbers),
+// deflated: smaller than the files they came from, and opened in a few ms (opening
+// and shrinking a cover's own file took 0.1 s or more).
+bool readShown(const std::string& path, std::vector<std::uint8_t>& rgba, int& w, int& h, ArtKind& kind) {
+    const std::vector<std::uint8_t> data = readFile(path);
+    std::int32_t head[4] = {};
+    if (data.size() <= sizeof(head)) return false;
+    std::memcpy(head, data.data(), sizeof(head));
+    if (head[0] != 0x32584E43 || head[1] <= 0 || head[2] <= 0 || head[1] > 4096 || head[2] > 4096) return false; // "CNX2"
+    uLongf bytes = static_cast<uLongf>(head[1]) * static_cast<uLongf>(head[2]) * 4u;
+    rgba.resize(bytes);
+    if (uncompress(rgba.data(), &bytes, data.data() + sizeof(head), static_cast<uLong>(data.size() - sizeof(head))) != Z_OK
+        || bytes != rgba.size()) {
+        rgba.clear();
+        return false;
+    }
+    const size_t row = static_cast<size_t>(head[1]) * 4u;
+    for (size_t y = 0; y < static_cast<size_t>(head[2]); ++y) {
+        std::uint8_t* p = rgba.data() + y * row;
+        for (size_t i = 4; i < row; ++i) p[i] = static_cast<std::uint8_t>(p[i] + p[i - 4]);
+    }
+    w = head[1];
+    h = head[2];
+    kind = static_cast<ArtKind>(head[3]);
+    return true;
+}
+
+void writeShown(const std::string& path, const std::vector<std::uint8_t>& rgba, int w, int h, ArtKind kind) {
+    static std::once_flag made;
+    std::call_once(made, [] {
+        std::error_code ec;
+        std::filesystem::create_directories(std::string(kCacheDir) + "/shown", ec);
+    });
+    const size_t row = static_cast<size_t>(w) * 4u;
+    if (w <= 0 || h <= 0 || rgba.size() != row * static_cast<size_t>(h)) return;
+    std::vector<std::uint8_t> diff(rgba.size());
+    for (size_t y = 0; y < static_cast<size_t>(h); ++y) {
+        const std::uint8_t* p = rgba.data() + y * row;
+        std::uint8_t* d = diff.data() + y * row;
+        for (size_t i = 0; i < row; ++i) d[i] = static_cast<std::uint8_t>(i < 4 ? p[i] : p[i] - p[i - 4]);
+    }
+    const std::int32_t head[4] = {0x32584E43, w, h, static_cast<std::int32_t>(kind)};
+    uLongf size = compressBound(static_cast<uLong>(diff.size()));
+    std::string data(sizeof(head) + size, '\0');
+    std::memcpy(data.data(), head, sizeof(head));
+    if (compress2(reinterpret_cast<Bytef*>(data.data() + sizeof(head)), &size, diff.data(), static_cast<uLong>(diff.size()), 1)
+        != Z_OK)
+        return;
+    data.resize(sizeof(head) + size);
+    writeLater(path, std::move(data));
+}
+
+void forgetShown(std::uint64_t id) {
+    const std::string start = hexId(id) + ".";
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(std::string(kCacheDir) + "/shown", ec))
+        if (e.path().filename().string().rfind(start, 0) == 0) std::filesystem::remove(e.path(), ec);
+}
+
 void forgetArt(std::uint64_t id) {
+    forgetShown(id);
     std::error_code ec;
     const std::string kept = std::string(kCacheDir) + "/kept";
     std::filesystem::create_directories(kept, ec);
@@ -1057,6 +1122,7 @@ std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, s
 }
 
 bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
+    forgetShown(game.id);
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bgme";
     std::error_code ec;
     if (!choice) {
@@ -1070,6 +1136,7 @@ bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
 }
 
 bool chooseCoverArt(const Game& game, const TitleChoice* choice) {
+    forgetShown(game.id);
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".coverme";
     if (!choice) {
         std::error_code ec;

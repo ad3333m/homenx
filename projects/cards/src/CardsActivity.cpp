@@ -538,15 +538,7 @@ bool CardsActivity::onCreate() {
         || !m_fCount.load(gpu, ren, f7, 21))
         return false;
     const std::uint64_t tIcons = armGetSystemTick();
-    for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
-                             "power", "music", "news", "discord", "arrows", "wifi", "airplane", "sun", "speaker",
-                             "prev", "next", "pause", "repeat", "shuffle", "playlist", "moon", "restart", "hekate",
-                             "download", "trash", "pad", "nextendo", "bluetooth", "pointer"}) {
-        auto tex = std::make_unique<nxui::Texture>();
-        nxui::GpuDevice::EssentialScope essential; // the buttons always draw
-        if (tex->loadFromFile(gpu, ren, std::string(kAssets) + "icons/" + name + ".png", 96))
-            m_icons[name] = std::move(tex);
-    }
+    // (The buttons' icons load the first time each is drawn: see icon().)
 
     // The pages: games; homebrew (.nro apps, then NRO forwarders); Nintendo.
     // Last time's lists show at once. Reading every game and .nro takes
@@ -665,7 +657,7 @@ bool CardsActivity::onCreate() {
     for (int i = 0; i < 3; ++i) m_threads.emplace_back([this, i]() { worker(i); });
     if (m_settings.perfLog) m_threads.emplace_back([this]() { watchdog(); });
     wantArt();
-    m_intro = m_settings.motion ? 0.f : 1.f;
+    m_intro = m_settings.motion && !m_startSuspended && !m_startRunning ? 0.f : 1.f; // back from a game: just there
 #ifdef SWITCHU_MENU
     if (m_atBoot && m_settings.lockScreen) lock();
 #endif
@@ -963,7 +955,16 @@ void CardsActivity::worker(int index) {
         const std::uint64_t jobStart = armGetSystemTick();
         const Game look = forLookup(job.game); // (renamed: its pictures are found by its real name)
         std::vector<std::uint8_t> data;
-        if (job.what == kBackground || job.what == kLaunch) {
+        // Covers and backgrounds as shown last time (by size, box art, SteamGridDB or not).
+        const int shownW = job.what == kCard ? static_cast<int>(300.f * m_pictureScale) : 1280;
+        const std::string shown =
+            (job.what == kCard || job.what == kBackground) && job.game.action.empty()
+                ? shownPath(job.game.id, std::string(job.what == kCard ? (m_boxArt.load() ? "c1" : "c0") : "b")
+                                             + (key.empty() ? "" : "k") + "." + std::to_string(shownW))
+                : std::string();
+        if (!shown.empty() && readShown(shown, done.rgba, done.w, done.h, done.kind)) {
+            // (ready as it is)
+        } else if (job.what == kBackground || job.what == kLaunch) {
             data = backgroundArt(look, key, done.kind);
         } else if (job.what == kCard) {
             data = cardArt(look, key, m_boxArt.load(), done.kind);
@@ -998,6 +999,12 @@ void CardsActivity::worker(int index) {
                 else shrink(done.rgba, w, h, maxW);
                 done.w = w;
                 done.h = h;
+                // Kept as shown, when it's the picture for good (not one standing in while the
+                // internet is down: an eShop banner for a cover, a box for a background).
+                const bool forGood = job.what == kCard ? done.kind == ArtKind::Grid || done.kind == ArtKind::Box
+                                                             || (done.kind == ArtKind::Banner && !m_boxArt.load())
+                                                       : done.kind == ArtKind::Banner;
+                if (!shown.empty() && forGood) writeShown(shown, done.rgba, w, h, done.kind);
             }
         }
         const float took = ticksMs(armGetSystemTick() - jobStart);
@@ -2873,6 +2880,7 @@ void CardsActivity::openOptions() {
                 else list.push_back(key);
                 m_settings.save();
                 applyNames();
+                forgetShown(id);
                 auto it = m_art.find(id);
                 if (it != m_art.end()) { // its card again, the other way
                     it->second.cardAsked = false;
@@ -6358,9 +6366,9 @@ void CardsActivity::onUpdate(float dt) {
     // in CardsNX already read their buttons before this).
     app().input().mergeRightStick();
     updateSpotify();
-    if (m_returnTex) { // the game's picture has landed in its card
-        m_returnT += dt;
-        if (m_returnT > 0.4f) m_returnTex.reset();
+    if (m_returnTex) { // (shown while HOME started; HOME is there now, at once)
+        app().gpu().waitIdle(); // it may still be drawing
+        m_returnTex.reset();
     }
     // Frame times for the log: the time since the last frame, and what the last one did.
     const std::uint64_t frameTick = armGetSystemTick();
@@ -7177,7 +7185,14 @@ void CardsActivity::draw(nxui::Renderer& r) {
 
 void CardsActivity::icon(nxui::Renderer& r, const char* name, float cx, float cy, float size, const nxui::Color& tint) {
     auto it = m_icons.find(name);
-    if (it == m_icons.end() || !it->second->valid()) return;
+    if (it == m_icons.end()) { // the first time it's drawn: all 34 at start made HOME come back slower
+        auto tex = std::make_unique<nxui::Texture>();
+        nxui::GpuDevice::EssentialScope essential; // the buttons always draw
+        if (!tex->loadFromFile(app().gpu(), app().renderer(), std::string(kAssets) + "icons/" + name + ".png", 96))
+            tex.reset(); // (not there: not asked for again)
+        it = m_icons.emplace(name, std::move(tex)).first;
+    }
+    if (!it->second || !it->second->valid()) return;
     r.drawTexture(it->second.get(), {cx - size * 0.5f, cy - size * 0.5f, size, size}, tint);
 }
 

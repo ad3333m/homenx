@@ -114,6 +114,13 @@ std::vector<std::pair<long long, std::string>> steamGridDbFind(const std::string
 // When each was last played (POSIX seconds), from the console's play log.
 std::map<std::uint64_t, std::uint64_t> lastPlayTimes(const std::vector<std::uint64_t>& ids);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
+// Covers and backgrounds as they're shown (opened and shrunk), kept compressed in cards/shown/:
+// read as they are next time. Opening and shrinking a cover took 0.1 to 1 s at every
+// start of HOME (and HOME starts again after every game).
+std::string shownPath(std::uint64_t id, const std::string& what);
+bool readShown(const std::string& path, std::vector<std::uint8_t>& rgba, int& w, int& h, ArtKind& kind);
+void writeShown(const std::string& path, const std::vector<std::uint8_t>& rgba, int w, int h, ArtKind kind);
+void forgetShown(std::uint64_t id); // its picture changed (chosen, downloaded again, a full card)
 // The game's own picture with no background (the Wonder Flower for Super Mario
 // Bros. Wonder): the first SteamGridDB icon with clear edges. Empty: none.
 // busy: another search was running (it's asked again a little later).
