@@ -3,6 +3,8 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -25,33 +27,53 @@ inline void set(const std::string& picture) {
     std::ofstream(kPath) << picture;
 }
 
-// The newest screenshots in the Album, newest first (its folders are the date).
+// Where the Album is: the SD card's, and emuMMC's own when it runs one (its
+// emummc.ini's nintendo_path) -- its screenshots are there, not in
+// sdmc:/Nintendo ("the Album doesn't show all your photos").
+inline std::vector<std::string> albumFolders() {
+    std::vector<std::string> out{"sdmc:/Nintendo/Album"};
+    std::ifstream ini("sdmc:/emuMMC/emummc.ini");
+    std::string line, nintendo;
+    bool enabled = false;
+    while (std::getline(ini, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.rfind("enabled=", 0) == 0) enabled = line.substr(8) != "0";
+        if (line.rfind("nintendo_path=", 0) == 0) nintendo = line.substr(14);
+    }
+    while (!nintendo.empty() && nintendo.front() == '/') nintendo.erase(0, 1);
+    if (enabled && !nintendo.empty()) out.push_back("sdmc:/" + nintendo + "/Album");
+    return out;
+}
+
+// The newest screenshots in every Album, newest first (its folders are the date:
+// year, month, day; the files start with the time).
 inline std::vector<std::string> newestScreenshots(size_t count) {
-    auto newestDirs = [](const std::string& dir) {
-        std::vector<std::string> out;
+    using Named = std::map<std::string, std::vector<std::string>, std::greater<>>;
+    auto inside = [](const std::vector<std::string>& dirs, bool pictures) { // by name, the newest first
+        Named out;
         std::error_code ec;
-        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
-            if (e.is_directory(ec)) out.push_back(e.path().string());
-        std::sort(out.rbegin(), out.rend());
+        for (const std::string& dir : dirs)
+            for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+                if (pictures) {
+                    std::string ext = e.path().extension().string();
+                    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+                    if (!e.is_regular_file(ec) || ext != ".jpg") continue;
+                } else if (!e.is_directory(ec)) {
+                    continue;
+                }
+                out[e.path().filename().string()].push_back(e.path().string());
+            }
         return out;
     };
     std::vector<std::string> shots;
-    std::error_code ec;
-    for (const std::string& year : newestDirs("sdmc:/Nintendo/Album"))
-        for (const std::string& month : newestDirs(year))
-            for (const std::string& day : newestDirs(month)) {
-                std::vector<std::string> files;
-                for (const auto& e : std::filesystem::directory_iterator(day, ec)) {
-                    std::string ext = e.path().extension().string();
-                    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
-                    if (e.is_regular_file(ec) && ext == ".jpg") files.push_back(e.path().string());
-                }
-                std::sort(files.rbegin(), files.rend());
-                for (const std::string& f : files) {
-                    if (shots.size() >= count) return shots;
-                    shots.push_back(f);
-                }
-            }
+    for (const auto& year : inside(albumFolders(), false))
+        for (const auto& month : inside(year.second, false))
+            for (const auto& day : inside(month.second, false))
+                for (const auto& shot : inside(day.second, true))
+                    for (const std::string& file : shot.second) {
+                        if (shots.size() >= count) return shots;
+                        shots.push_back(file);
+                    }
     return shots;
 }
 

@@ -867,9 +867,16 @@ static bool closeHomebrewApp(const char* why);
 static Result launchPendingHomeMenu() {
     if (!g_pendingHomeMenuLaunch)
         return 0;
-    // HomeNX: homebrew running in a borrowed game (Sphaira) closes on HOME, so
-    // that game doesn't stay "open" on the HOME menu.
-    closeHomebrewApp("home");
+    // HomeNX: homebrew running in a borrowed game (Sphaira) stays open on HOME, to
+    // resume as a game is, when CardsNX is HOME (it knows which app runs in that
+    // game) -- unless its Settings > Home > Keep homebrew open is off (this file).
+    // Otherwise it closes, and that game isn't left "open".
+    std::error_code closeEc;
+    std::string frontend;
+    std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), frontend);
+    if (frontend.rfind("cards", 0) != 0
+        || std::filesystem::exists("sdmc:/config/SwitchU/homebrew_close_on_home", closeEc))
+        closeHomebrewApp("home");
 
     const char* source = g_pendingHomeMenuSource ? g_pendingHomeMenuSource : "home";
     const uint64_t startedAt = g_pendingHomeMenuStartedAt;

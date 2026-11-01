@@ -99,6 +99,7 @@ private:
     struct Job {
         Game game;
         int what = kCard;
+        int gen = 0; // m_artGen when asked (see forgetAllArt)
     };
     struct Done {
         std::uint64_t id = 0;
@@ -109,7 +110,14 @@ private:
         bool again = false; // an icon for now: its title picture is asked for again
         std::vector<std::uint8_t> small; // a cover's very small copy (m_thumbs)
         int sw = 0, sh = 0;
+        int gen = 0;
     };
+    // Bumped when every picture is let go (a Pictures setting changed): what was
+    // being made for the old setting is dropped when it arrives.
+    int m_artGen = 0;
+    // The queue is cleared (a page switch, a new order): what was asked and isn't
+    // here yet is asked for again near the new selection.
+    void requeueArt();
     // A row in a popup or in Settings.
     struct MenuItem {
         enum Kind { Action, Toggle, Choice, Slider, Info };
@@ -152,6 +160,8 @@ private:
     void switchPage(int dir);     // the next / previous page in your order
     void goToPage(int page, int dir = 0);
     int pagePos(int page) const;  // where it is in your order
+    bool pageHidden(int page) const; // Settings > Home > Pages to show
+    int firstShownPage() const;
     void sortGames(int sort, bool keepChoice = true);
     void selectById(std::uint64_t id); // its page and card, straight away
     std::uint64_t m_backTo = 0;        // back from this game: it stays chosen until you move
@@ -179,6 +189,7 @@ private:
     std::future<bool> m_getJob;
     std::string m_getPath, m_getName;
     void openPageOrder(int select);
+    void openPageShow();
     std::vector<std::string> m_sheetNames; // Settings > Home > Settings tab order, while it's open
     void openSheetOrder();
     void startListRefresh(bool gamesOnly = false); // read the lists again on a thread (unless that's running)
@@ -333,6 +344,8 @@ private:
     void loadGalleryPicture();
     bool m_galleryView = false;
     int m_galleryAt = 0;
+    int m_galleryPage = 0; // the grid's page (12 a page)
+    void showGalleryPage(int page);
     std::shared_ptr<std::vector<std::string>> m_galleryAll; // every screenshot, newest first
     std::unique_ptr<nxui::Texture> m_galleryTex;
     std::future<Pixels> m_galleryJob;
@@ -450,11 +463,13 @@ private:
     struct Thumb {
         std::unique_ptr<nxui::Texture> tex;
         float in = 0.f;
+        ArtKind kind = ArtKind::Grid; // (a box cover's red band is trimmed, as the full one's)
     };
     struct ThumbPixels {
         std::uint64_t id = 0;
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
+        ArtKind kind = ArtKind::Grid;
     };
     std::map<std::uint64_t, Thumb> m_thumbs;
     std::vector<ThumbPixels> m_thumbUploads;
@@ -689,7 +704,10 @@ private:
     bool m_startRunning = false;
     bool m_atBoot = true;
     AppletLauncher m_launcher;
-    std::uint64_t m_pendingLaunch = 0; // starts once the open game has closed
+    std::uint64_t m_pendingLaunch = 0; // starts once the open game has closed (a game's id, or a .nro's)
+    void resumeOpen(int index);
+    void askCloseFirst(std::uint64_t open, const std::string& title, std::uint64_t next);
+    void syncHomebrewFlag(); // Settings > Home > Keep homebrew open, for the daemon
     bool m_asleep = false;
     void pumpDaemon();
     std::uint64_t hostTitleId() const;

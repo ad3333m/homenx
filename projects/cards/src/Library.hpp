@@ -84,6 +84,10 @@ std::string steamGridDbKey();
 void setSteamGridDbKey(const std::string& key); // Settings > Pictures (HomeNX reads the same file)
 
 std::string idText(std::uint64_t id); // 16 hex digits
+// A .nro's card id: 0xFF.. and its path's hash (as listHomebrew makes them).
+inline std::uint64_t nroId(const std::string& path) {
+    return 0xFF00000000000000ULL | (std::hash<std::string>{}(path) & 0x00FFFFFFFFFFFFFFULL);
+}
 
 // A Nintendo page entry's picture: HomeNX's own icon where HOME has one
 // (eShop, News, Controllers, Mii Maker, Friends, Settings), else CardsNX's.

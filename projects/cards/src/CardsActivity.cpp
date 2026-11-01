@@ -676,7 +676,7 @@ bool CardsActivity::onCreate() {
 
     // Always the first card on the list (the sort is Title or My Order:
     // never "last played" on the way in).
-    m_page = m_settings.pageOrder[0]; // the first page in your order
+    m_page = firstShownPage(); // the first page in your order (that isn't hidden)
     sortGames(m_settings.sort == 3 ? 3 : 1, false);
     for (int& s : m_sels) s = 0;
     m_scroll = 0.f;
@@ -721,7 +721,7 @@ bool CardsActivity::onCreate() {
             std::vector<std::uint8_t> rgba;
             // (not an eShop banner's: that card is glass, see glassCard)
             if (readShown(thumbPath(id), rgba, w, h, kind) && kind != ArtKind::Banner)
-                out.push_back({id, std::move(rgba), w, h});
+                out.push_back({id, std::move(rgba), w, h, kind});
         }
         threadDone();
         return out;
@@ -730,6 +730,11 @@ bool CardsActivity::onCreate() {
     m_intro = m_settings.motion ? 0.f : 1.f; // the cards rise in (the game's picture lets go first: see onUpdate)
 #ifdef SWITCHU_MENU
     if (m_atBoot && m_settings.lockScreen) lock();
+    if (!m_startSuspended && !m_startRunning) { // nothing's open, so no homebrew was left open
+        m_settings.hbPath.clear();
+        m_settings.hbHost.clear();
+    }
+    syncHomebrewFlag();
 #endif
     const std::uint64_t tEnd = armGetSystemTick();
     char line[200];
@@ -873,7 +878,11 @@ nxui::Color CardsActivity::glassTint(float a) const {
 
 std::uint64_t CardsActivity::runningId() const {
 #ifdef SWITCHU_MENU
-    return m_launcher.suspendedTitleId();
+    // A homebrew app left open (Settings > Home > Keep homebrew open) runs as the
+    // game it borrowed: it's the app's card that's open, not that game's.
+    const std::uint64_t id = m_launcher.suspendedTitleId();
+    if (id && !m_settings.hbPath.empty() && idText(id) == m_settings.hbHost) return nroId(m_settings.hbPath);
+    return id;
 #else
     return 0;
 #endif
@@ -1036,6 +1045,7 @@ void CardsActivity::worker(int index) {
         Done done;
         done.id = job.game.id;
         done.what = job.what;
+        done.gen = job.gen;
         const std::uint64_t jobStart = armGetSystemTick();
         const Game look = forLookup(job.game); // (renamed: its pictures are found by its real name)
         std::vector<std::uint8_t> data;
@@ -1143,7 +1153,7 @@ void CardsActivity::wantArt() {
         if (asked || m_time < a.retryAt) return;
         if (what == kBackground && page[(size_t)i].action == "get") return; // a download glyph isn't a background
         asked = true;
-        jobs.push_back({page[(size_t)i], what});
+        jobs.push_back({page[(size_t)i], what, m_artGen});
     };
     const int s = sel();
     add(s, kCard);
@@ -1216,8 +1226,13 @@ void CardsActivity::takeArt() {
             m_done.insert(m_done.begin(), std::make_move_iterator(&d), std::make_move_iterator(done.data() + done.size()));
             break;
         }
+        if (d.gen != m_artGen) continue; // made for a Pictures setting since changed
         auto it = m_art.find(d.id);
         if (it == m_art.end()) continue;
+        // A cover asked for twice (the queue was cleared while one was being made,
+        // then asked again): the first stays. The second replaced it and faded it
+        // in again -- a cover that blinked out and back ("covers disappear").
+        if (d.what == kCard && it->second.card && it->second.card->valid()) continue;
         bool* asked = d.what == kBackground ? &it->second.bgAsked
                     : d.what == kIcon       ? &it->second.iconAsked
                     : d.what == kCard       ? &it->second.cardAsked
@@ -1267,7 +1282,7 @@ void CardsActivity::takeArt() {
             if (!d.small.empty() && (d.kind == ArtKind::Grid || d.kind == ArtKind::Box) && !m_thumbs.count(d.id)) {
                 auto small = std::make_unique<nxui::Texture>();
                 if (small->loadFromPixels(app().gpu(), app().renderer(), d.small.data(), d.sw, d.sh))
-                    m_thumbs[d.id] = {std::move(small), m_time};
+                    m_thumbs[d.id] = {std::move(small), m_time, d.kind};
             }
             if (!m_perfFirstCard && d.id == selected) {
                 m_perfFirstCard = true;
@@ -1346,6 +1361,8 @@ void CardsActivity::forgetAllArt() {
     for (auto& page : m_pages)
         for (const Game& g : page) forgetArt(g.id);
     m_art.clear();
+    m_thumbs.clear(); // (the small copies of the old pictures)
+    ++m_artGen;
     m_bgId = m_bgPrevId = 0;
     wantArt();
 }
@@ -1390,8 +1407,23 @@ int CardsActivity::pagePos(int page) const {
     return 0;
 }
 
+bool CardsActivity::pageHidden(int page) const {
+    const auto& hidden = m_settings.hiddenPages;
+    return std::find(hidden.begin(), hidden.end(), page) != hidden.end();
+}
+
+int CardsActivity::firstShownPage() const {
+    for (int page : m_settings.pageOrder)
+        if (!pageHidden(page)) return page;
+    return m_settings.pageOrder[0]; // (one always shows)
+}
+
 void CardsActivity::switchPage(int dir) {
-    const int pos = (pagePos(m_page) + (dir > 0 ? 1 : -1) + kPageCount) % kPageCount;
+    int pos = pagePos(m_page);
+    for (int i = 0; i < kPageCount; ++i) { // the next page shown: hidden ones are skipped
+        pos = (pos + (dir > 0 ? 1 : -1) + kPageCount) % kPageCount;
+        if (!pageHidden(m_settings.pageOrder[(size_t)pos])) break;
+    }
     goToPage(m_settings.pageOrder[(size_t)pos], dir > 0 ? 1 : -1);
 }
 
@@ -1414,10 +1446,17 @@ void CardsActivity::goToPage(int page, int dir) {
     m_bgFade = 0.f;
     const Game* cur = current();
     m_bgId = cur ? cur->id : 0;
+    requeueArt(); // what's near has changed
+}
+
+void CardsActivity::requeueArt() {
     {
         std::lock_guard<std::mutex> lk(m_mu);
-        m_jobs.clear(); // what's near has changed
+        m_jobs.clear();
     }
+    // Everything asked for and not here yet may have been in the queue: asked
+    // again where it's wanted now. (Icons were left out after a new order: a
+    // title picture asked for then never came.)
     for (auto& [id, art] : m_art) {
         if (!art.card) art.cardAsked = false;
         if (!art.bg) art.bgAsked = false;
@@ -1445,15 +1484,7 @@ void CardsActivity::sortGames(int sort, bool keepChoice) {
     for (size_t i = 0; keepChoice && i < page.size(); ++i)
         if (page[i].id == keep) m_sels[kGames] = static_cast<int>(i);
     if (m_page == kGames) m_scroll = static_cast<float>(m_sels[kGames]);
-    for (auto& [id, art] : m_art) {
-        if (!art.card) art.cardAsked = false;
-        if (!art.bg) art.bgAsked = false;
-    }
-    {
-        std::lock_guard<std::mutex> lk(m_mu);
-        m_jobs.clear();
-    }
-    wantArt();
+    requeueArt();
 }
 
 // My order (Plus > Move): the saved ids first, in their order; the rest after
@@ -1713,6 +1744,28 @@ void CardsActivity::openPageOrder(int select) {
     m_menuSel = std::clamp(select, 0, static_cast<int>(kPageCount));
 }
 
+// Settings > Home > Pages to show: hide a page (ZL / ZR skip it; one always shows).
+void CardsActivity::openPageShow() {
+    std::vector<MenuItem> items;
+    for (int page : m_settings.pageOrder)
+        items.push_back(toggle(kPageNames[page], [this, page]() { return !pageHidden(page); }, [this, page]() {
+            auto& hidden = m_settings.hiddenPages;
+            const auto at = std::find(hidden.begin(), hidden.end(), page);
+            if (at != hidden.end()) {
+                hidden.erase(at);
+            } else if (static_cast<int>(hidden.size()) + 1 < kPageCount) {
+                hidden.push_back(page);
+            } else {
+                say("One page always shows.");
+                return;
+            }
+            m_settings.save();
+            if (pageHidden(m_page)) goToPage(firstShownPage(), 0);
+        }));
+    items.push_back(action("Done", [] {}));
+    openMenu("Pages to show", std::move(items));
+}
+
 bool CardsActivity::glassCard(const Game& g) {
     if ((g.homebrew && !g.fullCard) || !g.action.empty()) return true;
     auto it = m_art.find(g.id);
@@ -1747,7 +1800,7 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
             // its art at full size for the end, first in line
             {
                 std::lock_guard<std::mutex> lk(m_mu);
-                m_jobs.push_front({games()[(size_t)index], kLaunch});
+                m_jobs.push_front({games()[(size_t)index], kLaunch, m_artGen});
             }
             m_cv.notify_one();
         }
@@ -1840,28 +1893,15 @@ void CardsActivity::launchGame(const Game& g) {
         }
     }
     if (isRunning(id)) { // back to it
-        leave(index, 0.85f, [this]() {
-            m_discord.beginShutdown();
-            m_launcher.resumeApplication();
-        });
+        resumeOpen(index);
         return;
     }
     if (const std::uint64_t open = runningId()) { // another one is open: it closes first
-        std::string name = tr("the game that's open");
-        for (const auto& page : m_pages)
-            for (const Game& o : page)
-                if (o.id == open) name = o.name;
-        const std::string title = g.name;
-        openMenu(trf("Close {game}?", {name}), {
-            action(trf("Close it and start {game}", {title}), [this, id, name]() {
-                m_pendingLaunch = id;
-                m_launcher.terminateApplication();
-                say(trf("Closing {game}...", {name}));
-            }, true),
-            action("Cancel", [] {}),
-        });
+        askCloseFirst(open, g.name, id);
         return;
     }
+    m_settings.hbPath.clear(); // (a game, not homebrew, is what's open next)
+    m_settings.hbHost.clear();
     leave(index, 1.3f, [this, id]() {
         m_discord.beginShutdown(); // its threads stop while the screen goes black
         if (!m_launcher.requestLaunch(id, launchUid())) {
@@ -1883,15 +1923,63 @@ void CardsActivity::launchGame(const Game& g) {
 #endif
 }
 
+#ifdef SWITCHU_MENU
+// Back to the game or app HOME left open.
+void CardsActivity::resumeOpen(int index) {
+    leave(index, 0.85f, [this]() {
+        m_discord.beginShutdown();
+        m_launcher.resumeApplication();
+    });
+}
+
+// Another game or app is open: it closes first (starting one ends the other), then `next` starts.
+void CardsActivity::askCloseFirst(std::uint64_t open, const std::string& title, std::uint64_t next) {
+    std::string name = tr("the game that's open");
+    for (const auto& page : m_pages)
+        for (const Game& o : page)
+            if (o.id == open) name = o.name;
+    openMenu(trf("Close {game}?", {name}), {
+        action(trf("Close it and start {game}", {title}), [this, next, name]() {
+            m_pendingLaunch = next;
+            m_launcher.terminateApplication();
+            say(trf("Closing {game}...", {name}));
+        }, true),
+        action("Cancel", [] {}),
+    });
+}
+
+// The daemon closes homebrew on HOME only while this file is there (Settings >
+// Home > Keep homebrew open is off).
+void CardsActivity::syncHomebrewFlag() {
+    constexpr const char* kFlag = "sdmc:/config/SwitchU/homebrew_close_on_home";
+    std::error_code ec;
+    if (m_settings.keepHomebrew) std::filesystem::remove(kFlag, ec);
+    else std::ofstream(kFlag) << "1";
+}
+#endif
+
 void CardsActivity::openNro(const std::string& path) {
     int index = -1;
     for (size_t i = 0; i < games().size(); ++i)
         if (games()[i].path == path) index = static_cast<int>(i);
     if (index >= 0) m_settings.lastGame = idText(games()[(size_t)index].id);
 #ifdef SWITCHU_MENU
-    leave(index, 0.85f, [this, path]() {
+    if (const std::uint64_t open = runningId()) {
+        if (open == nroId(path)) { // left open (Settings > Home > Keep homebrew open): back to it
+            resumeOpen(index);
+            return;
+        }
+        // Another is open: it closes first (starting this one would end it unasked).
+        askCloseFirst(open, index >= 0 ? games()[(size_t)index].name : std::filesystem::path(path).stem().string(),
+                      nroId(path));
+        return;
+    }
+    const std::uint64_t host = hostTitleId();
+    m_settings.hbPath = path; // what's open in that game now (runningId)
+    m_settings.hbHost = idText(host);
+    leave(index, 0.85f, [this, path, host]() {
         m_discord.beginShutdown();
-        if (!m_launcher.launchNro(path, hostTitleId(), launchUid())) {
+        if (!m_launcher.launchNro(path, host, launchUid())) {
             comeBack();
             const std::string why = AppletLauncher::loaderError();
             say(why.empty() ? std::string("That app didn't start.") : why);
@@ -2335,14 +2423,17 @@ void CardsActivity::pumpDaemon() {
                 m_launcher.setAppRunning(false);
                 m_launcher.setAppHasForeground(false);
                 m_launcher.setSuspendedTitleId(0);
+                m_settings.hbPath.clear(); // (no homebrew is left open)
+                m_settings.hbHost.clear();
                 const std::uint64_t next = m_pendingLaunch;
                 m_pendingLaunch = 0;
                 if (next)
                     for (const auto& page : m_pages)
                         for (const Game& g : page)
-                            if (g.id == next && g.action.empty() && g.path.empty()) {
+                            if (g.id == next && g.action.empty()) {
                                 const Game copy = g;
-                                launchGame(copy);
+                                if (copy.path.empty()) launchGame(copy);
+                                else openNro(copy.path);
                                 return;
                             }
                 break;
@@ -2493,7 +2584,7 @@ void CardsActivity::wantPanelIcon(const Game& g) {
     a.iconAsked = true;
     {
         std::lock_guard<std::mutex> lk(m_mu);
-        m_jobs.push_back({g, kIcon});
+        m_jobs.push_back({g, kIcon, m_artGen});
     }
     m_cv.notify_one();
 }
@@ -2636,6 +2727,45 @@ void CardsActivity::openWallpapers(bool lockScreen) {
     m_pickOpen = true;
 }
 
+namespace {
+// The Album's grid, a page at a time: the screenshots from `from`, shrunk.
+constexpr int kGalleryPage = 12;
+std::vector<TitleChoice> galleryPage(const std::vector<std::string>& all, size_t from) {
+    std::vector<TitleChoice> out;
+    for (size_t i = from; i < all.size() && i < from + kGalleryPage; ++i) {
+        Pixels px = readPicture(all[i], 320);
+        if (px.rgba.empty()) continue;
+        const std::string n = std::filesystem::path(all[i]).filename().string(); // YYYYMMDDhhmmss...
+        TitleChoice c;
+        c.file = all[i];
+        c.label = n.size() >= 12 ? n.substr(6, 2) + "/" + n.substr(4, 2) + "/" + n.substr(0, 4) + " " + n.substr(8, 2) + ":"
+                                       + n.substr(10, 2)
+                                 : std::string();
+        c.rgba = std::move(px.rgba);
+        c.w = px.w;
+        c.h = px.h;
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+} // namespace
+
+// L / R (or past the grid's last row) for the next page of the Album.
+void CardsActivity::showGalleryPage(int page) {
+    const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
+    page = std::clamp(page, 0, std::max(0, (n - 1) / kGalleryPage));
+    if (page == m_galleryPage || m_pickJob.valid()) return;
+    m_galleryPage = page;
+    auto all = m_galleryAll;
+    m_pickJob = std::async(std::launch::async, [all, page]() {
+        offScreenCore();
+        auto out = galleryPage(*all, static_cast<size_t>(page) * kGalleryPage);
+        threadDone();
+        return out;
+    });
+    m_audio.play("tab_transition");
+}
+
 void CardsActivity::openGallery() {
     if (m_pickJob.valid()) m_pickJob.wait();
     m_pickWall = 3;
@@ -2648,24 +2778,11 @@ void CardsActivity::openGallery() {
     m_galleryTex.reset();
     auto all = std::make_shared<std::vector<std::string>>();
     m_galleryAll = all;
+    m_galleryPage = 0;
     m_pickJob = std::async(std::launch::async, [all]() {
         offScreenCore();
-        *all = switchu::lockpicture::newestScreenshots(300);
-        std::vector<TitleChoice> out;
-        for (size_t i = 0; i < all->size() && out.size() < 12; ++i) {
-            Pixels px = readPicture((*all)[i], 320);
-            if (px.rgba.empty()) continue;
-            const std::string n = std::filesystem::path((*all)[i]).filename().string(); // YYYYMMDDhhmmss...
-            TitleChoice c;
-            c.file = (*all)[i];
-            c.label = n.size() >= 12 ? n.substr(6, 2) + "/" + n.substr(4, 2) + "/" + n.substr(0, 4) + " " + n.substr(8, 2) + ":"
-                                           + n.substr(10, 2)
-                                     : std::string();
-            c.rgba = std::move(px.rgba);
-            c.w = px.w;
-            c.h = px.h;
-            out.push_back(std::move(c));
-        }
+        *all = switchu::lockpicture::newestScreenshots(100000); // all of them (they were 300, 12 shown)
+        auto out = galleryPage(*all, 0);
         threadDone();
         return out;
     });
@@ -3060,6 +3177,7 @@ void CardsActivity::openOptions() {
                 it->second.card.reset();
                 it->second.bg.reset();
             }
+            m_thumbs.erase(id); // (the old one's small copy)
             wantArt();
         }));
         items.back().glyph = "restart";
@@ -3083,6 +3201,7 @@ void CardsActivity::openOptions() {
                     app().gpu().waitIdle(); // it may still be drawing
                     it->second.card.reset();
                 }
+                m_thumbs.erase(id);
                 wantArt();
             }));
             items.back().glyph = "copy";
@@ -3370,6 +3489,17 @@ void CardsActivity::updatePicker() {
     if (n == 0) return;
     int s = m_pickSel;
     const int cols = pickCols(pickKind());
+    if (m_pickWall == 3) { // the Album: its pages (L / R, or past the first or last row)
+        const bool down = in.isDown(B::DDown) || in.isDown(B::LStickD), up = in.isDown(B::DUp) || in.isDown(B::LStickU);
+        if (in.isDown(B::R) || in.isDown(B::ZR) || (down && s + cols >= n)) {
+            showGalleryPage(m_galleryPage + 1);
+            return;
+        }
+        if (in.isDown(B::L) || in.isDown(B::ZL) || (up && s - cols < 0)) {
+            showGalleryPage(m_galleryPage - 1);
+            return;
+        }
+    }
     if (in.isDown(B::DLeft) || in.isDown(B::LStickL)) s -= 1;
     if (in.isDown(B::DRight) || in.isDown(B::LStickR)) s += 1;
     if (in.isDown(B::DUp) || in.isDown(B::LStickU)) s -= cols;
@@ -3448,9 +3578,12 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
                             : m_pickCover    ? "Card picture" : "Title picture";
     textMid(r, m_fTitle, title, kPickCard.x + 72.f, kPickCard.y + 46.f + dy, kWhite.withAlpha(a));
     const float nameX = kPickCard.x + 92.f + measured(m_fTitle, title).x;
-    const std::string hint = m_pickWall == 3 ? "A View    B Back" : m_pickWall ? "A Use it    X Shuffle    B Back" : "A Use it    Y Search    B Back";
+    const std::string hint = m_pickWall == 3 ? "A View    L R More    B Back" : m_pickWall ? "A Use it    X Shuffle    B Back" : "A Use it    Y Search    B Back";
     const float hintW = measured(m_fBody, hint).x;
-    const std::string what = m_pickWall == 3 ? "Your newest screenshots"
+    const int shots = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
+    const std::string what = m_pickWall == 3 ? trf("{count} screenshots, page {n} of {pages}",
+                                                   {std::to_string(shots), std::to_string(m_galleryPage + 1),
+                                                    std::to_string(std::max(1, (shots + kGalleryPage - 1) / kGalleryPage))})
                            : m_pickWall ? "Yours (config/CardsNX/backgrounds) and your newest screenshots"
                            : m_pickQuery.empty() ? m_pickGame.name
                            : m_pickQuery[0] == '#' ? m_pickLabel : trf("Results for \"{words}\"", {m_pickQuery});
@@ -4793,6 +4926,18 @@ void CardsActivity::buildSettings() {
     };
     order.detail = "CardsNX opens on the first; ZL / ZR go in this order";
     home.rows.push_back(std::move(order));
+    MenuItem shown = action("Pages to show", [this]() {
+        m_sheetOpen = false;
+        openPageShow();
+    });
+    shown.value = [this]() {
+        std::string s;
+        for (int p : m_settings.pageOrder)
+            if (!pageHidden(p)) s += (s.empty() ? "" : ", ") + tr(kPageNames[p]);
+        return s;
+    };
+    shown.detail = "Hide a page you don't use: ZL / ZR skip it";
+    home.rows.push_back(std::move(shown));
     home.rows.push_back(choice("Sort games", [this]() { return std::string(kSortNames[m_settings.sort]); },
         [this, save](int d) {
             int at = 0;
@@ -4805,6 +4950,13 @@ void CardsActivity::buildSettings() {
     home.rows.push_back(toggle("Ask who's playing", [this]() { return m_settings.askUser; },
         [this, save]() { m_settings.askUser = !m_settings.askUser; save(); },
         "Starting a game shows the users first, as Nintendo's HOME does"));
+    home.rows.push_back(toggle("Keep homebrew open", [this]() { return m_settings.keepHomebrew; },
+        [this, save]() {
+            m_settings.keepHomebrew = !m_settings.keepHomebrew;
+            save();
+            syncHomebrewFlag();
+        },
+        "HOME leaves an app open to resume, as it does a game (off: HOME closes it)"));
     MenuItem panel = choice("Panel button", [this]() {
         if (m_settings.panelApp == "news") return std::string("News");
         if (m_settings.panelApp.empty()) return std::string("Nothing");
@@ -6702,7 +6854,7 @@ void CardsActivity::onUpdate(float dt) {
                 auto tex = std::make_unique<nxui::Texture>();
                 nxui::GpuDevice::EssentialScope essential;
                 if (tex->loadFromPixels(app().gpu(), app().renderer(), p.rgba.data(), p.w, p.h))
-                    m_thumbs[p.id] = {std::move(tex), m_time};
+                    m_thumbs[p.id] = {std::move(tex), m_time, p.kind};
             }
             m_thumbUploads.erase(m_thumbUploads.begin());
         }
@@ -6851,6 +7003,7 @@ void CardsActivity::onUpdate(float dt) {
                         HomebrewApp app; // its own version now (a release called "latest" says nothing)
                         if (readHomebrew(g.path, app, false) && !app.version.empty()) g.version = app.version;
                         else if (!latest.empty()) g.version = latest;
+                        m_thumbs.erase(g.id);
                         auto art = m_art.find(g.id); // its new icon
                         if (art != m_art.end()) {
                             art->second.card.reset();
@@ -7023,6 +7176,7 @@ void CardsActivity::onUpdate(float dt) {
             } else if (it != m_art.end() && m_pickSaveCover) { // the card's new picture
                 it->second.card.reset();
                 it->second.cardAsked = false;
+                m_thumbs.erase(m_pickSaveId);
             } else if (it != m_art.end()) {
                 it->second.icon.reset();
                 it->second.iconAsked = false;
@@ -7715,7 +7869,8 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
             th != m_thumbs.end() && th->second.tex && (!haveCard || artIn < 1.f) ? th->second.tex.get() : nullptr;
         const float thumbIn = thumbTex ? easeOut(std::min(1.f, (m_time - th->second.in) / 0.2f)) : 0.f;
         if (thumbTex) {
-            drawCover(r, thumbTex, card, kCardRadius, kWhite.withAlpha(alpha * thumbIn));
+            drawCover(r, thumbTex, card, kCardRadius, kWhite.withAlpha(alpha * thumbIn),
+                      th->second.kind == ArtKind::Box ? 0.125f : 0.f, 0.f); // (trimmed as the full one is)
         }
         // Under the art (and while it's coming): the name on glass.
         if (artIn < 1.f && !thumbTex) {
@@ -8118,10 +8273,11 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
 #else
     glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 3, "home", 34.f, a, pressedOf(3));
 #endif
-    // Which page this is: three dots under the page button, in your order.
-    for (int p = 0; p < kPageCount; ++p) {
+    // Which page this is: a dot each under the page button, in your order (not the hidden ones).
+    for (int p = 0, at = 0; p < kPageCount; ++p) {
+        if (pageHidden(m_settings.pageOrder[(size_t)p])) continue;
         const bool here = m_settings.pageOrder[(size_t)p] == m_page;
-        const float cx = right - 77.f - 8.f - 38.5f + (static_cast<float>(p) - 1.f) * 12.f;
+        const float cx = right - 77.f - 8.f - 38.5f + (static_cast<float>(at++) - 1.f) * 12.f;
         r.drawCircle({cx, by + 77.f + 9.f}, here ? 3.5f : 2.5f, kWhite.withAlpha((here ? 0.95f : 0.4f) * a), 12);
     }
 }
