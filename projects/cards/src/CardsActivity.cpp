@@ -15,6 +15,7 @@
 #include "widgets/BatteryDrawing.hpp"
 #include <nlohmann/json.hpp>
 #include <switchu/control_cache.hpp>
+#include <switchu/achievements.hpp>
 #include <switchu/lock_picture.hpp>
 #include <switchu/ns_ext.hpp>
 #include <SDL2/SDL_mixer.h>
@@ -54,10 +55,10 @@ constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 
 constexpr float kCardMidY = 291.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
 const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
 constexpr float kPanelRadius = 35.f;
-// The top bar: menu, Discord, sort and its label on the left; the pill (you,
+// The top bar: menu, Discord and sort on the left; the pill (you,
 // the time, battery, free space, Nextendo) ends at kPillRight; then the bell,
 // music, power and settings.
-constexpr float kMenuX = 134.f, kDiscordX = 219.f, kSortX = 304.f, kLabelX = 352.f, kPillRight = 872.f;
+constexpr float kMenuX = 134.f, kDiscordX = 219.f, kSortX = 304.f, kPillRight = 872.f;
 constexpr float kBellX = 908.f, kMusicX = 976.f, kPowerX = 1061.f, kGearX = 1146.f;
 // Settings: sections on the left, rows on the right.
 const nxui::Rect kSheet{120.f, 52.f, 1040.f, 616.f};
@@ -303,57 +304,6 @@ void chevron(nxui::Renderer& r, float cx, float cy, float size, const nxui::Colo
     const float h = size * 0.25f * dir, v = size * 0.5f;
     r.drawLine({cx - h, cy - v}, {cx + h, cy}, c, 2.5f);
     r.drawLine({cx + h, cy}, {cx - h, cy + v}, c, 2.5f);
-}
-
-// Seasonal looks (Settings > Look): snow, each flake from its number -- no state,
-// where it is comes from the time.
-void drawSnow(nxui::Renderer& r, float time, float a) {
-    for (int i = 0; i < 90; ++i) {
-        auto rnd = [i](float k) {
-            const float v = std::sin(static_cast<float>(i) * 12.9898f + k * 78.233f) * 43758.5453f;
-            return v - std::floor(v);
-        };
-        const float size = 1.5f + 3.f * rnd(1.f); // (the big ones are nearer: faster)
-        const float fall = 24.f + 36.f * rnd(2.f) + size * 7.f;
-        const float y = std::fmod(rnd(3.f) * 760.f + time * fall, 760.f) - 20.f;
-        const float x = std::fmod(rnd(4.f) * 1320.f + time * 7.f + std::sin(time * (0.5f + rnd(5.f)) + rnd(6.f) * 6.283f) * 16.f,
-                                  1320.f) - 20.f;
-        r.drawCircle({x, y}, size, nxui::Color(1.f, 1.f, 1.f, (0.45f + 0.4f * rnd(7.f)) * a), 10);
-    }
-}
-
-// A little snow along a shape's top edge.
-void snowCap(nxui::Renderer& r, const nxui::Rect& rc, float radius, float a) {
-    const nxui::Color snow(1.f, 1.f, 1.f, 0.9f * a);
-    const float x0 = rc.x + radius * 0.7f, x1 = rc.x + rc.width - radius * 0.7f;
-    r.drawRoundedRect({x0, rc.y - 4.f, x1 - x0, 8.f}, snow, 4.f);
-    for (float x = x0 + 12.f; x < x1 - 12.f; x += 28.f) // drifts
-        r.drawCircle({x, rc.y - 3.f}, 6.f + 3.f * (0.5f + 0.5f * std::sin(x * 0.13f)), snow, 16);
-}
-
-// A jack-o'-lantern, drawn (no picture needed), its candle flickering.
-void drawPumpkin(nxui::Renderer& r, float cx, float cy, float s, float a, float time) {
-    const float flicker = 0.78f + 0.22f * std::sin(time * 9.f + cx) * std::sin(time * 5.3f + cy);
-    r.drawCircle({cx, cy}, s * 0.75f, nxui::Color(1.f, 0.55f, 0.1f, 0.10f * a * flicker), 32); // its glow
-    r.drawRoundedRect({cx - s * 0.46f, cy + s * 0.30f, s * 0.92f, s * 0.12f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * a), s * 0.06f);
-    const float h = s * 0.70f;
-    const nxui::Color dark(0.86f, 0.38f, 0.04f, a), mid(0.97f, 0.50f, 0.08f, a), light(1.f, 0.63f, 0.18f, a);
-    r.drawRoundedRect({cx - s * 0.50f, cy - h * 0.5f, s * 0.54f, h}, dark, s * 0.27f);
-    r.drawRoundedRect({cx - s * 0.04f, cy - h * 0.5f, s * 0.54f, h}, dark, s * 0.27f);
-    r.drawRoundedRect({cx - s * 0.27f, cy - h * 0.53f, s * 0.54f, h * 1.06f}, mid, s * 0.27f);
-    r.drawRoundedRect({cx - s * 0.08f, cy - h * 0.50f, s * 0.16f, h}, light, s * 0.08f); // a rib catching the light
-    r.drawRoundedRect({cx - s * 0.05f, cy - h * 0.5f - s * 0.15f, s * 0.10f, s * 0.20f}, nxui::Color(0.35f, 0.42f, 0.14f, a),
-                      s * 0.04f); // its stem
-    const nxui::Color glow(1.f, 0.86f, 0.32f, a * flicker);
-    auto tri = [&](float x0, float y0, float x1, float y1, float x2, float y2, const nxui::Color& c) {
-        r.drawTriangle({cx + x0 * s, cy + y0 * s}, {cx + x1 * s, cy + y1 * s}, {cx + x2 * s, cy + y2 * s}, c);
-    };
-    tri(-0.30f, -0.02f, -0.10f, -0.02f, -0.20f, -0.19f, glow); // eyes
-    tri(0.10f, -0.02f, 0.30f, -0.02f, 0.20f, -0.19f, glow);
-    tri(-0.05f, 0.07f, 0.05f, 0.07f, 0.f, -0.01f, glow); // nose
-    r.drawRoundedRect({cx - s * 0.28f, cy + s * 0.12f, s * 0.56f, s * 0.09f}, glow, s * 0.04f); // the grin
-    tri(-0.13f, 0.12f, -0.05f, 0.12f, -0.09f, 0.17f, mid); // its teeth
-    tri(0.05f, 0.12f, 0.13f, 0.12f, 0.09f, 0.17f, mid);
 }
 
 // Text broken into lines of at most maxW (at spaces, else between letters:
@@ -860,6 +810,7 @@ void CardsActivity::onDestroy() {
     if (m_wallJob.valid()) m_wallJob.wait();
     if (m_lockJob.valid()) m_lockJob.wait();
     if (m_statsJob.valid()) m_statsJob.wait();
+    if (m_achJob.valid()) m_achJob.wait();
     if (m_searchJob.valid()) m_searchJob.wait();
     if (m_galleryJob.valid()) m_galleryJob.wait();
     if (m_updatesJob.valid()) m_updatesJob.wait();
@@ -1039,8 +990,6 @@ void CardsActivity::worker(int index) {
                                                       "August", "September", "October", "November", "December"};
                 if (info.wday < 7 && t.month >= 1 && t.month <= 12)
                     s.date = trf("{weekday} {day} {month}", {tr(kDays[info.wday]), std::to_string(t.day), tr(kMonths[t.month - 1])});
-                s.month = t.month; // (the seasonal looks)
-                s.day = t.day;
             }
             u32 charge = 0;
             if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) s.battery = std::to_string(charge) + "%";
@@ -1279,10 +1228,6 @@ void CardsActivity::takeArt() {
             if (!m_statusIn.free.empty()) m_free = m_statusIn.free;
             m_online = m_statusIn.online;
             if (m_statusIn.temperature >= 0) m_temp = m_statusIn.temperature;
-            if (m_statusIn.month > 0) {
-                m_month = m_statusIn.month;
-                m_day = m_statusIn.day;
-            }
         }
     }
     const Game* cur = current();
@@ -3317,6 +3262,8 @@ void CardsActivity::openOptions() {
         if (game) {
             items.push_back(action("Title picture", [this, g]() { openTitlePicker(g); }));
             items.back().glyph = "tag";
+            items.push_back(action("Achievements", [this, g]() { openAchievements(g); }));
+            items.back().glyph = "sun";
         }
     }
     if (const NroUpdate* u = nroUpdate(g)) { // a newer version
@@ -3419,6 +3366,86 @@ nxui::Rect pickTile(int i, float dy, int kind) {
     return {x0 + (w + gap) * static_cast<float>(i % cols), y0 + (h + gap) * static_cast<float>(i / cols), w, h};
 }
 } // namespace
+
+CardsActivity::Achieved CardsActivity::collectAchievements(const std::vector<PlayStat>& stats,
+                                                           const std::map<std::uint64_t, std::string>& names, bool every,
+                                                           long long seenAt) {
+    namespace ach = switchu::achievements;
+    Achieved out;
+    ach::Earned e = ach::load();
+    const bool first = !e.existed; // what was earned before HomeNX counted: kept without a word
+    const long long now = static_cast<long long>(std::time(nullptr));
+    bool changed = false;
+    if (every) { // every game's stats: each one's milestones, and the totals the overlay shows
+        std::uint64_t total = 0;
+        std::uint32_t played = 0;
+        for (const PlayStat& s : stats) {
+            total += s.seconds;
+            played += s.launches > 0 ? 1 : 0;
+            const ach::Play p{s.seconds, s.launches};
+            for (const ach::Milestone& m : ach::kPerGame)
+                changed |= ach::progress(m, p) >= 1.f && e.when.emplace(ach::key(s.id, m.id), now).second;
+        }
+        changed |= e.totalSeconds != total || e.gamesPlayed != played;
+        e.totalSeconds = total;
+        e.gamesPlayed = played;
+        for (const ach::Milestone& m : ach::kOverall)
+            changed |= ach::progress(m, ach::Play{total, played}) >= 1.f && e.when.emplace(ach::overallKey(m.id), now).second;
+    }
+    if (changed || first) ach::save(e);
+    if (first || seenAt == 0) { // the first time: nothing said, from now on
+        out.newest = now;
+        return out;
+    }
+    // New since HOME last looked: earned here just now, or by the daemon during a game.
+    for (const auto& [k, when] : e.when) {
+        out.newest = std::max(out.newest, static_cast<long long>(when));
+        if (when <= seenAt) continue;
+        const size_t space = k.find(' ');
+        if (space == std::string::npos) continue;
+        const std::string who = k.substr(0, space), id = k.substr(space + 1);
+        const bool overall = who == "all";
+        auto said = [&](const ach::Milestone& m) {
+            if (id != m.id) return;
+            std::string game;
+            if (!overall) {
+                const auto it = names.find(std::strtoull(who.c_str(), nullptr, 16));
+                if (it != names.end()) game = " (" + it->second + ")";
+            }
+            out.said.push_back(tr(m.name) + game);
+        };
+        if (overall) for (const ach::Milestone& m : ach::kOverall) said(m);
+        else for (const ach::Milestone& m : ach::kPerGame) said(m);
+    }
+    return out;
+}
+
+// + > Achievements: the game's milestones and how far along each is, then the ones across every game.
+void CardsActivity::openAchievements(const Game& g) {
+    namespace ach = switchu::achievements;
+    const ach::Earned earned = ach::load();
+    auto status = [](const ach::Milestone& m, const ach::Play& p, bool done) {
+        if (done) return tr("Earned");
+        char buf[48];
+        if (m.hours) std::snprintf(buf, sizeof(buf), "%.1f / %u h", static_cast<double>(p.seconds) / 3600.0, m.goal);
+        else std::snprintf(buf, sizeof(buf), "%u / %u", std::min(p.launches, m.goal), m.goal);
+        return std::string(buf);
+    };
+    std::vector<MenuItem> items;
+    const ach::Play play{g.playSeconds, g.launches};
+    for (const ach::Milestone& m : ach::kPerGame) {
+        const bool done = earned.when.count(ach::key(g.id, m.id)) || ach::progress(m, play) >= 1.f;
+        items.push_back(info(m.name, [status, &m, play, done]() { return status(m, play, done); }));
+        items.back().detail = m.about;
+    }
+    const ach::Play all{earned.totalSeconds, earned.gamesPlayed};
+    for (const ach::Milestone& m : ach::kOverall) {
+        const bool done = earned.when.count(ach::overallKey(m.id)) || ach::progress(m, all) >= 1.f;
+        items.push_back(info(m.name, [status, &m, all, done]() { return status(m, all, done); }));
+        items.back().detail = m.about;
+    }
+    openMenu(trf("Achievements: {game}", {g.name}), std::move(items));
+}
 
 void CardsActivity::openTitlePicker(const Game& g, bool cover, const std::string& query, bool hero) {
     if (m_pickJob.valid()) m_pickJob.wait(); // (only one: the last one's still finishing)
@@ -5163,14 +5190,6 @@ void CardsActivity::buildSettings() {
     look.rows.push_back(toggle("Temperature in the bar", [this]() { return m_settings.showTemp; },
         [this, save]() { m_settings.showTemp = !m_settings.showTemp; save(); },
         "Red, and a warning, when the Switch gets hot"));
-    look.rows.push_back(choice("Seasonal looks", [this]() {
-            static const char* const kSeasons[] = {"Automatic", "Snow", "Pumpkins", "Off"};
-            return std::string(kSeasons[std::clamp(m_settings.season, 0, 3)]);
-        },
-        [this, save](int d) {
-            m_settings.season = (m_settings.season + d + 4) % 4;
-            save();
-        }, "Snow in December, pumpkins around Halloween (Automatic)"));
     look.rows.push_back(toggle("Nextendo players", [this]() { return m_settings.players; },
         [this, save]() { m_settings.players = !m_settings.players; save(); }, "Green dots on games played online now"));
     look.rows.push_back(toggle("Animations", [this]() { return m_settings.motion; },
@@ -6773,7 +6792,7 @@ bool CardsActivity::handleTouch() {
         int hit = -1;
         if (inCircle(kMenuX, kTopY, 40.f)) hit = kTopMenu;
         else if (inCircle(kDiscordX, kTopY, 40.f)) hit = kTopDiscord;
-        else if (inCircle(kSortX, kTopY, 40.f) || (x > kLabelX && x < m_userHit.x - 8.f)) hit = kTopSort;
+        else if (inCircle(kSortX, kTopY, 40.f)) hit = kTopSort;
         else if (m_userHit.contains(x, y)) hit = kTopUser;
         else if (m_settings.players && m_playersHit.contains(x, y)) hit = kTopPlayers;
         else if (inCircle(kBellX, kTopY, 32.f)) hit = kTopBell;
@@ -7246,6 +7265,7 @@ void CardsActivity::onUpdate(float dt) {
 #else
         const bool every = true;
 #endif
+        m_statsEvery = every;
         std::vector<std::uint64_t> ids;
         for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
             for (const Game& g : m_pages[p])
@@ -7284,6 +7304,29 @@ void CardsActivity::onUpdate(float dt) {
             sortGames(m_settings.sort, false);
             if (chosen) selectById(chosen);
         }
+        // Achievements: what these stats reach, and what the daemon kept during a game.
+        std::map<std::uint64_t, std::string> names;
+        for (const auto& page : m_pages)
+            for (const Game& g : page)
+                if (g.path.empty() && g.action.empty()) names[g.id] = g.name;
+        const bool every = m_statsEvery;
+        const long long seenAt = m_settings.achSeenAt;
+        m_achJob = std::async(std::launch::async, [stats, names, every, seenAt]() {
+            offScreenCore();
+            Achieved got = collectAchievements(stats, names, every, seenAt);
+            threadDone();
+            return got;
+        });
+    }
+    if (m_achJob.valid() && m_achJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const Achieved got = m_achJob.get();
+        if (got.newest > m_settings.achSeenAt) {
+            m_settings.achSeenAt = got.newest;
+            m_settings.save();
+        }
+        if (got.said.size() == 1) say(trf("Achievement unlocked: {what}", {got.said[0]}));
+        else if (got.said.size() > 1)
+            say(trf("{count} achievements unlocked: + on a game shows them", {std::to_string(got.said.size())}));
     }
     // Pictures for every game, on their own, so scrolling never waits on the internet: only
     // after 45 s with nothing pressed, stopped by the next press (it carries on at the next
@@ -7720,14 +7763,6 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
     drawStep("draw: the panel");
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
-    if (const int s = season()) { // Seasonal looks: snow on the panel, pumpkins in the corners
-        const float pa = easeOut((m_intro - 0.25f) * 2.f) * ui;
-        if (s == 1) snowCap(r, {kPanel.x, kPanel.y + 40.f * (1.f - pa), kPanel.width, kPanel.height}, kPanelRadius, pa);
-        else if (pa > 0.001f) {
-            drawPumpkin(r, 94.f, 664.f, 74.f, pa, m_time);
-            drawPumpkin(r, 1190.f, 672.f, 56.f, pa, m_time + 1.7f);
-        }
-    }
     drawStep("draw: the messages");
     if (m_moving) { // what Move does
         const std::string hint = "Move it with  < >      A  Done      B  Put it back";
@@ -7778,7 +7813,6 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawLaunch(r);
     drawReturn(r);
     drawLock(r);
-    drawSeason(r);
     drawStep("after drawing"); // (ends the last step's time)
 }
 
@@ -7955,16 +7989,6 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
         icon(r, "friends", x + 15.f, y, 30.f, kWhite.withAlpha(a));
         textMid(r, m_fPill, players, x + 36.f, y, kWhite.withAlpha(a));
         if (top && m_topSel == kTopPlayers) r.drawRoundedRectOutline(m_playersHit, accent(ring * a), 22.f, 3.f);
-    }
-
-    // The label: the sort (or page) and how many, in the room left of the pill.
-    // The opening's compromise (see drawCards): it waits for the bar to arrive.
-    if (a >= 0.999f) {
-        const std::string label = tr(m_page == kGames ? kSortNames[m_settings.sort] : kPageNames[m_page])
-                                + "  " + std::to_string(games().size());
-        const float room = std::max(40.f, pill.x - 14.f - kLabelX);
-        const float ls = fitScale(m_fLabel, label, room, 0.72f);
-        textMid(r, m_fLabel, fit(m_fLabel, label, room, ls), kLabelX, y, kWhite.withAlpha(a), ls);
     }
 
     // The bell, music, power, settings.
@@ -8628,24 +8652,6 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
     drawHints(r, box.x + box.width - 24.f, box.y + box.height - 26.f, {{"A", "Choose"}, {"B", "Back"}}, a);
 }
 
-int CardsActivity::season() const {
-    switch (m_settings.season) {
-        case 1: return 1;
-        case 2: return 2;
-        case 3: return 0;
-        default: // by the date: snow all December, pumpkins 15 October to 2 November
-            if (m_month == 12) return 1;
-            if ((m_month == 10 && m_day >= 15) || (m_month == 11 && m_day <= 2)) return 2;
-            return 0;
-    }
-}
-
-// The snow falls over everything (Settings and the lock screen too), not over a launch.
-void CardsActivity::drawSeason(nxui::Renderer& r) {
-    if (season() != 1 || m_leaving || m_returnTex) return;
-    drawSnow(r, m_settings.motion ? m_time : 0.f, 1.f);
-}
-
 void CardsActivity::drawHints(nxui::Renderer& r, float right, float cy,
                               std::initializer_list<std::pair<const char*, const char*>> hints, float a) {
     float x = right;
@@ -8882,10 +8888,6 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     r.popClipRect();
     drawHints(r, kRowsX + kRowsW, (kRowsBottom + kSheet.y + kSheet.height) * 0.5f + dy,
               {{"A", "Choose"}, {"< >", "Change"}, {"L R", "Section"}, {"B", "Back"}}, a);
-    if (const int s = season()) { // Seasonal looks: snow on its edge, or a pumpkin sitting on it
-        if (s == 1) snowCap(r, sheet, 34.f, a);
-        else drawPumpkin(r, sheet.x + sheet.width - 74.f, sheet.y + 4.f, 56.f, a, m_time);
-    }
 }
 
 } // namespace cards

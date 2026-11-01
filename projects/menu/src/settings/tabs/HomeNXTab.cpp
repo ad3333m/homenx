@@ -22,22 +22,10 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         it.label = i18n.tr("settings.homenx.diagnostics", "Diagnostics");
         it.buttonLabel = i18n.tr("button.show", "Show");
         it.description = i18n.tr("settings.homenx.diagnostics_desc",
-            "What HomeNX and the Discord overlay are doing right now: memory, Mii faces, Discord. "
+            "What HomeNX is doing right now: memory, Mii faces, Discord. "
             "A screenshot of it helps fix problems.");
         it.type = ItemType::Action;
         it.onChange = [&screen](SettingItem&) { if (screen.m_diagnosticsCb) screen.m_diagnosticsCb(); };
-        t.items.push_back(std::move(it));
-    }
-    {
-        SettingItem it;
-        it.label = i18n.tr("settings.homenx.discord_app", "Discord game icons");
-        it.buttonLabel = i18n.tr("button.set", "Set");
-        it.description = i18n.tr("settings.homenx.discord_app_desc",
-            "Your Discord status shows the game's icon with a Discord application of your own: at "
-            "discord.com/developers make a New Application (name it Nintendo Switch), then enter its "
-            "Application ID here.");
-        it.type = ItemType::Action;
-        it.onChange = [&screen](SettingItem&) { if (screen.m_discordAppIdCb) screen.m_discordAppIdCb(); };
         t.items.push_back(std::move(it));
     }
     {
@@ -60,7 +48,7 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         it.type = ItemType::Section;
         t.items.push_back(std::move(it));
     }
-    // One choice each for HOME, Discord in HOME and the Discord overlay.
+    // One choice each for HOME and Discord in HOME.
     auto fontItem = [&](const char* which, std::string label, std::string usual, std::string desc) {
         SettingItem it;
         it.label = std::move(label);
@@ -86,11 +74,6 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     fontItem("discord", i18n.tr("settings.homenx.font_discord", "Discord font"),
              i18n.tr("settings.homenx.font_same", "Same as HOME"),
              i18n.tr("settings.homenx.font_discord_desc", "The font for Discord in HOME."));
-    fontItem("overlay", i18n.tr("settings.homenx.font_overlay", "Discord overlay font"),
-             i18n.tr("settings.homenx.font_system", "Nintendo's font"),
-             i18n.tr("settings.homenx.font_overlay_desc",
-                     "The font for the Discord overlay in games. It changes the next time the overlay starts "
-                     "(after a restart)."));
     {
         SettingItem it;
         it.label = i18n.tr("settings.homenx.pointer", "Pointer (L3)");

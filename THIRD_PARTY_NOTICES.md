@@ -21,7 +21,7 @@ they were.
 | libnx | switchbrew | ISC |
 | deko3d | fincs | zlib |
 | Atmosphère-libs (libstratosphere) | Atmosphère-NX | GPL-2.0 |
-| libtesla (the Discord overlay, patched) | WerWolv | GPL-2.0 |
+| libtesla (the achievements overlay, patched) | WerWolv | GPL-2.0 |
 | libnxtc | DarkMatterCore | ISC |
 | eSpeak NG | eSpeak NG contributors | GPL-3.0-or-later |
 | SDL2, SDL2_mixer, SDL2_ttf | Sam Lantinga and contributors | zlib |

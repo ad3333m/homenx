@@ -307,9 +307,9 @@ void AppletLauncher::installBundledApps() {
          "sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro"},
         {"sdmc:/switch/SwitchU/bin/cardsnx.nro", "sdmc:/switch/CardsNX",
          "sdmc:/switch/CardsNX/CardsNX.nro"},
-        // Discord over games: a Tesla/Ultrahand overlay.
-        {"sdmc:/switch/SwitchU/bin/homenx-discord.ovl", "sdmc:/switch/.overlays",
-         "sdmc:/switch/.overlays/homenx-discord.ovl"},
+        // Achievements over games: a Tesla/Ultrahand overlay.
+        {"sdmc:/switch/SwitchU/bin/homenx-achievements.ovl", "sdmc:/switch/.overlays",
+         "sdmc:/switch/.overlays/homenx-achievements.ovl"},
     };
     // Same bytes, not just the same size: .nro/.ovl segments are page-aligned,
     // so a new build is often exactly as big as the old one (that kept an old
@@ -336,6 +336,9 @@ void AppletLauncher::installBundledApps() {
         std::filesystem::remove_all("sdmc:/switch/HomeNX-Cards", ec); // CardsNX's first name
         std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-cards.nro", ec);
         std::filesystem::remove_all("sdmc:/switch/HomeNX-Toggle", ec); // NXToggle's first name
+        // The Discord overlay is gone (nx-ovlloader crashed on it: User Break 0x1159).
+        std::filesystem::remove("sdmc:/switch/.overlays/homenx-discord.ovl", ec);
+        std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-discord.ovl", ec);
     }
     for (const auto& app : kApps) {
         std::error_code ec;
@@ -371,14 +374,12 @@ void AppletLauncher::installBundledApps() {
     }
 
     // Ultrahand settings for the overlay, in sdmc:/config/ultrahand/overlays.ini:
-    // - key_combo=L+ZL, once (a combo he changes in Ultrahand later is left alone);
-    // - force_support=true: it's built with the new libnx (MOD0 "LNY2"), but an
-    //   Ultrahand that looked at it while this copy was being written keeps
-    //   calling it "Incompatible on AMS v1.10+".
-    constexpr const char* kComboDone = "sdmc:/config/SwitchU/discord_overlay_combo.txt";
+    // force_support=true: it's built with the new libnx (MOD0 "LNY2"), but an
+    // Ultrahand that looked at it while this copy was being written keeps
+    // calling it "Incompatible on AMS v1.10+".
     constexpr const char* kIni = "sdmc:/config/ultrahand/overlays.ini";
     std::error_code ec;
-    if (!std::filesystem::exists("sdmc:/switch/.overlays/homenx-discord.ovl", ec)) return;
+    if (!std::filesystem::exists("sdmc:/switch/.overlays/homenx-achievements.ovl", ec)) return;
     std::string ini;
     if (FILE* f = std::fopen(kIni, "rb")) {
         char buf[4096];
@@ -387,7 +388,7 @@ void AppletLauncher::installBundledApps() {
         std::fclose(f);
     }
     const std::string original = ini;
-    const std::string section = "[homenx-discord.ovl]";
+    const std::string section = "[homenx-achievements.ovl]";
     if (ini.find(section) == std::string::npos) {
         if (!ini.empty() && ini.back() != '\n') ini += '\n';
         ini += section + "\n";
@@ -410,23 +411,16 @@ void AppletLauncher::installBundledApps() {
             ini.insert(lineEnd == std::string::npos ? ini.size() : lineEnd + 1, key + "=" + value + "\n");
         }
     };
-    if (!std::filesystem::exists(kComboDone, ec)) {
-        const size_t v = valueAt("key_combo");
-        if (v == std::string::npos || v >= ini.size() || ini[v] == '\n' || ini[v] == '\r')
-            setKey("key_combo", "L+ZL");
-    }
     setKey("force_support", "true");
-    bool ok = ini == original;
-    if (!ok) {
+    if (ini != original) {
         std::filesystem::create_directories("sdmc:/config/ultrahand", ec);
+        bool ok = false;
         if (FILE* f = std::fopen(kIni, "wb")) {
             ok = std::fwrite(ini.data(), 1, ini.size(), f) == ini.size();
             std::fclose(f);
         }
-        DebugLog::log("[launcher] Ultrahand settings for the Discord overlay ok=%d", ok ? 1 : 0);
+        DebugLog::log("[launcher] Ultrahand settings for the achievements overlay ok=%d", ok ? 1 : 0);
     }
-    if (ok && !std::filesystem::exists(kComboDone, ec))
-        if (std::FILE* done = std::fopen(kComboDone, "wb")) std::fclose(done);
 
     // An earlier Discord overlay set Ultrahand's overlay memory to 6 MB. That
     // comes from the system's own pool, and hid then fataled (2001-0132) when

@@ -1,6 +1,6 @@
 # Terms of use
 
-HomeNX (HomeNX, CardsNX, NXToggle, HomeNX Loader, the Discord overlay and the homenx.pages.dev website) is free,
+HomeNX (HomeNX, CardsNX, NXToggle, HomeNX Loader, the achievements overlay and the homenx.pages.dev website) is free,
 open-source software. By installing or using it you agree to these terms.
 
 ## No warranty

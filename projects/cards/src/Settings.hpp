@@ -40,7 +40,6 @@ struct Settings {
     bool clock24 = true;
     bool showFree = true;     // free space in the status pill
     bool showTemp = true;     // the chip's temperature in the status pill (red and said when hot)
-    int season = 0;           // Seasonal looks: 0 by the date, 1 snow, 2 pumpkins, 3 off
     bool titlePics = true;    // a 3D picture by the game's name in the panel
     // Homebrew moved by hand (+ > Move to Media / Move to Homebrew): .nro paths,
     // NRO forwarders' title IDs. Out: the ones Media takes by itself, kept out.
@@ -59,6 +58,7 @@ struct Settings {
     std::vector<int> hiddenPages; // pages not shown (ZL / ZR skip them; one always stays)
     bool spotify = false;       // the music player shows Spotify, not HOME music (HOME only)
     long long picturesAt = 0;   // when every game's pictures were last made sure of (seconds)
+    long long achSeenAt = 0;    // the newest achievement HOME has said (seconds; 0: none said yet)
     bool introDone = false;     // the first-time intro was shown
     std::string wallpaper;      // one picture behind everything ("" = each game's art)
     std::map<std::string, std::string> names; // + > Rename: by title ID (hex) or .nro path
@@ -101,7 +101,6 @@ struct Settings {
             clock24 = j.value("clock24", clock24);
             showFree = j.value("showFree", showFree);
             showTemp = j.value("showTemp", showTemp);
-            season = std::clamp(j.value("season", season), 0, 3);
             titlePics = j.value("titlePics", titlePics);
             mediaIn = j.value("mediaIn", mediaIn);
             mediaOut = j.value("mediaOut", mediaOut);
@@ -121,6 +120,7 @@ struct Settings {
             hiddenPages = j.value("hiddenPages", hiddenPages);
             spotify = j.value("spotify", spotify);
             picturesAt = j.value("picturesAt", picturesAt);
+            achSeenAt = j.value("achSeenAt", achSeenAt);
             introDone = j.value("introDone", introDone);
             wallpaper = j.value("wallpaper", wallpaper);
             names = j.value("names", names);
@@ -141,9 +141,9 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"season", season}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"shuffleWall", shuffleWall},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"shuffleWall", shuffleWall},
                             {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
+                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};

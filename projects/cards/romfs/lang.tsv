@@ -569,7 +569,32 @@ Slow	Lenta	Lento	Медленно	Lente	Langsam	Lenta	遅い	较慢
 The Switch is hot ({degrees}°C): give it some air.	La Switch está caliente ({degrees}°C): dale algo de aire.	O Switch está quente ({degrees}°C): deixe-o respirar.	Switch нагрелась ({degrees}°C): дайте ей остыть.	La Switch chauffe ({degrees}°C) : laissez-la respirer.	Die Switch ist heiß ({degrees}°C): Gib ihr etwas Luft.	La Switch è calda ({degrees}°C): falla respirare.	Switchが熱くなっています（{degrees}°C）: 風通しをよくしてください。	Switch过热（{degrees}°C）：让它通通风。
 Temperature in the bar	Temperatura en la barra	Temperatura na barra	Температура на панели	Température dans la barre	Temperatur in der Leiste	Temperatura nella barra	バーに温度を表示	栏中显示温度
 Red, and a warning, when the Switch gets hot	En rojo, con aviso, cuando la Switch se calienta	Vermelho, com aviso, quando o Switch esquenta	Красная, с предупреждением, когда Switch нагревается	En rouge, avec un avertissement, quand la Switch chauffe	Rot, mit Warnung, wenn die Switch heiß wird	Rossa, con un avviso, quando la Switch si scalda	Switchが熱くなると赤くなり、警告します	Switch过热时变红并提醒
-Seasonal looks	Estilos de temporada	Visuais da estação	Сезонное оформление	Décors de saison	Saisonale Looks	Stili stagionali	季節の飾り	季节装饰
-Snow in December, pumpkins around Halloween (Automatic)	Nieve en diciembre, calabazas por Halloween (Automático)	Neve em dezembro, abóboras no Halloween (Automático)	Снег в декабре, тыквы на Хэллоуин (Автоматически)	Neige en décembre, citrouilles pour Halloween (Automatique)	Schnee im Dezember, Kürbisse zu Halloween (Automatisch)	Neve a dicembre, zucche ad Halloween (Automatico)	12月は雪、ハロウィンはかぼちゃ（自動）	十二月下雪，万圣节有南瓜（自动）
-Snow	Nieve	Neve	Снег	Neige	Schnee	Neve	雪	雪
-Pumpkins	Calabazas	Abóboras	Тыквы	Citrouilles	Kürbisse	Zucche	かぼちゃ	南瓜
+Achievements	Logros	Conquistas	Достижения	Succès	Erfolge	Obiettivi	実績	成就
+Earned	Conseguido	Conquistado	Получено	Obtenu	Erreicht	Ottenuto	達成済み	已达成
+Achievements: {game}	Logros: {game}	Conquistas: {game}	Достижения: {game}	Succès : {game}	Erfolge: {game}	Obiettivi: {game}	実績：{game}	成就：{game}
+Achievement unlocked: {what}	Logro desbloqueado: {what}	Conquista desbloqueada: {what}	Достижение получено: {what}	Succès débloqué : {what}	Erfolg freigeschaltet: {what}	Obiettivo sbloccato: {what}	実績解除：{what}	成就解锁：{what}
+{count} achievements unlocked: + on a game shows them	{count} logros desbloqueados: + en un juego los muestra	{count} conquistas desbloqueadas: + em um jogo mostra	Получено достижений: {count}. + на игре покажет их	{count} succès débloqués : + sur un jeu les affiche	{count} Erfolge freigeschaltet: + auf einem Spiel zeigt sie	{count} obiettivi sbloccati: + su un gioco li mostra	実績を{count}個解除：ゲームで＋を押すと表示	解锁了{count}个成就：在游戏上按+查看
+First steps	Primeros pasos	Primeiros passos	Первые шаги	Premiers pas	Erste Schritte	Primi passi	はじめの一歩	第一步
+Start it	Ábrelo	Abra o jogo	Запустите игру	Lancez-le	Starte es	Avvialo	起動する	启动它
+Getting into it	Entrando en calor	Pegando o jeito	Входите во вкус	Ça commence	Reingekommen	Ci prendi gusto	ハマり始め	渐入佳境
+Play it for 1 hour	Juega 1 hora	Jogue por 1 hora	Сыграйте 1 час	Jouez 1 heure	Spiele 1 Stunde	Gioca per 1 ora	1時間遊ぶ	玩1小时
+Hooked	Enganchado	Viciado	На крючке	Accro	Gefesselt	Agganciato	夢中	着迷
+Play it for 10 hours	Juega 10 horas	Jogue por 10 horas	Сыграйте 10 часов	Jouez 10 heures	Spiele 10 Stunden	Gioca per 10 ore	10時間遊ぶ	玩10小时
+Dedicated	Dedicado	Dedicada	Преданный	Assidu	Engagiert	Dedito	熱心	专注
+Play it for 25 hours	Juega 25 horas	Jogue por 25 horas	Сыграйте 25 часов	Jouez 25 heures	Spiele 25 Stunden	Gioca per 25 ore	25時間遊ぶ	玩25小时
+Devoted	Entregado	Devoto	Фанат	Dévoué	Hingebungsvoll	Devoto	献身的	忠实
+Play it for 50 hours	Juega 50 horas	Jogue por 50 horas	Сыграйте 50 часов	Jouez 50 heures	Spiele 50 Stunden	Gioca per 50 ore	50時間遊ぶ	玩50小时
+Legend	Leyenda	Lenda	Легенда	Légende	Legende	Leggenda	レジェンド	传奇
+Play it for 100 hours	Juega 100 horas	Jogue por 100 horas	Сыграйте 100 часов	Jouez 100 heures	Spiele 100 Stunden	Gioca per 100 ore	100時間遊ぶ	玩100小时
+Regular player	Jugador habitual	Jogador frequente	Постоянный игрок	Joueur régulier	Stammspieler	Giocatore abituale	常連プレイヤー	常客玩家
+Start it 10 times	Ábrelo 10 veces	Abra o jogo 10 vezes	Запустите игру 10 раз	Lancez-le 10 fois	Starte es 10-mal	Avvialo 10 volte	10回起動する	启动10次
+Old friend	Viejo amigo	Velho amigo	Старый друг	Vieil ami	Alter Freund	Vecchio amico	古い友達	老朋友
+Start it 50 times	Ábrelo 50 veces	Abra o jogo 50 vezes	Запустите игру 50 раз	Lancez-le 50 fois	Starte es 50-mal	Avvialo 50 volte	50回起動する	启动50次
+Explorer	Explorador	Explorador	Исследователь	Explorateur	Entdecker	Esploratore	探検家	探索者
+Play 5 different games	Juega a 5 juegos distintos	Jogue 5 jogos diferentes	Сыграйте в 5 разных игр	Jouez à 5 jeux différents	Spiele 5 verschiedene Spiele	Gioca a 5 giochi diversi	5種類のゲームを遊ぶ	玩5款不同的游戏
+Globetrotter	Trotamundos	Viajante	Путешественник	Globe-trotteur	Weltenbummler	Giramondo	世界旅行者	环球旅行者
+Play 15 different games	Juega a 15 juegos distintos	Jogue 15 jogos diferentes	Сыграйте в 15 разных игр	Jouez à 15 jeux différents	Spiele 15 verschiedene Spiele	Gioca a 15 giochi diversi	15種類のゲームを遊ぶ	玩15款不同的游戏
+Marathon	Maratón	Maratona	Марафон	Marathon	Marathon	Maratona	マラソン	马拉松
+Play for 100 hours in all	Juega 100 horas en total	Jogue 100 horas no total	Сыграйте 100 часов всего	Jouez 100 heures au total	Spiele insgesamt 100 Stunden	Gioca 100 ore in totale	合計100時間遊ぶ	总共玩100小时
+Lifer	De por vida	Para a vida toda	На всю жизнь	À vie	Lebenslang	Per la vita	生涯ゲーマー	终身玩家
+Play for 500 hours in all	Juega 500 horas en total	Jogue 500 horas no total	Сыграйте 500 часов всего	Jouez 500 heures au total	Spiele insgesamt 500 Stunden	Gioca 500 ore in totale	合計500時間遊ぶ	总共玩500小时

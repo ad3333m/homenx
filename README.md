@@ -88,8 +88,13 @@ sdmc:/
 
 ## In both looks
 
-- **Discord** is in HOME. Sign in with a QR code or a token. Over games, **L+ZL** opens it if you have the
-  Ultrahand overlay. Discord may flag accounts that use third-party clients, so using it is at your own risk.
+- **Discord** is in HOME. Sign in with a QR code or a token. Discord may flag accounts that use third-party
+  clients, so using it is at your own risk.
+- **Achievements**: milestones every game has, from your play time and launches (1, 10, 25, 50 and 100 hours,
+  10 and 50 starts, and some across all your games).
+  - With Ultrahand, a notification pops up over the game the moment you earn one.
+  - HOME tells you what's new when you come back. **+** on a game > **Achievements** shows how far along you are.
+  - The **HomeNX Achievements** overlay (in Ultrahand's list) shows them during a game.
 - **News** shows what's saved on your Switch, newest first, with unread dots.
 - **Social** shows your friend list, friend requests, Add Friend and your play history. The **Mii Maker** is built
   in and shows real Mii faces.
@@ -136,7 +141,7 @@ The output goes to `build/cross/aarch64/release/`.
 [`.github/workflows/switch.yml`](.github/workflows/switch.yml) does the rest:
 
 - bundles Sphaira
-- builds the Discord overlay (`make -C projects/overlay`)
+- builds the achievements overlay (`make -C projects/achievements`)
 - builds CardsNX's GameTDB index
 - packs the SD card layout into the zips
 

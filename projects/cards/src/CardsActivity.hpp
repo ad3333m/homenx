@@ -319,7 +319,17 @@ private:
         std::uint32_t launches = 0;
     };
     std::future<std::vector<PlayStat>> m_statsJob;
-    bool m_statsAsked = false;
+    bool m_statsAsked = false, m_statsEvery = false;
+    // Achievements (switchu/achievements.hpp): kept as the play data reaches them
+    // (here from every game's stats, by the daemon during a game) and said on HOME.
+    struct Achieved {
+        std::vector<std::string> said; // "Name (Game)" for each new one
+        long long newest = 0;          // the latest time anything was earned
+    };
+    static Achieved collectAchievements(const std::vector<PlayStat>& stats, const std::map<std::uint64_t, std::string>& names,
+                                        bool every, long long seenAt);
+    std::future<Achieved> m_achJob;
+    void openAchievements(const Game& g);
     bool m_scanAsked = false;              // Settings > Home > Look for new software
     bool m_autoClock = true;               // Settings > Console > Set the time automatically
     // The first time: a few pages on the basics.
@@ -550,13 +560,10 @@ private:
         bool online = false, charging = false;
         std::string date; // "Friday 31 October" (the lock screen)
         int temperature = -1; // the chip's, C (every 5 s)
-        int month = 0, day = 0;
     };
     Status m_statusIn;
-    int m_temp = -1, m_month = 0, m_day = 0;
+    int m_temp = -1;
     bool m_hotSaid = false; // "the Switch is hot" was said (again once it cooled)
-    int season() const;     // 0 none, 1 snow, 2 pumpkins (Settings > Look > Seasonal looks)
-    void drawSeason(nxui::Renderer& r); // the snow, over everything
     // Settings > Console > Test the SD card.
     std::future<std::string> m_sdTestJob;
     std::atomic<int> m_sdTestPct{0};

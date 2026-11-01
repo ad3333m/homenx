@@ -8,6 +8,7 @@
 #include <switchu/ns_ext.hpp>
 #include <switchu/file_log.hpp>
 #include <switchu/sd_commit.hpp>
+#include "achievements_watch.hpp"
 #include "app_manager.hpp"
 #include "ecs.hpp"
 #include "library_applet_runner.hpp"
@@ -2234,6 +2235,19 @@ static void mainLoop() {
 
     didWork |= consumeOneAction();
 
+    { // Achievements: the game in front (not homebrew in a borrowed game); a new session at each launch and exit.
+        namespace aw = switchu::daemon::achievements_watch;
+        static bool wasRunning = false;
+        const bool running = daemon::app::isRunning();
+        if (running != wasRunning) {
+            wasRunning = running;
+            aw::g_sessions.fetch_add(1);
+        }
+        aw::g_title.store(running && daemon::app::hasForeground() && g_homebrewHostTitleId == 0
+                              ? daemon::app::suspendedTitleId()
+                              : 0);
+    }
+
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
         g_launchForegroundPending = false;
@@ -2619,11 +2633,14 @@ int main(int argc, char* argv[]) {
     if (R_FAILED(rc))
         switchu::FileLog::log("[daemon] menu launch failed: 0x%X", rc);
 
+    switchu::daemon::achievements_watch::start();
+
     while (g_running.load()) {
         mainLoop();
         waitForMainWork();
     }
 
+    switchu::daemon::achievements_watch::stop();
     stopEventManager();
     stopControlCacheWorker();
     daemon::menu_la::terminate();
