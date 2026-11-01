@@ -88,12 +88,12 @@ public:
     void setPointerMode(PointerMode mode);
     PointerMode pointerMode() const { return m_pointerMode; }
     bool stickPointerOn() const { return m_virtualPointerEnabled && m_pointerMode == PointerMode::Stick; }
+    void setVirtualPointerEnabled(bool enabled); // (CardsNX's Look > Pointer keeps it on)
 
 private:
     void recenterVirtualPointer();
     void startVirtualPointerSensors();
     void stopVirtualPointerSensors();
-    void setVirtualPointerEnabled(bool enabled);
     bool readActiveSixAxisState(HidSixAxisSensorState& out) const;
 
     PadState m_pad{};
