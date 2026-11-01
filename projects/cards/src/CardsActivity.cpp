@@ -656,7 +656,12 @@ bool CardsActivity::onCreate() {
     for (int i = 0; i < 3; ++i) m_threads.emplace_back([this, i]() { worker(i); });
     if (m_settings.perfLog) m_threads.emplace_back([this]() { watchdog(); });
     wantArt();
-    m_intro = m_settings.motion && !m_startSuspended && !m_startRunning ? 0.f : 1.f; // back from a game: just there
+#ifdef SWITCHU_MENU
+    const bool backFromGame = m_startSuspended || m_startRunning;
+#else
+    const bool backFromGame = false;
+#endif
+    m_intro = m_settings.motion && !backFromGame ? 0.f : 1.f; // back from a game: just there
 #ifdef SWITCHU_MENU
     if (m_atBoot && m_settings.lockScreen) lock();
 #endif
