@@ -389,21 +389,10 @@ std::vector<Game> listGames() {
         // 05003A400C3DA000 is), a game.
         g.homebrew = (g.id >> 56) == 0x05 && (g.id >> 48) != 0x0500;
         if (g.name.empty()) g.name = hexId(g.id);
-
-        PdmPlayStatistics st{};
-        if (R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationId(g.id, false, &st))) {
-            g.lastPlayed = st.last_timestamp_user;
-            g.playSeconds = st.playtime / 1000000000ULL;
-            g.launches = st.total_launches;
-        }
     }
-    // The statistics' "last" is the last launch: a game kept open for days looked
-    // older than it was. The last time it was played is in the play log.
-    std::vector<std::uint64_t> ids;
-    for (const Game& g : games) ids.push_back(g.id);
-    const auto last = lastPlayTimes(ids);
-    for (Game& g : games)
-        if (const auto it = last.find(g.id); it != last.end()) g.lastPlayed = it->second;
+    // (Play times and last played aren't asked here: pdm takes one slow call per
+    // game, and HOME's stats job asks them anyway -- the titles took 9-11 s to read
+    // at every start, the screen stalling meanwhile. takeLists keeps the ones it had.)
     return games;
 }
 
@@ -1442,6 +1431,75 @@ QuickStatus readQuickStatus() {
     if (R_SUCCEEDED(psmGetChargerType(&charger))) q.charging = charger != PsmChargerType_Unconnected;
     q.temperature = chipTemperature();
     return q;
+}
+
+std::string sdCardTest(std::atomic<int>& progress, const std::atomic<bool>& stop) {
+    constexpr size_t kBig = 64u << 20, kPiece = 1u << 20;
+    constexpr int kSmall = 200;
+    const std::string dir = "sdmc:/config/CardsNX/sdtest", big = dir + "/big.bin";
+    if (FsFileSystem* fs = fsdevGetDeviceFileSystem("sdmc")) {
+        s64 free = 0;
+        if (R_SUCCEEDED(fsFsGetFreeSpace(fs, "/", &free)) && free < static_cast<s64>(kBig * 2))
+            return tr("Not enough free space for the test (128 MB).");
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::vector<std::uint8_t> buf(kPiece);
+    for (size_t i = 0; i < buf.size(); ++i) buf[i] = static_cast<std::uint8_t>(i * 131 + 7);
+    auto seconds = [](std::uint64_t t0) {
+        return std::max(1e-6, static_cast<double>(armTicksToNs(armGetSystemTick() - t0)) / 1e9);
+    };
+    // Written in 1 MB pieces, then read back.
+    bool ok = false;
+    std::uint64_t t0 = armGetSystemTick();
+    if (FILE* f = std::fopen(big.c_str(), "wb")) {
+        ok = true;
+        for (size_t done = 0; ok && !stop && done < kBig; done += kPiece) {
+            ok = std::fwrite(buf.data(), 1, kPiece, f) == kPiece;
+            progress = static_cast<int>(done * 40 / kBig);
+        }
+        ok = std::fclose(f) == 0 && ok;
+    }
+    const double writeS = seconds(t0);
+    t0 = armGetSystemTick();
+    if (FILE* f = ok ? std::fopen(big.c_str(), "rb") : nullptr) {
+        for (size_t done = 0; ok && !stop && done < kBig; done += kPiece) {
+            ok = std::fread(buf.data(), 1, kPiece, f) == kPiece;
+            progress = 40 + static_cast<int>(done * 40 / kBig);
+        }
+        std::fclose(f);
+    } else {
+        ok = false;
+    }
+    const double readS = seconds(t0);
+    std::filesystem::remove(big, ec);
+    // Small files, as HOME's are (pictures, settings, lists): written and read.
+    int small = 0;
+    t0 = armGetSystemTick();
+    for (int i = 0; ok && !stop && i < kSmall; ++i) {
+        const std::string path = dir + "/s" + std::to_string(i);
+        if (FILE* f = std::fopen(path.c_str(), "wb")) {
+            std::fwrite(buf.data(), 1, 4096, f);
+            std::fclose(f);
+            if (FILE* g = std::fopen(path.c_str(), "rb")) {
+                small += std::fread(buf.data(), 1, 4096, g) == 4096 ? 1 : 0;
+                std::fclose(g);
+            }
+        }
+        progress = 80 + i * 20 / kSmall;
+    }
+    const double smallS = seconds(t0);
+    std::filesystem::remove_all(dir, ec);
+    progress = 100;
+    if (stop) return std::string();
+    if (!ok) return tr("The test couldn't write to the SD card.");
+    const int write = static_cast<int>(64.0 / writeS + 0.5), read = static_cast<int>(64.0 / readS + 0.5);
+    const int perSecond = static_cast<int>(small / smallS + 0.5);
+    const char* verdict = read >= 40 && write >= 15 && perSecond >= 100 ? "Good"
+                        : read >= 20 && perSecond >= 40                 ? "OK"
+                                                                        : "Slow";
+    return trf("{verdict}: write {write} MB/s, read {read} MB/s, {small} small files a second",
+               {tr(verdict), std::to_string(write), std::to_string(read), std::to_string(perSecond)});
 }
 
 int chipTemperature() {

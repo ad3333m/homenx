@@ -95,7 +95,8 @@ private:
     int m_changesChecks = 0;
     // Every game and .nro (slow: seconds), on whatever thread calls it; or only
     // the installed titles (a game installed, updated or removed).
-    static Lists readAllLists(bool gamesOnly = false);
+    // knownNroHash: the .nro apps' paths as last read (Settings.nroHash): the same, they aren't read again.
+    static Lists readAllLists(bool gamesOnly = false, std::uint64_t knownNroHash = 0);
     struct Job {
         Game game;
         int what = kCard;
@@ -548,8 +549,19 @@ private:
         std::string clock, battery, free;
         bool online = false, charging = false;
         std::string date; // "Friday 31 October" (the lock screen)
+        int temperature = -1; // the chip's, C (every 5 s)
+        int month = 0, day = 0;
     };
     Status m_statusIn;
+    int m_temp = -1, m_month = 0, m_day = 0;
+    bool m_hotSaid = false; // "the Switch is hot" was said (again once it cooled)
+    int season() const;     // 0 none, 1 snow, 2 pumpkins (Settings > Look > Seasonal looks)
+    void drawSeason(nxui::Renderer& r); // the snow, over everything
+    // Settings > Console > Test the SD card.
+    std::future<std::string> m_sdTestJob;
+    std::atomic<int> m_sdTestPct{0};
+    std::string m_sdTestResult;
+    void startSdTest();
     bool m_statusFresh = false;
     int m_unread = 0;
     std::map<std::uint64_t, int> m_players; // Nextendo, by title

@@ -198,6 +198,9 @@ struct QuickStatus {
 };
 QuickStatus readQuickStatus();
 int chipTemperature(); // degrees C, -1 not known
+// Settings > Console > Test the SD card: how fast it writes and reads (64 MB in
+// 1 MB pieces, then 200 small files), the files removed after. The result, said.
+std::string sdCardTest(std::atomic<int>& progress, const std::atomic<bool>& stop);
 int gpuMhz();          // the GPU's clock now (the perf log: a hot chip is throttled), 0 not known
 bool setWifi(bool on);         // turning it on also ends Airplane mode
 bool setAirplaneMode(bool on);

@@ -305,6 +305,57 @@ void chevron(nxui::Renderer& r, float cx, float cy, float size, const nxui::Colo
     r.drawLine({cx + h, cy}, {cx - h, cy + v}, c, 2.5f);
 }
 
+// Seasonal looks (Settings > Look): snow, each flake from its number -- no state,
+// where it is comes from the time.
+void drawSnow(nxui::Renderer& r, float time, float a) {
+    for (int i = 0; i < 90; ++i) {
+        auto rnd = [i](float k) {
+            const float v = std::sin(static_cast<float>(i) * 12.9898f + k * 78.233f) * 43758.5453f;
+            return v - std::floor(v);
+        };
+        const float size = 1.5f + 3.f * rnd(1.f); // (the big ones are nearer: faster)
+        const float fall = 24.f + 36.f * rnd(2.f) + size * 7.f;
+        const float y = std::fmod(rnd(3.f) * 760.f + time * fall, 760.f) - 20.f;
+        const float x = std::fmod(rnd(4.f) * 1320.f + time * 7.f + std::sin(time * (0.5f + rnd(5.f)) + rnd(6.f) * 6.283f) * 16.f,
+                                  1320.f) - 20.f;
+        r.drawCircle({x, y}, size, nxui::Color(1.f, 1.f, 1.f, (0.45f + 0.4f * rnd(7.f)) * a), 10);
+    }
+}
+
+// A little snow along a shape's top edge.
+void snowCap(nxui::Renderer& r, const nxui::Rect& rc, float radius, float a) {
+    const nxui::Color snow(1.f, 1.f, 1.f, 0.9f * a);
+    const float x0 = rc.x + radius * 0.7f, x1 = rc.x + rc.width - radius * 0.7f;
+    r.drawRoundedRect({x0, rc.y - 4.f, x1 - x0, 8.f}, snow, 4.f);
+    for (float x = x0 + 12.f; x < x1 - 12.f; x += 28.f) // drifts
+        r.drawCircle({x, rc.y - 3.f}, 6.f + 3.f * (0.5f + 0.5f * std::sin(x * 0.13f)), snow, 16);
+}
+
+// A jack-o'-lantern, drawn (no picture needed), its candle flickering.
+void drawPumpkin(nxui::Renderer& r, float cx, float cy, float s, float a, float time) {
+    const float flicker = 0.78f + 0.22f * std::sin(time * 9.f + cx) * std::sin(time * 5.3f + cy);
+    r.drawCircle({cx, cy}, s * 0.75f, nxui::Color(1.f, 0.55f, 0.1f, 0.10f * a * flicker), 32); // its glow
+    r.drawRoundedRect({cx - s * 0.46f, cy + s * 0.30f, s * 0.92f, s * 0.12f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * a), s * 0.06f);
+    const float h = s * 0.70f;
+    const nxui::Color dark(0.86f, 0.38f, 0.04f, a), mid(0.97f, 0.50f, 0.08f, a), light(1.f, 0.63f, 0.18f, a);
+    r.drawRoundedRect({cx - s * 0.50f, cy - h * 0.5f, s * 0.54f, h}, dark, s * 0.27f);
+    r.drawRoundedRect({cx - s * 0.04f, cy - h * 0.5f, s * 0.54f, h}, dark, s * 0.27f);
+    r.drawRoundedRect({cx - s * 0.27f, cy - h * 0.53f, s * 0.54f, h * 1.06f}, mid, s * 0.27f);
+    r.drawRoundedRect({cx - s * 0.08f, cy - h * 0.50f, s * 0.16f, h}, light, s * 0.08f); // a rib catching the light
+    r.drawRoundedRect({cx - s * 0.05f, cy - h * 0.5f - s * 0.15f, s * 0.10f, s * 0.20f}, nxui::Color(0.35f, 0.42f, 0.14f, a),
+                      s * 0.04f); // its stem
+    const nxui::Color glow(1.f, 0.86f, 0.32f, a * flicker);
+    auto tri = [&](float x0, float y0, float x1, float y1, float x2, float y2, const nxui::Color& c) {
+        r.drawTriangle({cx + x0 * s, cy + y0 * s}, {cx + x1 * s, cy + y1 * s}, {cx + x2 * s, cy + y2 * s}, c);
+    };
+    tri(-0.30f, -0.02f, -0.10f, -0.02f, -0.20f, -0.19f, glow); // eyes
+    tri(0.10f, -0.02f, 0.30f, -0.02f, 0.20f, -0.19f, glow);
+    tri(-0.05f, 0.07f, 0.05f, 0.07f, 0.f, -0.01f, glow); // nose
+    r.drawRoundedRect({cx - s * 0.28f, cy + s * 0.12f, s * 0.56f, s * 0.09f}, glow, s * 0.04f); // the grin
+    tri(-0.13f, 0.12f, -0.05f, 0.12f, -0.09f, 0.17f, mid); // its teeth
+    tri(0.05f, 0.12f, 0.13f, 0.12f, 0.09f, 0.17f, mid);
+}
+
 // Text broken into lines of at most maxW (at spaces, else between letters:
 // Japanese and Chinese have none; newlines kept).
 std::vector<std::string> wrap(nxui::Font& font, const std::string& english, float maxW) {
@@ -747,7 +798,7 @@ bool CardsActivity::onCreate() {
     return true;
 }
 
-CardsActivity::Lists CardsActivity::readAllLists(bool gamesOnly) {
+CardsActivity::Lists CardsActivity::readAllLists(bool gamesOnly, std::uint64_t knownNroHash) {
     const std::uint64_t t0 = armGetSystemTick();
     Lists l;
     l.gamesOnly = gamesOnly;
@@ -759,6 +810,11 @@ CardsActivity::Lists CardsActivity::readAllLists(bool gamesOnly) {
         return l;
     }
     l.nroHash = homebrewHash();
+    if (knownNroHash && l.nroHash == knownNroHash) { // the same .nro files: not opened again
+        l.gamesOnly = true;                         // (75 of them took 7.7 s of SD reads, HOME stalling)
+        l.ms = ticksMs(armGetSystemTick() - t0);
+        return l;
+    }
     std::vector<Game> nros = listHomebrew();
     l.homebrew.insert(l.homebrew.begin(), std::make_move_iterator(nros.begin()), std::make_move_iterator(nros.end()));
     for (size_t i = 0; i < l.homebrew.size(); ++i) l.homebrew[i].order = static_cast<int>(i);
@@ -768,9 +824,10 @@ CardsActivity::Lists CardsActivity::readAllLists(bool gamesOnly) {
 
 void CardsActivity::startListRefresh(bool gamesOnly) {
     if (m_listJob.valid()) return;
-    m_listJob = std::async(std::launch::async, [gamesOnly]() {
+    const std::uint64_t known = m_settings.nroHash;
+    m_listJob = std::async(std::launch::async, [gamesOnly, known]() {
         offScreenCore(); // this thread only (never the screen's)
-        return readAllLists(gamesOnly);
+        return readAllLists(gamesOnly, known);
     });
 }
 
@@ -798,6 +855,7 @@ void CardsActivity::onDestroy() {
     if (m_getJob.valid()) m_getJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
     if (m_factsJob.valid()) m_factsJob.wait();
+    if (m_sdTestJob.valid()) m_sdTestJob.wait(); // (it stops early: m_jobsStop)
     if (m_changesJob.valid()) m_changesJob.wait();
     if (m_wallJob.valid()) m_wallJob.wait();
     if (m_lockJob.valid()) m_lockJob.wait();
@@ -941,8 +999,9 @@ void CardsActivity::worker(int index) {
     } else {
         while (!m_netReady && !m_quit) svcSleepThread(5'000'000ULL);
     }
-    std::uint64_t countsAt = 0, statusAt = 0, logAt = 0, freeAt = 0;
+    std::uint64_t countsAt = 0, statusAt = 0, logAt = 0, freeAt = 0, tempAt = 0;
     std::string lastFree;
+    int lastTemp = -1;
     for (;;) {
         // The bar's numbers, once a second: the time, battery, network, the SD
         // card's free space (that one waited on the card on the screen's thread).
@@ -980,6 +1039,8 @@ void CardsActivity::worker(int index) {
                                                       "August", "September", "October", "November", "December"};
                 if (info.wday < 7 && t.month >= 1 && t.month <= 12)
                     s.date = trf("{weekday} {day} {month}", {tr(kDays[info.wday]), std::to_string(t.day), tr(kMonths[t.month - 1])});
+                s.month = t.month; // (the seasonal looks)
+                s.day = t.day;
             }
             u32 charge = 0;
             if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) s.battery = std::to_string(charge) + "%";
@@ -1010,6 +1071,11 @@ void CardsActivity::worker(int index) {
             } else {
                 s.free = lastFree;
             }
+            if (now >= tempAt) { // the chip's temperature, every 5 s (the bar's heat warning)
+                tempAt = now + 5000;
+                lastTemp = chipTemperature();
+            }
+            s.temperature = lastTemp;
             std::lock_guard<std::mutex> lk(m_mu);
             m_statusIn = std::move(s);
             m_statusFresh = true;
@@ -1107,6 +1173,8 @@ void CardsActivity::worker(int index) {
                                : done.kind == ArtKind::Icon ? 32
                                                             : 1280;
                 if (job.what == kBackground || job.what == kLaunch) scaleDown(done.rgba, w, h, maxW);
+                else if (job.what == kCard && done.kind == ArtKind::Icon) // an app's icon, on glass ~150 wide: a
+                    scaleDown(done.rgba, w, h, static_cast<int>(160.f * m_pictureScale)); // 256 one took 4x the memory
                 else shrink(done.rgba, w, h, maxW);
                 done.w = w;
                 done.h = h;
@@ -1210,6 +1278,11 @@ void CardsActivity::takeArt() {
             if (!m_statusIn.date.empty()) m_date = m_statusIn.date;
             if (!m_statusIn.free.empty()) m_free = m_statusIn.free;
             m_online = m_statusIn.online;
+            if (m_statusIn.temperature >= 0) m_temp = m_statusIn.temperature;
+            if (m_statusIn.month > 0) {
+                m_month = m_statusIn.month;
+                m_day = m_statusIn.day;
+            }
         }
     }
     const Game* cur = current();
@@ -1556,6 +1629,17 @@ void CardsActivity::takeLists(Lists lists) {
         for (size_t i = 0; i < all.size(); ++i) all[i].order = static_cast<int>(i);
         lists.homebrew = std::move(all);
     }
+    // Play times and last played stay as they were (the stats job reads them, not the lists).
+    std::unordered_map<std::uint64_t, const Game*> had;
+    for (const auto& page : m_pages)
+        for (const Game& g : page) had[g.id] = &g;
+    for (auto* list : {&lists.games, &lists.homebrew})
+        for (Game& g : *list)
+            if (const auto it = had.find(g.id); it != had.end() && !g.lastPlayed && !g.playSeconds) {
+                g.lastPlayed = it->second->lastPlayed;
+                g.playSeconds = it->second->playSeconds;
+                g.launches = it->second->launches;
+            }
     m_pages[kGames] = std::move(lists.games);
     m_pages[kHomebrew] = std::move(lists.homebrew);
     splitMedia();
@@ -3005,6 +3089,29 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
         return;
     }
 #endif
+    // The music's bars while it plays (Settings > Lock screen > Music on the lock
+    // screen): up quickly, down slowly, with a faint reflection.
+    {
+        float target[Audio::kBands];
+        m_audio.spectrum(target);
+        const bool playing = m_settings.music && !m_audio.paused();
+        float most = 0.f;
+        for (int i = 0; i < Audio::kBands; ++i) {
+            float& v = m_viz[(size_t)i];
+            const float t = playing ? target[i] : 0.f;
+            v = t > v ? v + (t - v) * 0.6f : std::max(t, v - (1.f / 60.f) * 1.4f);
+            most = std::max(most, v);
+        }
+        if (most > 0.01f) {
+            const float w = 620.f, bw = w / static_cast<float>(Audio::kBands), base = 520.f + lift;
+            for (int i = 0; i < Audio::kBands; ++i) {
+                const float v = m_viz[(size_t)i], h = 3.f + 64.f * v;
+                const float x = 640.f - w * 0.5f + bw * static_cast<float>(i) + bw * 0.2f;
+                r.drawRoundedRect({x, base - h, bw * 0.6f, h}, kWhite.withAlpha((0.35f + 0.5f * v) * a), bw * 0.3f);
+                r.drawRoundedRect({x, base + 4.f, bw * 0.6f, h * 0.35f}, kWhite.withAlpha(0.12f * a), bw * 0.3f);
+            }
+        }
+    }
     // The way in, breathing.
     const float pulse = 0.55f + 0.45f * (0.5f + 0.5f * std::sin(m_time * 2.4f));
     const std::string hint = "Press any button";
@@ -5053,6 +5160,17 @@ void CardsActivity::buildSettings() {
         }));
     look.rows.push_back(toggle("Free space in the bar", [this]() { return m_settings.showFree; },
         [this, save]() { m_settings.showFree = !m_settings.showFree; save(); }));
+    look.rows.push_back(toggle("Temperature in the bar", [this]() { return m_settings.showTemp; },
+        [this, save]() { m_settings.showTemp = !m_settings.showTemp; save(); },
+        "Red, and a warning, when the Switch gets hot"));
+    look.rows.push_back(choice("Seasonal looks", [this]() {
+            static const char* const kSeasons[] = {"Automatic", "Snow", "Pumpkins", "Off"};
+            return std::string(kSeasons[std::clamp(m_settings.season, 0, 3)]);
+        },
+        [this, save](int d) {
+            m_settings.season = (m_settings.season + d + 4) % 4;
+            save();
+        }, "Snow in December, pumpkins around Halloween (Automatic)"));
     look.rows.push_back(toggle("Nextendo players", [this]() { return m_settings.players; },
         [this, save]() { m_settings.players = !m_settings.players; save(); }, "Green dots on games played online now"));
     look.rows.push_back(toggle("Animations", [this]() { return m_settings.motion; },
@@ -5259,6 +5377,13 @@ void CardsActivity::buildSettings() {
     };
     mtp.detail = "USB file transfer (MTP): plug the Switch in, then copy files";
     console.rows.push_back(std::move(mtp));
+    MenuItem sdTest = action("Test the SD card", [this]() { startSdTest(); });
+    sdTest.value = [this]() {
+        if (m_sdTestJob.valid()) return trf("Testing {n}%", {std::to_string(m_sdTestPct.load())});
+        return m_sdTestResult;
+    };
+    sdTest.detail = "How fast it writes and reads: a slow card makes HOME lag";
+    console.rows.push_back(std::move(sdTest));
     console.rows.push_back(choice("Language", [this]() {
         for (const auto& [tag, name] : languages())
             if (tag == m_settings.language) return name;
@@ -5936,6 +6061,19 @@ void CardsActivity::readFactsLater() {
         threadDone();
         return f;
     });
+}
+
+void CardsActivity::startSdTest() {
+    if (m_sdTestJob.valid()) return;
+    m_sdTestPct = 0;
+    m_sdTestResult.clear();
+    m_sdTestJob = std::async(std::launch::async, [this]() {
+        offScreenCore();
+        std::string result = sdCardTest(m_sdTestPct, m_jobsStop);
+        threadDone();
+        return result;
+    });
+    say("Testing the SD card: about half a minute...");
 }
 
 void CardsActivity::takeFacts(bool wait) {
@@ -6868,6 +7006,15 @@ void CardsActivity::onUpdate(float dt) {
     const std::uint64_t tArt = armGetSystemTick();
     takeArt();
     m_perfArtMs = ticksMs(armGetSystemTick() - tArt);
+    // Heat: at 60 C the bar's temperature turns red, and it's said once (again
+    // after it has cooled below 55).
+    if (m_temp >= 60 && !m_hotSaid) {
+        m_hotSaid = true;
+        say(trf("The Switch is hot ({degrees}°C): give it some air.", {std::to_string(m_temp)}));
+        perfLine("hot: " + std::to_string(m_temp) + " C");
+    } else if (m_temp >= 0 && m_temp < 55) {
+        m_hotSaid = false;
+    }
     perfMark("pictures");
     m_audio.update();
     perfMark("music");
@@ -7045,6 +7192,13 @@ void CardsActivity::onUpdate(float dt) {
     }
 
     takeFacts(false); // Settings' view of the console arrived
+    if (m_sdTestJob.valid() && m_sdTestJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        m_sdTestResult = m_sdTestJob.get();
+        if (!m_sdTestResult.empty()) {
+            say(m_sdTestResult);
+            perfLine("SD card test: " + m_sdTestResult);
+        }
+    }
     // Settings > Pictures > Save every picture now: done (you may have left Settings).
     if (m_saveAllJob.valid() && m_saveAllJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_saveAllJob.get();
@@ -7082,10 +7236,20 @@ void CardsActivity::onUpdate(float dt) {
     // first seconds after a game are busy enough already.
     if (!m_statsAsked && m_time > 6.f && !m_leaving) {
         m_statsAsked = true;
+        // At the console's start every game's; back from a game, that one's (the
+        // rest are as saved: pdm takes one slow call per game).
+        const std::uint64_t lastGame = std::strtoull(m_settings.lastGame.c_str(), nullptr, 16);
+        bool known = false;
+        for (const Game& g : m_pages[kGames]) known |= g.lastPlayed != 0;
+#ifdef SWITCHU_MENU
+        const bool every = m_atBoot || !known;
+#else
+        const bool every = true;
+#endif
         std::vector<std::uint64_t> ids;
         for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
             for (const Game& g : m_pages[p])
-                if (g.path.empty() && g.action.empty()) ids.push_back(g.id);
+                if (g.path.empty() && g.action.empty() && (every || g.id == lastGame)) ids.push_back(g.id);
         m_statsJob = std::async(std::launch::async, [ids]() {
             offScreenCore();
             std::vector<PlayStat> out;
@@ -7556,6 +7720,14 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
     drawStep("draw: the panel");
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
+    if (const int s = season()) { // Seasonal looks: snow on the panel, pumpkins in the corners
+        const float pa = easeOut((m_intro - 0.25f) * 2.f) * ui;
+        if (s == 1) snowCap(r, {kPanel.x, kPanel.y + 40.f * (1.f - pa), kPanel.width, kPanel.height}, kPanelRadius, pa);
+        else if (pa > 0.001f) {
+            drawPumpkin(r, 94.f, 664.f, 74.f, pa, m_time);
+            drawPumpkin(r, 1190.f, 672.f, 56.f, pa, m_time + 1.7f);
+        }
+    }
     drawStep("draw: the messages");
     if (m_moving) { // what Move does
         const std::string hint = "Move it with  < >      A  Done      B  Put it back";
@@ -7606,6 +7778,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawLaunch(r);
     drawReturn(r);
     drawLock(r);
+    drawSeason(r);
     drawStep("after drawing"); // (ends the last step's time)
 }
 
@@ -7720,8 +7893,12 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     const float wFree = showFree ? measured(m_fPill, m_free).x : 0.f;
     const float wPlayers = 30.f + 6.f + measured(m_fPill, players).x;
     const float bolt = m_charging ? 18.f : 0.f;
-    const float width = 9.f + face + 14.f + wClock + gap + bolt + wBattery + (showFree ? gap + 26.f + wFree : 0.f)
-                      + (m_settings.players ? gap + wPlayers : 0.f) + 18.f;
+    // The chip's temperature: a thermometer, the degrees and a bar (red and pulsing when hot).
+    const bool showTemp = m_settings.showTemp && m_temp >= 0;
+    const std::string temp = showTemp ? std::to_string(m_temp) + "\xC2\xB0" : std::string();
+    const float wTemp = showTemp ? 24.f + measured(m_fPill, temp).x + 6.f + 26.f : 0.f;
+    const float width = 9.f + face + 14.f + wClock + gap + bolt + wBattery + (showTemp ? gap + wTemp : 0.f)
+                      + (showFree ? gap + 26.f + wFree : 0.f) + (m_settings.players ? gap + wPlayers : 0.f) + 18.f;
     const nxui::Rect pill{kPillRight - width, y - 26.f, width, 52.f};
     frost(r, pill, 26.f, glassTint(a));
     r.drawRoundedRectOutline(pill, kGlassEdge.withAlpha(kGlassEdge.a * a), 26.f, 1.5f);
@@ -7746,9 +7923,28 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     }
     textMid(r, m_fPill, m_battery, x, y, kWhite.withAlpha(a));
     x += wBattery;
+    if (showTemp) {
+        x += gap;
+        const bool hot = m_temp >= 60, warm = m_temp >= 48;
+        const float pulse = hot && m_settings.motion ? 0.55f + 0.45f * std::sin(m_time * 6.f) : 1.f;
+        const nxui::Color tone = hot ? kRed : warm ? nxui::Color(1.f, 0.72f, 0.3f, 1.f) : kGreen;
+        icon(r, "thermo", x + 9.f, y, 24.f, (hot ? tone : kWhite).withAlpha(a * pulse));
+        x += 24.f;
+        textMid(r, m_fPill, temp, x, y, (hot ? tone : kWhite).withAlpha(a));
+        x += measured(m_fPill, temp).x + 6.f;
+        const nxui::Rect bar{x, y - 3.5f, 26.f, 7.f};
+        r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.2f * a), 3.5f);
+        const float level = clamp01((static_cast<float>(m_temp) - 25.f) / 50.f); // 25..75 C
+        r.drawRoundedRect({bar.x, bar.y, std::max(7.f, bar.width * level), bar.height}, tone.withAlpha(a * pulse), 3.5f);
+        x += 26.f;
+    }
     if (showFree) {
         x += gap;
-        icon(r, "thermo", x + 9.f, y, 24.f, nxui::Color(0.39f, 0.82f, 1.f, a));
+        // An SD card (the thermometer is the temperature's).
+        const nxui::Color sd(0.39f, 0.82f, 1.f, a);
+        const nxui::Rect card{x + 2.f, y - 10.f, 15.f, 20.f};
+        r.drawRoundedRectOutline(card, sd, 3.f, 2.f);
+        for (int i = 0; i < 3; ++i) r.drawRect({card.x + 3.5f + 3.f * static_cast<float>(i), card.y + 3.f, 1.5f, 4.f}, sd);
         x += 26.f;
         textMid(r, m_fPill, m_free, x, y, kWhite.withAlpha(a));
         x += wFree;
@@ -8432,6 +8628,24 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
     drawHints(r, box.x + box.width - 24.f, box.y + box.height - 26.f, {{"A", "Choose"}, {"B", "Back"}}, a);
 }
 
+int CardsActivity::season() const {
+    switch (m_settings.season) {
+        case 1: return 1;
+        case 2: return 2;
+        case 3: return 0;
+        default: // by the date: snow all December, pumpkins 15 October to 2 November
+            if (m_month == 12) return 1;
+            if ((m_month == 10 && m_day >= 15) || (m_month == 11 && m_day <= 2)) return 2;
+            return 0;
+    }
+}
+
+// The snow falls over everything (Settings and the lock screen too), not over a launch.
+void CardsActivity::drawSeason(nxui::Renderer& r) {
+    if (season() != 1 || m_leaving || m_returnTex) return;
+    drawSnow(r, m_settings.motion ? m_time : 0.f, 1.f);
+}
+
 void CardsActivity::drawHints(nxui::Renderer& r, float right, float cy,
                               std::initializer_list<std::pair<const char*, const char*>> hints, float a) {
     float x = right;
@@ -8668,6 +8882,10 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     r.popClipRect();
     drawHints(r, kRowsX + kRowsW, (kRowsBottom + kSheet.y + kSheet.height) * 0.5f + dy,
               {{"A", "Choose"}, {"< >", "Change"}, {"L R", "Section"}, {"B", "Back"}}, a);
+    if (const int s = season()) { // Seasonal looks: snow on its edge, or a pumpkin sitting on it
+        if (s == 1) snowCap(r, sheet, 34.f, a);
+        else drawPumpkin(r, sheet.x + sheet.width - 74.f, sheet.y + 4.f, 56.f, a, m_time);
+    }
 }
 
 } // namespace cards
