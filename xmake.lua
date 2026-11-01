@@ -188,7 +188,7 @@ target("SwitchU")
     -- CardsNX as HOME (NXToggle > Home screen): its screen, built in; its files
     -- (fonts, icons, the GameTDB index) ship in switch/SwitchU/cards/.
     add_files("projects/cards/src/Audio.cpp", "projects/cards/src/CardsActivity.cpp", "projects/cards/src/Library.cpp",
-              "projects/cards/src/Spotify.cpp")
+              "projects/cards/src/Mtp.cpp", "projects/cards/src/Spotify.cpp")
     add_files("projects/updater/src/Catalog.cpp") -- homebrew updates, as the Homebrew Manager finds them
     add_includedirs("projects/cards/src", {public = false})
     add_defines("HOMENX_UPDATER_SHARED_NETWORK", homenx_build_define)

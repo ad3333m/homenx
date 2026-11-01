@@ -1,6 +1,7 @@
 #pragma once
 #include "Audio.hpp"
 #include "Library.hpp"
+#include "Mtp.hpp"
 #include "Settings.hpp"
 #include "Spotify.hpp"
 
@@ -576,7 +577,7 @@ private:
     void connectAudio(const std::array<std::uint8_t, 6>& address, const std::string& name);
     float m_btScanLeft = 0.f, m_btConnectIn = 0.f;
     std::string m_btConnectName, m_btAudioName; // the one being connected; the one connected
-    void openMtp(); // USB file transfer
+    Mtp m_mtp; // Settings > Console > Connect to a computer: USB file transfer from HOME itself
 
 
     // Settings: sections on the left, their rows on the right.

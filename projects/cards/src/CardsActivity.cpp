@@ -4873,7 +4873,23 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(pads));
 
     Section console{"Console", "power", {}};
-    MenuItem mtp = action("Connect to a computer", [this]() { openMtp(); });
+    MenuItem mtp = action("Connect to a computer", [this]() {
+        if (m_mtp.on()) {
+            m_mtp.stop();
+            say("USB file transfer is off.");
+        } else {
+            m_mtp.start();
+            say("Plug the Switch into a computer: its SD card shows up there.");
+        }
+    });
+    mtp.value = [this]() {
+        switch (m_mtp.state()) {
+            case Mtp::State::Waiting: return tr("On: plug in a USB cable");
+            case Mtp::State::Connected: return tr("Connected");
+            case Mtp::State::Failed: return tr("Didn't start");
+            default: return std::string();
+        }
+    };
     mtp.detail = "USB file transfer (MTP): plug the Switch in, then copy files";
     console.rows.push_back(std::move(mtp));
     console.rows.push_back(choice("Language", [this]() {
@@ -5454,24 +5470,6 @@ void CardsActivity::openAudioDevices() {
     if (n <= 0) items.push_back(info("None paired yet", nullptr));
     items.push_back(action("Pair headphones or a speaker", [this]() { startAudioScan(); }));
     openMenu("Headphones and speakers", std::move(items));
-}
-
-// USB file transfer: haze (it comes with Atmosphere), else DBI's MTP mode.
-void CardsActivity::openMtp() {
-    std::string path = findNro("haze");
-    std::error_code ec;
-    for (const char* p : {"sdmc:/switch/haze.nro", "sdmc:/switch/haze/haze.nro"})
-        if (path.empty() && std::filesystem::exists(p, ec)) path = p;
-    const bool haze = !path.empty();
-    if (!haze) path = findNro("dbi");
-    if (path.empty()) {
-        say("haze isn't on the SD card: it comes with Atmosphere (switch/haze.nro).");
-        return;
-    }
-    m_sheetOpen = false;
-    say(haze ? "Plug the Switch into a computer: its SD card shows up there. + closes it."
-             : "In DBI, choose Run MTP responder, then plug the Switch into a computer.");
-    openNro(path);
 }
 
 void CardsActivity::findControllersNow() {
