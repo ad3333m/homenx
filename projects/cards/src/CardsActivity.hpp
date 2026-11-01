@@ -413,6 +413,9 @@ private:
     void drawPopup(nxui::Renderer& r);
     void drawSheet(nxui::Renderer& r);
     void drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect& row, bool chosen, float a, bool wide);
+    // A menu's foot: each button in a glass pill, then what it does (right-aligned).
+    void drawHints(nxui::Renderer& r, float right, float cy,
+                   std::initializer_list<std::pair<const char*, const char*>> hints, float a);
     void glassCircle(nxui::Renderer& r, float cx, float cy, float d, bool focused, const char* icon, float iconSize,
                      float a, float pressed);
     void frost(nxui::Renderer& r, const nxui::Rect& rect, float radius, const nxui::Color& tint);
@@ -579,6 +582,17 @@ private:
     // Settings > Internet, Controllers, Console.
     ConsoleSettings m_console;
     int m_nextendoMode = 0;  // 1: Nextendo mode is on (Settings > Nextendo)
+    // What Settings and Quick Settings show of the console, read on a thread:
+    // on the screen's thread, opening Settings froze for 2-5 s while HOME's
+    // start-up kept the system busy (perf.log, build 173).
+    struct Facts {
+        ConsoleSettings console;
+        int nextendo = 0;
+        QuickStatus quick;
+    };
+    std::future<Facts> m_factsJob;
+    void readFactsLater();
+    void takeFacts(bool wait); // wait: a row is about to change them, so the real ones first
     void openNextendo(int mode); // Prelude, Nextendo's app, which switches it (-1: just open it)
     std::future<bool> m_nxGetJob; // Prelude being downloaded (it wasn't on the SD card)
     int m_nxGetMode = -1;

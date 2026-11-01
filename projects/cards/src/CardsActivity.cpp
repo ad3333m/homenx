@@ -273,6 +273,38 @@ nxui::Rect scaled(const nxui::Rect& r, float s) {
     return {r.x + (r.width - w) * 0.5f, r.y + (r.height - h) * 0.5f, w, h};
 }
 
+// A glass card's picture in the square where its icon goes: an icon fills it;
+// a wide one (an eShop banner) keeps its shape, `most` wide, centred on it.
+nxui::Rect faceRect(const nxui::Texture* tex, const nxui::Rect& square, float most) {
+    const float aspect = static_cast<float>(tex->width()) / static_cast<float>(std::max(1, tex->height()));
+    if (aspect < 1.2f) return square;
+    const float h = most / aspect;
+    return {square.x + (square.width - most) * 0.5f, square.y + (square.height - h) * 0.5f, most, h};
+}
+
+// Settings' sections: each icon on a tile of its own colour.
+nxui::Color sectionTint(const char* icon) {
+    struct Tint {
+        const char* icon;
+        float r, g, b;
+    };
+    static const Tint kTints[] = {
+        {"home", 0.20f, 0.56f, 1.00f}, {"gear", 0.69f, 0.32f, 0.87f},  {"moon", 0.35f, 0.34f, 0.84f},
+        {"music", 1.00f, 0.27f, 0.36f}, {"wifi", 0.19f, 0.69f, 0.78f}, {"bluetooth", 0.00f, 0.48f, 1.00f},
+        {"power", 0.56f, 0.56f, 0.60f}, {"tag", 0.20f, 0.78f, 0.35f},  {"sort", 1.00f, 0.58f, 0.00f},
+    };
+    for (const Tint& t : kTints)
+        if (std::strcmp(t.icon, icon) == 0) return nxui::Color(t.r, t.g, t.b, 1.f);
+    return nxui::Color(0.39f, 0.40f, 0.45f, 1.f);
+}
+
+// A chevron: ">" (dir 1) or "<" (dir -1).
+void chevron(nxui::Renderer& r, float cx, float cy, float size, const nxui::Color& c, float dir = 1.f) {
+    const float h = size * 0.25f * dir, v = size * 0.5f;
+    r.drawLine({cx - h, cy - v}, {cx + h, cy}, c, 2.5f);
+    r.drawLine({cx + h, cy}, {cx - h, cy + v}, c, 2.5f);
+}
+
 // Text broken into lines of at most maxW (at spaces, else between letters:
 // Japanese and Chinese have none; newlines kept).
 std::vector<std::string> wrap(nxui::Font& font, const std::string& english, float maxW) {
@@ -353,8 +385,8 @@ bool parseUid(const std::string& hex, AccountUidLike& out) {
 // Popup sizes: rows shrink a little when there are many (users).
 void popupGeometry(size_t rows, nxui::Rect& box, float& rowH) {
     const float w = 600.f;
-    rowH = std::min(56.f, (650.f - 84.f) / static_cast<float>(std::max<size_t>(1, rows)));
-    const float h = 84.f + rowH * static_cast<float>(rows);
+    rowH = std::min(56.f, (650.f - 84.f - 44.f) / static_cast<float>(std::max<size_t>(1, rows)));
+    const float h = 84.f + 44.f + rowH * static_cast<float>(rows); // (44: the buttons' hints at its foot)
     box = {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h};
 }
 
@@ -687,7 +719,9 @@ bool CardsActivity::onCreate() {
             int w = 0, h = 0;
             ArtKind kind = ArtKind::Grid;
             std::vector<std::uint8_t> rgba;
-            if (readShown(thumbPath(id), rgba, w, h, kind)) out.push_back({id, std::move(rgba), w, h});
+            // (not an eShop banner's: that card is glass, see glassCard)
+            if (readShown(thumbPath(id), rgba, w, h, kind) && kind != ArtKind::Banner)
+                out.push_back({id, std::move(rgba), w, h});
         }
         threadDone();
         return out;
@@ -758,6 +792,7 @@ void CardsActivity::onDestroy() {
     if (m_browserJob.valid()) m_browserJob.wait();
     if (m_getJob.valid()) m_getJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
+    if (m_factsJob.valid()) m_factsJob.wait();
     if (m_changesJob.valid()) m_changesJob.wait();
     if (m_wallJob.valid()) m_wallJob.wait();
     if (m_lockJob.valid()) m_lockJob.wait();
@@ -1647,7 +1682,10 @@ void CardsActivity::openPageOrder(int select) {
 bool CardsActivity::glassCard(const Game& g) {
     if ((g.homebrew && !g.fullCard) || !g.action.empty()) return true;
     auto it = m_art.find(g.id);
-    return it != m_art.end() && it->second.card && it->second.kind == ArtKind::Icon;
+    // An icon, or an eShop banner (wide: filling the tall card zoomed it until
+    // only its middle showed, "the covers are too large"): whole, on glass.
+    return it != m_art.end() && it->second.card
+        && (it->second.kind == ArtKind::Icon || it->second.kind == ArtKind::Banner);
 }
 
 // ---------------------------------------------------------------- starting things
@@ -2114,39 +2152,44 @@ void CardsActivity::checkHomebrewUpdates(bool force) {
     m_updatesJob = std::async(std::launch::async, [this, apps, now, force, online]() mutable {
         offScreenCore();
         std::map<std::string, NroUpdate> found;
+        // What CardsNX updated, to which version: a store can number a release
+        // higher than the .nro inside it says, and that app was offered again
+        // at every check after its update ("updating homebrew doesn't work").
+        nlohmann::json installed = nlohmann::json::object();
         // The saved list (read here: the SD card can keep the screen waiting).
-        if (!force) {
-            long long at = 0;
-            try {
-                std::ifstream in(kUpdatesPath);
-                if (in) {
-                    const auto j = nlohmann::json::parse(in);
-                    at = j.value("checkedAt", 0LL);
-                    const auto saved = j.value("apps", nlohmann::json::object());
-                    for (auto it = saved.begin(); it != saved.end(); ++it) {
-                        NroUpdate u;
-                        u.latest = it.value().value("latest", std::string());
-                        u.source = it.value().value("source", std::string());
-                        u.url = it.value().value("url", std::string());
-                        u.zipEntry = it.value().value("zipEntry", std::string());
-                        u.zip = it.value().value("zip", false);
-                        found[it.key()] = u;
-                    }
+        long long at = 0;
+        try {
+            std::ifstream in(kUpdatesPath);
+            if (in) {
+                const auto j = nlohmann::json::parse(in);
+                if (j.contains("installed") && j["installed"].is_object()) installed = j["installed"];
+                at = j.value("checkedAt", 0LL);
+                const auto saved = j.value("apps", nlohmann::json::object());
+                for (auto it = saved.begin(); it != saved.end(); ++it) {
+                    NroUpdate u;
+                    u.latest = it.value().value("latest", std::string());
+                    u.source = it.value().value("source", std::string());
+                    u.url = it.value().value("url", std::string());
+                    u.zipEntry = it.value().value("zipEntry", std::string());
+                    u.zip = it.value().value("zip", false);
+                    found[it.key()] = u;
                 }
-            } catch (...) {
             }
-            if ((now - at < 6 * 3600 && now >= at) || !online) { // fresh enough (or no internet)
-                m_updatesSaved = true;
-                return found;
-            }
-            found.clear();
+        } catch (...) {
         }
+        if (!force && ((now - at < 6 * 3600 && now >= at) || !online)) { // fresh enough (or no internet)
+            m_updatesSaved = true;
+            return found;
+        }
+        found.clear();
         if (!online) return found;
         std::atomic<int> done{0};
         updater::findUpdates(apps, done, &m_jobsStop);
-        nlohmann::json saved = {{"checkedAt", now}, {"apps", nlohmann::json::object()}};
+        nlohmann::json saved = {{"checkedAt", now}, {"apps", nlohmann::json::object()}, {"installed", installed}};
         for (const updater::App& a : apps) {
             if (a.downloadUrl.empty() || !updater::isNewer(a.latest, a.version)) continue;
+            const auto had = installed.find(a.path);
+            if (had != installed.end() && had->is_string() && had->get<std::string>() == a.latest) continue;
             NroUpdate u{a.latest, a.source, a.downloadUrl, a.zipEntry, a.zip};
             found[a.path] = u;
             saved["apps"][a.path] = {{"latest", u.latest}, {"source", u.source}, {"url", u.url},
@@ -3503,7 +3546,10 @@ void CardsActivity::drawOptions(nxui::Renderer& r) {
             const float side = 170.f;
             const nxui::Rect ic{art.x + (art.width - side) * 0.5f, art.y + (art.height - side) * 0.42f, side, side};
             if (!g.action.empty()) r.drawTexture(tex, ic, kWhite.withAlpha(a));
-            else r.drawTextureRounded(tex, ic, 36.f, kWhite.withAlpha(a));
+            else {
+                const nxui::Rect face = faceRect(tex, ic, art.width - 32.f);
+                r.drawTextureRounded(tex, face, face.height < side ? 18.f : 36.f, kWhite.withAlpha(a));
+            }
         }
     } else if (tex) {
         drawCover(r, tex, art, 24.f, kWhite.withAlpha(a), it->second.kind == ArtKind::Box ? 0.125f : 0.f, 0.f);
@@ -3918,7 +3964,7 @@ void CardsActivity::drawPower(nxui::Renderer& r) {
 // R: Quick Settings, as HomeNX's (the status, the music player, volumes and
 // brightness, Airplane mode and Wi-Fi, power) in CardsNX's glass.
 void CardsActivity::openQuick() {
-    m_quick = readQuickStatus();
+    readFactsLater();
     m_quickRefreshIn = 3.f;
     m_quickPower = powerItems();
     m_quickRow = kQPlayer;
@@ -3930,6 +3976,7 @@ void CardsActivity::openQuick() {
 }
 
 void CardsActivity::quickActivate(int row, int col) {
+    takeFacts(true); // (the switches flip what the console has, not what was shown)
     if (row == kQPlayer && spotifyOn()) { // previous, play / pause, next, repeat, shuffle; the list: the Music screen
         static constexpr Spotify::Cmd kCmds[5] = {Spotify::Cmd::Previous, Spotify::Cmd::PlayPause, Spotify::Cmd::Next,
                                                   Spotify::Cmd::Repeat, Spotify::Cmd::Shuffle};
@@ -3993,6 +4040,7 @@ void CardsActivity::quickActivate(int row, int col) {
 }
 
 void CardsActivity::quickChange(int row, int delta) {
+    takeFacts(true);
     if (row == kQMusic) {
         m_settings.musicVolume = std::clamp(m_settings.musicVolume + delta * 10, 0, 100);
         m_audio.setMusic(homeMusic(), m_settings.musicVolume);
@@ -5683,10 +5731,37 @@ void CardsActivity::updatePairing(float dt) {
 }
 #endif
 
+void CardsActivity::readFactsLater() {
+    if (m_factsJob.valid()) return;
+    m_factsJob = std::async(std::launch::async, [this]() {
+        offScreenCore();
+        const std::uint64_t t0 = armGetSystemTick();
+        Facts f;
+        f.console = readConsoleSettings();
+        f.nextendo = nextendoMode();
+        f.quick = readQuickStatus();
+        const float ms = ticksMs(armGetSystemTick() - t0);
+        if (ms > 100.f) {
+            char line[80];
+            std::snprintf(line, sizeof(line), "Settings' view of the console read in %.0f ms", ms);
+            perfLine(line);
+        }
+        threadDone();
+        return f;
+    });
+}
+
+void CardsActivity::takeFacts(bool wait) {
+    if (!m_factsJob.valid()) return;
+    if (!wait && m_factsJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    Facts f = m_factsJob.get();
+    m_console = std::move(f.console);
+    m_nextendoMode = f.nextendo;
+    m_quick = f.quick;
+}
+
 void CardsActivity::openSettings(int section) {
-    m_console = readConsoleSettings();
-    m_nextendoMode = nextendoMode();
-    m_quick = readQuickStatus();
+    readFactsLater(); // (the rows show what was read last until it's in)
     buildSettings();
     m_sheetOpen = true;
     m_sheetSec = std::clamp(section, 0, static_cast<int>(m_sheet.size()) - 1);
@@ -6188,6 +6263,7 @@ bool CardsActivity::updateSheet(float) {
         ++m_sheetRow;
         m_audio.play("navigation");
     }
+    if (left || right || in.isDown(B::A)) takeFacts(true); // (a row changes what the console has: that first)
     MenuItem& item = rows()[(size_t)std::clamp(m_sheetRow, 0, n - 1)];
     const bool steps = item.kind == MenuItem::Choice || item.kind == MenuItem::Slider;
     if (left) {
@@ -6231,6 +6307,7 @@ bool CardsActivity::handleTouch() {
     // Where a row was tapped: a toggle flips, a choice steps (left half back,
     // right half on), a slider goes to the finger, an action runs.
     auto tapRow = [&](MenuItem& item, const nxui::Rect& row, float sliderX, float sliderW) {
+        takeFacts(true); // (see updateSheet)
         switch (item.kind) {
             case MenuItem::Toggle:
                 if (item.change) item.change(1);
@@ -6732,7 +6809,8 @@ void CardsActivity::onUpdate(float dt) {
         if (m_nroUpdateJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             const std::string error = m_nroUpdateJob.get();
             if (error.empty()) {
-                const std::string latest = versionName(m_updates.count(m_nroUpdating) ? m_updates[m_nroUpdating].latest : std::string());
+                const std::string latestRaw = m_updates.count(m_nroUpdating) ? m_updates[m_nroUpdating].latest : std::string();
+                const std::string latest = versionName(latestRaw);
                 for (Page p : {kHomebrew, kMedia})
                     for (Game& g : m_pages[p])
                     if (g.path == m_nroUpdating) {
@@ -6751,6 +6829,10 @@ void CardsActivity::onUpdate(float dt) {
                     std::ifstream in(kUpdatesPath);
                     auto j = nlohmann::json::parse(in);
                     if (j.contains("apps") && j["apps"].is_object()) j["apps"].erase(m_nroUpdating);
+                    if (!latestRaw.empty()) { // (see checkHomebrewUpdates)
+                        if (!j.contains("installed") || !j["installed"].is_object()) j["installed"] = nlohmann::json::object();
+                        j["installed"][m_nroUpdating] = latestRaw;
+                    }
                     writeLater(kUpdatesPath, j.dump());
                 } catch (...) {
                 }
@@ -6760,6 +6842,7 @@ void CardsActivity::onUpdate(float dt) {
                 wantArt();
             } else {
                 say(trf("Couldn't update {app}: {error}", {name, error}));
+                perfLine("homebrew update failed: " + m_nroUpdating + ": " + error);
             }
             m_nroUpdating.clear();
             if (!m_nroQueue.empty()) {
@@ -6773,6 +6856,7 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
 
+    takeFacts(false); // Settings' view of the console arrived
     // Settings > Pictures > Save every picture now: done (you may have left Settings).
     if (m_saveAllJob.valid() && m_saveAllJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_saveAllJob.get();
@@ -7666,9 +7750,11 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
                 if (nintendo) {
                     r.drawTexture(tex, iconRect, kWhite.withAlpha(a));
                 } else {
-                    r.drawRoundedRect({iconRect.x, iconRect.y + 6.f, iconRect.width, iconRect.height},
-                                      nxui::Color(0.f, 0.f, 0.f, 0.18f * a), 34.f); // a soft shadow under it
-                    r.drawTextureRounded(tex, iconRect, 34.f, kWhite.withAlpha(a));
+                    const nxui::Rect face = faceRect(tex, iconRect, card.width - 24.f);
+                    const float round = face.height < side ? 16.f : 34.f;
+                    r.drawRoundedRect({face.x, face.y + 6.f, face.width, face.height},
+                                      nxui::Color(0.f, 0.f, 0.f, 0.18f * a), round); // a soft shadow under it
+                    r.drawTextureRounded(tex, face, round, kWhite.withAlpha(a));
                 }
             } else if (!nintendo) {
                 r.drawRoundedRect(iconRect, nxui::Color(1.f, 1.f, 1.f, 0.08f * alpha), 34.f);
@@ -7796,7 +7882,7 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
     };
     auto drawIcon = [&](const nxui::Texture* ic, const nxui::Rect& rect, float a) {
         if (g && !g->action.empty()) r.drawTexture(ic, rect, kWhite.withAlpha(a)); // HomeNX's icon as it's drawn
-        else r.drawTextureRounded(ic, rect, rect.width * 0.22f, kWhite.withAlpha(a));
+        else r.drawTextureRounded(ic, rect, std::min(rect.width, rect.height) * 0.22f, kWhite.withAlpha(a));
     };
     // The card's face (box art, or an app's icon on glass) in a rect.
     auto drawFace = [&](const nxui::Rect& rect, float radius) {
@@ -7804,7 +7890,8 @@ void CardsActivity::drawLaunch(nxui::Renderer& r) {
             frost(r, rect, radius, nxui::Color(0.10f, 0.12f, 0.17f, 0.55f));
             if (const nxui::Texture* ic = art && valid(art->card) ? art->card.get() : nullptr) {
                 const float side = std::min(rect.width, rect.height) * 0.6f;
-                drawIcon(ic, {rect.x + (rect.width - side) * 0.5f, rect.y + (rect.height - side) * 0.42f, side, side}, 1.f);
+                drawIcon(ic, faceRect(ic, {rect.x + (rect.width - side) * 0.5f, rect.y + (rect.height - side) * 0.42f, side, side},
+                                      rect.width * 0.86f), 1.f);
             }
         } else if (art && valid(art->card)) {
             drawCover(r, art->card.get(), rect, radius, kWhite, art->kind == ArtKind::Box ? 0.125f : 0.f, 0.f);
@@ -8018,6 +8105,13 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
         const float s = std::min(40.f, row.height - 10.f);
         r.drawTextureRounded(item.picture, {x, cy - s * 0.5f, s, s}, s * 0.5f, kWhite.withAlpha(a));
         x += s + 14.f;
+    } else if (item.glyph) { // its icon on a little glass tile
+        const float s = std::min(34.f, row.height - 12.f);
+        const nxui::Rect tile{x, cy - s * 0.5f, s, s};
+        r.drawRoundedRect(tile, item.danger ? nxui::Color(1.f, 0.27f, 0.25f, 0.85f * a) : nxui::Color(1.f, 1.f, 1.f, 0.12f * a),
+                          s * 0.3f);
+        icon(r, item.glyph, tile.x + s * 0.5f, cy, s * 0.58f, kWhite.withAlpha(a));
+        x += s + 14.f;
     }
     // The control on the right, and the room it leaves for the label.
     const float right = row.x + row.width - 18.f;
@@ -8031,7 +8125,9 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
             const nxui::Rect track{right - 56.f, cy - 16.f, 56.f, 32.f};
             r.drawRoundedRect(track, nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 16.f);
             r.drawRoundedRect(track, kGreen.withAlpha(item.anim * a), 16.f);
-            r.drawCircle({track.x + 16.f + 24.f * item.anim, cy}, 13.f, kWhite.withAlpha(a), 24);
+            const float knob = track.x + 16.f + 24.f * item.anim;
+            r.drawCircle({knob, cy + 1.5f}, 13.5f, nxui::Color(0.f, 0.f, 0.f, 0.22f * a), 24); // its shadow
+            r.drawCircle({knob, cy}, 13.f, kWhite.withAlpha(a), 24);
             control = 70.f;
             break;
         }
@@ -8048,22 +8144,30 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
             break;
         }
         case MenuItem::Choice: {
+            // The value in a glass pill, < and > either side of it.
             const std::string v = item.value ? item.value() : std::string();
             const float vw = measured(m_fPill, v).x;
-            textMid(r, m_fPill, "<", right - vw - 40.f, cy, kMuted.withAlpha(0.7f * a));
-            textMid(r, m_fPill, v, right - vw - 16.f, cy, blue);
-            textMid(r, m_fPill, ">", right - 8.f, cy, kMuted.withAlpha(0.7f * a));
-            control = vw + 56.f;
+            const nxui::Rect pill{right - vw - 60.f, cy - 18.f, vw + 60.f, 36.f};
+            r.drawRoundedRect(pill, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.14f : 0.08f) * a), 18.f);
+            chevron(r, pill.x + 16.f, cy, 13.f, kMuted.withAlpha(0.75f * a), -1.f);
+            textMid(r, m_fPill, v, pill.x + 30.f, cy, blue);
+            chevron(r, pill.x + pill.width - 16.f, cy, 13.f, kMuted.withAlpha(0.75f * a));
+            control = pill.width + 14.f;
             break;
         }
         default: {
+            // Settings' actions open something: a ">" says so.
+            const float arrow = wide && item.kind == MenuItem::Action && !item.danger ? 22.f : 0.f;
+            if (arrow > 0.f) chevron(r, right - 6.f, cy, 15.f, kMuted.withAlpha(0.6f * a));
             const std::string v = item.value ? item.value() : std::string();
             if (!v.empty()) { // as much room as the label leaves (a song's whole title)
-                const float maxV = std::max(120.f, right - x - measured(m_fPill, item.label).x - 30.f);
+                const float maxV = std::max(120.f, right - arrow - x - measured(m_fPill, item.label).x - 30.f);
                 const std::string shown = fit(m_fPill, v, maxV);
-                textMid(r, m_fPill, shown, right - measured(m_fPill, shown).x, cy,
+                textMid(r, m_fPill, shown, right - arrow - measured(m_fPill, shown).x, cy,
                         item.kind == MenuItem::Info ? kMuted.withAlpha(a) : blue);
-                control = measured(m_fPill, shown).x + 16.f;
+                control = measured(m_fPill, shown).x + 16.f + arrow;
+            } else {
+                control = arrow;
             }
             break;
         }
@@ -8083,22 +8187,31 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
 void CardsActivity::drawPopup(nxui::Renderer& r) {
     const float a = easeOut(m_menuIn);
     if (m_notifOpen) {
+        // A card for each: a bell on an accent tile, who or what, then the words.
         const float rows = static_cast<float>(std::max<size_t>(1, m_notifRows.size()));
         nxui::Rect box{kGearX + 38.f - 460.f, 84.f - 12.f * (1.f - a), 460.f, 60.f + rows * 64.f + 40.f};
+        r.drawRoundedRect({box.x - 4.f, box.y + 10.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.28f * a),
+                          28.f); // its shadow
         frost(r, box, 24.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.82f * a));
         r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 24.f, 1.5f);
-        r.drawText(tr("Notifications"), {box.x + 22.f, box.y + 16.f}, &m_fLabel, kWhite.withAlpha(a));
+        r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 56.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
+                           nxui::Color(1.f, 1.f, 1.f, 0.f));
+        icon(r, "bell", box.x + 32.f, box.y + 30.f, 24.f, kWhite.withAlpha(a));
+        textMid(r, m_fLabel, "Notifications", box.x + 54.f, box.y + 30.f, kWhite.withAlpha(a));
         if (m_notifRows.empty())
-            r.drawText(tr("You're all caught up"), {box.x + 22.f, box.y + 70.f}, &m_fBody, kMuted.withAlpha(a));
+            textMid(r, m_fBody, "You're all caught up", box.x + 22.f, box.y + 82.f, kMuted.withAlpha(a));
         for (size_t i = 0; i < m_notifRows.size(); ++i) {
-            const float y = box.y + 60.f + static_cast<float>(i) * 64.f;
-            r.drawText(fit(m_fPill, m_notifRows[i].first, box.width - 44.f), {box.x + 22.f, y + 6.f}, &m_fPill,
-                       kWhite.withAlpha(a));
-            r.drawText(fit(m_fBody, m_notifRows[i].second, box.width - 44.f), {box.x + 22.f, y + 32.f}, &m_fBody,
-                       kMuted.withAlpha(a));
+            const nxui::Rect card{box.x + 12.f, box.y + 58.f + static_cast<float>(i) * 64.f, box.width - 24.f, 58.f};
+            r.drawRoundedRect(card, nxui::Color(1.f, 1.f, 1.f, 0.06f * a), 16.f);
+            const nxui::Rect tile{card.x + 10.f, card.y + 12.f, 34.f, 34.f};
+            r.drawRoundedRect(tile, accent(0.85f * a), 10.f);
+            icon(r, "bell", tile.x + 17.f, tile.y + 17.f, 19.f, kWhite.withAlpha(a));
+            const float tx = tile.x + tile.width + 12.f, room = card.x + card.width - 12.f - tx;
+            r.drawText(fit(m_fPill, m_notifRows[i].first, room), {tx, card.y + 5.f}, &m_fPill, kWhite.withAlpha(a));
+            r.drawText(fit(m_fBody, m_notifRows[i].second, room), {tx, card.y + 31.f}, &m_fBody, kMuted.withAlpha(a));
         }
-        r.drawText(tr(m_notifRows.empty() ? "B  Close" : "X  Clear all      B  Close"),
-                   {box.x + 22.f, box.y + box.height - 32.f}, &m_fBody, kMuted.withAlpha(a));
+        if (m_notifRows.empty()) drawHints(r, box.x + box.width - 20.f, box.y + box.height - 22.f, {{"B", "Close"}}, a);
+        else drawHints(r, box.x + box.width - 20.f, box.y + box.height - 22.f, {{"X", "Clear all"}, {"B", "Close"}}, a);
         return;
     }
     if (m_menu.empty()) return;
@@ -8107,12 +8220,39 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
     float rowH = 56.f;
     popupGeometry(m_menu.size(), base, rowH);
     const nxui::Rect box = scaled(base, 0.94f + 0.06f * a);
+    r.drawRoundedRect({box.x - 4.f, box.y + 12.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * a),
+                      32.f); // its shadow
     frost(r, box, 28.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.85f * a));
     r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 28.f, 1.5f);
+    r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 60.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
+                       nxui::Color(1.f, 1.f, 1.f, 0.f)); // a sheen
     r.drawText(fit(m_fLabel, m_menuTitle, box.width - 48.f), {box.x + 26.f, box.y + 22.f}, &m_fLabel, kWhite.withAlpha(a));
-    for (size_t i = 0; i < m_menu.size(); ++i) {
+    // The rows as one grouped list: a glass block, hairlines between them.
+    const size_t n = m_menu.size();
+    r.drawRoundedRect({box.x + 14.f, box.y + 62.f, box.width - 28.f, rowH * static_cast<float>(n) + 2.f},
+                      nxui::Color(1.f, 1.f, 1.f, 0.05f * a), 18.f);
+    for (size_t i = 0; i < n; ++i) {
         const nxui::Rect row{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(i), box.width - 28.f, rowH - 6.f};
-        drawRow(r, m_menu[i], row, static_cast<int>(i) == m_menuSel, a, false);
+        const int at = static_cast<int>(i);
+        if (i + 1 < n && at != m_menuSel && at + 1 != m_menuSel)
+            r.drawRect({row.x + 16.f, row.y + row.height + 2.5f, row.width - 32.f, 1.f}, nxui::Color(1.f, 1.f, 1.f, 0.08f * a));
+        drawRow(r, m_menu[i], row, at == m_menuSel, a, false);
+    }
+    drawHints(r, box.x + box.width - 24.f, box.y + box.height - 26.f, {{"A", "Choose"}, {"B", "Back"}}, a);
+}
+
+void CardsActivity::drawHints(nxui::Renderer& r, float right, float cy,
+                              std::initializer_list<std::pair<const char*, const char*>> hints, float a) {
+    float x = right;
+    for (auto it = std::rbegin(hints); it != std::rend(hints); ++it) {
+        x -= measured(m_fBody, it->second).x * 0.9f;
+        textMid(r, m_fBody, it->second, x, cy, kMuted.withAlpha(a), 0.9f);
+        const float bw = std::max(28.f, measured(m_fBadge, it->first).x + 16.f);
+        const nxui::Rect pill{x - 8.f - bw, cy - 14.f, bw, 28.f};
+        r.drawRoundedRect(pill, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 14.f);
+        r.drawRoundedRectOutline(pill, nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 14.f, 1.f);
+        textMid(r, m_fBadge, it->first, pill.x + (bw - measured(m_fBadge, it->first).x) * 0.5f, cy, kWhite.withAlpha(a));
+        x = pill.x - 22.f;
     }
 }
 
@@ -8274,31 +8414,41 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     const float a = easeOut(m_sheetIn);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
     const nxui::Rect sheet = scaled(kSheet, 0.95f + 0.05f * a);
+    r.drawRoundedRect({sheet.x - 4.f, sheet.y + 12.f, sheet.width + 8.f, sheet.height + 6.f}, nxui::Color(0.f, 0.f, 0.f, 0.28f * a),
+                      38.f); // its shadow
     frost(r, sheet, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
     r.drawRoundedRectOutline(sheet, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
     r.drawGradientRect({sheet.x + 2.f, sheet.y + 2.f, sheet.width - 4.f, 80.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
                        nxui::Color(1.f, 1.f, 1.f, 0.f));
-    const float dy = sheet.y - kSheet.y;
-    icon(r, "gear", kSecX + 20.f, kSheet.y + 46.f + dy, 32.f, kWhite.withAlpha(a));
-    textMid(r, m_fTitle, "Settings", kSecX + 46.f, kSheet.y + 46.f + dy, kWhite.withAlpha(a));
-    const std::string hint = "A Choose    < > Change    L R Section    B Back";
-    textMid(r, m_fBody, hint, kSheet.x + kSheet.width - 30.f - measured(m_fBody, hint).x, kSheet.y + 46.f + dy,
-            kMuted.withAlpha(0.8f * a));
+    const float dy = sheet.y - kSheet.y, hy = kSheet.y + 46.f + dy;
+    icon(r, "gear", kSecX + 20.f, hy, 32.f, kWhite.withAlpha(a));
+    textMid(r, m_fTitle, "Settings", kSecX + 46.f, hy, kWhite.withAlpha(a));
+    // Where you are: the section's tile and name over its rows.
+    const Section& here = m_sheet[(size_t)m_sheetSec];
+    const nxui::Rect hereTile{kRowsX, hy - 19.f, 38.f, 38.f};
+    r.drawRoundedRect(hereTile, sectionTint(here.icon).withAlpha(a), 11.f);
+    icon(r, here.icon, hereTile.x + 19.f, hy, 22.f, kWhite.withAlpha(a));
+    textMid(r, m_fLabel, here.name, hereTile.x + 52.f, hy, kWhite.withAlpha(a));
 
-    // Sections.
+    // Sections: a darker column, each one's icon on a tile of its colour.
     const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float colTop = kSheetTop - 10.f + dy;
+    r.drawRoundedRect({kSecX - 10.f, colTop, kSecW + 20.f, sheet.y + sheet.height - 12.f - colTop},
+                      nxui::Color(0.f, 0.f, 0.f, 0.14f * a), 22.f);
+    const float h = secH(m_sheet.size());
     for (size_t i = 0; i < m_sheet.size(); ++i) {
-        const float h = secH(m_sheet.size());
         const nxui::Rect row{kSecX, kSheetTop + h * static_cast<float>(i) + dy, kSecW, h - 8.f};
         const bool on = static_cast<int>(i) == m_sheetSec;
         if (on) {
-            r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, (m_sheetOnRows ? 0.10f : 0.18f) * a), 16.f);
-            if (!m_sheetOnRows) r.drawRoundedRectOutline(row, accent(ring * a), 16.f, 2.f);
+            r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, (m_sheetOnRows ? 0.10f : 0.16f) * a), 14.f);
+            if (!m_sheetOnRows) r.drawRoundedRectOutline(row, accent(ring * a), 14.f, 2.f);
         }
-        icon(r, m_sheet[i].icon, row.x + 26.f, row.y + row.height * 0.5f, 24.f, kWhite.withAlpha((on ? 1.f : 0.7f) * a));
-        textMid(r, m_fPill, m_sheet[i].name, row.x + 50.f, row.y + row.height * 0.5f, kWhite.withAlpha((on ? 1.f : 0.75f) * a));
+        const float cy = row.y + row.height * 0.5f, ts = std::min(32.f, row.height - 8.f);
+        const nxui::Rect tile{row.x + 10.f, cy - ts * 0.5f, ts, ts};
+        r.drawRoundedRect(tile, sectionTint(m_sheet[i].icon).withAlpha((on ? 1.f : 0.8f) * a), ts * 0.28f);
+        icon(r, m_sheet[i].icon, tile.x + ts * 0.5f, cy, ts * 0.6f, kWhite.withAlpha(a));
+        textMid(r, m_fPill, m_sheet[i].name, tile.x + ts + 12.f, cy, kWhite.withAlpha((on ? 1.f : 0.78f) * a));
     }
-    r.drawRect({kRowsX - 18.f, kSheetTop + dy, 1.5f, kRowsBottom - kSheetTop}, nxui::Color(1.f, 1.f, 1.f, 0.10f * a));
 
     // Rows (scrolled to keep the chosen one in view; they slide in on a new section).
     auto& rows = m_sheet[(size_t)m_sheetSec].rows;
@@ -8308,14 +8458,25 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     m_sheetScroll += (want - m_sheetScroll) * (m_settings.motion ? 0.25f : 1.f);
     const float ra = a * easeOut(m_sheetRowsIn), slide = 24.f * (1.f - easeOut(m_sheetRowsIn));
     r.pushClipRect({kRowsX - 8.f, kSheetTop + dy - 4.f, kRowsW + 16.f, visible + 8.f});
+    // One grouped list: a glass block behind the rows, hairlines between them.
+    if (!rows.empty()) {
+        const nxui::Rect group{kRowsX + slide, kSheetTop - m_sheetScroll + dy, kRowsW,
+                               kRowH * static_cast<float>(rows.size()) - 8.f};
+        r.drawRoundedRect(group, nxui::Color(1.f, 1.f, 1.f, 0.05f * ra), 18.f);
+        r.drawRoundedRectOutline(group, nxui::Color(1.f, 1.f, 1.f, 0.07f * ra), 18.f, 1.f);
+    }
     for (size_t i = 0; i < rows.size(); ++i) {
         const nxui::Rect row{kRowsX + slide, kSheetTop + kRowH * static_cast<float>(i) - m_sheetScroll + dy, kRowsW, kRowH - 8.f};
         if (row.y > kRowsBottom + dy || row.y + row.height < kSheetTop + dy) continue;
-        if (static_cast<int>(i) != m_sheetRow || !m_sheetOnRows)
-            r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, 0.04f * ra), 16.f);
-        drawRow(r, rows[i], row, m_sheetOnRows && static_cast<int>(i) == m_sheetRow, ra, true);
+        const int at = static_cast<int>(i);
+        const bool chosen = m_sheetOnRows && at == m_sheetRow;
+        if (i + 1 < rows.size() && !chosen && !(m_sheetOnRows && at + 1 == m_sheetRow))
+            r.drawRect({row.x + 18.f, row.y + row.height + 3.5f, row.width - 36.f, 1.f}, nxui::Color(1.f, 1.f, 1.f, 0.08f * ra));
+        drawRow(r, rows[i], row, chosen, ra, true);
     }
     r.popClipRect();
+    drawHints(r, kRowsX + kRowsW, (kRowsBottom + kSheet.y + kSheet.height) * 0.5f + dy,
+              {{"A", "Choose"}, {"< >", "Change"}, {"L R", "Section"}, {"B", "Back"}}, a);
 }
 
 } // namespace cards

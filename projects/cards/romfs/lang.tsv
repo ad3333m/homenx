@@ -469,8 +469,6 @@ Starting	Iniciando	Iniciando	Запуск	Démarrage	Startet	Avvio	起動中	正
 Open now: Resume carries on	Abierto ahora: Reanudar continúa	Aberto agora: Retomar continua	Сейчас открыто: «Продолжить» вернёт в игру	Ouvert : Reprendre continue la partie	Jetzt geöffnet: Fortsetzen macht weiter	Aperto ora: Riprendi continua	起動中: 「再開」で続きから	运行中：“继续”可接着玩
 Notifications	Notificaciones	Notificações	Уведомления	Notifications	Benachrichtigungen	Notifiche	お知らせ	通知
 You're all caught up	Estás al día	Tudo em dia	Новых уведомлений нет	Vous êtes à jour	Du bist auf dem neuesten Stand	Sei aggiornato	新しいお知らせはありません	没有新通知
-B  Close	B  Cerrar	B  Fechar	B  Закрыть	B  Fermer	B  Schließen	B  Chiudi	B  閉じる	B  关闭
-X  Clear all      B  Close	X  Borrar todo      B  Cerrar	X  Limpar tudo      B  Fechar	X  Очистить всё      B  Закрыть	X  Tout effacer      B  Fermer	X  Alle löschen      B  Schließen	X  Cancella tutto      B  Chiudi	X  すべて消去      B  閉じる	X  全部清除      B  关闭
 Quick Settings	Ajustes rápidos	Configurações rápidas	Быстрые настройки	Paramètres rapides	Schnelleinstellungen	Impostazioni rapide	クイック設定	快速设置
 Charging	Cargando	Carregando	Зарядка	En charge	Lädt	In carica	充電中	充电中
 Hot	Caliente	Quente	Горячо	Chaud	Heiß	Caldo	高温	高温
@@ -481,7 +479,6 @@ Sound Effects	Efectos de sonido	Efeitos sonoros	Звуковые эффекты	
 Brightness	Brillo	Brilho	Яркость	Luminosité	Helligkeit	Luminosità	明るさ	亮度
 Airplane Mode	Modo avión	Modo avião	Режим полёта	Mode avion	Flugmodus	Modalità aereo	機内モード	飞行模式
 No songs	No hay canciones	Nenhuma música	Нет песен	Aucune chanson	Keine Lieder	Nessun brano	曲がありません	没有歌曲
-A Choose    < > Change    L R Section    B Back	A Elegir    < > Cambiar    L R Sección    B Atrás	A Escolher    < > Mudar    L R Seção    B Voltar	A Выбрать    < > Изменить    L R Раздел    B Назад	A Choisir    < > Changer    L R Section    B Retour	A Auswählen    < > Ändern    L R Bereich    B Zurück	A Scegli    < > Cambia    L R Sezione    B Indietro	A 決定    < > 変更    L R 項目    B 戻る	A 选择    < > 更改    L R 分区    B 返回
 What's new	Novedades	Novidades	Что нового	Nouveautés	Neuigkeiten	Novità	新着情報	新内容
 Switch Online	Switch Online	Switch Online	Switch Online	Switch Online	Switch Online	Switch Online	Switch Online	Switch Online
 Online and classics	Online y clásicos	Online e clássicos	Онлайн и классика	En ligne et classiques	Online und Klassiker	Online e classici	オンラインとクラシック	在线与经典游戏
@@ -548,3 +545,10 @@ Plug the Switch into a computer: its SD card shows up there.	Conecta la Switch a
 USB file transfer is off.	La transferencia de archivos por USB está desactivada.	A transferência de arquivos por USB está desligada.	Передача файлов по USB выключена.	Le transfert de fichiers USB est désactivé.	USB-Dateiübertragung ist aus.	Il trasferimento file USB è disattivato.	USBファイル転送をオフにしました。	USB文件传输已关闭。
 On: plug in a USB cable	Activado: conecta un cable USB	Ligado: conecte um cabo USB	Вкл.: подключите USB-кабель	Activé : branchez un câble USB	An: USB-Kabel anschließen	Attivo: collega un cavo USB	オン: USBケーブルをつないでください	已开启：请连接USB线
 Didn't start	No se inició	Não iniciou	Не запустилось	N'a pas démarré	Nicht gestartet	Non avviato	開始できませんでした	未能启动
+Choose	Elegir	Escolher	Выбрать	Choisir	Auswählen	Scegli	決定	选择
+Change	Cambiar	Alterar	Изменить	Modifier	Ändern	Cambia	変更	更改
+Section	Sección	Seção	Раздел	Section	Bereich	Sezione	項目	分区
+Back	Atrás	Voltar	Назад	Retour	Zurück	Indietro	戻る	返回
+Clear all	Borrar todo	Limpar tudo	Очистить всё	Tout effacer	Alle löschen	Cancella tutto	すべて消去	全部清除
+Music on the lock screen	Música en la pantalla de bloqueo	Música na tela de bloqueio	Музыка на экране блокировки	Musique sur l'écran de verrouillage	Musik auf dem Sperrbildschirm	Musica nella schermata di blocco	ロック画面で音楽を流す	锁屏时播放音乐
+Keep the menu's music playing while the lock screen shows (off: it pauses)	La música del menú sigue sonando en la pantalla de bloqueo (desactivado: se pausa)	A música do menu continua tocando na tela de bloqueio (desligado: pausa)	Музыка меню продолжает играть на экране блокировки (выкл.: пауза)	La musique du menu continue sur l'écran de verrouillage (désactivé : elle se met en pause)	Die Menümusik läuft auf dem Sperrbildschirm weiter (aus: sie pausiert)	La musica del menu continua nella schermata di blocco (disattivato: va in pausa)	ロック画面でもメニューの音楽を流し続けます（オフ: 一時停止）	锁屏时继续播放菜单音乐（关闭：暂停）
