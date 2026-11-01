@@ -107,6 +107,8 @@ private:
         std::vector<std::uint8_t> rgba;
         int w = 0, h = 0;
         bool again = false; // an icon for now: its title picture is asked for again
+        std::vector<std::uint8_t> small; // a cover's very small copy (m_thumbs)
+        int sw = 0, sh = 0;
     };
     // A row in a popup or in Settings.
     struct MenuItem {
@@ -673,6 +675,7 @@ private:
     std::atomic<bool> m_downloading{false}; // BrowseNX
     float m_evictIn = 0.f;
     bool m_evictNow = false; // a picture had no room: far ones go now
+    bool m_shortBefore = false; // memory was short at the last letting go too (covers go only then)
     nxui::Theme m_theme = nxui::Theme::dark();
     void applyTheme(); // CardsNX's glass, white text and highlight colour, for HomeNX's screens in it
 

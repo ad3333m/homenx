@@ -1049,17 +1049,22 @@ void CardsActivity::worker(int index) {
                                              : job.what == kIcon ? (m_titleArt ? "it" : "ip") : "b")
                                              + (key.empty() ? "" : "k") + "." + std::to_string(shownW))
                 : std::string();
-        // A cover's very small copy, read for every card at once when HOME starts.
-        auto keepSmall = [&]() {
-            std::vector<std::uint8_t> small = done.rgba;
-            int sw = done.w, sh = done.h;
-            shrink(small, sw, sh, 64);
-            writeShown(thumbPath(job.game.id), small, sw, sh, done.kind);
+        // A cover's very small copy: on the SD card (read for every card at once when HOME
+        // starts) and kept under the cover (one let go shows that until it's back, not a blank).
+        auto makeSmall = [&]() {
+            done.small = done.rgba;
+            done.sw = done.w;
+            done.sh = done.h;
+            shrink(done.small, done.sw, done.sh, 64);
         };
         if (!shown.empty() && readShown(shown, done.rgba, done.w, done.h, done.kind)) {
             // (ready as it is; a cover kept before the small copies existed gets its own now)
-            std::error_code ec;
-            if (job.what == kCard && !std::filesystem::exists(thumbPath(job.game.id), ec)) keepSmall();
+            if (job.what == kCard) {
+                makeSmall();
+                std::error_code ec;
+                if (!std::filesystem::exists(thumbPath(job.game.id), ec))
+                    writeShown(thumbPath(job.game.id), done.small, done.sw, done.sh, done.kind);
+            }
         } else if (job.what == kBackground || job.what == kLaunch) {
             data = backgroundArt(look, key, done.kind);
         } else if (job.what == kCard) {
@@ -1107,7 +1112,10 @@ void CardsActivity::worker(int index) {
                                                            : done.kind == ArtKind::Banner;
                 if (!shown.empty() && forGood) {
                     writeShown(shown, done.rgba, w, h, done.kind);
-                    if (job.what == kCard) keepSmall(); // (the full one follows through the workers)
+                    if (job.what == kCard) {
+                        makeSmall();
+                        writeShown(thumbPath(job.game.id), done.small, done.sw, done.sh, done.kind);
+                    }
                 }
             }
         }
@@ -1254,6 +1262,13 @@ void CardsActivity::takeArt() {
             it->second.card = std::move(tex);
             it->second.kind = d.kind;
             it->second.cardIn = m_time;
+            // Its very small copy stays under it (drawCards): a cover let go shows
+            // that until it's back, never a blank card.
+            if (!d.small.empty() && (d.kind == ArtKind::Grid || d.kind == ArtKind::Box) && !m_thumbs.count(d.id)) {
+                auto small = std::make_unique<nxui::Texture>();
+                if (small->loadFromPixels(app().gpu(), app().renderer(), d.small.data(), d.sw, d.sh))
+                    m_thumbs[d.id] = {std::move(small), m_time};
+            }
             if (!m_perfFirstCard && d.id == selected) {
                 m_perfFirstCard = true;
                 char line[64];
@@ -1279,9 +1294,23 @@ void CardsActivity::takeArt() {
     // A whole page of covers stays while there's room: one let go came back
     // blank until it loaded again, and with the SD card busy (an install, the
     // list) that took seconds -- the covers that "disappeared".
-    if (loaded < 140 && !tight && !now) return;
-    const int keepCards = tight || now ? 14 : 60; // 14: still well past the ~6 on screen either side
-    const int keepBackgrounds = tight || now ? 1 : 6;
+    if (loaded < 140 && !tight && !now) {
+        m_shortBefore = false;
+        return;
+    }
+    // Backgrounds go first (one is as big as six covers), and the far icons;
+    // covers only when that wasn't enough by the next time ("covers
+    // disappear", build 175) -- and then their small copies stand in.
+    const bool shortNow = tight || now, coversToo = shortNow && m_shortBefore;
+    m_shortBefore = shortNow;
+    const int keepCards = coversToo ? 14 : 60; // 14: still well past the ~6 on screen either side
+    const int keepBackgrounds = shortNow ? 1 : 6;
+    if (shortNow) {
+        char line[96];
+        std::snprintf(line, sizeof(line), "pictures let go (%s, %llu MB free)%s", now ? "one had no room" : "memory low",
+                      static_cast<unsigned long long>(app().gpu().imageMemoryAvailable() >> 20), coversToo ? ": covers too" : "");
+        perfLine(line);
+    }
     std::map<std::uint64_t, int> distance;
     for (int p = 0; p < kPageCount; ++p) {
         const auto& page = m_pages[p];
