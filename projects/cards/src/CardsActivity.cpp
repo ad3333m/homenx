@@ -15,6 +15,7 @@
 #include "widgets/BatteryDrawing.hpp"
 #include <nlohmann/json.hpp>
 #include <switchu/control_cache.hpp>
+#include <switchu/achievement_packs.hpp>
 #include <switchu/achievements.hpp>
 #include <switchu/lock_picture.hpp>
 #include <switchu/ns_ext.hpp>
@@ -383,12 +384,20 @@ bool parseUid(const std::string& hex, AccountUidLike& out) {
     return out.uid[0] || out.uid[1];
 }
 
-// Popup sizes: rows shrink a little when there are many (users).
+// Popup sizes: at most kPopupRows rows show (more scroll with the choice).
+constexpr size_t kPopupRows = 9;
 void popupGeometry(size_t rows, nxui::Rect& box, float& rowH) {
     const float w = 600.f;
+    rows = std::min(rows, kPopupRows);
     rowH = std::min(56.f, (650.f - 84.f - 44.f) / static_cast<float>(std::max<size_t>(1, rows)));
     const float h = 84.f + 44.f + rowH * static_cast<float>(rows); // (44: the buttons' hints at its foot)
     box = {(1280.f - w) * 0.5f, (720.f - h) * 0.5f, w, h};
+}
+
+// The first row shown: the chosen one kept in the middle when they don't all fit.
+size_t popupTop(size_t rows, int chosen) {
+    if (rows <= kPopupRows) return 0;
+    return static_cast<size_t>(std::clamp(chosen - static_cast<int>(kPopupRows / 2), 0, static_cast<int>(rows - kPopupRows)));
 }
 
 // Quick Settings: the panel on the right and where its parts sit in it.
@@ -3416,6 +3425,12 @@ CardsActivity::Achieved CardsActivity::collectAchievements(const std::vector<Pla
         };
         if (overall) for (const ach::Milestone& m : ach::kOverall) said(m);
         else for (const ach::Milestone& m : ach::kPerGame) said(m);
+        if (!overall && id.rfind("p.", 0) == 0) { // the game's own (its pack)
+            const std::uint64_t title = std::strtoull(who.c_str(), nullptr, 16);
+            const auto it = names.find(title);
+            for (const switchu::packs::Achievement& p : switchu::packs::load(title).list)
+                if ("p." + p.id == id) out.said.push_back(p.name + (it != names.end() ? " (" + it->second + ")" : std::string()));
+        }
     }
     return out;
 }
@@ -3432,6 +3447,12 @@ void CardsActivity::openAchievements(const Game& g) {
         return std::string(buf);
     };
     std::vector<MenuItem> items;
+    // Its own first (its pack: docs/achievement-packs.md), then the milestones every game has.
+    for (const switchu::packs::Achievement& p : switchu::packs::load(g.id).list) {
+        const bool done = earned.when.count(ach::key(g.id, ("p." + p.id).c_str())) != 0;
+        items.push_back(info(p.name, [done]() { return tr(done ? "Earned" : "Locked"); }));
+        items.back().detail = p.about;
+    }
     const ach::Play play{g.playSeconds, g.launches};
     for (const ach::Milestone& m : ach::kPerGame) {
         const bool done = earned.when.count(ach::key(g.id, m.id)) || ach::progress(m, play) >= 1.f;
@@ -6731,11 +6752,13 @@ bool CardsActivity::handleTouch() {
             m_audio.play("hide_modal");
             return true;
         }
-        const int row = static_cast<int>((y - box.y - 66.f) / rowH);
-        if (y < box.y + 66.f || row < 0 || row >= static_cast<int>(m_menu.size())) return true;
+        const int top = static_cast<int>(popupTop(m_menu.size(), m_menuSel));
+        const int shownRow = static_cast<int>((y - box.y - 66.f) / rowH), row = top + shownRow;
+        if (y < box.y + 66.f || shownRow >= static_cast<int>(kPopupRows) || row < 0 || row >= static_cast<int>(m_menu.size()))
+            return true;
         m_menuSel = row;
         MenuItem& item = m_menu[(size_t)row];
-        const nxui::Rect r{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(row), box.width - 28.f, rowH - 6.f};
+        const nxui::Rect r{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(shownRow), box.width - 28.f, rowH - 6.f};
         if (tapRow(item, r, r.x + r.width - 18.f - 150.f, 150.f) && item.run) {
             auto run = item.run;
             if (!item.stay) m_menu.clear();
@@ -8639,11 +8662,11 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
                        nxui::Color(1.f, 1.f, 1.f, 0.f)); // a sheen
     r.drawText(fit(m_fLabel, m_menuTitle, box.width - 48.f), {box.x + 26.f, box.y + 22.f}, &m_fLabel, kWhite.withAlpha(a));
     // The rows as one grouped list: a glass block, hairlines between them.
-    const size_t n = m_menu.size();
-    r.drawRoundedRect({box.x + 14.f, box.y + 62.f, box.width - 28.f, rowH * static_cast<float>(n) + 2.f},
+    const size_t n = m_menu.size(), shown = std::min(n, kPopupRows), top = popupTop(n, m_menuSel);
+    r.drawRoundedRect({box.x + 14.f, box.y + 62.f, box.width - 28.f, rowH * static_cast<float>(shown) + 2.f},
                       nxui::Color(1.f, 1.f, 1.f, 0.05f * a), 18.f);
-    for (size_t i = 0; i < n; ++i) {
-        const nxui::Rect row{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(i), box.width - 28.f, rowH - 6.f};
+    for (size_t i = top; i < top + shown; ++i) {
+        const nxui::Rect row{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(i - top), box.width - 28.f, rowH - 6.f};
         const int at = static_cast<int>(i);
         if (i + 1 < n && at != m_menuSel && at + 1 != m_menuSel)
             r.drawRect({row.x + 16.f, row.y + row.height + 2.5f, row.width - 32.f, 1.f}, nxui::Color(1.f, 1.f, 1.f, 0.08f * a));

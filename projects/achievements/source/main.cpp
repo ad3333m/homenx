@@ -7,6 +7,7 @@
 #define TESLA_INIT_IMPL
 #include <tesla.hpp>
 
+#include <switchu/achievement_packs.hpp>
 #include <switchu/achievements.hpp>
 #include <switchu/control_cache.hpp>
 
@@ -54,11 +55,21 @@ public:
                 play.seconds = st.playtime / 1000000000ULL;
                 play.launches = st.total_launches;
             }
+            const switchu::packs::Pack pack = switchu::packs::load(tid); // its own (docs/achievement-packs.md)
+            auto packDone = [&](const switchu::packs::Achievement& p) {
+                return earned.when.count(ach::key(tid, ("p." + p.id).c_str())) != 0;
+            };
             int got = 0;
-            const int count = static_cast<int>(sizeof(ach::kPerGame) / sizeof(ach::kPerGame[0]));
+            int count = static_cast<int>(sizeof(ach::kPerGame) / sizeof(ach::kPerGame[0]) + pack.list.size());
+            for (const auto& p : pack.list) got += packDone(p) ? 1 : 0;
             for (const ach::Milestone& m : ach::kPerGame)
                 got += earned.when.count(ach::key(tid, m.id)) || ach::progress(m, play) >= 1.f ? 1 : 0;
             list->addItem(new tsl::elm::CategoryHeader(game + "  " + std::to_string(got) + " / " + std::to_string(count)));
+            for (const auto& p : pack.list) {
+                auto* item = new tsl::elm::ListItem(p.name);
+                item->setValue(packDone(p) ? "Earned" : "Locked", !packDone(p));
+                list->addItem(item);
+            }
             for (const ach::Milestone& m : ach::kPerGame) {
                 const bool done = earned.when.count(ach::key(tid, m.id)) || ach::progress(m, play) >= 1.f;
                 auto* item = new tsl::elm::ListItem(m.name);

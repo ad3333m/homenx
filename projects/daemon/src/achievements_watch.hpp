@@ -4,15 +4,20 @@
 // it's kept (config/SwitchU/achievements.txt) and shown over the game through
 // Ultrahand's notifications (config/ultrahand/notifications/*.notify), whatever
 // overlay is loaded. HOME (CardsNX) says what's new too, for consoles without it.
+// A game with a pack (switchu/achievement_packs.hpp) also has its own: its memory
+// is read every second (dmnt:cht) and each one unlocks the moment it happens.
 #include <switch.h>
+#include <switchu/achievement_packs.hpp>
 #include <switchu/achievements.hpp>
 #include <switchu/control_cache.hpp>
+#include <switchu/dmnt_cheat.hpp>
 #include <switchu/file_log.hpp>
 
 #include <atomic>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -78,14 +83,14 @@ inline void ensureIcon() {
     }
 }
 
-inline void notify(const switchu::achievements::Milestone& m, const std::string& game) {
+inline void notify(const std::string& name, const std::string& game) {
     std::error_code ec;
     std::filesystem::create_directories("sdmc:/config/ultrahand/notifications", ec);
     ensureIcon();
     char path[96];
     std::snprintf(path, sizeof(path), "sdmc:/config/ultrahand/notifications/HomeNX-%llu.notify",
                   static_cast<unsigned long long>(armGetSystemTick()));
-    const std::string text = game.empty() ? std::string(m.name) : std::string(m.name) + " - " + game;
+    const std::string text = game.empty() ? name : name + " - " + game;
     if (FILE* f = std::fopen(path, "wb")) {
         std::fprintf(f,
                      "{\"title\":\"Achievement unlocked\",\"text\":\"%s\",\"font_size\":22,\"priority\":30,"
@@ -93,7 +98,7 @@ inline void notify(const switchu::achievements::Milestone& m, const std::string&
                      jsonText(text).c_str());
         std::fclose(f);
     }
-    switchu::FileLog::log("[achievements] %s (%s)", m.name, game.c_str());
+    switchu::FileLog::log("[achievements] %s (%s)", name.c_str(), game.c_str());
 }
 
 inline std::string gameName(std::uint64_t title) {
@@ -119,32 +124,105 @@ inline void award(std::uint64_t title, const switchu::achievements::Play& play, 
     ach::save(e);
     if (quiet) return;
     const std::string game = mine.empty() ? std::string() : gameName(title);
-    for (const ach::Milestone* m : mine) notify(*m, game);
-    for (const ach::Milestone* m : overall) notify(*m, std::string());
+    for (const ach::Milestone* m : mine) notify(m->name, game);
+    for (const ach::Milestone* m : overall) notify(m->name, std::string());
+}
+
+// The game in front's pack, and its memory as dmnt sees it.
+struct Live {
+    std::uint64_t title = 0;
+    switchu::packs::Pack pack;
+    std::set<std::string> done; // its achievements earned already
+    bool attached = false;
+    switchu::packs::Bases bases;
+    std::string build;          // this version's build id (upper hex)
+    std::uint64_t retryAt = 0;  // (ticks) attaching didn't work: again then
+};
+
+inline void loadPack(Live& l, std::uint64_t title) {
+    namespace ach = switchu::achievements;
+    l = Live{};
+    l.title = title;
+    l.pack = switchu::packs::load(title);
+    if (!l.pack.valid()) return;
+    const ach::Earned e = ach::load();
+    for (const auto& a : l.pack.list)
+        if (e.when.count(ach::key(title, ("p." + a.id).c_str()))) l.done.insert(a.id);
+    switchu::FileLog::log("[achievements] pack for %016llX: %zu achievements, %zu earned",
+                          static_cast<unsigned long long>(title), l.pack.list.size(), l.done.size());
+}
+
+inline bool attach(Live& l) {
+    namespace dm = switchu::dmnt;
+    if (!dm::open()) return false;
+    if (!dm::hasCheatProcess() && !dm::forceOpenCheatProcess()) return false;
+    dm::Metadata m{};
+    if (!dm::metadata(m) || m.program_id != l.title) return false;
+    l.bases = {m.main_nso.base, m.heap.base, m.alias.base};
+    char hex[17] = {};
+    for (int i = 0; i < 8; ++i) std::snprintf(hex + i * 2, 3, "%02X", m.main_nso_build_id[i]);
+    l.build = hex;
+    switchu::FileLog::log("[achievements] %s: build %s", l.pack.game.c_str(), l.build.c_str());
+    return true;
+}
+
+// The pack's achievements whose condition holds now: kept and shown, at once.
+inline void checkPack(Live& l) {
+    namespace ach = switchu::achievements;
+    const switchu::packs::Reader read = [](std::uint64_t address, void* out, std::size_t size) {
+        return switchu::dmnt::read(address, out, size);
+    };
+    std::vector<const switchu::packs::Achievement*> now;
+    for (const auto& a : l.pack.list) {
+        if (l.done.count(a.id)) continue;
+        const switchu::packs::Condition* c = switchu::packs::forBuild(a, l.build);
+        if (c && switchu::packs::holds(*c, l.bases, read)) now.push_back(&a);
+    }
+    if (now.empty()) return;
+    ach::Earned e = ach::load();
+    const std::int64_t when = static_cast<std::int64_t>(std::time(nullptr));
+    for (const auto* a : now) {
+        e.when.emplace(ach::key(l.title, ("p." + a->id).c_str()), when);
+        l.done.insert(a->id);
+    }
+    ach::save(e);
+    for (const auto* a : now) notify(a->name, l.pack.game);
 }
 
 inline void threadFunc(void*) {
     const bool pdm = R_SUCCEEDED(pdmqryInitialize());
-    std::uint64_t title = 0, base = 0, played = 0, last = armGetSystemTick();
+    std::uint64_t title = 0, base = 0, playedNs = 0, checkedNs = 0, last = armGetSystemTick();
     std::uint32_t launches = 0, session = ~0u;
     bool known = false;
-    int ticks = 0;
+    Live live;
     while (g_running.load()) {
-        waitSingle(waiterForUEvent(&g_wake), 10'000'000'000ULL); // every 10 s (or to stop)
+        // Every second while a game with a pack is in front (it unlocks at once), else every 10 s.
+        const bool fast = live.pack.valid() && live.title == g_title.load();
+        waitSingle(waiterForUEvent(&g_wake), fast ? 1'000'000'000ULL : 10'000'000'000ULL);
         if (!g_running.load()) break;
         const std::uint64_t now = armGetSystemTick();
-        std::uint64_t dt = armTicksToNs(now - last) / 1'000'000'000ULL;
+        std::uint64_t ns = armTicksToNs(now - last);
         last = now;
-        if (dt > 20) dt = 10; // (the console slept meanwhile: that wasn't play)
+        if (ns > 20'000'000'000ULL) ns = 0; // (the console slept meanwhile: that wasn't play)
         const std::uint64_t t = g_title.load();
         const std::uint32_t s = g_sessions.load();
         if (s != session || (t && t != title)) { // a new launch: pdm has the time before it
             session = s;
             title = t;
-            played = 0;
+            playedNs = checkedNs = 0;
             known = false;
+            live.attached = false; // (a new process)
         }
-        if (!t || !pdm) continue; // (HOME or nothing in front: the time isn't play)
+        if (!t) continue; // (HOME or nothing in front: the time isn't play)
+        if (t != live.title) loadPack(live, t);
+        if (live.pack.valid()) {
+            if (!live.attached && now >= live.retryAt) {
+                live.attached = attach(live);
+                if (!live.attached) live.retryAt = now + armNsToTicks(15'000'000'000ULL);
+            }
+            if (live.attached) checkPack(live);
+        }
+        if (!pdm) continue;
         bool check = false;
         if (!known) {
             PdmPlayStatistics st{};
@@ -153,11 +231,15 @@ inline void threadFunc(void*) {
             launches = st.total_launches;
             known = check = true; // (a launch milestone: right away)
         } else {
-            played += dt;
-            check = ++ticks % 6 == 0; // the hours: once a minute is plenty
+            playedNs += ns;
+            check = playedNs - checkedNs >= 60'000'000'000ULL; // the hours: once a minute is plenty
         }
-        if (check) award(t, {base + played, launches ? launches : 1u}, played);
+        if (check) {
+            checkedNs = playedNs;
+            award(t, {base + playedNs / 1'000'000'000ULL, launches ? launches : 1u}, playedNs / 1'000'000'000ULL);
+        }
     }
+    switchu::dmnt::close();
     if (pdm) pdmqryExit();
 }
 } // namespace detail

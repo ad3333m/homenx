@@ -92,6 +92,8 @@ sdmc:/
   clients, so using it is at your own risk.
 - **Achievements**: milestones every game has, from your play time and launches (1, 10, 25, 50 and 100 hours,
   10 and 50 starts, and some across all your games).
+  - Games with a pack also have their own, like finishing a world. They unlock the moment it happens.
+    Anyone can write a pack: [docs/achievement-packs.md](docs/achievement-packs.md).
   - With Ultrahand, a notification pops up over the game the moment you earn one.
   - HOME tells you what's new when you come back. **+** on a game > **Achievements** shows how far along you are.
   - The **HomeNX Achievements** overlay (in Ultrahand's list) shows them during a game.

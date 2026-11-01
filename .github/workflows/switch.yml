@@ -114,6 +114,11 @@ jobs:
           apt-get update
           apt-get -y install curl gcc g++ zip unzip zstd cmake python3
 
+      - name: Test the achievement pack reader
+        run: |
+          g++ -std=c++20 -I projects/common/include tools/test_achievement_packs.cpp -o /tmp/packs_test
+          /tmp/packs_test
+
       - name: Build the achievements overlay (Tesla/Ultrahand .ovl)
         run: |
           make -C projects/achievements -j"$(nproc)"
@@ -167,6 +172,9 @@ jobs:
           cp romfs/bin/sphaira.nro dist/frontend/switch/SwitchU/bin/sphaira.nro
           # The menu copies it to switch/.overlays/ (the updaters only write HomeNX's folders).
           cp projects/achievements/homenx-achievements.ovl dist/frontend/switch/SwitchU/bin/homenx-achievements.ovl
+          # Achievement packs (docs/achievement-packs.md): the games HomeNX has achievements for.
+          mkdir -p dist/frontend/switch/SwitchU/achievements
+          cp projects/achievements/packs/*.txt dist/frontend/switch/SwitchU/achievements/ 2>/dev/null || true
           # NXToggle ships inside HomeNX's folder and the menu copies it into
           # switch/NXToggle/ (a running Toggle can't replace its own .nro).
           mv dist/frontend/switch/NXToggle/NXToggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro
