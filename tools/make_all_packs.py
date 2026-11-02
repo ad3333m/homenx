@@ -135,6 +135,7 @@ def main():
         if not achievements or not any(builds.values()):
             continue
         title = re.sub(r"[\u2122\u00ae\u00a9]", "", versions.get(tid, versions.get(tid.lower(), {})).get("title", "")).strip()
+        title = re.sub(r"\s*[\u2013\u2014-]?\s*Nintendo Switch 2 Edition$", "", title)  # (the same game: its upgrade's name)
         lines = [f"# {title or tid}: achievements made from HamletDuFromage/switch-cheats-db's codes for its",
                  "# currency, level or experience (tools/make_all_packs.py). Not checked on a console.",
                  f"game {tid} {title}".rstrip(), ""]

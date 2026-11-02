@@ -1,6 +1,6 @@
-# Divinity: Original Sin 2 - Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Divinity: Original Sin 2: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010027400CDC6000 Divinity: Original Sin 2 - Nintendo Switch 2 Edition
+game 010027400CDC6000 Divinity: Original Sin 2
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

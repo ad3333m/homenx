@@ -1,6 +1,6 @@
-# Stardew Valley: Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Stardew Valley:: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100E65002BB8000 Stardew Valley: Nintendo Switch 2 Edition
+game 0100E65002BB8000 Stardew Valley:
 
 a gold.10000 | Saving up | Have 10,000 gold
 a gold.100000 | Well off | Have 100,000 gold

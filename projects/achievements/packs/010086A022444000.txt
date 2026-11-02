@@ -1,6 +1,6 @@
-# BALL x PIT – Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# BALL x PIT: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010086A022444000 BALL x PIT – Nintendo Switch 2 Edition
+game 010086A022444000 BALL x PIT
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

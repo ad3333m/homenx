@@ -1,6 +1,6 @@
-# The Legend of Zelda: Breath of the Wild – Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# The Legend of Zelda: Breath of the Wild: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01007EF00011E000 The Legend of Zelda: Breath of the Wild – Nintendo Switch 2 Edition
+game 01007EF00011E000 The Legend of Zelda: Breath of the Wild
 
 a gold.100000 | Saving up | Have 100,000 gold
 a gold.1000000 | Well off | Have 1,000,000 gold
