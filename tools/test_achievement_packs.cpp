@@ -24,6 +24,7 @@ int main() {
         "c moons | u32 [[main+10]+20]+8 >= 100\n"
         "c flag | u8 heap+40 & 0x4\n"
         "c speed | f32 heap+50 > 2.5\n"
+        "c speed | u8 heap+60 == 7\n"
         "c nothing | u32 main+0 == 1\n"
         "build 1111\n"
         "c moons | s16 main-8 < 0\n");
@@ -64,6 +65,14 @@ int main() {
     assert(speed && !packs::holds(*speed, b, read));
     put(0x8000 + 0x50, &fast, 4);
     assert(packs::holds(*speed, b, read));
+
+    // Two conditions for one version (save slots): either one unlocks it.
+    put(0x8000 + 0x50, &slow, 4);
+    assert(!packs::anyHolds(p.list[2], "3CA12DFAAB9C82DA", b, read));
+    const std::uint8_t seven = 7;
+    put(0x8000 + 0x60, &seven, 1);
+    assert(packs::anyHolds(p.list[2], "3CA12DFAAB9C82DA", b, read));
+    assert(!packs::anyHolds(p.list[2], "2222", b, read));
 
     // Another version: only what it lists; signed values.
     const packs::Condition* old = packs::forBuild(p.list[0], "1111AAAABBBBCCCC");

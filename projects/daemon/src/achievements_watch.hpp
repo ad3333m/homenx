@@ -174,9 +174,7 @@ inline void checkPack(Live& l) {
     };
     std::vector<const switchu::packs::Achievement*> now;
     for (const auto& a : l.pack.list) {
-        if (l.done.count(a.id)) continue;
-        const switchu::packs::Condition* c = switchu::packs::forBuild(a, l.build);
-        if (c && switchu::packs::holds(*c, l.bases, read)) now.push_back(&a);
+        if (!l.done.count(a.id) && switchu::packs::anyHolds(a, l.build, l.bases, read)) now.push_back(&a);
     }
     if (now.empty()) return;
     ach::Earned e = ach::load();

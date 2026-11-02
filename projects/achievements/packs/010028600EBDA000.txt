@@ -1,0 +1,18 @@
+# Super Mario 3D World + Bowser's Fury: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 010028600EBDA000 Super Mario 3D World + Bowser's Fury
+
+a fury.shines10 | Cat's whiskers | Collect 10 Cat Shines in Bowser's Fury
+a fury.shines50 | Lake Lapcat regular | Collect 50 Cat Shines in Bowser's Fury
+a fury.shines100 | Fury tamed | Collect all 100 Cat Shines in Bowser's Fury
+a lives.99 | 1-Up hoarder | Have 99 lives
+a lives.500 | Cat with 500 lives | Have 500 lives
+
+build 9F7EFC2FB9653E5C
+c fury.shines10 | u32 [[main+137EAA0]+30]+C4 >= 10
+c fury.shines50 | u32 [[main+137EAA0]+30]+C4 >= 50
+c fury.shines100 | u32 [[main+137EAA0]+30]+C4 >= 100
+c lives.99 | u32 [[[[main+137EAA0]+18]+0]+78]+20 >= 99
+c lives.500 | u32 [[[[main+137EAA0]+18]+0]+78]+20 >= 500

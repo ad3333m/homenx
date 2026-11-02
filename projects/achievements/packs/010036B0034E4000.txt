@@ -1,0 +1,16 @@
+# Super Mario Party: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 010036B0034E4000 Super Mario Party
+
+a board.coins100 | Coin pile | Hold 100 coins in a Mario Party board game
+a partner.coins100 | Team treasury | Hold 100 coins in Partner Party
+
+build 49A50A8BCFA6B036
+c board.coins100 | u32 [[[[[[[[main+173D0F8]+58]+128]+28]+18]+E8]+A0]+10]+1C >= 100
+c partner.coins100 | u32 [[[[[[[[main+17E7078]+88]+630]+60]+D0]+28]+8]+A0]+1C >= 100
+
+build 9F13B69757666412
+c board.coins100 | u32 [[[[[[[[main+173D0F8]+58]+128]+28]+18]+E8]+A0]+10]+1C >= 100
+c partner.coins100 | u32 [[[[[[[[main+17E7078]+88]+630]+60]+D0]+28]+8]+A0]+1C >= 100

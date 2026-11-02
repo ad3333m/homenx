@@ -1,0 +1,19 @@
+# Paper Mario: The Origami King: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 0100A3900C3E2000 Paper Mario: The Origami King
+
+a coins.10k | Paper money | Have 10,000 coins
+a coins.50k | Folded fortune | Have 50,000 coins
+a coins.99999 | Origami millionaire | Have 99,999 coins
+
+build BDD6DC7DA7A69290
+c coins.10k | u32 [main+184A078]+148 >= 10000
+c coins.50k | u32 [main+184A078]+148 >= 50000
+c coins.99999 | u32 [main+184A078]+148 >= 99999
+
+build E74395F066FD8CCB
+c coins.10k | u32 [main+184A078]+148 >= 10000
+c coins.50k | u32 [main+184A078]+148 >= 50000
+c coins.99999 | u32 [main+184A078]+148 >= 99999

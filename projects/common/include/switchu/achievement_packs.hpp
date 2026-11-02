@@ -229,4 +229,11 @@ inline bool holds(const Condition& c, const Bases& b, const Reader& read) {
     return (u & static_cast<std::uint64_t>(c.value)) != 0; // "&"
 }
 
+// Whether any of its conditions for this version holds now (a game with save slots has one each).
+inline bool anyHolds(const Achievement& a, const std::string& build, const Bases& b, const Reader& read) {
+    for (const auto& [bid, c] : a.builds)
+        if (!bid.empty() && build.compare(0, bid.size(), bid) == 0 && holds(c, b, read)) return true;
+    return false;
+}
+
 } // namespace switchu::packs

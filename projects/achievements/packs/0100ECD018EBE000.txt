@@ -1,0 +1,14 @@
+# Paper Mario: The Thousand-Year Door: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 0100ECD018EBE000 Paper Mario: The Thousand-Year Door
+
+a coins.999 | Full wallet | Have 999 coins
+a starpieces.30 | Star Piece pocket | Have 30 Star Pieces at once
+a shines.10 | Shine on | Have 10 Shine Sprites at once
+
+build 78F37BB55D015BE3
+c coins.999 | u16 [main+2525040]+20 >= 999
+c starpieces.30 | u16 [main+2525040]+42 >= 30
+c shines.10 | u16 [main+2525040]+44 >= 10

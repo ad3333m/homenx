@@ -1,0 +1,10 @@
+# Super Mario Maker 2: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 01009B90006DC000 Super Mario Maker 2
+
+a coins.999 | Coin hoard | Have 999 coins
+
+build E74294B43F76EF2A
+c coins.999 | u32 [[[main+2602118]+18]+A8]+4C >= 999

@@ -1,0 +1,28 @@
+# Luigi's Mansion 3: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 0100DCA0064A6000 Luigi's Mansion 3
+
+a money.100k | Treasure hunter | Have 100,000 in treasure
+a money.500k | Last Resort's richest guest | Have 500,000 in treasure
+
+build 075AD583A1603F84
+c money.100k | u32 [main+19273E0]+3868 >= 100000
+c money.500k | u32 [main+19273E0]+3868 >= 500000
+
+build 486F6A3B2D6BCF5C
+c money.100k | u32 heap+1911B320 >= 100000
+c money.100k | u32 [main+19273E0]+3868 >= 100000
+c money.500k | u32 heap+1911B320 >= 500000
+c money.500k | u32 [main+19273E0]+3868 >= 500000
+
+build 788DD38AD97F1D12
+c money.100k | u32 [main+19B6610]+38E8 >= 100000
+c money.100k | u32 [main+19B6610]+38E8 >= 100000
+c money.500k | u32 [main+19B6610]+38E8 >= 500000
+c money.500k | u32 [main+19B6610]+38E8 >= 500000
+
+build 79E5950FFA85ACF6
+c money.100k | u32 [main+19D0940]+38F8 >= 100000
+c money.500k | u32 [main+19D0940]+38F8 >= 500000

@@ -1,0 +1,10 @@
+# New Super Mario Bros. U Deluxe: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 0100EA80032EA000 New Super Mario Bros. U Deluxe
+
+a lives.99 | 1-Up hoarder | Have 99 lives
+
+build AEE6DCCC06D9C05B
+c lives.99 | u8 [main+CC9860]+2A1C0 >= 99

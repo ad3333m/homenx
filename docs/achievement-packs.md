@@ -48,7 +48,9 @@ c capclear | u8 [main+2E5F000]+12 == 1
 - **comparison:** `==`, `!=`, `>=`, `>`, `<=`, `<`. `&` means "any of these bits are set" (`& 0x4`).
 - **number:** decimal, or hex with `0x`.
 
-An achievement with no condition for the running version stays locked on that version.
+An achievement can have several `c` lines for one version: any of them unlocks it. Use this for games with save
+slots, where each slot keeps its values somewhere else. An achievement with no condition for the running version
+stays locked on that version.
 
 ## Finding addresses
 

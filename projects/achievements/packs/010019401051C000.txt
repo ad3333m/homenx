@@ -1,0 +1,36 @@
+# Mario Strikers: Battle League: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 010019401051C000 Mario Strikers: Battle League
+
+a coins.10k | Club funds | Have 10,000 coins
+a coins.100k | Big transfer budget | Have 100,000 coins
+
+build 2E90F0815B1F92A1
+c coins.10k | u32 [[main+FFE2E8]+0]+4B0 >= 10000
+c coins.100k | u32 [[main+FFE2E8]+0]+4B0 >= 100000
+
+build 3FC4CFE8CE9E67EE
+c coins.10k | u32 [[main+F52AA8]+0]+368 >= 10000
+c coins.100k | u32 [[main+F52AA8]+0]+368 >= 100000
+
+build 60FC2B0CA59B53A9
+c coins.10k | u32 [[main+FFE2E8]+0]+4B0 >= 10000
+c coins.100k | u32 [[main+FFE2E8]+0]+4B0 >= 100000
+
+build 9787F3A18ADC1712
+c coins.10k | u32 [[main+FFE2E8]+0]+4B0 >= 10000
+c coins.100k | u32 [[main+FFE2E8]+0]+4B0 >= 100000
+
+build B5C0614D93E34A61
+c coins.10k | u32 [[main+F52AA8]+0]+368 >= 10000
+c coins.100k | u32 [[main+F52AA8]+0]+368 >= 100000
+
+build DFBC95E3F21EE632
+c coins.10k | u32 [[main+F0BD68]+0]+2B8 >= 10000
+c coins.100k | u32 [[main+F0BD68]+0]+2B8 >= 100000
+
+build E13BC924C62BD348
+c coins.10k | u32 [[main+FBF010]+0]+410 >= 10000
+c coins.100k | u32 [[main+FBF010]+0]+410 >= 100000

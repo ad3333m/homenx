@@ -1,0 +1,12 @@
+# Mario + Rabbids Kingdom Battle: its own achievements (docs/achievement-packs.md). Made from the cheats in
+# HamletDuFromage/switch-cheats-db (by their authors): each one watches the value a cheat changes,
+# for every version and save slot with a plain code (any slot unlocks it). Not checked on a console.
+
+game 010067300059A000 Mario + Rabbids Kingdom Battle
+
+a coins.10k | Coin raider | Have 10,000 coins
+a coins.50k | Rabbid riches | Have 50,000 coins
+
+build 3B39E0C06B8841F1
+c coins.10k | u32 [[[[[main+330B038]+68]+50]+198]+348]+10 >= 10000
+c coins.50k | u32 [[[[[main+330B038]+68]+50]+198]+348]+10 >= 50000
