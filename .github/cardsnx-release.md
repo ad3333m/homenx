@@ -8,6 +8,7 @@ Put `CardsNX.nro` in `sdmc:/switch/CardsNX/` (HomeNX installs it there for you).
 
 ### What's on screen
 - **Games:** box art for every installed game, with the cover fitting the card. Art comes from SteamGridDB if you've set a key in HomeNX, otherwise from GameTDB. The eShop banner is the last resort.
+- **Achievements:** + > Achievements on a game. Every game has play-time milestones, and 605 games have their own (coins, money, levels, all the purple coins in each of Super Mario Odyssey's kingdoms...). With Ultrahand they pop up over the game the moment they happen.
 - **Green dots:** how many players are online in that game on [Nextendo](https://nextendo.network) right now. The number in the pill is the total.
 - **Homebrew page:** your .nro apps (Sphaira, Discord/SwitchCord and the Homebrew Manager first) and your NRO forwarders.
 - **Nintendo page:** News (as HOME), eShop, Album, Controllers, Mii Maker, Friends, Browser (BrowseNX, downloaded the first time) and Settings.
@@ -19,7 +20,7 @@ Put `CardsNX.nro` in `sdmc:/switch/CardsNX/` (HomeNX installs it there for you).
 |---|---|
 | Left / Right | Move between cards |
 | A | Play, or open the app |
-| + or X | Options: Play, Move, Delete (.nro), Close software |
+| + or X | Options: Play, Move, Achievements, Delete (.nro), Close software |
 | Y | Change sort (Title, My Order, Last Played, Most Played) |
 | L | Discord |
 | R | Quick Settings (Wi-Fi, Airplane mode, brightness, volumes, the song, power) |
