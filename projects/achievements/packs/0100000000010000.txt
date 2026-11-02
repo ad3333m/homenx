@@ -1,0 +1,73 @@
+# Super Mario Odyssey: its own achievements (docs/achievement-packs.md).
+# Addresses: the counters EnterpriseFreak/nsw-atmos-cheats changes, for both versions it has
+# (heap offsets: the game keeps them in the same place every time). The purple coins are one
+# count per kingdom, in the game's own order (Cloud and Ruined have none): each cheat sets a
+# kingdom's count to its total (50 or 100), which is what "all of them" means here.
+# (In B424BE15's codes the last three kingdoms sit 4 bytes earlier than in 3CA12DFA's: kept as
+# the codes have them. Not checked on a console yet.)
+game 0100000000010000 Super Mario Odyssey
+
+a purple.cap | Cap collector | Find all 50 purple coins in the Cap Kingdom
+a purple.cascade | Cascade collector | Find all 50 purple coins in the Cascade Kingdom
+a purple.sand | Sand collector | Find all 100 purple coins in the Sand Kingdom
+a purple.wooded | Wooded collector | Find all 100 purple coins in the Wooded Kingdom
+a purple.lake | Lake collector | Find all 50 purple coins in the Lake Kingdom
+a purple.lost | Lost collector | Find all 50 purple coins in the Lost Kingdom
+a purple.metro | Metro collector | Find all 100 purple coins in the Metro Kingdom
+a purple.seaside | Seaside collector | Find all 100 purple coins in the Seaside Kingdom
+a purple.snow | Snow collector | Find all 50 purple coins in the Snow Kingdom
+a purple.luncheon | Luncheon collector | Find all 100 purple coins in the Luncheon Kingdom
+a purple.bowser | Bowser's collector | Find all 100 purple coins in Bowser's Kingdom
+a purple.moon | Moon collector | Find all 50 purple coins in the Moon Kingdom
+a purple.mushroom | Mushroom collector | Find all 100 purple coins in the Mushroom Kingdom
+a coins.hoard | Piggy bank | Have 9,999 coins at once
+a coins.10k | Coin collector | Collect 10,000 coins in all
+a coins.50k | Coin tycoon | Collect 50,000 coins in all
+a jumps.10k | Spring in your step | Jump 10,000 times
+a jumps.50k | Moon bounce | Jump 50,000 times
+a cappy.5k | Hat trick | Throw Cappy 5,000 times
+a cappy.25k | Cap master | Throw Cappy 25,000 times
+
+build 3CA12DFAAF9C82DA
+c purple.cap | u32 heap+61C77360 >= 50
+c purple.cascade | u32 heap+61C77364 >= 50
+c purple.sand | u32 heap+61C77368 >= 100
+c purple.wooded | u32 heap+61C7736C >= 100
+c purple.lake | u32 heap+61C77370 >= 50
+c purple.lost | u32 heap+61C77378 >= 50
+c purple.metro | u32 heap+61C7737C >= 100
+c purple.seaside | u32 heap+61C77380 >= 100
+c purple.snow | u32 heap+61C77384 >= 50
+c purple.luncheon | u32 heap+61C77388 >= 100
+c purple.bowser | u32 heap+61C77390 >= 100
+c purple.moon | u32 heap+61C77394 >= 50
+c purple.mushroom | u32 heap+61C77398 >= 100
+c coins.hoard | u16 heap+619ED858 >= 9999
+c coins.10k | u32 heap+619ED85C >= 10000
+c coins.50k | u32 heap+619ED85C >= 50000
+c jumps.10k | u32 heap+619ED860 >= 10000
+c jumps.50k | u32 heap+619ED860 >= 50000
+c cappy.5k | u32 heap+619ED864 >= 5000
+c cappy.25k | u32 heap+619ED864 >= 25000
+
+build B424BE150A8E7D78
+c purple.cap | u32 heap+5C506DC8 >= 50
+c purple.cascade | u32 heap+5C506DCC >= 50
+c purple.sand | u32 heap+5C506DD0 >= 100
+c purple.wooded | u32 heap+5C506DD4 >= 100
+c purple.lake | u32 heap+5C506DD8 >= 50
+c purple.lost | u32 heap+5C506DE0 >= 50
+c purple.metro | u32 heap+5C506DE4 >= 100
+c purple.seaside | u32 heap+5C506DE8 >= 100
+c purple.snow | u32 heap+5C506DEC >= 50
+c purple.luncheon | u32 heap+5C506DF0 >= 100
+c purple.bowser | u32 heap+5C506DF4 >= 100
+c purple.moon | u32 heap+5C506DF8 >= 50
+c purple.mushroom | u32 heap+5C506DFC >= 100
+c coins.hoard | u16 heap+5C27B318 >= 9999
+c coins.10k | u32 heap+5C27B31C >= 10000
+c coins.50k | u32 heap+5C27B31C >= 50000
+c jumps.10k | u32 heap+5C27B320 >= 10000
+c jumps.50k | u32 heap+5C27B320 >= 50000
+c cappy.5k | u32 heap+5C27B324 >= 5000
+c cappy.25k | u32 heap+5C27B324 >= 25000
