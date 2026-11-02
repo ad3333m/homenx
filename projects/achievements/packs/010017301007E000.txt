@@ -1,6 +1,6 @@
-# 010017301007E000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 牧場物語 オリーブタウンと希望の大地: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010017301007E000
+game 010017301007E000 牧場物語 オリーブタウンと希望の大地
 
 a coins.10000 | Saving up | Have 10,000 coins
 a coins.100000 | Well off | Have 100,000 coins

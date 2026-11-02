@@ -1,6 +1,6 @@
-# 01004770079BA000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Bit Dungeon+: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01004770079BA000
+game 01004770079BA000 Bit Dungeon+
 
 a gold.100 | Saving up | Have 100 gold
 a gold.1000 | Well off | Have 1,000 gold

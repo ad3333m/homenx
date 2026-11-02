@@ -1,6 +1,6 @@
-# 01009CC00C97C000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# DEAD OR ALIVE Xtreme 3 Scarlet 基本無料版: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01009CC00C97C000
+game 01009CC00C97C000 DEAD OR ALIVE Xtreme 3 Scarlet 基本無料版
 
 a dollars.1000 | Saving up | Have 1,000 dollars
 a dollars.10000 | Well off | Have 10,000 dollars

@@ -1,6 +1,6 @@
-# 0100FD600DFDC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Devious Dungeon 2 (デヴィアス・ダンジョン2): achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100FD600DFDC000
+game 0100FD600DFDC000 Devious Dungeon 2 (デヴィアス・ダンジョン2)
 
 a gold.100 | Well off | Have 100 gold
 a gold.1000 | Rolling in it | Have 1,000 gold

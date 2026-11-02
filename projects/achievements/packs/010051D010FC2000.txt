@@ -1,6 +1,6 @@
-# 010051D010FC2000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 妖怪学園Y ～ワイワイ学園生活～: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010051D010FC2000
+game 010051D010FC2000 妖怪学園Y ～ワイワイ学園生活～
 
 a money.1000 | Saving up | Save up 1,000
 a money.10000 | Well off | Save up 10,000

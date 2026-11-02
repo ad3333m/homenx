@@ -34,6 +34,8 @@ DISPLAY = {"gil": "Gil", "munny": "Munny", "gold": "gold", "coin": "coins", "coi
            "kinstones": "Kinstones", "berries": "Berries", "bolts": "Bolts", "scrap": "Scrap", "marks": "Marks",
            "pesos": "pesos", "euros": "euros"}
 MONEYISH = {"money", "cash", "funds"}
+# Names versions.json lacks (looked up once at api.nlib.cc).
+TITLES = os.path.join(HERE, "pack_titles.json")
 
 
 def nice(n):
@@ -94,17 +96,26 @@ def classify(name):
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     versions = json.load(open(os.path.join(DB, "versions.json"), encoding="utf-8"))
-    made = 0
+    extra = json.load(open(TITLES, encoding="utf-8")) if os.path.exists(TITLES) else {}
+    # A collection's games are programs of one application (its ID + 1, + 2...) and an update has
+    # its ID + 0x800: one pack, by the application's ID, the one HomeNX sees. (Other IDs: homebrew.)
+    games = {}
     for f in sorted(os.listdir(os.path.join(DB, "cheats"))):
-        tid = f[:-5].upper()
-        if tid in CURATED or not f.endswith(".json"):
+        if not f.endswith(".json") or not f.upper().startswith("01"):
             continue
-        d = json.load(open(os.path.join(DB, "cheats", f), encoding="utf-8"))
+        tid = "%016X" % (int(f[:-5], 16) & ~0x1FFF)
+        if tid not in CURATED:
+            games.setdefault(tid, []).append(f)
+    made, unnamed = 0, []
+    for tid, files in sorted(games.items()):
+        d = {}
+        for f in files:
+            for build, cheats in json.load(open(os.path.join(DB, "cheats", f), encoding="utf-8")).items():
+                if build != "attribution" and isinstance(cheats, dict):
+                    d.setdefault(build.upper(), {}).update(cheats)
         # (kind, word) -> build -> [(width, address, value)]
         found = {}
         for build, cheats in d.items():
-            if build == "attribution" or not isinstance(cheats, dict):
-                continue
             for name, code in cheats.items():
                 c = classify(name)
                 if not c:
@@ -134,7 +145,11 @@ def main():
                             builds[build].append((aid, line))
         if not achievements or not any(builds.values()):
             continue
-        title = re.sub(r"[\u2122\u00ae\u00a9]", "", versions.get(tid, versions.get(tid.lower(), {})).get("title", "")).strip()
+        title = versions.get(tid, versions.get(tid.lower(), {})).get("title") or extra.get(tid, "")
+        title = re.sub(r"[\u2122\u00ae\u00a9]", "", title).strip()
+        if not title:
+            unnamed.append(tid)  # (a game nobody can name: left out)
+            continue
         title = re.sub(r"\s*[\u2013\u2014-]?\s*Nintendo Switch 2 Edition$", "", title)  # (the same game: its upgrade's name)
         lines = [f"# {title or tid}: achievements made from HamletDuFromage/switch-cheats-db's codes for its",
                  "# currency, level or experience (tools/make_all_packs.py). Not checked on a console.",
@@ -147,6 +162,8 @@ def main():
         open(os.path.join(OUT, f"{tid}.txt"), "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
         made += 1
     print("packs made:", made)
+    if unnamed:
+        print("no name (add it to tools/pack_titles.json):", " ".join(unnamed))
 
 
 main()

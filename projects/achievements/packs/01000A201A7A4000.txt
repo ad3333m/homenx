@@ -1,6 +1,6 @@
-# 01000A201A7A4000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ゴブリンスレイヤー -ANOTHER ADVENTURER- NIGHTMARE FEAST: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01000A201A7A4000
+game 01000A201A7A4000 ゴブリンスレイヤー -ANOTHER ADVENTURER- NIGHTMARE FEAST
 
 a gold.1000 | Saving up | Have 1,000 gold
 a gold.10000 | Well off | Have 10,000 gold

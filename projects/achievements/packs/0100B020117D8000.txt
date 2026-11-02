@@ -1,6 +1,6 @@
-# 0100B020117D8000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ライザのアトリエ２ ～失われた伝承と秘密の妖精～: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100B020117D8000
+game 0100B020117D8000 ライザのアトリエ２ ～失われた伝承と秘密の妖精～
 
 a gems.100000 | Saving up | Have 100,000 Gems
 a gems.1000000 | Well off | Have 1,000,000 Gems

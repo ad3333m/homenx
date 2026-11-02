@@ -1,6 +1,6 @@
-# 01004A40167C2000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 奇々怪界 黒マントの謎: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01004A40167C2000
+game 01004A40167C2000 奇々怪界 黒マントの謎
 
 a coins.999 | Maxed out | Have 999 coins
 

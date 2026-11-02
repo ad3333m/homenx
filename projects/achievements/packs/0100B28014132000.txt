@@ -1,6 +1,6 @@
-# 0100B28014132800: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# SAMURAI WARRIORS 5: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100B28014132800
+game 0100B28014132000 SAMURAI WARRIORS 5
 
 a gold.100 | Saving up | Have 100 gold
 a gold.1000 | Well off | Have 1,000 gold

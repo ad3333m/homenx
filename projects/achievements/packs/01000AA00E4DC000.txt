@@ -1,6 +1,6 @@
-# 01000AA00E4DC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# スチームワールドクエスト: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01000AA00E4DC000
+game 01000AA00E4DC000 スチームワールドクエスト
 
 a money.100000 | Saving up | Save up 100,000
 a money.1000000 | Well off | Save up 1,000,000

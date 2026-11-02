@@ -1,6 +1,6 @@
-# 010019C00E9CC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# The Witcher 3: Wild Hunt (another release): achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010019C00E9CC000
+game 010019C00E9CC000 The Witcher 3: Wild Hunt (another release)
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

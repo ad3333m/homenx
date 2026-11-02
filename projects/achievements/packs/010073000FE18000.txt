@@ -1,6 +1,6 @@
-# 010073000FE18000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# eBASEBALLパワフルプロ野球2020: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010073000FE18000
+game 010073000FE18000 eBASEBALLパワフルプロ野球2020
 
 a coins.100 | Saving up | Have 100 coins
 a coins.1000 | Well off | Have 1,000 coins

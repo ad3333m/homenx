@@ -1,6 +1,6 @@
-# 0100F2800D46E000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Snack World: The Dungeon Crawl – Gold: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100F2800D46E000
+game 0100F2800D46E000 Snack World: The Dungeon Crawl – Gold
 
 a gold.1000 | Saving up | Have 1,000 gold
 a gold.10000 | Well off | Have 10,000 gold

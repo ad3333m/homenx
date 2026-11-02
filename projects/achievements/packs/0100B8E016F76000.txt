@@ -1,6 +1,6 @@
-# 0100B8E016F76000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# NieR:Automata The End of YoRHa Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100B8E016F76000
+game 0100B8E016F76000 NieR:Automata The End of YoRHa Edition
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

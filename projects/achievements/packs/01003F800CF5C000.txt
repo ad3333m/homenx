@@ -1,6 +1,6 @@
-# 01003F800CF5C000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ＮＡＲＵＴＯ－ナルト－ 疾風伝　ナルティメットストーム４ ROAD TO BORUTO: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01003F800CF5C000
+game 01003F800CF5C000 ＮＡＲＵＴＯ－ナルト－ 疾風伝　ナルティメットストーム４ ROAD TO BORUTO
 
 a money.10000 | Saving up | Save up 10,000
 a money.100000 | Well off | Save up 100,000

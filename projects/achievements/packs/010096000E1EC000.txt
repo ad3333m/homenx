@@ -1,6 +1,6 @@
-# 010096000E1EC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ライザのアトリエ ～常闇の女王と秘密の隠れ家～: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010096000E1EC000
+game 010096000E1EC000 ライザのアトリエ ～常闇の女王と秘密の隠れ家～
 
 a money.100 | Saving up | Save up 100
 a money.1000 | Well off | Save up 1,000

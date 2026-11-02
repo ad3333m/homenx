@@ -1,6 +1,6 @@
-# 0100FC000AEF0000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 데드 셀 (Dead Cells): achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100FC000AEF0000
+game 0100FC000AEF0000 데드 셀 (Dead Cells)
 
 a coins.100000 | Saving up | Have 100,000 coins
 a coins.1000000 | Well off | Have 1,000,000 coins

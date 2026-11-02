@@ -13,6 +13,8 @@ Anyone can write a pack. Put it on the SD card, or send it to this repository so
   `sdmc:/switch/SwitchU/achievements/`.
 
 The file name is the game's title ID in 16 hex digits, for example `0100000000010000.txt` for Super Mario Odyssey.
+A collection (several games in one, like Super Mario 3D All-Stars) has one pack under its own title ID: each game
+in it has its own build IDs, so its `build` sections keep them apart.
 
 ## The format
 

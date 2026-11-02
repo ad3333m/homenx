@@ -1,127 +1,11 @@
 # Games with achievements
 
-620 games have their own achievements: the packs in `projects/achievements/packs`, made by
+605 games have their own achievements: the packs in `projects/achievements/packs`, made by
 `tools/make_mario_packs.py` and `tools/make_all_packs.py` from switch-cheats-db. Every game also has the
 play-time milestones. None of these have been checked on a console yet.
 
 | Game | Title ID | Achievements |
 |---|---|---|
-| 0100085003A2A000 | 0100085003A2A000 | 3 |
-| 01000A201A7A4000 | 01000A201A7A4000 | 3 |
-| 01000AA00E4DC000 | 01000AA00E4DC000 | 3 |
-| 010013800BE2C000 | 010013800BE2C000 | 6 |
-| 010013E013220000 | 010013E013220000 | 3 |
-| 010014D01216E000 | 010014D01216E000 | 3 |
-| 010015A01AEC2000 | 010015A01AEC2000 | 3 |
-| 010017301007E000 | 010017301007E000 | 6 |
-| 0100195015AC6001 | 0100195015AC6001 | 3 |
-| 010019C00E9CC000 | 010019C00E9CC000 | 3 |
-| 01001C400E9D8000 | 01001C400E9D8000 | 6 |
-| 01001C601B8D8000 | 01001C601B8D8000 | 3 |
-| 01001F0019804000 | 01001F0019804000 | 6 |
-| 01001F7012E66000 | 01001F7012E66000 | 3 |
-| 010022201229A000 | 010022201229A000 | 3 |
-| 010022900D3EC000 | 010022900D3EC000 | 6 |
-| 010026800E304000 | 010026800E304000 | 3 |
-| 010026800EA0A000 | 010026800EA0A000 | 3 |
-| 01002A1004B34000 | 01002A1004B34000 | 3 |
-| 01002A800E490000 | 01002A800E490000 | 3 |
-| 01002AB007FD2000 | 01002AB007FD2000 | 3 |
-| 01002AF01A9D4000 | 01002AF01A9D4000 | 6 |
-| 010032400E700000 | 010032400E700000 | 3 |
-| 010033500944A000 | 010033500944A000 | 3 |
-| 010034501225C000 | 010034501225C000 | 6 |
-| 01003B90136DA000 | 01003B90136DA000 | 3 |
-| 01003C100655A000 | 01003C100655A000 | 3 |
-| 01003D100E9C6000 | 01003D100E9C6000 | 3 |
-| 01003F800CF5C000 | 01003F800CF5C000 | 3 |
-| 010040F011DE4001 | 010040F011DE4001 | 3 |
-| 010040F011DE4002 | 010040F011DE4002 | 2 |
-| 010042501329E000 | 010042501329E000 | 3 |
-| 010044700DEB0001 | 010044700DEB0001 | 3 |
-| 010045900C018000 | 010045900C018000 | 3 |
-| 010045B00C496000 | 010045B00C496000 | 3 |
-| 01004770079BA000 | 01004770079BA000 | 3 |
-| 01004800197F0000 | 01004800197F0000 | 3 |
-| 01004920105FC000 | 01004920105FC000 | 3 |
-| 010049900F546001 | 010049900F546001 | 1 |
-| 010049900F546003 | 010049900F546003 | 1 |
-| 01004A40167C2000 | 01004A40167C2000 | 1 |
-| 01004BD012500000 | 01004BD012500000 | 3 |
-| 010051D010FC2000 | 010051D010FC2000 | 3 |
-| 01005BD010872000 | 01005BD010872000 | 6 |
-| 01005C301C4BA000 | 01005C301C4BA000 | 3 |
-| 01005E000D3D8000 | 01005E000D3D8000 | 1 |
-| 010060200A4BE000 | 010060200A4BE000 | 3 |
-| 010062300E0D4000 | 010062300E0D4000 | 6 |
-| 0100685015A1A000 | 0100685015A1A000 | 3 |
-| 010068600AD16000 | 010068600AD16000 | 3 |
-| 010068D0191B6000 | 010068D0191B6000 | 3 |
-| 01006BD00F8C0000 | 01006BD00F8C0000 | 3 |
-| 01006C900CC60000 | 01006C900CC60000 | 3 |
-| 01006CF00CF60000 | 01006CF00CF60000 | 3 |
-| 01007010157B4000 | 01007010157B4000 | 3 |
-| 0100718017572000 | 0100718017572000 | 3 |
-| 01007250089F8000 | 01007250089F8000 | 3 |
-| 010073000FE18000 | 010073000FE18000 | 6 |
-| 01007550129B2000 | 01007550129B2000 | 3 |
-| 01007CB01C4B6000 | 01007CB01C4B6000 | 3 |
-| 01007D600B70A000 | 01007D600B70A000 | 3 |
-| 010081C0191D8000 | 010081C0191D8000 | 3 |
-| 010086C00AF7C000 | 010086C00AF7C000 | 3 |
-| 01008EB017F3E000 | 01008EB017F3E000 | 3 |
-| 010091201605A000 | 010091201605A000 | 2 |
-| 0100936018EB4000 | 0100936018EB4000 | 3 |
-| 0100942019418000 | 0100942019418000 | 3 |
-| 010096000E1EC000 | 010096000E1EC000 | 3 |
-| 01009CC00C97C000 | 01009CC00C97C000 | 6 |
-| 0100A5500E488000 | 0100A5500E488000 | 2 |
-| 0100AA00128BA001 | 0100AA00128BA001 | 3 |
-| 0100AE101D3E4000 | 0100AE101D3E4000 | 3 |
-| 0100B020117D8000 | 0100B020117D8000 | 6 |
-| 0100B1900E48E000 | 0100B1900E48E000 | 3 |
-| 0100B25019F26000 | 0100B25019F26000 | 3 |
-| 0100B28014132800 | 0100B28014132800 | 3 |
-| 0100B8E016F76000 | 0100B8E016F76000 | 3 |
-| 0100BEF015C34000 | 0100BEF015C34000 | 3 |
-| 0100C0000CEEA000 | 0100C0000CEEA000 | 2 |
-| 0100C29017106000 | 0100C29017106000 | 3 |
-| 0100C2D00EBD4000 | 0100C2D00EBD4000 | 3 |
-| 0100C3500D956000 | 0100C3500D956000 | 3 |
-| 0100CA400E300000 | 0100CA400E300000 | 3 |
-| 0100CA900B6BA000 | 0100CA900B6BA000 | 2 |
-| 0100CC401A16C000 | 0100CC401A16C000 | 3 |
-| 0100CD3000BDC000 | 0100CD3000BDC000 | 6 |
-| 0100D7800C56A000 | 0100D7800C56A000 | 3 |
-| 0100E0600BBC8001 | 0100E0600BBC8001 | 2 |
-| 0100E0600BBC8002 | 0100E0600BBC8002 | 6 |
-| 0100E3D0103CE000 | 0100E3D0103CE000 | 2 |
-| 0100E48010F52000 | 0100E48010F52000 | 3 |
-| 0100E5D00F4AE001 | 0100E5D00F4AE001 | 1 |
-| 0100E5D00F4AE002 | 0100E5D00F4AE002 | 1 |
-| 0100E7100C52C000 | 0100E7100C52C000 | 2 |
-| 0100E9900ED74000 | 0100E9900ED74000 | 3 |
-| 0100E9C00BF28000 | 0100E9C00BF28000 | 3 |
-| 0100EAE003A5A000 | 0100EAE003A5A000 | 3 |
-| 0100EE40143B6000 | 0100EE40143B6000 | 3 |
-| 0100EE900AB58000 | 0100EE900AB58000 | 3 |
-| 0100EF00134F4000 | 0100EF00134F4000 | 3 |
-| 0100F2800D46E000 | 0100F2800D46E000 | 6 |
-| 0100F3100EFCC000 | 0100F3100EFCC000 | 3 |
-| 0100F4401940A000 | 0100F4401940A000 | 3 |
-| 0100F6A00E31E000 | 0100F6A00E31E000 | 3 |
-| 0100F7701778A000 | 0100F7701778A000 | 3 |
-| 0100F8F0000A2000 | 0100F8F0000A2000 | 2 |
-| 0100FB400F54E000 | 0100FB400F54E000 | 3 |
-| 0100FC000AEF0000 | 0100FC000AEF0000 | 3 |
-| 0100FC001DEBA000 | 0100FC001DEBA000 | 3 |
-| 0100FD600DFDC000 | 0100FD600DFDC000 | 2 |
-| 0100FD70134FA000 | 0100FD70134FA000 | 3 |
-| 0100FE301C4BC000 | 0100FE301C4BC000 | 3 |
-| 0100FE500D0CA000 | 0100FE500D0CA000 | 3 |
-| 0535DC453AB50000 | 0535DC453AB50000 | 3 |
-| 05BE1C0259DE0000 | 05BE1C0259DE0000 | 3 |
-| 3AB98C271BB19F4D | 3AB98C271BB19F4D | 3 |
 | 80's OVERDRIVE | 01006B1011B9E000 | 3 |
 | A Hat in Time | 010056E00853A000 | 2 |
 | A Magical High School Girl | 01008DD006C52000 | 3 |
@@ -191,6 +75,7 @@ play-time milestones. None of these have been checked on a console yet.
 | BioShock 2 Remastered | 01002620102C6000 | 2 |
 | BioShock Infinite: The Complete Edition | 0100D560102C8000 | 2 |
 | BioShock: The Collection | 0100AD10102B2000 | 2 |
+| Bit Dungeon+ | 01004770079BA000 | 3 |
 | Black Future '88 | 010049000B69E000 | 3 |
 | Black Legend | 0100C3200E7E6000 | 3 |
 | Blacksmith of the Sand Kingdom | 010068E013450000 | 3 |
@@ -198,6 +83,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Blasphemous | 0100698009C6E000 | 3 |
 | Blasphemous 2 | 010040801A4C8000 | 1 |
 | Blast Brigade vs. the Evil Legion of Dr. Cread | 0100F76014D7C000 | 3 |
+| BLAZBLUE CENTRALFICTION Special Edition | 0100EE900AB58000 | 3 |
 | BLAZBLUE CROSS TAG BATTLE | 0100B61008208000 | 3 |
 | Blood will be Spilled | 0100E060102AA000 | 2 |
 | Bloons TD 5 | 0100B8400A1C6000 | 7 |
@@ -209,6 +95,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Braveland Trilogy | 0100A5B00D3D2000 | 3 |
 | BRAVELY DEFAULT II | 01006DC010326000 | 3 |
 | Bravely Default II Demo | 0100B6801137E000 | 3 |
+| Brawlout | 010060200A4BE000 | 3 |
 | Bridge Strike | 0100A6C011B10000 | 3 |
 | Bug Fables: The Everlasting Sapling | 010051A00E99E000 | 1 |
 | BUNNY GARDEN | 01003E801D55E000 | 3 |
@@ -216,6 +103,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Captain Sabertooth and the Magic Diamond | 0100F0C011A0C000 | 4 |
 | Captain Toad: Treasure Tracker | 01009BF0072D4000 | 1 |
 | Car Drag Racing Simulator | 0100B59011A1C000 | 6 |
+| Cartoon Network: Battle Crashers | 0100085003A2A000 | 3 |
 | Castle Crashers Remastered | 010001300D14A000 | 5 |
 | Castlevania Advance Collection | 0100B33014710000 | 6 |
 | Cat Quest | 0100A2F006FBE000 | 3 |
@@ -231,19 +119,23 @@ play-time milestones. None of these have been checked on a console yet.
 | Crash Bandicoot 4: It’s About Time | 010073401175E000 | 1 |
 | Cult of the Lamb | 01002E7016C46000 | 6 |
 | Cuphead | 0100A5C00D162000 | 3 |
-| D0D456EE7DCF0FEE | D0D456EE7DCF0FEE | 3 |
 | DAEMON X MACHINA | 0100B6400CA56000 | 3 |
 | Dandy Ace | 0100608014708000 | 3 |
 | Dandy Dungeon - Legend of Brave Yamada - | 0100DFB00D808000 | 3 |
+| Dark Blood Reborn -ダークブラッド・リボーン- | 0100F7701778A000 | 3 |
 | Darksiders Genesis | 0100F2300D4BA000 | 3 |
 | Darksiders II Deathinitive Edition | 010071800BA98000 | 3 |
 | Dead Cells | 0100646009FBE000 | 9 |
 | Dead Effect 2 | 01007860152EE000 | 3 |
+| DEAD OR ALIVE Xtreme 3 Scarlet 基本無料版 | 01009CC00C97C000 | 6 |
+| DEAD OR SCHOOL | 0100E7100C52C000 | 2 |
 | Deadly Premonition 2: A Blessing In Disguise | 0100BAC011928000 | 3 |
 | Deep Sky Derelicts: Definitive Edition | 0100C3E00D68E000 | 3 |
 | Deep Space Rush | 01000A700F956000 | 3 |
 | Devil Engine | 010031B00CF66000 | 3 |
 | Devious Dungeon | 01009EA00A320000 | 2 |
+| Devious Dungeon 2 (デヴィアス・ダンジョン2) | 0100FD600DFDC000 | 2 |
+| Devious Dungeon Collection | 010040F011DE4000 | 5 |
 | Diablo II: Resurrected | 0100726014352000 | 3 |
 | Diablo III: Eternal Collection | 01001B300B9BE000 | 3 |
 | Digimon Story Cyber Sleuth: Complete Edition | 010014E00DB56000 | 9 |
@@ -271,6 +163,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Dungreed | 0100FAD00C2AA000 | 3 |
 | Dust: An Elysian Tail | 0100B6E00A420000 | 2 |
 | EARTHLOCK | 01006E50042EA000 | 3 |
+| eBASEBALLパワフルプロ野球2020 | 010073000FE18000 | 6 |
 | Elderand | 0100239015C0E000 | 3 |
 | Elliot Quest | 0100128003A24000 | 2 |
 | Endless Ocean Luminous | 010067B017588000 | 3 |
@@ -280,8 +173,10 @@ play-time milestones. None of these have been checked on a console yet.
 | Evoland Legendary Edition | 0100ED100B160000 | 2 |
 | Exit the Gungeon | 0100DD30110CC000 | 3 |
 | F.I.S.T.: Forged In Shadow Torch | 01009F8017F48000 | 3 |
+| Fable of Fairy Stones:妖精石物語 | 0100E3D0103CE000 | 2 |
 | Fairune Collection | 01008A6009758000 | 3 |
 | FAIRY TAIL | 0100CF900FA3E000 | 3 |
+| FAIRY TAIL | 0100F3100EFCC000 | 3 |
 | Farm Together | 010086B00BB50000 | 3 |
 | Feudal Alloy | 0100AA3009738000 | 2 |
 | FIFA 21 Nintendo Switch Legacy Edition | 01000A001171A000 | 3 |
@@ -291,10 +186,12 @@ play-time milestones. None of these have been checked on a console yet.
 | FINAL FANTASY VII | 0100A5B00BDC6000 | 3 |
 | FINAL FANTASY VIII Remastered | 01008B900DC0A000 | 6 |
 | FINAL FANTASY X/X-2 HD Remaster | 0100BC300CB48000 | 6 |
+| FINAL FANTASY X/X-2 HD Remaster | 0100FE500D0CA000 | 3 |
 | FINALSWORD DefinitiveEdition | 0100F62013DAE000 | 2 |
 | Fire Emblem Warriors: Three Hopes | 010071F0143EA000 | 3 |
 | Fire Emblem: Three Houses | 010055D009F78000 | 9 |
 | Firegirl: Hack 'n Splash Rescue DX | 0100DAF016D48000 | 3 |
+| Flightpath: Adventures in Venaris | 010015A01AEC2000 | 3 |
 | Flinthook | 0100307004B4C000 | 3 |
 | Floppy Knights | 01006A30171A0000 | 3 |
 | FLYING GIRL STRIKER | 0100CCA00EDCE000 | 1 |
@@ -303,6 +200,7 @@ play-time milestones. None of these have been checked on a console yet.
 | FRONT MISSION 1st: Remake | 0100F200178F4000 | 3 |
 | Fury Unleashed | 0100ECE00C0C4000 | 3 |
 | FUSER | 0100E1F013674000 | 3 |
+| G-MODEアーカイブス17 フライハイトクラウディア3 | 01001F7012E66000 | 3 |
 | Game Boy Advance – Nintendo Classics | 010012F017576000 | 1 |
 | Game Dev Story | 0100AF700BCD2000 | 3 |
 | Gas Station: Highway Services | 010032D012602000 | 3 |
@@ -319,6 +217,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Grand Theft Auto III – The Definitive Edition | 0100C3C012718000 | 3 |
 | Grand Theft Auto: San Andreas – The Definitive Edition | 010065A014024000 | 3 |
 | Grand Theft Auto: Vice City – The Definitive Edition | 0100182014022000 | 3 |
+| GRANDIA HD Collection | 0100E0600BBC8000 | 8 |
 | Graveyard Keeper | 0100B6800B5C8000 | 3 |
 | Greedroid | 0100BD800DFA6000 | 2 |
 | Grindstone | 0100538012496000 | 2 |
@@ -331,6 +230,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Hakoniwa Explorer Plus | 0100618010D76000 | 3 |
 | Hammerwatch | 01003B9007E86000 | 3 |
 | HARDCORE MECHA | 01002F0011DD4000 | 3 |
+| Harpoon Shooter! Nozomi | 01002AF01A9D4000 | 6 |
 | Harvest Moon: One World | 010016B010FDE000 | 3 |
 | Harvest Moon: The Winds of Anthos | 0100EAB0183F4000 | 3 |
 | Has-Been Heroes | 0100E29001298000 | 3 |
@@ -357,6 +257,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Inexistence Rebirth | 010001D014348000 | 2 |
 | Island Saver | 0100A2600FCA0000 | 2 |
 | It came from space and ate our brains | 01002E501015A000 | 3 |
+| Jack Move | 010068D0191B6000 | 3 |
 | JackQuest: The Tale of the Sword | 0100C80009ABE000 | 3 |
 | Juicy Realm | 0100C7600F654000 | 3 |
 | Jurassic World Evolution: Complete Edition | 010050A011344000 | 3 |
@@ -371,24 +272,30 @@ play-time milestones. None of these have been checked on a console yet.
 | Koumajou Remilia: Scarlet Symphony | 0100532015746000 | 3 |
 | Krut: The Mythic Wings | 0100E4F016262000 | 3 |
 | LA-MULANA | 010026000F662000 | 1 |
+| LA-MULANA 1 & 2 (Retail Only) | 0100E5D00F4AE000 | 1 |
 | LA-MULANA 2 | 010038000F644000 | 2 |
+| LA-MULANA 2 (ラ・ムラーナ 2) | 01005E000D3D8000 | 1 |
 | Labyrinth of Galleria: The Moon Society | 0100001017216000 | 3 |
+| Labyrinth of Legends: Roguelike Battle Quest | 0100FC001DEBA000 | 3 |
 | Labyrinth of Refrain: Coven of Dusk | 010058500B3E0000 | 3 |
 | Legend of Mana | 01003570130E2000 | 3 |
 | LEGO CITY Undercover | 01003A30012C0000 | 3 |
 | LEGRAND LEGACY: Tale of the Fatebounds | 0100E7500BF84000 | 3 |
 | Life is Strange 2 | 0100FD101186C000 | 2 |
 | Little Noah: Scion of Paradise | 0100535014D76000 | 3 |
+| LIVE A LIVE | 0100C29017106000 | 3 |
 | LIVE A LIVE | 0100CF801776C000 | 3 |
 | Lone Ruin | 0100B6D016EE6000 | 3 |
 | Lost Castle | 0100581007068000 | 3 |
 | Lost in Random | 01005FE01291A000 | 2 |
 | Lost Sea | 010071B00964A000 | 2 |
 | LOST SPHEAR | 010077B0038B2000 | 2 |
+| LoveR Kiss（ラヴアール キス） | 01007250089F8000 | 3 |
 | Luigi's Mansion 3 | 0100DCA0064A6000 | 2 |
 | Luna & Monsters Tower Defense -The deprived magical kingdom- | 0100B9501B7DE000 | 6 |
 | MachiKnights -Blood bagos- | 0100F2400D434000 | 3 |
 | Magazine Mogul | 01004A200E722000 | 3 |
+| Magic Scroll Tactics | 010013800BE2C000 | 6 |
 | Mana Spark | 01005A700CC3C000 | 3 |
 | March to a Million | 010097500E552000 | 3 |
 | Marenian Tavern Story: Patty and the Hungry God | 010040E00C2D2000 | 3 |
@@ -403,6 +310,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Mary Skelter 2 | 01003DE00C95E000 | 3 |
 | Masarada Town Story | 010048901A5B8000 | 3 |
 | Master Detective Archives: RAIN CODE | 0100149019460000 | 3 |
+| Master Detective Archives: RAIN CODE | 01004800197F0000 | 3 |
 | Max and the book of chaos | 0100A8C011F26000 | 3 |
 | Mech Rage | 0100EC000CE24000 | 3 |
 | Mega Man X Legacy Collection 2 | 01005250086C4000 | 3 |
@@ -422,12 +330,14 @@ play-time milestones. None of these have been checked on a console yet.
 | Monster Hunter Stories | 010069301B1D4000 | 3 |
 | Monster Hunter Stories 2: Wings of Ruin | 0100E21011446000 | 6 |
 | Monster Jam Steel Titans | 010095C00F354000 | 3 |
+| Monster Rancher 1 & 2 DX | 0100195015AC6000 | 3 |
 | Monster Sanctuary | 0100A0F00DA68000 | 9 |
 | Monster Slayers | 0100D1700C732000 | 3 |
 | moon | 0100E1800EFCE000 | 5 |
 | Moto Rush GT | 01003F200D0F2000 | 3 |
 | MY HERO ONE'S JUSTICE 2 | 01007E700DBF6000 | 3 |
 | Narcos: Rise of the Cartels | 010072B00BDDE000 | 3 |
+| NARUTO SHIPPUDEN: Ultimate Ninja STORM 4 ROAD TO BORUTO | 01006CF00CF60000 | 3 |
 | NARUTO SHIPPUDEN: Ultimate Ninja STORM 4 ROAD TO BORUTO | 010084D00CF5E000 | 3 |
 | NARUTO SHIPPUDEN: Ultimate Ninja Storm Trilogy | 0100EC800800C000 | 3 |
 | NBA 2K Playgrounds 2 | 01001AE00C1B2000 | 9 |
@@ -442,6 +352,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Ni no Kuni: Wrath of the White Witch | 0100E5600D446000 | 9 |
 | Nickelodeon Kart Racers | 0100D6200933C000 | 2 |
 | NieR:Automata The End of YoRHa Edition | 010056B015FE8000 | 3 |
+| NieR:Automata The End of YoRHa Edition | 0100B8E016F76000 | 3 |
 | Nightmare Boy: The New Horizons of Reigns of Dreams, a Metroidvania journey with little rusty nightmares, the empire of knight final boss | 01005F4009112000 | 3 |
 | NINJA GAIDEN Σ | 0100E2F014F46000 | 2 |
 | Nintendo 64 – Nintendo Classics | 0100C9A00ECE6000 | 2 |
@@ -493,6 +404,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Romancing SaGa -Minstrel Song- Remastered | 01004A6017E8A000 | 3 |
 | Romancing SaGa 3 | 0100D0400D27A000 | 3 |
 | Roulette at Aces Casino | 01005D3012322000 | 3 |
+| Rune Factory 3 Special | 010081C0191D8000 | 3 |
 | Rune Factory 4 Special | 010051D00E3A4000 | 3 |
 | Rustler | 010071E0145F8000 | 6 |
 | S.N.I.P.E.R. - Hunter Scope | 0100B8B012ECA000 | 3 |
@@ -501,9 +413,13 @@ play-time milestones. None of these have been checked on a console yet.
 | Salt and Sanctuary | 0100D250083B4000 | 3 |
 | Samurai Defender: Ninja Warfare | 01002B400873C000 | 6 |
 | Samurai Jack: Battle Through Time | 01006C600E46E000 | 3 |
+| SAMURAI WARRIORS 5 | 0100B28014132000 | 3 |
+| Saviors of Sapphire Wings / Stranger of Sword City Revisited | 0100AA00128BA000 | 3 |
 | Scott Pilgrim vs. The World: The Game – Complete Edition | 0100394011C30000 | 3 |
+| SDガンダム ジージェネレーション クロスレイズ プレミアムGサウンドエディション | 010022900D3EC000 | 6 |
 | SEGA AGES Wonder Boy: Monster Land | 01001E700AC60000 | 1 |
 | SELFY COLLECTION The dream fashion stylist! | 010044700FB46000 | 3 |
+| Shadowverse: Champion's Battle | 01003B90136DA000 | 3 |
 | Shalnor Legends: Sacred Lands | 0100B4900E008000 | 3 |
 | Shantae and the Seven Sirens | 0100EB901040A000 | 1 |
 | Shattered: Tale of the Forgotten King | 0100A0F0180D6000 | 3 |
@@ -515,6 +431,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Silver Nornir | 0100D1E018F26000 | 3 |
 | Slasher - Sword RPG Impact Simulator | 0100E9601B670000 | 2 |
 | Slay the Spire | 010026300BA4A000 | 4 |
+| Snack World: The Dungeon Crawl – Gold | 0100F2800D46E000 | 6 |
 | SNACK WORLD: THE DUNGEON CRAWL — GOLD | 010010400D46A000 | 3 |
 | Songs for a Hero: Definitive Edition | 0100802012890000 | 2 |
 | South Park: The Fractured but Whole - Standard Edition | 01008F2005154000 | 3 |
@@ -526,6 +443,7 @@ play-time milestones. None of these have been checked on a console yet.
 | Spelunky 2 | 01007EC013ABC000 | 3 |
 | Spirit of the Island | 010033F019FFE000 | 3 |
 | Spiritfarer | 0100BD400DC52000 | 3 |
+| Splatoon 2 | 0100F8F0000A2000 | 2 |
 | Spyro Reignited Trilogy | 010077B00E046000 | 3 |
 | Star Overdrive | 010047E01EA24000 | 3 |
 | Stardew Valley: | 0100E65002BB8000 | 6 |
@@ -533,6 +451,7 @@ play-time milestones. None of these have been checked on a console yet.
 | SteamWorld Quest: Hand of Gilgamech | 0100F6D00D83E000 | 3 |
 | STORY OF SEASONS: A Wonderful Life | 010076801929A000 | 6 |
 | STORY OF SEASONS: Friends of Mineral Town | 0100ED400EEC2000 | 6 |
+| STORY OF SEASONS: Pioneers of Olive Town | 010013E013220000 | 3 |
 | STORY OF SEASONS: Pioneers of Olive Town | 010082E012A84000 | 6 |
 | Street Racing: Tokyo Rush | 01001E901482A000 | 3 |
 | Summer Sweetheart | 01004E500DB9E000 | 6 |
@@ -549,6 +468,7 @@ play-time milestones. None of these have been checked on a console yet.
 | SuperEpic: The Entertainment War | 0100630010252000 | 3 |
 | Superpanda 2 | 0100B75018A6E000 | 3 |
 | Supraland | 0100A6E01201C000 | 1 |
+| SWORD ART ONLINE Alicization Lycoris | 010034501225C000 | 6 |
 | SWORD ART ONLINE: FATAL BULLET Complete Edition | 01005DF00DC26000 | 3 |
 | SWORD ART ONLINE: Hollow Realization Deluxe Edition | 0100EC400D54E000 | 3 |
 | Sydney Hunter and the Curse of the Mayan | 010007300C482000 | 3 |
@@ -558,6 +478,7 @@ play-time milestones. None of these have been checked on a console yet.
 | The Binding of Isaac: Afterbirth+ | 010021C000B6A000 | 2 |
 | The Bounty Huntress | 010059C0192EA000 | 3 |
 | The Bug Butcher | 01008D700AB14000 | 2 |
+| The Bug Butcher (ザ・バグ・ブッチャー) | 0100CA900B6BA000 | 2 |
 | THE Card: Poker, Texas hold 'em, Blackjack and Page One | 0100EB600AB5E000 | 3 |
 | The Coma 2: Vicious Sisters | 0100B7C01169C000 | 3 |
 | The Falconeer: Warrior Edition | 0100BA5013E52000 | 3 |
@@ -575,6 +496,8 @@ play-time milestones. None of these have been checked on a console yet.
 | The Pyraplex | 0100BBD00D9D6000 | 3 |
 | The Story Goes On | 01007FA00DA22000 | 3 |
 | The Touryst | 0100C3300D8C4000 | 3 |
+| The Witcher 3: Wild Hunt (another release) | 010019C00E9CC000 | 3 |
+| The Witcher 3: Wild Hunt — Complete Edition | 01003D100E9C6000 | 3 |
 | The Witcher 3: Wild Hunt — Complete Edition | 0100BFE00E9CA000 | 3 |
 | The Wonderful 101: Remastered | 0100B1300FF08000 | 3 |
 | Thief Simulator | 0100CE400E34E000 | 6 |
@@ -626,3 +549,65 @@ play-time milestones. None of these have been checked on a console yet.
 | Zombie Blast Crew | 0100B610138F8000 | 3 |
 | Zombo Buster Advance | 0100BC5014D68000 | 6 |
 | ZUMIMAN | 0100C0D019F74000 | 3 |
+| この素晴らしい世界に祝福を！～希望の迷宮と集いし冒険者たち～Plus | 01004920105FC000 | 3 |
+| アリス・ギア・アイギスCS　～コンチェルト オブ シミュラトリックス～ | 0100685015A1A000 | 3 |
+| イースX -NORDICS- | 0100CC401A16C000 | 3 |
+| ガレリアの地下迷宮と魔女ノ旅団 | 01007010157B4000 | 3 |
+| グノーシア | 0100E48010F52000 | 3 |
+| ゲーム ドラえもん のび太の新恐竜 | 01006BD00F8C0000 | 3 |
+| ゴブリンスレイヤー -ANOTHER ADVENTURER- NIGHTMARE FEAST | 01000A201A7A4000 | 3 |
+| スチームワールドクエスト | 01000AA00E4DC000 | 3 |
+| スーパーロボット大戦30 | 010022201229A000 | 3 |
+| スーパーロボット大戦Ｖ | 0100CA400E300000 | 3 |
+| スーパーロボット大戦Ｘ | 010026800E304000 | 3 |
+| スーパー・ストリート: Racer | 0100FB400F54E000 | 3 |
+| ゼルダ無双 ハイラルオールスターズ DX | 01002AB007FD2000 | 3 |
+| ダングリード | 010045B00C496000 | 3 |
+| ドラゴンクエスト | 0100A5500E488000 | 2 |
+| ドラゴンクエストⅡ　悪霊の神々 | 0100B1900E48E000 | 3 |
+| ドラゴンクエストⅢ　そして伝説へ… | 01002A800E490000 | 3 |
+| ドラゴンクエストヒーローズI・II for Nintendo Switch | 0100CD3000BDC000 | 6 |
+| ドラゴンボールZ KAKAROT ＋ 新たなる覚醒セット | 0100EF00134F4000 | 3 |
+| バッカニヤ | 0100942019418000 | 3 |
+| ファイアーエムブレム無双 | 0100EAE003A5A000 | 3 |
+| ファイアーエムブレム無双 風花雪月 | 0100EE40143B6000 | 3 |
+| フィスト 紅蓮城の闇 | 01008EB017F3E000 | 3 |
+| ベイブレードバースト バトルゼロ | 010068600AD16000 | 3 |
+| ペルソナ５ スクランブル　ザ ファントム ストライカーズ | 01001C400E9D8000 | 6 |
+| マクロス -Shooting Insight- | 01001C601B8D8000 | 3 |
+| モンスターファーム | 0100E9900ED74000 | 3 |
+| モンスターファーム２ | 01004BD012500000 | 3 |
+| ライザのアトリエ ～常闇の女王と秘密の隠れ家～ | 010096000E1EC000 | 3 |
+| ライザのアトリエ２ ～失われた伝承と秘密の妖精～ | 0100B020117D8000 | 6 |
+| ルーンファクトリー５ | 010014D01216E000 | 3 |
+| レミロア～少女と異世界と魔導書～ | 010045900C018000 | 3 |
+| ロマンシング サガ2 | 01002A1004B34000 | 3 |
+| 不思議の国の冒険酒場 | 0100AE101D3E4000 | 3 |
+| 不思議の幻想郷 -ロータスラビリンス- | 0100D7800C56A000 | 3 |
+| 不思議の幻想郷TOD -RELOADED- | 010033500944A000 | 3 |
+| 二ノ国 白き聖灰の女王 for Nintendo Switch | 010032400E700000 | 3 |
+| 侍道外伝 KATANAKAMI | 0100F6A00E31E000 | 3 |
+| 奇々怪界 黒マントの謎 | 01004A40167C2000 | 1 |
+| 妖怪ウォッチ1 for Nintendo Switch | 0100C0000CEEA000 | 2 |
+| 妖怪ウォッチ4 ぼくらは同じ空を見上げている | 010086C00AF7C000 | 3 |
+| 妖怪学園Y ～ワイワイ学園生活～ | 010051D010FC2000 | 3 |
+| 実況パワフルプロ野球 | 0100E9C00BF28000 | 3 |
+| 少女地獄のドクムス〆 | 010062300E0D4000 | 6 |
+| 海腹川背 Fresh! | 01007D600B70A000 | 3 |
+| 牧場物語 Welcome！ワンダフルライフ | 0100936018EB4000 | 3 |
+| 牧場物語 オリーブタウンと希望の大地 | 010017301007E000 | 6 |
+| 神次次元ゲイム ネプテューヌRe;Birth3 V CENTURY | 0100FE301C4BC000 | 3 |
+| 神獄塔 メアリスケルター2 for Nintendo Switch | 0100C3500D956000 | 3 |
+| 超探偵事件簿 レインコード | 0100F4401940A000 | 3 |
+| 超次元ゲイム ネプテューヌ Sisters vs Sisters | 0100B25019F26000 | 3 |
+| 超次次元ゲイム ネプテューヌRe;Birth1 | 01007CB01C4B6000 | 3 |
+| 超次次元ゲイム ネプテューヌRe;Birth2 SISTERS GENERATION | 01005C301C4BA000 | 3 |
+| 魔物娘と不思議な冒険～力の宝珠と帰還の塔～ | 01007550129B2000 | 3 |
+| 데드 셀 (Dead Cells) | 0100FC000AEF0000 | 3 |
+| 드래곤볼 Z 카카로트 + 새로운 각성 편 | 0100FD70134FA000 | 3 |
+| 로맨싱 사가 2 | 0100BEF015C34000 | 3 |
+| 목장이야기 Welcome! 원더풀 라이프 | 01001F0019804000 | 6 |
+| 목장이야기 다시 만난 미네랄 타운의 친구들 | 0100C2D00EBD4000 | 3 |
+| 미궁전설 | 0100718017572000 | 3 |
+| 슈퍼로봇대전 T | 01006C900CC60000 | 3 |
+| ＮＡＲＵＴＯ－ナルト－ 疾風伝　ナルティメットストーム４ ROAD TO BORUTO | 01003F800CF5C000 | 3 |

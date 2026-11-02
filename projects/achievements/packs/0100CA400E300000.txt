@@ -1,6 +1,6 @@
-# 0100CA400E300000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# スーパーロボット大戦Ｖ: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100CA400E300000
+game 0100CA400E300000 スーパーロボット大戦Ｖ
 
 a money.100000 | Saving up | Save up 100,000
 a money.1000000 | Well off | Save up 1,000,000

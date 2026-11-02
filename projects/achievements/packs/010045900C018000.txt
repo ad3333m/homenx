@@ -1,6 +1,6 @@
-# 010045900C018000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# レミロア～少女と異世界と魔導書～: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010045900C018000
+game 010045900C018000 レミロア～少女と異世界と魔導書～
 
 a money.100 | Saving up | Save up 100
 a money.1000 | Well off | Save up 1,000

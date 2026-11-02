@@ -1,6 +1,6 @@
-# 0100AA00128BA001: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Saviors of Sapphire Wings / Stranger of Sword City Revisited: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100AA00128BA001
+game 0100AA00128BA000 Saviors of Sapphire Wings / Stranger of Sword City Revisited
 
 a gold.1000 | Saving up | Have 1,000 gold
 a gold.10000 | Well off | Have 10,000 gold

@@ -1,6 +1,6 @@
-# 0100CD3000BDC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ドラゴンクエストヒーローズI・II for Nintendo Switch: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100CD3000BDC000
+game 0100CD3000BDC000 ドラゴンクエストヒーローズI・II for Nintendo Switch
 
 a gold.10000 | Saving up | Have 10,000 gold
 a gold.100000 | Well off | Have 100,000 gold

@@ -1,6 +1,6 @@
-# 010033500944A000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 不思議の幻想郷TOD -RELOADED-: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010033500944A000
+game 010033500944A000 不思議の幻想郷TOD -RELOADED-
 
 a money.100 | Saving up | Save up 100
 a money.1000 | Well off | Save up 1,000

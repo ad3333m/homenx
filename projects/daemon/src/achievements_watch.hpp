@@ -154,17 +154,22 @@ inline void loadPack(Live& l, std::uint64_t title) {
                           static_cast<unsigned long long>(title), l.pack.list.size(), l.done.size());
 }
 
+// (Again at every check: a collection's games are programs of one application, its ID + 1,
+// + 2..., and starting one swaps the process.)
 inline bool attach(Live& l) {
     namespace dm = switchu::dmnt;
     if (!dm::open()) return false;
     if (!dm::hasCheatProcess() && !dm::forceOpenCheatProcess()) return false;
     dm::Metadata m{};
-    if (!dm::metadata(m) || m.program_id != l.title) return false;
+    if (!dm::metadata(m) || (m.program_id & ~0x1FFFULL) != (l.title & ~0x1FFFULL)) return false;
     l.bases = {m.main_nso.base, m.heap.base, m.alias.base};
     char hex[17] = {};
     for (int i = 0; i < 8; ++i) std::snprintf(hex + i * 2, 3, "%02X", m.main_nso_build_id[i]);
-    l.build = hex;
-    switchu::FileLog::log("[achievements] %s: build %s", l.pack.game.c_str(), l.build.c_str());
+    if (l.build != hex) {
+        l.build = hex;
+        l.streak.clear();
+        switchu::FileLog::log("[achievements] %s: build %s", l.pack.game.c_str(), l.build.c_str());
+    }
     return true;
 }
 
@@ -220,7 +225,7 @@ inline void threadFunc(void*) {
         if (!t) continue; // (HOME or nothing in front: the time isn't play)
         if (t != live.title) loadPack(live, t);
         if (live.pack.valid()) {
-            if (!live.attached && now >= live.retryAt) {
+            if (live.attached || now >= live.retryAt) {
                 live.attached = attach(live);
                 if (!live.attached) live.retryAt = now + armNsToTicks(15'000'000'000ULL);
             }

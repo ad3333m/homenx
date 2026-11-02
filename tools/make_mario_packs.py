@@ -35,8 +35,8 @@ SPEC = {
         (["02# 999 coins all modes"], 0, "coins.999", "Coin hoard", "Have 999 coins", ">=", 999),
     ]),
     "010049900F546000": ("Super Mario 3D All-Stars", [
-        (["o Super Mario 64 Infinite Coins"], 0, "sm64.coins100", "100 coins", "Collect 100 coins in a course in Super Mario 64", ">=", 100),
-        (["o Super Mario 64 Infinite Lives"], 0, "sm64.lives99", "Extra Marios", "Have 99 lives in Super Mario 64", ">=", 99),
+        (["04# Infinite Coins"], 0, "sm64.coins100", "100 coins", "Collect 100 coins in a course in Super Mario 64", ">=", 100),
+        (["02# Infinite Lives"], 0, "sm64.lives99", "Extra Marios", "Have 99 lives in Super Mario 64", ">=", 99),
         (["Star"], 0, "galaxy.bits999", "Star Bit hoard", "Have 999 Star Bits in Super Mario Galaxy", ">=", 999),
     ]),
     "0100A3900C3E2000": ("Paper Mario: The Origami King", [
@@ -88,7 +88,15 @@ HEADER = ("# {game}: its own achievements (docs/achievement-packs.md). Made from
 
 
 def load(tid):
-    return json.load(open(os.path.join(DB, f"{tid}.json"), encoding="utf-8"))
+    # (A collection's games are programs of one application: its ID + 1, + 2...)
+    d = {}
+    for i in range(16):
+        p = os.path.join(DB, "%016X.json" % (int(tid, 16) + i))
+        if os.path.exists(p):
+            for build, cheats in json.load(open(p, encoding="utf-8")).items():
+                if build != "attribution" and isinstance(cheats, dict):
+                    d.setdefault(build.upper(), {}).update(cheats)
+    return d
 
 
 def writes_by_build(d, names):

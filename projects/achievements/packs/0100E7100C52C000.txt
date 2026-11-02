@@ -1,6 +1,6 @@
-# 0100E7100C52C000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# DEAD OR SCHOOL: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100E7100C52C000
+game 0100E7100C52C000 DEAD OR SCHOOL
 
 a money.100 | Well off | Save up 100
 a money.1000 | Rolling in it | Save up 1,000

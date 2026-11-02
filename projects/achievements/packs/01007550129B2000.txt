@@ -1,6 +1,6 @@
-# 01007550129B2000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 魔物娘と不思議な冒険～力の宝珠と帰還の塔～: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01007550129B2000
+game 01007550129B2000 魔物娘と不思議な冒険～力の宝珠と帰還の塔～
 
 a gold.100 | Saving up | Have 100 gold
 a gold.1000 | Well off | Have 1,000 gold

@@ -1,6 +1,6 @@
-# 01007CB01C4B6000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 超次次元ゲイム ネプテューヌRe;Birth1: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01007CB01C4B6000
+game 01007CB01C4B6000 超次次元ゲイム ネプテューヌRe;Birth1
 
 a credits.10000 | Saving up | Have 10,000 Credits
 a credits.100000 | Well off | Have 100,000 Credits

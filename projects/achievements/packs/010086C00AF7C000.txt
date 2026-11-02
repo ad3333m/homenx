@@ -1,6 +1,6 @@
-# 010086C00AF7C000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 妖怪ウォッチ4 ぼくらは同じ空を見上げている: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010086C00AF7C000
+game 010086C00AF7C000 妖怪ウォッチ4 ぼくらは同じ空を見上げている
 
 a money.1000 | Saving up | Save up 1,000
 a money.10000 | Well off | Save up 10,000

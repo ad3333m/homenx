@@ -1,6 +1,6 @@
-# 01001F0019804000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 목장이야기 Welcome! 원더풀 라이프: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01001F0019804000
+game 01001F0019804000 목장이야기 Welcome! 원더풀 라이프
 
 a money.100000 | Saving up | Save up 100,000
 a money.1000000 | Well off | Save up 1,000,000

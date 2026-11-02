@@ -1,6 +1,6 @@
-# 0100C29017106000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# LIVE A LIVE: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100C29017106000
+game 0100C29017106000 LIVE A LIVE
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

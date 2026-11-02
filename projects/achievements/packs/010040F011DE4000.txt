@@ -1,7 +1,9 @@
-# 010040F011DE4001: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Devious Dungeon Collection: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010040F011DE4001
+game 010040F011DE4000 Devious Dungeon Collection
 
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
 a money.100 | Saving up | Save up 100
 a money.1000 | Well off | Save up 1,000
 a money.10000 | Rolling in it | Save up 10,000
@@ -10,3 +12,7 @@ build 94F8F5DB3D8E0A47
 c money.100 | u32 [[[main+1C12450]+A0]+0]+1C >= 100 <= 9999990
 c money.1000 | u32 [[[main+1C12450]+A0]+0]+1C >= 1000 <= 9999990
 c money.10000 | u32 [[[main+1C12450]+A0]+0]+1C >= 10000 <= 9999990
+
+build FBB667B7D6BFA041
+c gold.100 | u32 [[[[main+27A18F0]+A0]+20]+20]+74 >= 100 <= 999990
+c gold.1000 | u32 [[[[main+27A18F0]+A0]+20]+20]+74 >= 1000 <= 999990

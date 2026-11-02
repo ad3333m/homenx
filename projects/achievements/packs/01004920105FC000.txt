@@ -1,6 +1,6 @@
-# 01004920105FC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# この素晴らしい世界に祝福を！～希望の迷宮と集いし冒険者たち～Plus: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01004920105FC000
+game 01004920105FC000 この素晴らしい世界に祝福を！～希望の迷宮と集いし冒険者たち～Plus
 
 a money.100000 | Saving up | Save up 100,000
 a money.1000000 | Well off | Save up 1,000,000

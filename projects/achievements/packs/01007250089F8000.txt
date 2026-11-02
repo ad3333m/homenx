@@ -1,6 +1,6 @@
-# 01007250089F8000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# LoveR Kiss（ラヴアール キス）: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01007250089F8000
+game 01007250089F8000 LoveR Kiss（ラヴアール キス）
 
 a coins.10000 | Saving up | Have 10,000 coins
 a coins.100000 | Well off | Have 100,000 coins

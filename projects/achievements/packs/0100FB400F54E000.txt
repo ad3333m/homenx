@@ -1,6 +1,6 @@
-# 0100FB400F54E000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# スーパー・ストリート: Racer: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100FB400F54E000
+game 0100FB400F54E000 スーパー・ストリート: Racer
 
 a money.1000 | Saving up | Save up 1,000
 a money.10000 | Well off | Save up 10,000

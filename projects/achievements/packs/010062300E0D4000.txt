@@ -1,6 +1,6 @@
-# 010062300E0D4000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 少女地獄のドクムス〆: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010062300E0D4000
+game 010062300E0D4000 少女地獄のドクムス〆
 
 a gold.100 | Saving up | Have 100 gold
 a gold.1000 | Well off | Have 1,000 gold

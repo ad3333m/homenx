@@ -1,6 +1,6 @@
-# 0100B1900E48E000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ドラゴンクエストⅡ　悪霊の神々: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100B1900E48E000
+game 0100B1900E48E000 ドラゴンクエストⅡ　悪霊の神々
 
 a gold.100 | Saving up | Have 100 gold
 a gold.1000 | Well off | Have 1,000 gold

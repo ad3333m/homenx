@@ -1,6 +1,6 @@
-# 01006BD00F8C0000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ゲーム ドラえもん のび太の新恐竜: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01006BD00F8C0000
+game 01006BD00F8C0000 ゲーム ドラえもん のび太の新恐竜
 
 a money.100 | Saving up | Save up 100
 a money.1000 | Well off | Save up 1,000

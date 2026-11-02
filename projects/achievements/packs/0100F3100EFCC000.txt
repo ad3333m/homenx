@@ -1,6 +1,6 @@
-# 0100F3100EFCC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# FAIRY TAIL: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100F3100EFCC000
+game 0100F3100EFCC000 FAIRY TAIL
 
 a money.100 | Saving up | Save up 100
 a money.1000 | Well off | Save up 1,000

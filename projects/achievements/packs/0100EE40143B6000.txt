@@ -1,6 +1,6 @@
-# 0100EE40143B6000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ファイアーエムブレム無双 風花雪月: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100EE40143B6000
+game 0100EE40143B6000 ファイアーエムブレム無双 風花雪月
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

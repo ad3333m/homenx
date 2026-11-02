@@ -1,6 +1,6 @@
-# 0100B25019F26000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 超次元ゲイム ネプテューヌ Sisters vs Sisters: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100B25019F26000
+game 0100B25019F26000 超次元ゲイム ネプテューヌ Sisters vs Sisters
 
 a credits.100000 | Saving up | Have 100,000 Credits
 a credits.1000000 | Well off | Have 1,000,000 Credits

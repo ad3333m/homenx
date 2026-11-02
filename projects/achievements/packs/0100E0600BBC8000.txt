@@ -1,6 +1,6 @@
-# 0100E0600BBC8002: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# GRANDIA HD Collection: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100E0600BBC8002
+game 0100E0600BBC8000 GRANDIA HD Collection
 
 a coins.100 | Saving up | Have 100 coins
 a coins.1000 | Well off | Have 1,000 coins
@@ -8,6 +8,8 @@ a coins.10000 | Rolling in it | Have 10,000 coins
 a gold.1000 | Saving up | Have 1,000 gold
 a gold.10000 | Well off | Have 10,000 gold
 a gold.100000 | Rolling in it | Have 100,000 gold
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
 
 build 034886422B6F840B
 c coins.100 | u32 heap+909D6E28 >= 100 <= 9999990
@@ -16,3 +18,7 @@ c coins.10000 | u32 heap+909D6E28 >= 10000 <= 9999990
 c gold.1000 | u32 heap+909D6E24 >= 1000 <= 99999990
 c gold.10000 | u32 heap+909D6E24 >= 10000 <= 99999990
 c gold.100000 | u32 heap+909D6E24 >= 100000 <= 99999990
+
+build 8B679E3F55BD9DE5
+c money.100 | u32 heap+445164 >= 100 <= 99990
+c money.9999 | u32 heap+445164 >= 9999 <= 99990

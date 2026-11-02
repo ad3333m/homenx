@@ -1,6 +1,6 @@
-# 0100E3D0103CE000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# Fable of Fairy Stones:妖精石物語: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100E3D0103CE000
+game 0100E3D0103CE000 Fable of Fairy Stones:妖精石物語
 
 a gold.100 | Well off | Have 100 gold
 a gold.1000 | Rolling in it | Have 1,000 gold

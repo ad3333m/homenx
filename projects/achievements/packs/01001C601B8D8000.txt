@@ -1,6 +1,6 @@
-# 01001C601B8D8000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# マクロス -Shooting Insight-: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01001C601B8D8000
+game 01001C601B8D8000 マクロス -Shooting Insight-
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

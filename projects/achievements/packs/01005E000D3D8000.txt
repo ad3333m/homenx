@@ -1,6 +1,6 @@
-# 01005E000D3D8000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# LA-MULANA 2 (ラ・ムラーナ 2): achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01005E000D3D8000
+game 01005E000D3D8000 LA-MULANA 2 (ラ・ムラーナ 2)
 
 a coins.999 | Maxed out | Have 999 coins
 

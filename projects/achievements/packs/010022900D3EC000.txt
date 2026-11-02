@@ -1,6 +1,6 @@
-# 010022900D3EC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# SDガンダム ジージェネレーション クロスレイズ プレミアムGサウンドエディション: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010022900D3EC000
+game 010022900D3EC000 SDガンダム ジージェネレーション クロスレイズ プレミアムGサウンドエディション
 
 a money.100000 | Saving up | Save up 100,000
 a money.1000000 | Well off | Save up 1,000,000

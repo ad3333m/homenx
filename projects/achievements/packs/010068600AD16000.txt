@@ -1,6 +1,6 @@
-# 010068600AD16000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# ベイブレードバースト バトルゼロ: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 010068600AD16000
+game 010068600AD16000 ベイブレードバースト バトルゼロ
 
 a money.100 | Saving up | Save up 100
 a money.1000 | Well off | Save up 1,000

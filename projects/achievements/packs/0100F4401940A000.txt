@@ -1,6 +1,6 @@
-# 0100F4401940A000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# 超探偵事件簿 レインコード: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 0100F4401940A000
+game 0100F4401940A000 超探偵事件簿 レインコード
 
 a level.25 | Leveling up | Reach level 25
 a level.50 | Seasoned | Reach level 50

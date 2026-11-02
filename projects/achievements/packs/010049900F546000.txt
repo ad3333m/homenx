@@ -8,12 +8,15 @@ a sm64.coins100 | 100 coins | Collect 100 coins in a course in Super Mario 64
 a sm64.lives99 | Extra Marios | Have 99 lives in Super Mario 64
 a galaxy.bits999 | Star Bit hoard | Have 999 Star Bits in Super Mario Galaxy
 
-build A638857E6DF584FF
+build 15FDED0D90EF5D72
+c galaxy.bits999 | u16 main+1BBFEC0 >= 999
+
+build 9D00360EA7CEAC4E
 c sm64.coins100 | u16 heap+38742A89 >= 100
 c sm64.lives99 | u8 heap+38742A8D >= 99
+
+build A638857E6DF584FF
 c galaxy.bits999 | u16 main+1BBFEC0 >= 999
 
 build FF44F58218C6A6B2
-c sm64.coins100 | u16 heap+38742A89 >= 100
-c sm64.lives99 | u8 heap+38742A8D >= 99
 c galaxy.bits999 | u16 main+1BBFEC0 >= 999

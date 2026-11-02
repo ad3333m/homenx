@@ -1,6 +1,6 @@
-# 01004BD012500000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# モンスターファーム２: achievements made from HamletDuFromage/switch-cheats-db's codes for its
 # currency, level or experience (tools/make_all_packs.py). Not checked on a console.
-game 01004BD012500000
+game 01004BD012500000 モンスターファーム２
 
 a money.1000 | Saving up | Save up 1,000
 a money.10000 | Well off | Save up 10,000
