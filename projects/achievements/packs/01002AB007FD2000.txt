@@ -1,0 +1,12 @@
+# 01002AB007FD2000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002AB007FD2000
+
+a rupees.1000 | Saving up | Have 1,000 Rupees
+a rupees.10000 | Well off | Have 10,000 Rupees
+a rupees.100000 | Rolling in it | Have 100,000 Rupees
+
+build 3F8FFAD9352A760A
+c rupees.1000 | u32 heap+8B48A564 >= 1000 <= 99999980
+c rupees.10000 | u32 heap+8B48A564 >= 10000 <= 99999980
+c rupees.100000 | u32 heap+8B48A564 >= 100000 <= 99999980

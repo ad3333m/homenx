@@ -1,0 +1,12 @@
+# Endless Ocean Luminous: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010067B017588000 Endless Ocean Luminous
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+
+build A2FA3E8184E6D4C4
+c gold.10000 | u32 [[[main+1C30F88]+8]+10]+28 >= 10000 <= 999999990
+c gold.100000 | u32 [[[main+1C30F88]+8]+10]+28 >= 100000 <= 999999990
+c gold.1000000 | u32 [[[main+1C30F88]+8]+10]+28 >= 1000000 <= 999999990

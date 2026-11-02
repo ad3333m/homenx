@@ -1,0 +1,12 @@
+# Fairune Collection: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01008A6009758000 Fairune Collection
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build EA5C70AF7F4D8A4F
+c level.25 | u32 [[[[main+21B4860]+148]+70]+38]+C8 >= 25 <= 9990
+c level.50 | u32 [[[[main+21B4860]+148]+70]+38]+C8 >= 50 <= 9990
+c level.99 | u32 [[[[main+21B4860]+148]+70]+38]+C8 >= 99 <= 9990

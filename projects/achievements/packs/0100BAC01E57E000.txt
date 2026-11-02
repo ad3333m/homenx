@@ -1,0 +1,33 @@
+# Ys X: Nordics: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BAC01E57E000 Ys X: Nordics
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build C55F6B8AEFA54324
+c level.25 | u64 main+B4F398 >= 25 <= 250
+c level.25 | u64 main+B4F398 >= 25 <= 42949672970
+c level.25 | u64 main+B4F398 >= 25 <= 85899345940
+c level.25 | u64 main+B4F398 >= 25 <= 128849018910
+c level.25 | u64 main+B4F398 >= 25 <= 171798691880
+c level.25 | u64 main+B4F398 >= 25 <= 214748364850
+c level.25 | u64 main+B4F398 >= 25 <= 257698037820
+c level.25 | u64 main+B4F398 >= 25 <= 300647710790
+c level.50 | u64 main+B4F398 >= 50 <= 500
+c level.50 | u64 main+B4F398 >= 50 <= 42949672970
+c level.50 | u64 main+B4F398 >= 50 <= 85899345940
+c level.50 | u64 main+B4F398 >= 50 <= 128849018910
+c level.50 | u64 main+B4F398 >= 50 <= 171798691880
+c level.50 | u64 main+B4F398 >= 50 <= 214748364850
+c level.50 | u64 main+B4F398 >= 50 <= 257698037820
+c level.50 | u64 main+B4F398 >= 50 <= 300647710790
+c level.99 | u64 main+B4F398 >= 99 <= 990
+c level.99 | u64 main+B4F398 >= 99 <= 42949672970
+c level.99 | u64 main+B4F398 >= 99 <= 85899345940
+c level.99 | u64 main+B4F398 >= 99 <= 128849018910
+c level.99 | u64 main+B4F398 >= 99 <= 171798691880
+c level.99 | u64 main+B4F398 >= 99 <= 214748364850
+c level.99 | u64 main+B4F398 >= 99 <= 257698037820
+c level.99 | u64 main+B4F398 >= 99 <= 300647710790

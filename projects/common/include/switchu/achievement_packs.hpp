@@ -30,6 +30,8 @@ struct Condition {
     bool isSigned = false, isFloat = false;
     std::string op;      // == != >= > <= < & (any of these bits)
     double value = 0;
+    std::string op2;     // optional second comparison ("<= 9999999": a pointer read too soon gives nonsense)
+    double value2 = 0;
 };
 
 struct Achievement {
@@ -82,12 +84,24 @@ inline bool parseCondition(const std::string& text, Condition& c) {
     c.isSigned = type[0] == 'S';
     c.isFloat = type[0] == 'F';
     if (c.isFloat && c.bytes < 4) return false;
-    static const char* const kOps[] = {"==", "!=", ">=", ">", "<=", "<", "&"};
-    bool known = false;
-    for (const char* op : kOps) known |= c.op == op;
-    if (!known) return false;
-    c.value = number.rfind("0x", 0) == 0 || number.rfind("0X", 0) == 0 ? static_cast<double>(std::strtoull(number.c_str(), nullptr, 16))
-                                                                        : std::strtod(number.c_str(), nullptr);
+    auto known = [](const std::string& op) {
+        static const char* const kOps[] = {"==", "!=", ">=", ">", "<=", "<", "&"};
+        for (const char* k : kOps)
+            if (op == k) return true;
+        return false;
+    };
+    auto parsed = [](const std::string& n) {
+        return n.rfind("0x", 0) == 0 || n.rfind("0X", 0) == 0 ? static_cast<double>(std::strtoull(n.c_str(), nullptr, 16))
+                                                              : std::strtod(n.c_str(), nullptr);
+    };
+    if (!known(c.op)) return false;
+    c.value = parsed(number);
+    std::string op2, number2;
+    if (in >> op2 >> number2) { // a second comparison: both must hold
+        if (!known(op2)) return false;
+        c.op2 = op2;
+        c.value2 = parsed(number2);
+    }
     return true;
 }
 
@@ -220,13 +234,16 @@ inline bool holds(const Condition& c, const Bases& b, const Reader& read) {
     } else {
         v = static_cast<double>(u);
     }
-    if (c.op == "==") return v == c.value;
-    if (c.op == "!=") return v != c.value;
-    if (c.op == ">=") return v >= c.value;
-    if (c.op == ">") return v > c.value;
-    if (c.op == "<=") return v <= c.value;
-    if (c.op == "<") return v < c.value;
-    return (u & static_cast<std::uint64_t>(c.value)) != 0; // "&"
+    auto compare = [&](const std::string& op, double value) {
+        if (op == "==") return v == value;
+        if (op == "!=") return v != value;
+        if (op == ">=") return v >= value;
+        if (op == ">") return v > value;
+        if (op == "<=") return v <= value;
+        if (op == "<") return v < value;
+        return (u & static_cast<std::uint64_t>(value)) != 0; // "&"
+    };
+    return compare(c.op, c.value) && (c.op2.empty() || compare(c.op2, c.value2));
 }
 
 // Whether any of its conditions for this version holds now (a game with save slots has one each).

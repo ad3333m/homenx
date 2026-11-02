@@ -1,0 +1,12 @@
+# Moero Chronicle Hyper: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B8500D570000 Moero Chronicle Hyper
+
+a gold.100 | Saving up | Have 100 gold
+a gold.1000 | Well off | Have 1,000 gold
+a gold.10000 | Rolling in it | Have 10,000 gold
+
+build D6DB4C4B00699A19
+c gold.100 | u32 main+17DE0F8 >= 100 <= 9999990
+c gold.1000 | u32 main+17DE0F8 >= 1000 <= 9999990
+c gold.10000 | u32 main+17DE0F8 >= 10000 <= 9999990

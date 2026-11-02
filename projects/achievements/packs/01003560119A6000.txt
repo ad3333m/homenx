@@ -1,0 +1,12 @@
+# Mini Motor Racing X: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01003560119A6000 Mini Motor Racing X
+
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build 489A7372C2FD7948
+c money.100 | u32 [[[[main+3F03790]+B8]+20]+28]+10 >= 100 <= 9999990
+c money.1000 | u32 [[[[main+3F03790]+B8]+20]+28]+10 >= 1000 <= 9999990
+c money.10000 | u32 [[[[main+3F03790]+B8]+20]+28]+10 >= 10000 <= 9999990

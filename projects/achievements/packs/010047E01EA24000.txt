@@ -1,0 +1,12 @@
+# Star Overdrive: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010047E01EA24000 Star Overdrive
+
+a money.10000 | Saving up | Save up 10,000
+a money.100000 | Well off | Save up 100,000
+a money.1000000 | Rolling in it | Save up 1,000,000
+
+build C0D9B410A09A4ADD
+c money.10000 | u32 [[[[main+776E1E8]+30]+B0]+48]+2A8 >= 10000 <= 100000000
+c money.100000 | u32 [[[[main+776E1E8]+30]+B0]+48]+2A8 >= 100000 <= 100000000
+c money.1000000 | u32 [[[[main+776E1E8]+30]+B0]+48]+2A8 >= 1000000 <= 100000000

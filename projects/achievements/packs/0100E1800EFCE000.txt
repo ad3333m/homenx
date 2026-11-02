@@ -1,0 +1,16 @@
+# moon: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E1800EFCE000 moon
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+a level.10 | Leveling up | Reach level 10
+a level.15 | Seasoned | Reach level 15
+a level.30 | Max level | Reach level 30
+
+build 089898E9F7812443
+c money.100 | u16 main+3AA30A4 >= 100 <= 65535
+c money.1000 | u16 main+3AA30A4 >= 1000 <= 65535
+c level.10 | u8 main+3AA308C >= 10 <= 255
+c level.15 | u8 main+3AA308C >= 15 <= 255
+c level.30 | u8 main+3AA308C >= 30 <= 255

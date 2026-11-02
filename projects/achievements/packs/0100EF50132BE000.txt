@@ -1,0 +1,12 @@
+# Kingdoms of Amalur: Re-Reckoning: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100EF50132BE000 Kingdoms of Amalur: Re-Reckoning
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 816BFB8A2F5B5916
+c level.25 | u32 [[[[[main+16B78C0]+120]+8]+318]+58]+3B0 >= 25 <= 19480000
+c level.50 | u32 [[[[[main+16B78C0]+120]+8]+318]+58]+3B0 >= 50 <= 19480000
+c level.99 | u32 [[[[[main+16B78C0]+120]+8]+318]+58]+3B0 >= 99 <= 19480000

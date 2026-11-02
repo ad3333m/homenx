@@ -1,0 +1,49 @@
+# Animal Crossing: New Horizons – Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006F8002326000 Animal Crossing: New Horizons – Nintendo Switch 2 Edition
+
+a bells.100000 | Saving up | Have 100,000 Bells
+a bells.1000000 | Well off | Have 1,000,000 Bells
+a bells.10000000 | Rolling in it | Have 10,000,000 Bells
+a gold.100 | Well off | Have 100 gold
+a gold.2505 | Maxed out | Have 2,505 gold
+
+build 20CA968C082118C2
+c bells.100000 | u32 main+1038C50 >= 100000 <= 4294967295
+c bells.100000 | u32 main+10D75E0 >= 100000 <= 4294967295
+c bells.1000000 | u32 main+1038C50 >= 1000000 <= 4294967295
+c bells.1000000 | u32 main+10D75E0 >= 1000000 <= 4294967295
+c bells.10000000 | u32 main+1038C50 >= 10000000 <= 4294967295
+c bells.10000000 | u32 main+10D75E0 >= 10000000 <= 4294967295
+
+build 3068F51723DC1A67
+c bells.100000 | u32 main+1038440 >= 100000 <= 4294967295
+c bells.1000000 | u32 main+1038440 >= 1000000 <= 4294967295
+c bells.10000000 | u32 main+1038440 >= 10000000 <= 4294967295
+
+build A31F81D41E1039C5
+c bells.100000 | u32 main+1038C50 >= 100000 <= 4294967295
+c bells.1000000 | u32 main+1038C50 >= 1000000 <= 4294967295
+c bells.10000000 | u32 main+1038C50 >= 10000000 <= 4294967295
+
+build B0D6D16556B61BF5
+c gold.100 | u32 heap+AC3B9118 >= 100 <= 25050
+c gold.100 | u32 heap+AC3B911C >= 100 <= 1000
+c gold.2505 | u32 heap+AC3B9118 >= 2505 <= 25050
+c gold.2505 | u32 heap+AC3B911C >= 2505 <= 25050
+
+build E2D890A4D19FAD02
+c bells.100000 | u32 main+1038430 >= 100000 <= 4294967295
+c bells.1000000 | u32 main+1038430 >= 1000000 <= 4294967295
+c bells.10000000 | u32 main+1038430 >= 10000000 <= 4294967295
+
+build F829A27213D46F9F
+c gold.100 | u32 heap+AC3B9118 >= 100 <= 25050
+c gold.100 | u32 heap+AC3B911C >= 100 <= 1000
+c gold.2505 | u32 heap+AC3B9118 >= 2505 <= 25050
+c gold.2505 | u32 heap+AC3B911C >= 2505 <= 25050
+
+build FDC1632048FACFBD
+c bells.100000 | u32 main+11A5DD0 >= 100000 <= 4294967295
+c bells.1000000 | u32 main+11A5DD0 >= 1000000 <= 4294967295
+c bells.10000000 | u32 main+11A5DD0 >= 10000000 <= 4294967295

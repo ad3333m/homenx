@@ -1,0 +1,17 @@
+# Super Bomberman R: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01007AD00013E000 Super Bomberman R
+
+a money.1000 | Saving up | Save up 1,000
+a money.10000 | Well off | Save up 10,000
+a money.100000 | Rolling in it | Save up 100,000
+
+build 146EAADFE847C841
+c money.1000 | u32 [[main+1FFCFE8]+15D0]+50 >= 1000 <= 99999990
+c money.10000 | u32 [[main+1FFCFE8]+15D0]+50 >= 10000 <= 99999990
+c money.100000 | u32 [[main+1FFCFE8]+15D0]+50 >= 100000 <= 99999990
+
+build A0A745DA9AE25946
+c money.1000 | u32 [main+2B6DD78]-1190 >= 1000 <= 99999990
+c money.10000 | u32 [main+2B6DD78]-1190 >= 10000 <= 99999990
+c money.100000 | u32 [main+2B6DD78]-1190 >= 100000 <= 99999990

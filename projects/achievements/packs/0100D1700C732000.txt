@@ -1,0 +1,12 @@
+# Monster Slayers: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D1700C732000 Monster Slayers
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 341CD937B9A177A5
+c level.25 | u64 heap+A1AECB70 >= 25 <= 18446744073709551615
+c level.50 | u64 heap+A1AECB70 >= 50 <= 18446744073709551615
+c level.99 | u64 heap+A1AECB70 >= 99 <= 18446744073709551615

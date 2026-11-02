@@ -1,0 +1,12 @@
+# WARRIORS OROCHI 4 Ultimate - Retail Only: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010016A00AEC0000 WARRIORS OROCHI 4 Ultimate - Retail Only
+
+a gems.100 | Saving up | Have 100 Gems
+a gems.1000 | Well off | Have 1,000 Gems
+a gems.10000 | Rolling in it | Have 10,000 Gems
+
+build 5C9CCD358BE85FC9
+c gems.100 | u32 heap+122D40DC >= 100 <= 9999990
+c gems.1000 | u32 heap+122D40DC >= 1000 <= 9999990
+c gems.10000 | u32 heap+122D40DC >= 10000 <= 9999990

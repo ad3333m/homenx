@@ -1,0 +1,23 @@
+# Monster Hunter Rise: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B04011742000 Monster Hunter Rise
+
+a money.10000 | Saving up | Save up 10,000
+a money.100000 | Well off | Save up 100,000
+a money.1000000 | Rolling in it | Save up 1,000,000
+
+build 46205B7BD869E2E4
+c money.10000 | u32 [[main+DB446D0]+58]+18 >= 10000 <= 100000000
+c money.10000 | u32 [[main+DB446D0]+58]+18 >= 10000 <= 100000
+c money.100000 | u32 [[main+DB446D0]+58]+18 >= 100000 <= 100000000
+c money.100000 | u32 [[main+DB446D0]+58]+18 >= 100000 <= 1000000
+c money.1000000 | u32 [[main+DB446D0]+58]+18 >= 1000000 <= 100000000
+c money.1000000 | u32 [[main+DB446D0]+58]+18 >= 1000000 <= 10000000
+
+build 6CDEC176EA1D12C5
+c money.10000 | u32 heap+1BAFC528 >= 10000 <= 999999990
+c money.10000 | u32 heap+1DEF8718 >= 10000 <= 999999990
+c money.100000 | u32 heap+1BAFC528 >= 100000 <= 999999990
+c money.100000 | u32 heap+1DEF8718 >= 100000 <= 999999990
+c money.1000000 | u32 heap+1BAFC528 >= 1000000 <= 999999990
+c money.1000000 | u32 heap+1DEF8718 >= 1000000 <= 999999990

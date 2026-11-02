@@ -1,0 +1,18 @@
+# Yaga: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006FB00DB02000 Yaga
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 898CB70F55C96045
+c level.25 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+24 >= 25 <= 4294967295
+c level.25 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+28 >= 25 <= 4294967295
+c level.25 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+2C >= 25 <= 4294967295
+c level.50 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+24 >= 50 <= 4294967295
+c level.50 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+28 >= 50 <= 4294967295
+c level.50 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+2C >= 50 <= 4294967295
+c level.99 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+24 >= 99 <= 4294967295
+c level.99 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+28 >= 99 <= 4294967295
+c level.99 | u32 [[[[[[main+47B4790]+B8]+A8]+20]+30]+68]+2C >= 99 <= 4294967295

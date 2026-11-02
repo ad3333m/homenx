@@ -1,0 +1,12 @@
+# DRAGON BALL Z: KAKAROT + A NEW POWER AWAKENS SET: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010051C0134F8000 DRAGON BALL Z: KAKAROT + A NEW POWER AWAKENS SET
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build FBE93AAAA4C11567
+c money.100000 | u32 main+14F3D28 >= 100000 <= 4294967295
+c money.1000000 | u32 main+14F3D28 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+14F3D28 >= 10000000 <= 4294967295

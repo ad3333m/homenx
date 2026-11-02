@@ -1,0 +1,31 @@
+# Elderand: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100239015C0E000 Elderand
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 93419906191AF55C
+c level.25 | u32 main+4275898 >= 25 <= 4294967295
+c level.25 | u32 main+271F39C >= 25 <= 4294967295
+c level.50 | u32 main+4275898 >= 50 <= 4294967295
+c level.50 | u32 main+271F39C >= 50 <= 4294967295
+c level.99 | u32 main+4275898 >= 99 <= 4294967295
+c level.99 | u32 main+271F39C >= 99 <= 4294967295
+
+build DFC4B34BD6C1BA24
+c level.25 | u32 main+4270A88 >= 25 <= 4294967295
+c level.25 | u32 main+277E30C >= 25 <= 4294967295
+c level.50 | u32 main+4270A88 >= 50 <= 4294967295
+c level.50 | u32 main+277E30C >= 50 <= 4294967295
+c level.99 | u32 main+4270A88 >= 99 <= 4294967295
+c level.99 | u32 main+277E30C >= 99 <= 4294967295
+
+build ED45613F75A24671
+c level.25 | u32 main+4288788 >= 25 <= 4294967295
+c level.25 | u32 main+277E30C >= 25 <= 4294967295
+c level.50 | u32 main+4288788 >= 50 <= 4294967295
+c level.50 | u32 main+277E30C >= 50 <= 4294967295
+c level.99 | u32 main+4288788 >= 99 <= 4294967295
+c level.99 | u32 main+277E30C >= 99 <= 4294967295

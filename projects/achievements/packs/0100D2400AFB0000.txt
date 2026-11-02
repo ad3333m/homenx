@@ -1,0 +1,14 @@
+# ACA NEOGEO CROSSED SWORDS: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D2400AFB0000 ACA NEOGEO CROSSED SWORDS
+
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 1DA52476C29E672A
+c money.100 | u16 main+127F20E >= 100 <= 65535
+c money.9999 | u16 main+127F20E >= 9999 <= 65535
+
+build 7CC18779B44CC2E4
+c money.100 | u16 main+127F20E >= 100 <= 65535
+c money.9999 | u16 main+127F20E >= 9999 <= 65535

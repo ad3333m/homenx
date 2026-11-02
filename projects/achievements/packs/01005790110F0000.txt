@@ -1,0 +1,14 @@
+# Cobra Kai: The Karate Kid Saga Continues: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005790110F0000 Cobra Kai: The Karate Kid Saga Continues
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 97E45918D2113640
+c money.100 | u32 [[[[[[[[main+42ECA28]+1C48]+10]+110]+110]+110]+28]+28]+18 >= 100 <= 999990
+c money.1000 | u32 [[[[[[[[main+42ECA28]+1C48]+10]+110]+110]+110]+28]+28]+18 >= 1000 <= 999990
+
+build E8A03ACD481A0D48
+c money.100 | u32 [[[[main+43E8C60]+B8]+10]+28]+18 >= 100 <= 999990
+c money.1000 | u32 [[[[main+43E8C60]+B8]+10]+28]+18 >= 1000 <= 999990

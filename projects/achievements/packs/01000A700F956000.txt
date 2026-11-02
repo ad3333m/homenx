@@ -1,0 +1,12 @@
+# Deep Space Rush: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01000A700F956000 Deep Space Rush
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 3C1FB5BC36EB1F66
+c money.100000 | u32 heap+1606C2C >= 100000 <= 4294967295
+c money.1000000 | u32 heap+1606C2C >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+1606C2C >= 10000000 <= 4294967295

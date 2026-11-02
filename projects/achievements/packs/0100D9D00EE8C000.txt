@@ -1,0 +1,16 @@
+# Atelier Dusk Trilogy Deluxe Pack: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D9D00EE8C000 Atelier Dusk Trilogy Deluxe Pack
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Max level | Reach level 99
+
+build B9146E1CAD9E36BA
+c money.100 | u32 [main+12C0A68]+600 >= 100 <= 999990
+c money.1000 | u32 [main+12C0A68]+600 >= 1000 <= 999990
+c level.25 | u32 main+1390814 >= 25 <= 990
+c level.50 | u32 main+1390814 >= 50 <= 990
+c level.99 | u32 main+1390814 >= 99 <= 990

@@ -1,0 +1,15 @@
+# FUSER: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E1F013674000 FUSER
+
+a money.1000 | Saving up | Save up 1,000
+a money.10000 | Well off | Save up 10,000
+a money.100000 | Rolling in it | Save up 100,000
+
+build 13D5BB6D03DC2601
+c money.1000 | u32 [[[[main+6F40890]+8]+298]+28]+38 >= 1000 <= 99999990
+c money.1000 | u32 [[[[main+6F40890]+8]+298]+28]+3C >= 1000 <= 99999990
+c money.10000 | u32 [[[[main+6F40890]+8]+298]+28]+38 >= 10000 <= 99999990
+c money.10000 | u32 [[[[main+6F40890]+8]+298]+28]+3C >= 10000 <= 99999990
+c money.100000 | u32 [[[[main+6F40890]+8]+298]+28]+38 >= 100000 <= 99999990
+c money.100000 | u32 [[[[main+6F40890]+8]+298]+28]+3C >= 100000 <= 99999990

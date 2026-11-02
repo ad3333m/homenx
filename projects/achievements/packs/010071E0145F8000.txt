@@ -1,0 +1,24 @@
+# Rustler: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010071E0145F8000 Rustler
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build CF6371F1A91BCB4D
+c gold.10000 | u32 [[[[[[main+55BE9B8]+B8]+0]+18]+20]+2A8]+1C >= 10000 <= 100000000
+c gold.100000 | u32 [[[[[[main+55BE9B8]+B8]+0]+18]+20]+2A8]+1C >= 100000 <= 100000000
+c gold.1000000 | u32 [[[[[[main+55BE9B8]+B8]+0]+18]+20]+2A8]+1C >= 1000000 <= 100000000
+c money.100000 | u32 main+17B7B98 >= 100000 <= 100000000
+c money.100000 | u32 main+17B7BB8 >= 100000 <= 4194301640
+c money.100000 | u32 main+17B7BB8 >= 100000 <= 4294967295
+c money.1000000 | u32 main+17B7B98 >= 1000000 <= 100000000
+c money.1000000 | u32 main+17B7BB8 >= 1000000 <= 4194301640
+c money.1000000 | u32 main+17B7BB8 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+17B7B98 >= 10000000 <= 100000000
+c money.10000000 | u32 main+17B7BB8 >= 10000000 <= 4194301640
+c money.10000000 | u32 main+17B7BB8 >= 10000000 <= 4294967295

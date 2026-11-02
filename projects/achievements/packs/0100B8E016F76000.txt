@@ -1,0 +1,24 @@
+# 0100B8E016F76000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B8E016F76000
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 992787E2B5425994
+c level.25 | u64 main+67E4F0 >= 25 <= 18446744073709551615
+c level.25 | u32 main+67E4F8 >= 25 <= 4294967295
+c level.25 | u64 main+D9DFEC >= 25 <= 18446744073709551615
+c level.25 | u64 main+D9DFE4 >= 25 <= 18446744073709551615
+c level.25 | u32 main+23FFD0 >= 25 <= 4294967295
+c level.50 | u64 main+67E4F0 >= 50 <= 18446744073709551615
+c level.50 | u32 main+67E4F8 >= 50 <= 4294967295
+c level.50 | u64 main+D9DFEC >= 50 <= 18446744073709551615
+c level.50 | u64 main+D9DFE4 >= 50 <= 18446744073709551615
+c level.50 | u32 main+23FFD0 >= 50 <= 4294967295
+c level.99 | u64 main+67E4F0 >= 99 <= 18446744073709551615
+c level.99 | u32 main+67E4F8 >= 99 <= 4294967295
+c level.99 | u64 main+D9DFEC >= 99 <= 18446744073709551615
+c level.99 | u64 main+D9DFE4 >= 99 <= 18446744073709551615
+c level.99 | u32 main+23FFD0 >= 99 <= 4294967295

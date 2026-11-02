@@ -1,0 +1,10 @@
+# LA-MULANA 2: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010038000F644000 LA-MULANA 2
+
+a coins.999 | Maxed out | Have 999 coins
+a gold.999 | Maxed out | Have 999 gold
+
+build 582B12EA6FC34845
+c coins.999 | u32 [[[[main+4CD7AE0]+A0]+0]+48]+BC >= 999 <= 9990
+c gold.999 | u16 [[[[main+4CE4988]+440]+1C8]+158]+BC >= 999 <= 9990

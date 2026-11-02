@@ -1,0 +1,10 @@
+# The Legend of Ninja: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100C5A01327E000 The Legend of Ninja
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 3BF0514D5FC82E4E
+c coins.100 | u32 [[[[main+35B3E40]+B8]+0]+18]+20 >= 100 <= 100000
+c coins.1000 | u32 [[[[main+35B3E40]+B8]+0]+18]+20 >= 1000 <= 100000

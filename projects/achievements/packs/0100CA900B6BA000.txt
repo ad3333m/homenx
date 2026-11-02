@@ -1,0 +1,10 @@
+# 0100CA900B6BA000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100CA900B6BA000
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build F529FA78F576C24A
+c coins.100 | u32 [[[[main+2E74BA8]+A0]+0]+168]+260 >= 100 <= 999990
+c coins.1000 | u32 [[[[main+2E74BA8]+A0]+0]+168]+260 >= 1000 <= 999990

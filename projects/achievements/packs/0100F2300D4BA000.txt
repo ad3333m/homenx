@@ -1,0 +1,20 @@
+# Darksiders Genesis: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F2300D4BA000 Darksiders Genesis
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build 0EB0818751685BE8
+c gold.1000 | u32 [[[[main+59DFED8]+100]+30]+318]+524 >= 1000 <= 99999990
+c gold.1000 | u32 [[[main+59D2500]+30]+318]+524 >= 1000 <= 9999990
+c gold.10000 | u32 [[[[main+59DFED8]+100]+30]+318]+524 >= 10000 <= 99999990
+c gold.10000 | u32 [[[main+59D2500]+30]+318]+524 >= 10000 <= 9999990
+c gold.100000 | u32 [[[[main+59DFED8]+100]+30]+318]+524 >= 100000 <= 99999990
+c gold.100000 | u32 [[[main+59D2500]+30]+318]+524 >= 100000 <= 9999990
+
+build DB17131624D04A9C
+c gold.1000 | u32 [[[main+59E0500]+30]+318]+524 >= 1000 <= 99999990
+c gold.10000 | u32 [[[main+59E0500]+30]+318]+524 >= 10000 <= 99999990
+c gold.100000 | u32 [[[main+59E0500]+30]+318]+524 >= 100000 <= 99999990

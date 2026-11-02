@@ -1,0 +1,17 @@
+# Fury Unleashed: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100ECE00C0C4000 Fury Unleashed
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 069084599B9FE640
+c level.25 | u32 main+45D0AC >= 25 <= 4294967295
+c level.50 | u32 main+45D0AC >= 50 <= 4294967295
+c level.99 | u32 main+45D0AC >= 99 <= 4294967295
+
+build 265D097CCE8D8A49
+c level.25 | u32 main+46B3AC >= 25 <= 4294967295
+c level.50 | u32 main+46B3AC >= 50 <= 4294967295
+c level.99 | u32 main+46B3AC >= 99 <= 4294967295

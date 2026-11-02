@@ -1,0 +1,12 @@
+# Kairobotica: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D5F00EC52000 Kairobotica
+
+a money.10000 | Saving up | Save up 10,000
+a money.100000 | Well off | Save up 100,000
+a money.1000000 | Rolling in it | Save up 1,000,000
+
+build F9284CC26FC6564F
+c money.10000 | u32 [[[[main+25CDF28]+B8]+0]+1B8]+30 >= 10000 <= 999999990
+c money.100000 | u32 [[[[main+25CDF28]+B8]+0]+1B8]+30 >= 100000 <= 999999990
+c money.1000000 | u32 [[[[main+25CDF28]+B8]+0]+1B8]+30 >= 1000000 <= 999999990

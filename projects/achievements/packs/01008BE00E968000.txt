@@ -1,0 +1,12 @@
+# Cat Quest II: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01008BE00E968000 Cat Quest II
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build B913FF9F5961F043
+c gold.1000 | u32 [[[[[[main+377FF70]+B8]+140]+160]+58]+120]+10 >= 1000 <= 99999990
+c gold.10000 | u32 [[[[[[main+377FF70]+B8]+140]+160]+58]+120]+10 >= 10000 <= 99999990
+c gold.100000 | u32 [[[[[[main+377FF70]+B8]+140]+160]+58]+120]+10 >= 100000 <= 99999990

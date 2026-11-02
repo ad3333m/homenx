@@ -1,0 +1,18 @@
+# Guacamelee! 2: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01007E100456C000 Guacamelee! 2
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 09B0D1846CC99974
+c coins.100 | u32 main+1202F90 >= 100 <= 999990
+c coins.1000 | u32 main+1202F90 >= 1000 <= 999990
+
+build 536E86A461401F9F
+c coins.100 | u32 main+1207020 >= 100 <= 999990
+c coins.1000 | u32 main+1207020 >= 1000 <= 999990
+
+build FBE5462B68407E75
+c coins.100 | u32 main+120C220 >= 100 <= 999990
+c coins.1000 | u32 main+120C220 >= 1000 <= 999990

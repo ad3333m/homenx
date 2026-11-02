@@ -1,0 +1,10 @@
+# Aegis Defenders: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01008E6006502000 Aegis Defenders
+
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 3785B9800028344E
+c money.100 | u32 [[[[[[main+31C6988]+A0]+0]+78]+58]+20]+40 >= 100 <= 99990
+c money.9999 | u32 [[[[[[main+31C6988]+A0]+0]+78]+58]+20]+40 >= 9999 <= 99990

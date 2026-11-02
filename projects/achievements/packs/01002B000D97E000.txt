@@ -1,0 +1,12 @@
+# Raiden V: Director's Cut: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002B000D97E000 Raiden V: Director's Cut
+
+a level.20 | Leveling up | Reach level 20
+a level.40 | Seasoned | Reach level 40
+a level.76 | Max level | Reach level 76
+
+build 941057A850E286DF
+c level.20 | u8 main+6A0FB6 >= 20 <= 255
+c level.40 | u8 main+6A0FB6 >= 40 <= 255
+c level.76 | u8 main+6A0FB6 >= 76 <= 255

@@ -1,0 +1,23 @@
+# 0100CD3000BDC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100CD3000BDC000
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build 5C598E5025BF97BC
+c money.100 | u32 heap+8714CDE8 >= 100 <= 9999990
+c money.1000 | u32 heap+8714CDE8 >= 1000 <= 9999990
+c money.10000 | u32 heap+8714CDE8 >= 10000 <= 9999990
+
+build BF91B9E86FF34541
+c gold.10000 | u32 heap+962604AC >= 10000 <= 9999990
+c gold.10000 | u32 [main+2731CB8]-30EC0 >= 10000 <= 999999990
+c gold.100000 | u32 heap+962604AC >= 100000 <= 9999990
+c gold.100000 | u32 [main+2731CB8]-30EC0 >= 100000 <= 999999990
+c gold.1000000 | u32 heap+962604AC >= 1000000 <= 10000000
+c gold.1000000 | u32 [main+2731CB8]-30EC0 >= 1000000 <= 999999990

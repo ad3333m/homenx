@@ -1,0 +1,20 @@
+# Bloons TD 5: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B8400A1C6000 Bloons TD 5
+
+a coins.100 | Well off | Have 100 coins
+a coins.9999 | Maxed out | Have 9,999 coins
+a dollars.100 | Well off | Have 100 dollars
+a dollars.1000 | Rolling in it | Have 1,000 dollars
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build A514B9687031515D
+c coins.100 | u32 [[[[[main+AFC880]+90]+0]+90]+10]+D8 >= 100 <= 99990
+c coins.9999 | u32 [[[[[main+AFC880]+90]+0]+90]+10]+D8 >= 9999 <= 99990
+c dollars.100 | u32 [[[[[main+AFC880]+90]+0]+90]+10]+D0 >= 100 <= 999990
+c dollars.1000 | u32 [[[[[main+AFC880]+90]+0]+90]+10]+D0 >= 1000 <= 999990
+c money.100000 | u32 [[[[main+1113540]+D0]+0]+178]+94 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[[main+1113540]+D0]+0]+178]+94 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[[main+1113540]+D0]+0]+178]+94 >= 10000000 <= 4294967295

@@ -1,0 +1,10 @@
+# A Hat in Time: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010056E00853A000 A Hat in Time
+
+a gems.100 | Well off | Have 100 Gems
+a gems.9999 | Maxed out | Have 9,999 Gems
+
+build 522CB29FDF77322B
+c gems.100 | u32 [main+2BA0E78]+100 >= 100 <= 99990
+c gems.9999 | u32 [main+2BA0E78]+100 >= 9999 <= 99990

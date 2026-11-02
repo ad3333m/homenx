@@ -1,0 +1,8 @@
+# Arcade Archives DONKEY KONG: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E9E00B052000 Arcade Archives DONKEY KONG
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 5392C476ED03CF20
+c credits.153 | u8 heap+17EB059 >= 153 <= 255

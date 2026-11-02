@@ -1,0 +1,10 @@
+# FINALSWORD DefinitiveEdition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F62013DAE000 FINALSWORD DefinitiveEdition
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build CAAB49AAB17E5044
+c gold.100 | u32 [[[main+2C86FA8]+B8]+0]+60 >= 100 <= 999990
+c gold.1000 | u32 [[[main+2C86FA8]+B8]+0]+60 >= 1000 <= 999990

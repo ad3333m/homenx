@@ -1,0 +1,9 @@
+# 010049900F546001: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010049900F546001
+
+a coins.100 | Maxed out | Have 100 coins
+
+build 9D00360EA7CEAC4E
+c coins.100 | u16 heap+38742A89 >= 100 <= 1000
+c coins.100 | u16 heap+38742AAB >= 100 <= 1000

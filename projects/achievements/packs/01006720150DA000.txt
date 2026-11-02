@@ -1,0 +1,12 @@
+# Amazing Princess Sarah: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006720150DA000 Amazing Princess Sarah
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build E266127F36B0F24C
+c level.25 | u32 [[[[main+3A6B758]+990]+78]+120]+2E8 >= 25 <= 9990
+c level.50 | u32 [[[[main+3A6B758]+990]+78]+120]+2E8 >= 50 <= 9990
+c level.99 | u32 [[[[main+3A6B758]+990]+78]+120]+2E8 >= 99 <= 9990

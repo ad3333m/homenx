@@ -1,0 +1,41 @@
+# Fire Emblem Warriors: Three Hopes: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010071F0143EA000 Fire Emblem Warriors: Three Hopes
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 023CC158D8E47176
+c level.25 | u32 main+190FF80 >= 25 <= 4294967295
+c level.25 | u32 main+190FF7C >= 25 <= 4294967295
+c level.25 | u32 main+190FF78 >= 25 <= 4294967295
+c level.25 | u32 main+190FF74 >= 25 <= 4294967295
+c level.25 | u32 main+D8998C >= 25 <= 4294967295
+c level.50 | u32 main+190FF80 >= 50 <= 4294967295
+c level.50 | u32 main+190FF7C >= 50 <= 4294967295
+c level.50 | u32 main+190FF78 >= 50 <= 4294967295
+c level.50 | u32 main+190FF74 >= 50 <= 4294967295
+c level.50 | u32 main+D8998C >= 50 <= 4294967295
+c level.99 | u32 main+190FF80 >= 99 <= 4294967295
+c level.99 | u32 main+190FF7C >= 99 <= 4294967295
+c level.99 | u32 main+190FF78 >= 99 <= 4294967295
+c level.99 | u32 main+190FF74 >= 99 <= 4294967295
+c level.99 | u32 main+D8998C >= 99 <= 4294967295
+
+build 8A25CB320BEDF519
+c level.25 | u32 main+190DF80 >= 25 <= 4294967295
+c level.25 | u32 main+190DF7C >= 25 <= 4294967295
+c level.25 | u32 main+190DF78 >= 25 <= 4294967295
+c level.25 | u32 main+190DF74 >= 25 <= 4294967295
+c level.25 | u32 main+D87FA0 >= 25 <= 4294967295
+c level.50 | u32 main+190DF80 >= 50 <= 4294967295
+c level.50 | u32 main+190DF7C >= 50 <= 4294967295
+c level.50 | u32 main+190DF78 >= 50 <= 4294967295
+c level.50 | u32 main+190DF74 >= 50 <= 4294967295
+c level.50 | u32 main+D87FA0 >= 50 <= 4294967295
+c level.99 | u32 main+190DF80 >= 99 <= 4294967295
+c level.99 | u32 main+190DF7C >= 99 <= 4294967295
+c level.99 | u32 main+190DF78 >= 99 <= 4294967295
+c level.99 | u32 main+190DF74 >= 99 <= 4294967295
+c level.99 | u32 main+D87FA0 >= 99 <= 4294967295

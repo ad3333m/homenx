@@ -1,0 +1,10 @@
+# Lost in Random: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005FE01291A000 Lost in Random
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 416914C121775277
+c coins.100 | u32 [[[main+652C458]+40]+D8]+410 >= 100 <= 999990
+c coins.1000 | u32 [[[main+652C458]+40]+D8]+410 >= 1000 <= 999990

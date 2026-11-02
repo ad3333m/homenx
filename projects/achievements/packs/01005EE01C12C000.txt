@@ -1,0 +1,9 @@
+# Wetory: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005EE01C12C000 Wetory
+
+a coins.999 | Maxed out | Have 999 coins
+
+build 662AEB56A9F4794C
+c coins.999 | u32 [[[[[main+2B3DB90]+B8]+0]+B0]+130]+270 >= 999 <= 9990
+c coins.999 | u32 [[[[[main+2B3DB90]+B8]+0]+B0]+130]+270+8 >= 999 <= 9990

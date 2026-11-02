@@ -1,0 +1,12 @@
+# Darksiders II Deathinitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010071800BA98000 Darksiders II Deathinitive Edition
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 173E2EDEA9E5D940
+c money.100000 | u32 [[[main+3432B38]+20]+10]+30 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+3432B38]+20]+10]+30 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+3432B38]+20]+10]+30 >= 10000000 <= 4294967295

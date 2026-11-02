@@ -1,0 +1,15 @@
+# EARTHLOCK: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006E50042EA000 EARTHLOCK
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build D75DBE0C21357141
+c money.100000 | u32 main+985484 >= 100000 <= 4294967295
+c money.100000 | u32 main+985480 >= 100000 <= 4294967295
+c money.1000000 | u32 main+985484 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+985480 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+985484 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+985480 >= 10000000 <= 4294967295

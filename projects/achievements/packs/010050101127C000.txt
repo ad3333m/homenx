@@ -1,0 +1,12 @@
+# The Persistence: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010050101127C000 The Persistence
+
+a tokens.100000 | Saving up | Have 100,000 Tokens
+a tokens.1000000 | Well off | Have 1,000,000 Tokens
+a tokens.10000000 | Rolling in it | Have 10,000,000 Tokens
+
+build 4D1C7699D3FE0E32
+c tokens.100000 | u32 [[[[main+5030A18]+D0]+120]+0]+22B8 >= 100000 <= 4294967295
+c tokens.1000000 | u32 [[[[main+5030A18]+D0]+120]+0]+22B8 >= 1000000 <= 4294967295
+c tokens.10000000 | u32 [[[[main+5030A18]+D0]+120]+0]+22B8 >= 10000000 <= 4294967295

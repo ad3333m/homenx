@@ -1,0 +1,22 @@
+# The Outer Worlds: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100626011656000 The Outer Worlds
+
+a money.1000 | Saving up | Save up 1,000
+a money.10000 | Well off | Save up 10,000
+a money.100000 | Rolling in it | Save up 100,000
+
+build 4382212487D292D0
+c money.1000 | u32 [[[[main+6FF1A30]+310]+60]+1A0]+78 >= 1000 <= 99999990
+c money.10000 | u32 [[[[main+6FF1A30]+310]+60]+1A0]+78 >= 10000 <= 99999990
+c money.100000 | u32 [[[[main+6FF1A30]+310]+60]+1A0]+78 >= 100000 <= 99999990
+
+build 761CD556AB357C87
+c money.1000 | u32 [[[[main+71BE400]+310]+60]+1A8]+78 >= 1000 <= 99999990
+c money.10000 | u32 [[[[main+71BE400]+310]+60]+1A8]+78 >= 10000 <= 99999990
+c money.100000 | u32 [[[[main+71BE400]+310]+60]+1A8]+78 >= 100000 <= 99999990
+
+build 9F310253603704D9
+c money.1000 | u32 [[[[main+714D478]+310]+60]+1A8]+78 >= 1000 <= 99999990
+c money.10000 | u32 [[[[main+714D478]+310]+60]+1A8]+78 >= 10000 <= 99999990
+c money.100000 | u32 [[[[main+714D478]+310]+60]+1A8]+78 >= 100000 <= 99999990

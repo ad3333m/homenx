@@ -1,0 +1,22 @@
+# Saints Row IV: Re-Elected: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01008D100D43E000 Saints Row IV: Re-Elected
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 3FFE0E20EC5360DA
+c money.100000 | u32 heap+5AF9A928 >= 100000 <= 4294967295
+c money.1000000 | u32 heap+5AF9A928 >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+5AF9A928 >= 10000000 <= 4294967295
+
+build 5AEE4A11A2391D4D
+c money.100000 | u32 heap+5A99A928 >= 100000 <= 4294967295
+c money.1000000 | u32 heap+5A99A928 >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+5A99A928 >= 10000000 <= 4294967295
+
+build E601D29108935CBA
+c money.100000 | u32 heap+5A99A928 >= 100000 <= 4294967295
+c money.1000000 | u32 heap+5A99A928 >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+5A99A928 >= 10000000 <= 4294967295

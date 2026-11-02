@@ -1,0 +1,10 @@
+# Inexistence Rebirth: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010001D014348000 Inexistence Rebirth
+
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 8E1251E46A5BCAAA
+c money.100 | u16 [[main+34CDA20]+368]+58 >= 100 <= 65535
+c money.9999 | u16 [[main+34CDA20]+368]+58 >= 9999 <= 65535

@@ -1,0 +1,8 @@
+# Arcade Archives Ikki: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01000DB00980A000 Arcade Archives Ikki
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build ECA7BCDC056188AD
+c credits.153 | u8 heap+1C79068 >= 153 <= 255

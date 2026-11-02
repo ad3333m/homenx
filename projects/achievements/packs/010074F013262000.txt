@@ -1,0 +1,51 @@
+# Xenoblade Chronicles 3: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010074F013262000 Xenoblade Chronicles 3
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 03EE3DBAC10CACB8
+c level.25 | u32 main+5C9DAC >= 25 <= 4294967295
+c level.25 | u32 main+708BE8 >= 25 <= 4294967295
+c level.25 | u32 main+5C9DD0 >= 25 <= 4294967295
+c level.50 | u32 main+5C9DAC >= 50 <= 4294967295
+c level.50 | u32 main+708BE8 >= 50 <= 4294967295
+c level.50 | u32 main+5C9DD0 >= 50 <= 4294967295
+c level.99 | u32 main+5C9DAC >= 99 <= 4294967295
+c level.99 | u32 main+708BE8 >= 99 <= 4294967295
+c level.99 | u32 main+5C9DD0 >= 99 <= 4294967295
+
+build 16F4915DF864674D
+c level.25 | u32 main+5C983C >= 25 <= 4294967295
+c level.25 | u32 main+708578 >= 25 <= 4294967295
+c level.25 | u32 main+5C9860 >= 25 <= 4294967295
+c level.50 | u32 main+5C983C >= 50 <= 4294967295
+c level.50 | u32 main+708578 >= 50 <= 4294967295
+c level.50 | u32 main+5C9860 >= 50 <= 4294967295
+c level.99 | u32 main+5C983C >= 99 <= 4294967295
+c level.99 | u32 main+708578 >= 99 <= 4294967295
+c level.99 | u32 main+5C9860 >= 99 <= 4294967295
+
+build 60887A25B6652991
+c level.25 | u32 main+5C2254 >= 25 <= 4294967295
+c level.25 | u32 main+6F2B38 >= 25 <= 4294967295
+c level.25 | u32 main+5C2278 >= 25 <= 4294967295
+c level.50 | u32 main+5C2254 >= 50 <= 4294967295
+c level.50 | u32 main+6F2B38 >= 50 <= 4294967295
+c level.50 | u32 main+5C2278 >= 50 <= 4294967295
+c level.99 | u32 main+5C2254 >= 99 <= 4294967295
+c level.99 | u32 main+6F2B38 >= 99 <= 4294967295
+c level.99 | u32 main+5C2278 >= 99 <= 4294967295
+
+build B76CD24AF02ACEA2
+c level.25 | u32 main+E2CA1C >= 25 <= 4294967295
+c level.25 | u32 main+E2CA2C >= 25 <= 4294967295
+c level.25 | u32 main+E2CA3C >= 25 <= 3355444390
+c level.50 | u32 main+E2CA1C >= 50 <= 4294967295
+c level.50 | u32 main+E2CA2C >= 50 <= 4294967295
+c level.50 | u32 main+E2CA3C >= 50 <= 3355444390
+c level.99 | u32 main+E2CA1C >= 99 <= 4294967295
+c level.99 | u32 main+E2CA2C >= 99 <= 4294967295
+c level.99 | u32 main+E2CA3C >= 99 <= 3355444390

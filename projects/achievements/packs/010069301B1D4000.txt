@@ -1,0 +1,12 @@
+# Monster Hunter Stories: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010069301B1D4000 Monster Hunter Stories
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build EF7D3141FAAEDD80
+c gold.1000 | u32 [main+2692D78]+9BAE4 >= 1000 <= 10000000
+c gold.10000 | u32 [main+2692D78]+9BAE4 >= 10000 <= 10000000
+c gold.100000 | u32 [main+2692D78]+9BAE4 >= 100000 <= 10000000

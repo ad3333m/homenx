@@ -1,0 +1,80 @@
+# DRAGON BALL FighterZ: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100A250097F0000 DRAGON BALL FighterZ
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 70DF9FBFF6E78F49
+c level.25 | u32 main+4A389C >= 25 <= 4294967295
+c level.50 | u32 main+4A389C >= 50 <= 4294967295
+c level.99 | u32 main+4A389C >= 99 <= 4294967295
+
+build 810A82B5C6FB347F
+c level.25 | u32 main+48ECB0 >= 25 <= 4294967295
+c level.50 | u32 main+48ECB0 >= 50 <= 4294967295
+c level.99 | u32 main+48ECB0 >= 99 <= 4294967295
+
+build 9B710D5867004CF8
+c level.25 | u32 main+4A7F38 >= 25 <= 4294967295
+c level.50 | u32 main+4A7F38 >= 50 <= 4294967295
+c level.99 | u32 main+4A7F38 >= 99 <= 4294967295
+
+build CD53729B7AE2D794
+c level.25 | u32 [main+524F958]+87A4 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+87F8 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+884C >= 25 <= 1000
+c level.25 | u32 [main+524F958]+88A0 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+88F4 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8948 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+899C >= 25 <= 1000
+c level.25 | u32 [main+524F958]+89F0 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8A44 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8A98 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8B40 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8B94 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8BE8 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8C3C >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8C90 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8CE4 >= 25 <= 1000
+c level.25 | u32 [main+524F958]+8D38 >= 25 <= 1000
+c level.50 | u32 [main+524F958]+87A4 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+87F8 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+884C >= 50 <= 1000
+c level.50 | u32 [main+524F958]+88A0 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+88F4 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8948 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+899C >= 50 <= 1000
+c level.50 | u32 [main+524F958]+89F0 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8A44 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8A98 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8B40 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8B94 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8BE8 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8C3C >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8C90 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8CE4 >= 50 <= 1000
+c level.50 | u32 [main+524F958]+8D38 >= 50 <= 1000
+c level.99 | u32 [main+524F958]+87A4 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+87F8 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+884C >= 99 <= 1000
+c level.99 | u32 [main+524F958]+88A0 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+88F4 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8948 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+899C >= 99 <= 1000
+c level.99 | u32 [main+524F958]+89F0 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8A44 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8A98 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8B40 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8B94 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8BE8 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8C3C >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8C90 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8CE4 >= 99 <= 1000
+c level.99 | u32 [main+524F958]+8D38 >= 99 <= 1000
+
+build CE094B2B58E4D0C8
+c level.25 | u32 main+456CCC >= 25 <= 4294967295
+c level.50 | u32 main+456CCC >= 50 <= 4294967295
+c level.99 | u32 main+456CCC >= 99 <= 4294967295

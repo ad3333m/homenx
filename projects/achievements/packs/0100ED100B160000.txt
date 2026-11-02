@@ -1,0 +1,18 @@
+# Evoland Legendary Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100ED100B160000 Evoland Legendary Edition
+
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 9F334187B57BA085
+c money.100 | u32 [[[main+FB2C10]+698]+108]+0 >= 100 <= 99990
+c money.100 | u32 [[[main+FB20E8]+250]+48]+98 >= 100 <= 99990
+c money.9999 | u32 [[[main+FB2C10]+698]+108]+0 >= 9999 <= 99990
+c money.9999 | u32 [[[main+FB20E8]+250]+48]+98 >= 9999 <= 99990
+
+build B853770C72416F65
+c money.100 | u32 [[[main+E840F0]+3B0]+108]+0 >= 100 <= 99990
+c money.100 | u32 [[[main+E840E0]+250]+48]+98 >= 100 <= 99990
+c money.9999 | u32 [[[main+E840F0]+3B0]+108]+0 >= 9999 <= 99990
+c money.9999 | u32 [[[main+E840E0]+250]+48]+98 >= 9999 <= 99990

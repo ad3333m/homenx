@@ -1,0 +1,12 @@
+# Space Robinson: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100795011D68000 Space Robinson
+
+a crystals.100000 | Saving up | Have 100,000 Crystals
+a crystals.1000000 | Well off | Have 1,000,000 Crystals
+a crystals.10000000 | Rolling in it | Have 10,000,000 Crystals
+
+build 2BDBDEED272BB826
+c crystals.100000 | u32 [[[main+14BFDB8]+20]+68]+54 >= 100000 <= 4294967295
+c crystals.1000000 | u32 [[[main+14BFDB8]+20]+68]+54 >= 1000000 <= 4294967295
+c crystals.10000000 | u32 [[[main+14BFDB8]+20]+68]+54 >= 10000000 <= 4294967295

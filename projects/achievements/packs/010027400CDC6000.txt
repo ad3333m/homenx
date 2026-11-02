@@ -1,0 +1,27 @@
+# Divinity: Original Sin 2 - Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010027400CDC6000 Divinity: Original Sin 2 - Nintendo Switch 2 Edition
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 3C4E2B234CB55B78
+c level.25 | u32 main+1732760 >= 25 <= 4294967295
+c level.50 | u32 main+1732760 >= 50 <= 4294967295
+c level.99 | u32 main+1732760 >= 99 <= 4294967295
+
+build 7D3432C23010C1BD
+c level.25 | u32 main+172F340 >= 25 <= 4294967295
+c level.50 | u32 main+172F340 >= 50 <= 4294967295
+c level.99 | u32 main+172F340 >= 99 <= 4294967295
+
+build DBD602F66E2DE27D
+c level.25 | u32 main+FCE614 >= 25 <= 4294967295
+c level.50 | u32 main+FCE614 >= 50 <= 4294967295
+c level.99 | u32 main+FCE614 >= 99 <= 4294967295
+
+build EEE583FDD942F6AA
+c level.25 | u32 main+FCE494 >= 25 <= 4294967295
+c level.50 | u32 main+FCE494 >= 50 <= 4294967295
+c level.99 | u32 main+FCE494 >= 99 <= 4294967295

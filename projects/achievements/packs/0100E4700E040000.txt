@@ -1,0 +1,15 @@
+# Ages of Mages: The last keeper: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E4700E040000 Ages of Mages: The last keeper
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build 0DBA20EEDD60D347
+c gold.100000 | u32 main+3C8834 >= 100000 <= 4294967295
+c gold.100000 | u32 main+3C8250 >= 100000 <= 4026652560
+c gold.1000000 | u32 main+3C8834 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+3C8250 >= 1000000 <= 4026652560
+c gold.10000000 | u32 main+3C8834 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+3C8250 >= 10000000 <= 4026652560

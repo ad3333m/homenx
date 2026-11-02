@@ -1,0 +1,12 @@
+# Tales of Shinobi Fantasy Magic Anime World Fight RPG Simulator: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100C19019520000 Tales of Shinobi Fantasy Magic Anime World Fight RPG Simulator
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 1C43F399ECA70B44
+c level.25 | u32 [[[main+5435A10]+B8]+8]+1F0 >= 25 <= 99990
+c level.50 | u32 [[[main+5435A10]+B8]+8]+1F0 >= 50 <= 99990
+c level.99 | u32 [[[main+5435A10]+B8]+8]+1F0 >= 99 <= 99990

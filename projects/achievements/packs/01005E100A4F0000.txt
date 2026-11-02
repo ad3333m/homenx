@@ -1,0 +1,20 @@
+# Phoenotopia : Awakening: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005E100A4F0000 Phoenotopia : Awakening
+
+a gold.100 | Well off | Have 100 gold
+a gold.9999 | Maxed out | Have 9,999 gold
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 270BBAAA0CC10A49
+c gold.100 | u32 heap+9BD33E88 >= 100 <= 99990
+c gold.9999 | u32 heap+9BD33E88 >= 9999 <= 99990
+
+build 49FD30A3B6B16544
+c money.100 | u32 heap+95BBB638 >= 100 <= 99990
+c money.9999 | u32 heap+95BBB638 >= 9999 <= 99990
+
+build 6D45A44E37D5BB4C
+c gold.100 | u16 [[[[main+1FAA238]+A0]+18]+50]+48 >= 100 <= 65535
+c gold.9999 | u16 [[[[main+1FAA238]+A0]+18]+50]+48 >= 9999 <= 65535

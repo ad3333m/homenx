@@ -1,0 +1,35 @@
+# Ni no Kuni: Wrath of the White Witch: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E5600D446000 Ni no Kuni: Wrath of the White Witch
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+a money.10000 | Saving up | Save up 10,000
+a money.100000 | Well off | Save up 100,000
+a money.1000000 | Rolling in it | Save up 1,000,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 45F10C499223A9E4
+c gold.10000 | u32 heap+6E13EF30 >= 10000 <= 999999990
+c gold.100000 | u32 heap+6E13EF30 >= 100000 <= 999999990
+c gold.1000000 | u32 heap+6E13EF30 >= 1000000 <= 999999990
+c money.10000 | u32 [heap+6E1387D0]+890 >= 10000 <= 666666660
+c money.100000 | u32 [heap+6E1387D0]+890 >= 100000 <= 666666660
+c money.1000000 | u32 [heap+6E1387D0]+890 >= 1000000 <= 666666660
+c level.25 | u32 [main+173DB58]+24 >= 25 <= 4294967295
+c level.50 | u32 [main+173DB58]+24 >= 50 <= 4294967295
+c level.99 | u32 [main+173DB58]+24 >= 99 <= 4294967295
+
+build C32B29CB5FBA96D9
+c money.10000 | u32 heap+6DD39080 >= 10000 <= 9999990
+c money.10000 | u32 heap+6DD3C210 >= 10000 <= 999999990
+c money.100000 | u32 heap+6DD39080 >= 100000 <= 9999990
+c money.100000 | u32 heap+6DD3C210 >= 100000 <= 999999990
+c money.1000000 | u32 heap+6DD39080 >= 1000000 <= 10000000
+c money.1000000 | u32 heap+6DD3C210 >= 1000000 <= 999999990
+c level.25 | u32 [main+1728B28]+24 >= 25 <= 4294967295
+c level.50 | u32 [main+1728B28]+24 >= 50 <= 4294967295
+c level.99 | u32 [main+1728B28]+24 >= 99 <= 4294967295

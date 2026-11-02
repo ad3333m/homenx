@@ -1,0 +1,21 @@
+# 01009CC00C97C000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01009CC00C97C000
+
+a dollars.1000 | Saving up | Have 1,000 dollars
+a dollars.10000 | Well off | Have 10,000 dollars
+a dollars.100000 | Rolling in it | Have 100,000 dollars
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build D81D2492B00F45D2
+c dollars.1000 | u32 heap+9F3DFBF8 >= 1000 <= 99999990
+c dollars.1000 | u32 heap+9F4D6EA8 >= 1000 <= 99999990
+c dollars.10000 | u32 heap+9F3DFBF8 >= 10000 <= 99999990
+c dollars.10000 | u32 heap+9F4D6EA8 >= 10000 <= 99999990
+c dollars.100000 | u32 heap+9F3DFBF8 >= 100000 <= 99999990
+c dollars.100000 | u32 heap+9F4D6EA8 >= 100000 <= 99999990
+c level.25 | u32 heap+9F391BE0 >= 25 <= 1100
+c level.50 | u32 heap+9F391BE0 >= 50 <= 1100
+c level.99 | u32 heap+9F391BE0 >= 99 <= 1100

@@ -1,0 +1,10 @@
+# Radio Squid: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100655012064000 Radio Squid
+
+a coins.100 | Well off | Have 100 coins
+a coins.9999 | Maxed out | Have 9,999 coins
+
+build 4A52E0E29438C94A
+c coins.100 | u32 [[[[[main+2716418]+28]+C8]+F8]+78]+94 >= 100 <= 99990
+c coins.9999 | u32 [[[[[main+2716418]+28]+C8]+F8]+78]+94 >= 9999 <= 99990

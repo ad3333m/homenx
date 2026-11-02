@@ -1,0 +1,15 @@
+# Ashen: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010027B00E40E000 Ashen
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 663E05AB067861EC
+c money.100000 | u32 [[[[[main+5B2B340]+110]+288]+C0]+20]+1E8 >= 100000 <= 9999990
+c money.100000 | u32 [[[[main+623B7D8]+B0]+160]+80]+1E8 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[[[main+5B2B340]+110]+288]+C0]+20]+1E8 >= 1000000 <= 10000000
+c money.1000000 | u32 [[[[main+623B7D8]+B0]+160]+80]+1E8 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[[[main+5B2B340]+110]+288]+C0]+20]+1E8 >= 10000000 <= 100000000
+c money.10000000 | u32 [[[[main+623B7D8]+B0]+160]+80]+1E8 >= 10000000 <= 4294967295

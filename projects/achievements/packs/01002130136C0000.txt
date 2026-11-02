@@ -1,0 +1,15 @@
+# Dungeonoid: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002130136C0000 Dungeonoid
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Max level | Reach level 99
+
+build F780A21406F4AA4E
+c level.25 | u32 [main+2E48FF0]+48 >= 25 <= 990
+c level.25 | u8 [main+2E48FF0]+68 >= 25 <= 250
+c level.50 | u32 [main+2E48FF0]+48 >= 50 <= 990
+c level.50 | u8 [main+2E48FF0]+68 >= 50 <= 255
+c level.99 | u32 [main+2E48FF0]+48 >= 99 <= 990
+c level.99 | u8 [main+2E48FF0]+68 >= 99 <= 255

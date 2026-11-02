@@ -1,0 +1,10 @@
+# Nelke & the Legendary Alchemists ~Ateliers of the New World~: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006ED00BC76000 Nelke & the Legendary Alchemists ~Ateliers of the New World~
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 61CDD17992865CF4
+c coins.100 | u32 main+1454C60 >= 100 <= 999990
+c coins.1000 | u32 main+1454C60 >= 1000 <= 999990

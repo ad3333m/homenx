@@ -1,0 +1,8 @@
+# ACA NEOGEO PULSTAR: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01008EA008712000 ACA NEOGEO PULSTAR
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build BE7FB58267BB4D4E
+c credits.153 | u8 main+123FEF7 >= 153 <= 255

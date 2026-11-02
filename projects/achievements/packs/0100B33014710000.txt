@@ -1,0 +1,24 @@
+# Castlevania Advance Collection: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B33014710000 Castlevania Advance Collection
+
+a gold.100 | Saving up | Have 100 gold
+a gold.1000 | Well off | Have 1,000 gold
+a gold.10000 | Rolling in it | Have 10,000 gold
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 3F0EF535A585FF64
+c gold.100 | u16 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+1879C >= 100 <= 65535
+c gold.100 | u32 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+13290 >= 100 <= 9999990
+c gold.1000 | u16 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+1879C >= 1000 <= 65535
+c gold.1000 | u32 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+13290 >= 1000 <= 9999990
+c gold.10000 | u16 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+1879C >= 10000 <= 65535
+c gold.10000 | u32 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+13290 >= 10000 <= 9999990
+c level.25 | u16 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+25664 >= 25 <= 9990
+c level.25 | u8 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+1879A >= 25 <= 250
+c level.50 | u16 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+25664 >= 50 <= 9990
+c level.50 | u8 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+1879A >= 50 <= 255
+c level.99 | u16 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+25664 >= 99 <= 9990
+c level.99 | u8 [[[[[main+1CC6F08]+2C8]+58]+48]+50]+1879A >= 99 <= 255

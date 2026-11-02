@@ -1,0 +1,18 @@
+# Monster Boy and the Cursed Kingdom: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006F7001D10000 Monster Boy and the Cursed Kingdom
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 7DD8AFC6A77AFBB3
+c coins.100 | u16 heap+9C4DE600 >= 100 <= 65535
+c coins.1000 | u16 heap+9C4DE600 >= 1000 <= 65535
+
+build BEF7BD1A79121305
+c coins.100 | u32 heap+9DF7A4B8 >= 100 <= 999990
+c coins.1000 | u32 heap+9DF7A4B8 >= 1000 <= 999990
+
+build EE7693162065F488
+c coins.100 | u32 heap+9AE10510 >= 100 <= 999990
+c coins.1000 | u32 heap+9AE10510 >= 1000 <= 999990

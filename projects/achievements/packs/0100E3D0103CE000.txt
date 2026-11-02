@@ -1,0 +1,10 @@
+# 0100E3D0103CE000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E3D0103CE000
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build 4278BAF87482EC4B
+c gold.100 | u32 [[[[main+2820D78]+B8]+8]+10]+40 >= 100 <= 999990
+c gold.1000 | u32 [[[[main+2820D78]+B8]+8]+10]+40 >= 1000 <= 999990

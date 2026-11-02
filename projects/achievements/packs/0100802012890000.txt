@@ -1,0 +1,10 @@
+# Songs for a Hero: Definitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100802012890000 Songs for a Hero: Definitive Edition
+
+a gold.100 | Well off | Have 100 gold
+a gold.9999 | Maxed out | Have 9,999 gold
+
+build DD1D3E2EEB0EA969
+c gold.100 | u32 [[main+592B6F0]+10]+38 >= 100 <= 99990
+c gold.9999 | u32 [[main+592B6F0]+10]+38 >= 9999 <= 99990

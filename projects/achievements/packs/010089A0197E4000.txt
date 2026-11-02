@@ -1,0 +1,10 @@
+# Vampire Survivors: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010089A0197E4000 Vampire Survivors
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build 35530D55FAB389EF
+c gold.100 | u32 main+569714C >= 100 <= 215530
+c gold.1000 | u32 main+569714C >= 1000 <= 215530

@@ -1,0 +1,70 @@
+# 010022900D3EC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010022900D3EC000
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 2A8617716D59C2DD
+c money.100000 | u32 main+129240 >= 100000 <= 4294967295
+c money.1000000 | u32 main+129240 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+129240 >= 10000000 <= 4294967295
+c level.25 | u32 main+79C100 >= 25 <= 4294967295
+c level.25 | u32 main+79C104 >= 25 <= 4294967295
+c level.25 | u32 main+79C108 >= 25 <= 4294967295
+c level.25 | u32 main+79C10C >= 25 <= 4294967295
+c level.25 | u32 main+16A524 >= 25 <= 4294967295
+c level.50 | u32 main+79C100 >= 50 <= 4294967295
+c level.50 | u32 main+79C104 >= 50 <= 4294967295
+c level.50 | u32 main+79C108 >= 50 <= 4294967295
+c level.50 | u32 main+79C10C >= 50 <= 4294967295
+c level.50 | u32 main+16A524 >= 50 <= 4294967295
+c level.99 | u32 main+79C100 >= 99 <= 4294967295
+c level.99 | u32 main+79C104 >= 99 <= 4294967295
+c level.99 | u32 main+79C108 >= 99 <= 4294967295
+c level.99 | u32 main+79C10C >= 99 <= 4294967295
+c level.99 | u32 main+16A524 >= 99 <= 4294967295
+
+build 3871A99FEB20CE86
+c money.100000 | u32 main+129240 >= 100000 <= 4294967295
+c money.1000000 | u32 main+129240 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+129240 >= 10000000 <= 4294967295
+c level.25 | u32 main+79C400 >= 25 <= 4294967295
+c level.25 | u32 main+79C404 >= 25 <= 4294967295
+c level.25 | u32 main+79C408 >= 25 <= 4294967295
+c level.25 | u32 main+79C40C >= 25 <= 4294967295
+c level.25 | u32 main+16A524 >= 25 <= 4294967295
+c level.50 | u32 main+79C400 >= 50 <= 4294967295
+c level.50 | u32 main+79C404 >= 50 <= 4294967295
+c level.50 | u32 main+79C408 >= 50 <= 4294967295
+c level.50 | u32 main+79C40C >= 50 <= 4294967295
+c level.50 | u32 main+16A524 >= 50 <= 4294967295
+c level.99 | u32 main+79C400 >= 99 <= 4294967295
+c level.99 | u32 main+79C404 >= 99 <= 4294967295
+c level.99 | u32 main+79C408 >= 99 <= 4294967295
+c level.99 | u32 main+79C40C >= 99 <= 4294967295
+c level.99 | u32 main+16A524 >= 99 <= 4294967295
+
+build 56E89CC6D60359E8
+c money.100000 | u32 main+1291B0 >= 100000 <= 4294967295
+c money.1000000 | u32 main+1291B0 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+1291B0 >= 10000000 <= 4294967295
+c level.25 | u32 main+75BC40 >= 25 <= 4294967295
+c level.25 | u32 main+75BC44 >= 25 <= 4294967295
+c level.25 | u32 main+75BC48 >= 25 <= 4294967295
+c level.25 | u32 main+75BC4C >= 25 <= 4294967295
+c level.25 | u32 main+16A3E4 >= 25 <= 4294967295
+c level.50 | u32 main+75BC40 >= 50 <= 4294967295
+c level.50 | u32 main+75BC44 >= 50 <= 4294967295
+c level.50 | u32 main+75BC48 >= 50 <= 4294967295
+c level.50 | u32 main+75BC4C >= 50 <= 4294967295
+c level.50 | u32 main+16A3E4 >= 50 <= 4294967295
+c level.99 | u32 main+75BC40 >= 99 <= 4294967295
+c level.99 | u32 main+75BC44 >= 99 <= 4294967295
+c level.99 | u32 main+75BC48 >= 99 <= 4294967295
+c level.99 | u32 main+75BC4C >= 99 <= 4294967295
+c level.99 | u32 main+16A3E4 >= 99 <= 4294967295

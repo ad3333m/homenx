@@ -1,0 +1,27 @@
+# Catherine: Full Body: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BF00112C0000 Catherine: Full Body
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 93A79C77DA81F7F1
+c level.25 | u32 main+C42F00 >= 25 <= 4294967295
+c level.25 | u32 main+C42F04 >= 25 <= 4294967295
+c level.25 | u32 main+C42F08 >= 25 <= 4294967295
+c level.25 | u32 main+C42F0C >= 25 <= 4294967295
+c level.25 | u32 main+C42F10 >= 25 <= 4294967295
+c level.25 | u32 main+778B3C >= 25 <= 4294967295
+c level.50 | u32 main+C42F00 >= 50 <= 4294967295
+c level.50 | u32 main+C42F04 >= 50 <= 4294967295
+c level.50 | u32 main+C42F08 >= 50 <= 4294967295
+c level.50 | u32 main+C42F0C >= 50 <= 4294967295
+c level.50 | u32 main+C42F10 >= 50 <= 4294967295
+c level.50 | u32 main+778B3C >= 50 <= 4294967295
+c level.99 | u32 main+C42F00 >= 99 <= 4294967295
+c level.99 | u32 main+C42F04 >= 99 <= 4294967295
+c level.99 | u32 main+C42F08 >= 99 <= 4294967295
+c level.99 | u32 main+C42F0C >= 99 <= 4294967295
+c level.99 | u32 main+C42F10 >= 99 <= 4294967295
+c level.99 | u32 main+778B3C >= 99 <= 4294967295

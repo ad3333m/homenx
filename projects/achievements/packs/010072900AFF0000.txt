@@ -1,0 +1,12 @@
+# Gear.Club Unlimited 2 - Definitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010072900AFF0000 Gear.Club Unlimited 2 - Definitive Edition
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 0A547E79E76C8849
+c money.100000 | u32 [[[[main+5DA79A0]+340]+60]+D0]+18 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[[main+5DA79A0]+340]+60]+D0]+18 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[[main+5DA79A0]+340]+60]+D0]+18 >= 10000000 <= 4294967295

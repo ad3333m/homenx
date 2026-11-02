@@ -1,0 +1,10 @@
+# BioShock: The Collection: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100AD10102B2000 BioShock: The Collection
+
+a money.100 | Well off | Save up 100
+a money.5555 | Maxed out | Save up 5,555
+
+build D89FFAA2062E373D
+c money.100 | u32 [[[main+2AAF598]+60]+E8]+D5C >= 100 <= 55550
+c money.5555 | u32 [[[main+2AAF598]+60]+E8]+D5C >= 5555 <= 55550

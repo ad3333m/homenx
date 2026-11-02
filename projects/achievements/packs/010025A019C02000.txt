@@ -1,0 +1,10 @@
+# Hentai RPG: Isekai Journey: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010025A019C02000 Hentai RPG: Isekai Journey
+
+a coins.100 | Well off | Have 100 coins
+a coins.9999 | Maxed out | Have 9,999 coins
+
+build 7CD4B4499375D0DB
+c coins.100 | u32 [[[[main+4FD5B20]+B8]+0]+20]+24 >= 100 <= 99990
+c coins.9999 | u32 [[[[main+4FD5B20]+B8]+0]+20]+24 >= 9999 <= 99990

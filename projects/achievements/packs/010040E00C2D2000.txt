@@ -1,0 +1,18 @@
+# Marenian Tavern Story: Patty and the Hungry God: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010040E00C2D2000 Marenian Tavern Story: Patty and the Hungry God
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build E81CF49793D37844
+c level.25 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+20]+70]+18]+18 >= 25 <= 9990
+c level.25 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+28]+70]+18]+18 >= 25 <= 9990
+c level.25 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+30]+70]+18]+18 >= 25 <= 9990
+c level.50 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+20]+70]+18]+18 >= 50 <= 9990
+c level.50 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+28]+70]+18]+18 >= 50 <= 9990
+c level.50 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+30]+70]+18]+18 >= 50 <= 9990
+c level.99 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+20]+70]+18]+18 >= 99 <= 9990
+c level.99 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+28]+70]+18]+18 >= 99 <= 9990
+c level.99 | u32 [[[[[[[[main+21AD710]+A0]+0]+48]+38]+30]+70]+18]+18 >= 99 <= 9990

@@ -1,0 +1,12 @@
+# Mega Man X Legacy Collection 2: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005250086C4000 Mega Man X Legacy Collection 2
+
+a credits.10000 | Saving up | Have 10,000 Credits
+a credits.100000 | Well off | Have 100,000 Credits
+a credits.1000000 | Rolling in it | Have 1,000,000 Credits
+
+build ECE85107B8DC81DB
+c credits.10000 | u32 main+5E91B40 >= 10000 <= 171048960
+c credits.100000 | u32 main+5E91B40 >= 100000 <= 171048960
+c credits.1000000 | u32 main+5E91B40 >= 1000000 <= 171048960

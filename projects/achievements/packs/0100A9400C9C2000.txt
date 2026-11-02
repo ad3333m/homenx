@@ -1,0 +1,73 @@
+# Tokyo Mirage Sessions #FE Encore: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100A9400C9C2000 Tokyo Mirage Sessions #FE Encore
+
+a yen.10000 | Saving up | Have 10,000 yen
+a yen.100000 | Well off | Have 100,000 yen
+a yen.1000000 | Rolling in it | Have 1,000,000 yen
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 33463E11899166BB
+c yen.10000 | u64 [[[[[[[[main+7F6C50]+1FF40]+608]+8]+8]+EF48]+2988]+288]+3E528 >= 10000 <= 990000000
+c yen.100000 | u64 [[[[[[[[main+7F6C50]+1FF40]+608]+8]+8]+EF48]+2988]+288]+3E528 >= 100000 <= 990000000
+c yen.1000000 | u64 [[[[[[[[main+7F6C50]+1FF40]+608]+8]+8]+EF48]+2988]+288]+3E528 >= 1000000 <= 990000000
+c level.25 | u16 heap+794AC8CE >= 25 <= 990
+c level.25 | u16 heap+794AC8D0 >= 25 <= 990
+c level.25 | u16 heap+794AC8D2 >= 25 <= 990
+c level.25 | u16 heap+794AC8D4 >= 25 <= 990
+c level.25 | u16 heap+794AC8D6 >= 25 <= 990
+c level.25 | u16 heap+794AC8D8 >= 25 <= 990
+c level.25 | u16 heap+794A4DC4 >= 25 <= 250
+c level.25 | u32 heap+794A4E20 >= 25 <= 24730
+c level.25 | u16 heap+794A57E4 >= 25 <= 250
+c level.25 | u32 heap+794A5840 >= 25 <= 24730
+c level.25 | u16 heap+794A5B44 >= 25 <= 250
+c level.25 | u32 heap+794A5BA0 >= 25 <= 24730
+c level.25 | u16 heap+794A5EA4 >= 25 <= 250
+c level.25 | u32 heap+794A5F00 >= 25 <= 24730
+c level.25 | u16 heap+794A6204 >= 25 <= 250
+c level.25 | u32 heap+794A6260 >= 25 <= 24730
+c level.25 | u16 heap+794A5124 >= 25 <= 450
+c level.25 | u32 heap+794A5180 >= 25 <= 1292240
+c level.25 | u16 heap+794A6204 >= 25 <= 450
+c level.25 | u32 heap+794A6260 >= 25 <= 1292240
+c level.50 | u16 heap+794AC8CE >= 50 <= 990
+c level.50 | u16 heap+794AC8D0 >= 50 <= 990
+c level.50 | u16 heap+794AC8D2 >= 50 <= 990
+c level.50 | u16 heap+794AC8D4 >= 50 <= 990
+c level.50 | u16 heap+794AC8D6 >= 50 <= 990
+c level.50 | u16 heap+794AC8D8 >= 50 <= 990
+c level.50 | u16 heap+794A4DC4 >= 50 <= 500
+c level.50 | u32 heap+794A4E20 >= 50 <= 24730
+c level.50 | u16 heap+794A57E4 >= 50 <= 500
+c level.50 | u32 heap+794A5840 >= 50 <= 24730
+c level.50 | u16 heap+794A5B44 >= 50 <= 500
+c level.50 | u32 heap+794A5BA0 >= 50 <= 24730
+c level.50 | u16 heap+794A5EA4 >= 50 <= 500
+c level.50 | u32 heap+794A5F00 >= 50 <= 24730
+c level.50 | u16 heap+794A6204 >= 50 <= 500
+c level.50 | u32 heap+794A6260 >= 50 <= 24730
+c level.50 | u16 heap+794A5124 >= 50 <= 500
+c level.50 | u32 heap+794A5180 >= 50 <= 1292240
+c level.50 | u32 heap+794A6260 >= 50 <= 1292240
+c level.99 | u16 heap+794AC8CE >= 99 <= 990
+c level.99 | u16 heap+794AC8D0 >= 99 <= 990
+c level.99 | u16 heap+794AC8D2 >= 99 <= 990
+c level.99 | u16 heap+794AC8D4 >= 99 <= 990
+c level.99 | u16 heap+794AC8D6 >= 99 <= 990
+c level.99 | u16 heap+794AC8D8 >= 99 <= 990
+c level.99 | u16 heap+794A4DC4 >= 99 <= 990
+c level.99 | u32 heap+794A4E20 >= 99 <= 24730
+c level.99 | u16 heap+794A57E4 >= 99 <= 990
+c level.99 | u32 heap+794A5840 >= 99 <= 24730
+c level.99 | u16 heap+794A5B44 >= 99 <= 990
+c level.99 | u32 heap+794A5BA0 >= 99 <= 24730
+c level.99 | u16 heap+794A5EA4 >= 99 <= 990
+c level.99 | u32 heap+794A5F00 >= 99 <= 24730
+c level.99 | u16 heap+794A6204 >= 99 <= 990
+c level.99 | u32 heap+794A6260 >= 99 <= 24730
+c level.99 | u16 heap+794A5124 >= 99 <= 990
+c level.99 | u32 heap+794A5180 >= 99 <= 1292240
+c level.99 | u32 heap+794A6260 >= 99 <= 1292240

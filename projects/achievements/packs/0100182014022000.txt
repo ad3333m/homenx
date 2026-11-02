@@ -1,0 +1,26 @@
+# Grand Theft Auto: Vice City – The Definitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100182014022000 Grand Theft Auto: Vice City – The Definitive Edition
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 56EEFA704373BDB3
+c level.25 | u32 main+457CA50 >= 25 <= 4294967295
+c level.25 | u32 main+457CA54 >= 25 <= 4294967295
+c level.25 | u32 main+457CA58 >= 25 <= 4294967295
+c level.25 | u32 main+F186A4 >= 25 <= 4294967295
+c level.50 | u32 main+457CA50 >= 50 <= 4294967295
+c level.50 | u32 main+457CA54 >= 50 <= 4294967295
+c level.50 | u32 main+457CA58 >= 50 <= 4294967295
+c level.50 | u32 main+F186A4 >= 50 <= 4294967295
+c level.99 | u32 main+457CA50 >= 99 <= 4294967295
+c level.99 | u32 main+457CA54 >= 99 <= 4294967295
+c level.99 | u32 main+457CA58 >= 99 <= 4294967295
+c level.99 | u32 main+F186A4 >= 99 <= 4294967295
+
+build A60E8CA86C6FD704
+c level.25 | u8 [[main+6744F38]+880]+20 >= 25 <= 250
+c level.50 | u8 [[main+6744F38]+880]+20 >= 50 <= 255
+c level.99 | u8 [[main+6744F38]+880]+20 >= 99 <= 255

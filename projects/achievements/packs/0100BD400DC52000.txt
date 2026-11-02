@@ -1,0 +1,27 @@
+# Spiritfarer: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BD400DC52000 Spiritfarer
+
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build 173156D7823BF145
+c money.100 | u32 [[[main+531C640]+B8]+B0]+30 >= 100 <= 9999990
+c money.1000 | u32 [[[main+531C640]+B8]+B0]+30 >= 1000 <= 9999990
+c money.10000 | u32 [[[main+531C640]+B8]+B0]+30 >= 10000 <= 9999990
+
+build 241262DA79EB9E4E
+c money.100 | u32 [[[[main+4D82240]+8]+B8]+B0]+30 >= 100 <= 9999990
+c money.1000 | u32 [[[[main+4D82240]+8]+B8]+B0]+30 >= 1000 <= 9999990
+c money.10000 | u32 [[[[main+4D82240]+8]+B8]+B0]+30 >= 10000 <= 9999990
+
+build 899AC6D046E76345
+c money.100 | u32 [[[[main+5325780]+40]+B8]+B0]+30 >= 100 <= 9999990
+c money.1000 | u32 [[[[main+5325780]+40]+B8]+B0]+30 >= 1000 <= 9999990
+c money.10000 | u32 [[[[main+5325780]+40]+B8]+B0]+30 >= 10000 <= 9999990
+
+build D368BC1E9495514A
+c money.100 | u32 [[[main+50926C8]+B8]+B0]+30 >= 100 <= 9999990
+c money.1000 | u32 [[[main+50926C8]+B8]+B0]+30 >= 1000 <= 9999990
+c money.10000 | u32 [[[main+50926C8]+B8]+B0]+30 >= 10000 <= 9999990

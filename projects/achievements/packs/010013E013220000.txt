@@ -1,0 +1,18 @@
+# 010013E013220000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010013E013220000
+
+a coins.10000 | Saving up | Have 10,000 coins
+a coins.100000 | Well off | Have 100,000 coins
+a coins.1000000 | Rolling in it | Have 1,000,000 coins
+
+build 32FC32B674AF0E48
+c coins.10000 | u32 [[[main+4BCB968]+20]+C8]+24 >= 10000 <= 999999990
+c coins.10000 | u32 [[[main+4BCB968]+20]+C8]+24+4 >= 10000 <= 999999990
+c coins.10000 | u32 [[[main+4BCB968]+20]+C8]+24+4+4 >= 10000 <= 999990
+c coins.100000 | u32 [[[main+4BCB968]+20]+C8]+24 >= 100000 <= 999999990
+c coins.100000 | u32 [[[main+4BCB968]+20]+C8]+24+4 >= 100000 <= 999999990
+c coins.100000 | u32 [[[main+4BCB968]+20]+C8]+24+4+4 >= 100000 <= 1000000
+c coins.1000000 | u32 [[[main+4BCB968]+20]+C8]+24 >= 1000000 <= 999999990
+c coins.1000000 | u32 [[[main+4BCB968]+20]+C8]+24+4 >= 1000000 <= 999999990
+c coins.1000000 | u32 [[[main+4BCB968]+20]+C8]+24+4+4 >= 1000000 <= 10000000

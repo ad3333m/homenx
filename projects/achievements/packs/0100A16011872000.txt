@@ -1,0 +1,12 @@
+# Gryphon Knight Epic: Definitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100A16011872000 Gryphon Knight Epic: Definitive Edition
+
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build DF8DDC222B04C24D
+c money.100 | u32 [[[main+35F6308]+B8]+8]+54 >= 100 <= 8888880
+c money.1000 | u32 [[[main+35F6308]+B8]+8]+54 >= 1000 <= 8888880
+c money.10000 | u32 [[[main+35F6308]+B8]+8]+54 >= 10000 <= 8888880

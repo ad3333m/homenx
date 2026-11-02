@@ -1,0 +1,10 @@
+# Feudal Alloy: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100AA3009738000 Feudal Alloy
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build C317CAF34F49A74B
+c coins.100 | u32 [[[main+2B59020]+A0]+0]+204 >= 100 <= 999990
+c coins.1000 | u32 [[[main+2B59020]+A0]+0]+204 >= 1000 <= 999990

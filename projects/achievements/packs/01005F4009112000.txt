@@ -1,0 +1,12 @@
+# Nightmare Boy: The New Horizons of Reigns of Dreams, a Metroidvania journey with little rusty nightmares, the empire of knight final boss: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005F4009112000 Nightmare Boy: The New Horizons of Reigns of Dreams, a Metroidvania journey with little rusty nightmares, the empire of knight final boss
+
+a gems.100 | Saving up | Have 100 Gems
+a gems.1000 | Well off | Have 1,000 Gems
+a gems.10000 | Rolling in it | Have 10,000 Gems
+
+build BE7051CB9022834A
+c gems.100 | u32 heap+1E6ADF0 >= 100 <= 9999990
+c gems.1000 | u32 heap+1E6ADF0 >= 1000 <= 9999990
+c gems.10000 | u32 heap+1E6ADF0 >= 10000 <= 9999990

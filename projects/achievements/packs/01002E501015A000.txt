@@ -1,0 +1,15 @@
+# It came from space and ate our brains: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002E501015A000 It came from space and ate our brains
+
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build 01002E501015A000
+c money.100 | u32 [[[[[main+3E27C00]+B8]+0]+20]+48]+250 >= 100 <= 8888880
+c money.100 | u32 [[[[[main+3D263C0]+20]+A0]+90]+48]+250 >= 100 <= 8888880
+c money.1000 | u32 [[[[[main+3E27C00]+B8]+0]+20]+48]+250 >= 1000 <= 8888880
+c money.1000 | u32 [[[[[main+3D263C0]+20]+A0]+90]+48]+250 >= 1000 <= 8888880
+c money.10000 | u32 [[[[[main+3E27C00]+B8]+0]+20]+48]+250 >= 10000 <= 8888880
+c money.10000 | u32 [[[[[main+3D263C0]+20]+A0]+90]+48]+250 >= 10000 <= 8888880

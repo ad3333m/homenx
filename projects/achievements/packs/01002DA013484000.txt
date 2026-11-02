@@ -1,0 +1,15 @@
+# The Legend of Zelda: Skyward Sword HD: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002DA013484000 The Legend of Zelda: Skyward Sword HD
+
+a rupees.100 | Well off | Have 100 Rupees
+a rupees.9999 | Maxed out | Have 9,999 Rupees
+
+build 5441AF3C89F97E1D
+c rupees.100 | u16 main+5AEB7B2 >= 100 <= 65535
+c rupees.9999 | u16 main+5AEB7B2 >= 9999 <= 65535
+
+build D824D4B1BBD45D03
+c rupees.100 | u16 main+5AEB7B2 >= 100 <= 3000
+c rupees.100 | u16 main+5AEB7B2 >= 100 <= 65535
+c rupees.9999 | u16 main+5AEB7B2 >= 9999 <= 65535

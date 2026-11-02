@@ -1,0 +1,18 @@
+# 010042501329E000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010042501329E000
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 119C804970C52CD2
+c level.25 | u16 [[[[[main+210F0F0]+218]+20]+1E8]+70]+13A >= 25 <= 1000
+c level.25 | u16 [[[[main+2158C60]+38]+38]+0]+86 >= 25 <= 1000
+c level.25 | u16 [[[[main+2158C60]+38]+38]+8]+86 >= 25 <= 1000
+c level.50 | u16 [[[[[main+210F0F0]+218]+20]+1E8]+70]+13A >= 50 <= 1000
+c level.50 | u16 [[[[main+2158C60]+38]+38]+0]+86 >= 50 <= 1000
+c level.50 | u16 [[[[main+2158C60]+38]+38]+8]+86 >= 50 <= 1000
+c level.99 | u16 [[[[[main+210F0F0]+218]+20]+1E8]+70]+13A >= 99 <= 1000
+c level.99 | u16 [[[[main+2158C60]+38]+38]+0]+86 >= 99 <= 1000
+c level.99 | u16 [[[[main+2158C60]+38]+38]+8]+86 >= 99 <= 1000

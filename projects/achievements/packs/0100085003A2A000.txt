@@ -1,0 +1,27 @@
+# 0100085003A2A000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100085003A2A000
+
+a gems.100000 | Saving up | Have 100,000 Gems
+a gems.1000000 | Well off | Have 1,000,000 Gems
+a gems.10000000 | Rolling in it | Have 10,000,000 Gems
+
+build B43C9C3C416D344E
+c gems.100000 | u32 main+221FAA48 >= 100000 <= 4294967295
+c gems.100000 | u32 main+221FAA4C >= 100000 <= 4294967295
+c gems.100000 | u32 main+221FAA50 >= 100000 <= 4294967295
+c gems.100000 | u32 main+221FAA54 >= 100000 <= 4294967295
+c gems.100000 | u32 main+221FAA58 >= 100000 <= 4294967295
+c gems.100000 | u32 main+221FAA5C >= 100000 <= 4294967295
+c gems.1000000 | u32 main+221FAA48 >= 1000000 <= 4294967295
+c gems.1000000 | u32 main+221FAA4C >= 1000000 <= 4294967295
+c gems.1000000 | u32 main+221FAA50 >= 1000000 <= 4294967295
+c gems.1000000 | u32 main+221FAA54 >= 1000000 <= 4294967295
+c gems.1000000 | u32 main+221FAA58 >= 1000000 <= 4294967295
+c gems.1000000 | u32 main+221FAA5C >= 1000000 <= 4294967295
+c gems.10000000 | u32 main+221FAA48 >= 10000000 <= 4294967295
+c gems.10000000 | u32 main+221FAA4C >= 10000000 <= 4294967295
+c gems.10000000 | u32 main+221FAA50 >= 10000000 <= 4294967295
+c gems.10000000 | u32 main+221FAA54 >= 10000000 <= 4294967295
+c gems.10000000 | u32 main+221FAA58 >= 10000000 <= 4294967295
+c gems.10000000 | u32 main+221FAA5C >= 10000000 <= 4294967295

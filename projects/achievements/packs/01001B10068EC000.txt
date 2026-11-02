@@ -1,0 +1,10 @@
+# Urban Trial Playground: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01001B10068EC000 Urban Trial Playground
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 1CAA05A4630E7769
+c money.100 | u32 [[[[main+528AD80]+50]+3D8]+200]+C8 >= 100 <= 999990
+c money.1000 | u32 [[[[main+528AD80]+50]+3D8]+200]+C8 >= 1000 <= 999990

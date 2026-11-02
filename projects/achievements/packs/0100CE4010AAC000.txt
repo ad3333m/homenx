@@ -1,0 +1,23 @@
+# FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100CE4010AAC000 FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 687AB956C7A3914B
+c coins.100 | u32 main+55C44C8 >= 100 <= 999990
+c coins.100 | u32 main+55CF730 >= 100 <= 999990
+c coins.1000 | u32 main+55C44C8 >= 1000 <= 999990
+c coins.1000 | u32 main+55CF730 >= 1000 <= 999990
+
+build E1D8B399B787AE41
+c money.100000 | u32 main+2D33B84 >= 100000 <= 4294967295
+c money.100000 | u32 main+2D33B84 >= 100000 <= 1857948260
+c money.1000000 | u32 main+2D33B84 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+2D33B84 >= 1000000 <= 1857948260
+c money.10000000 | u32 main+2D33B84 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+2D33B84 >= 10000000 <= 1857948260

@@ -1,0 +1,12 @@
+# A Magical High School Girl: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01008DD006C52000 A Magical High School Girl
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 3615878EA54C0043
+c level.25 | u32 [[[[main+23EDDF8]+1E0]+28]+80]+18 >= 25 <= 999990
+c level.50 | u32 [[[[main+23EDDF8]+1E0]+28]+80]+18 >= 50 <= 999990
+c level.99 | u32 [[[[main+23EDDF8]+1E0]+28]+80]+18 >= 99 <= 999990

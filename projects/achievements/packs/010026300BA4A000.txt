@@ -1,0 +1,36 @@
+# Slay the Spire: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010026300BA4A000 Slay the Spire
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 21D02E7D96188CF4
+c gold.100 | u64 [main+628BD68]+48 >= 100 <= 999990
+c gold.100 | u64 [main+628BD68]+4C >= 100 <= 999990
+c gold.1000 | u64 [main+628BD68]+48 >= 1000 <= 999990
+c gold.1000 | u64 [main+628BD68]+4C >= 1000 <= 999990
+
+build 334AB8BB31621C07
+c money.100 | u32 [[main+4F220B8]+10]+48 >= 100 <= 99990
+c money.100 | u32 [[main+4F220B8]+10]+48+4 >= 100 <= 99990
+c money.1000 | u32 [[main+4F220B8]+10]+48 >= 1000 <= 99990
+c money.1000 | u32 [[main+4F220B8]+10]+48+4 >= 1000 <= 99990
+
+build 678A5068B1DB8450
+c money.100 | u64 [main+63ABE50]+48 >= 100 <= 999990
+c money.100 | u64 [main+63ABE50]+4C >= 100 <= 999990
+c money.1000 | u64 [main+63ABE50]+48 >= 1000 <= 999990
+c money.1000 | u64 [main+63ABE50]+4C >= 1000 <= 999990
+
+build A38237A9BFEF6131
+c money.100 | u16 [main+4F21E18]+48 >= 100 <= 65535
+c money.1000 | u16 [main+4F21E18]+48 >= 1000 <= 65535
+
+build F1496A8D2EFFC1D2
+c money.100 | u64 [main+4EAE7B8]+48 >= 100 <= 999990
+c money.100 | u64 [main+4EAE7B8]+4C >= 100 <= 999990
+c money.1000 | u64 [main+4EAE7B8]+48 >= 1000 <= 999990
+c money.1000 | u64 [main+4EAE7B8]+4C >= 1000 <= 999990

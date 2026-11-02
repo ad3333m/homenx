@@ -1,0 +1,22 @@
+# The Legend of Zelda: Tears of the Kingdom – Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F2C0115B6000 The Legend of Zelda: Tears of the Kingdom – Nintendo Switch 2 Edition
+
+a rupees.10000 | Saving up | Have 10,000 Rupees
+a rupees.100000 | Well off | Have 100,000 Rupees
+a rupees.1000000 | Rolling in it | Have 1,000,000 Rupees
+
+build 082CE09B06E33A12
+c rupees.10000 | u32 [[main+4646C60]+D8]+28EA4 >= 10000 <= 999999990
+c rupees.100000 | u32 [[main+4646C60]+D8]+28EA4 >= 100000 <= 999999990
+c rupees.1000000 | u32 [[main+4646C60]+D8]+28EA4 >= 1000000 <= 999999990
+
+build 9B4E43650501A4D4
+c rupees.10000 | u32 [[main+4721B98]+D8]+28EA4 >= 10000 <= 9999980
+c rupees.100000 | u32 [[main+4721B98]+D8]+28EA4 >= 100000 <= 9999980
+c rupees.1000000 | u32 [[main+4721B98]+D8]+28EA4 >= 1000000 <= 10000000
+
+build D5AD6AC71EF53E3E
+c rupees.10000 | u32 [[main+47242B8]+D8]+28EA4 >= 10000 <= 9999980
+c rupees.100000 | u32 [[main+47242B8]+D8]+28EA4 >= 100000 <= 9999980
+c rupees.1000000 | u32 [[main+47242B8]+D8]+28EA4 >= 1000000 <= 10000000

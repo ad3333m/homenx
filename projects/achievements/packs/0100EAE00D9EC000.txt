@@ -1,0 +1,20 @@
+# Ghostbusters: The Video Game Remastered: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100EAE00D9EC000 Ghostbusters: The Video Game Remastered
+
+a cash.100000 | Saving up | Save up 100,000
+a cash.1000000 | Well off | Save up 1,000,000
+a cash.10000000 | Rolling in it | Save up 10,000,000
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build 0FE6747D03EBA4E3
+c money.100 | u32 main+10D45F0 >= 100 <= 9999990
+c money.1000 | u32 main+10D45F0 >= 1000 <= 9999990
+c money.10000 | u32 main+10D45F0 >= 10000 <= 9999990
+
+build 5AAA63BEF45A8C0A
+c cash.100000 | u32 [main+5D8E778]+700 >= 100000 <= 4294967295
+c cash.1000000 | u32 [main+5D8E778]+700 >= 1000000 <= 4294967295
+c cash.10000000 | u32 [main+5D8E778]+700 >= 10000000 <= 4294967295

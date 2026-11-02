@@ -1,0 +1,12 @@
+# Aeterna Noctis: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100EB60159E4000 Aeterna Noctis
+
+a money.1000 | Saving up | Save up 1,000
+a money.10000 | Well off | Save up 10,000
+a money.100000 | Rolling in it | Save up 100,000
+
+build 0CBD71E6D09C0C3E
+c money.1000 | u32 [[[main+4E91F28]+B8]+0]+DC >= 1000 <= 99999990
+c money.10000 | u32 [[[main+4E91F28]+B8]+0]+DC >= 10000 <= 99999990
+c money.100000 | u32 [[[main+4E91F28]+B8]+0]+DC >= 100000 <= 99999990

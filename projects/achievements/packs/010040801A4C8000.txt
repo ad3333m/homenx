@@ -1,0 +1,8 @@
+# Blasphemous 2: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010040801A4C8000 Blasphemous 2
+
+a marks.999 | Maxed out | Have 999 Marks
+
+build 38C55B6516209A45
+c marks.999 | u32 [[[[[[[[[main+62DC498]+B8]+270]+10]+20]+20]+30]+10]+20]+38 >= 999 <= 9990

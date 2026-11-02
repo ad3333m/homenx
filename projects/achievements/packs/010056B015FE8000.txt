@@ -1,0 +1,24 @@
+# NieR:Automata The End of YoRHa Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010056B015FE8000 NieR:Automata The End of YoRHa Edition
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build E43525F22282A477
+c level.25 | u64 main+67E4CC >= 25 <= 18446744073709551615
+c level.25 | u32 main+67E4D4 >= 25 <= 4294967295
+c level.25 | u64 main+D9CFEC >= 25 <= 18446744073709551615
+c level.25 | u64 main+D9CFE4 >= 25 <= 18446744073709551615
+c level.25 | u32 main+23FFD0 >= 25 <= 4294967295
+c level.50 | u64 main+67E4CC >= 50 <= 18446744073709551615
+c level.50 | u32 main+67E4D4 >= 50 <= 4294967295
+c level.50 | u64 main+D9CFEC >= 50 <= 18446744073709551615
+c level.50 | u64 main+D9CFE4 >= 50 <= 18446744073709551615
+c level.50 | u32 main+23FFD0 >= 50 <= 4294967295
+c level.99 | u64 main+67E4CC >= 99 <= 18446744073709551615
+c level.99 | u32 main+67E4D4 >= 99 <= 4294967295
+c level.99 | u64 main+D9CFEC >= 99 <= 18446744073709551615
+c level.99 | u64 main+D9CFE4 >= 99 <= 18446744073709551615
+c level.99 | u32 main+23FFD0 >= 99 <= 4294967295

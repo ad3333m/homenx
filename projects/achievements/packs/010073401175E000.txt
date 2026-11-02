@@ -1,0 +1,8 @@
+# Crash Bandicoot 4: It’s About Time: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010073401175E000 Crash Bandicoot 4: It’s About Time
+
+a crystals.768 | Maxed out | Have 768 Crystals
+
+build 8778D3227D806567
+c crystals.768 | u32 [[[[main+7C8D380]+30]+A8]+70]+3DC >= 768 <= 7680

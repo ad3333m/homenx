@@ -1,0 +1,10 @@
+# Greedroid: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BD800DFA6000 Greedroid
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build 9889452E84C5394C
+c gold.100 | u32 [[[[main+2387568]+48]+6C8]+98]+34 >= 100 <= 999990
+c gold.1000 | u32 [[[[main+2387568]+48]+6C8]+98]+34 >= 1000 <= 999990

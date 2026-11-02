@@ -1,0 +1,14 @@
+# Baldur's Gate: Dark Alliance: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100FD1014726000 Baldur's Gate: Dark Alliance
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build CC01700D7BC40CC9
+c gold.100 | u32 main+3E4754 >= 100 <= 999990
+c gold.1000 | u32 main+3E4754 >= 1000 <= 999990
+
+build D0B3501DC634C120
+c gold.100 | u32 main+3E4754 >= 100 <= 999990
+c gold.1000 | u32 main+3E4754 >= 1000 <= 999990

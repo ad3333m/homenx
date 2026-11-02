@@ -1,0 +1,8 @@
+# Arcade Archives GROBDA: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100068019E16000 Arcade Archives GROBDA
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 4B4BE1C2EE8F6E79
+c credits.153 | u8 heap+B3B91C >= 153 <= 255

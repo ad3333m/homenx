@@ -1,0 +1,12 @@
+# MISTOVER: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010034E00EFD0000 MISTOVER
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build 9B3B5F6D3D95AE4C
+c gold.100000 | u32 heap+13903A3E90 >= 100000 <= 4294967295
+c gold.1000000 | u32 heap+13903A3E90 >= 1000000 <= 4294967295
+c gold.10000000 | u32 heap+13903A3E90 >= 10000000 <= 4294967295

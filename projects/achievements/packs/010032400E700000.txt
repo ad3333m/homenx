@@ -1,0 +1,17 @@
+# 010032400E700000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010032400E700000
+
+a money.10000 | Saving up | Save up 10,000
+a money.100000 | Well off | Save up 100,000
+a money.1000000 | Rolling in it | Save up 1,000,000
+
+build B0CE5CCDFF637507
+c money.10000 | u32 [heap+6E01B6D0]+890 >= 10000 <= 666666660
+c money.100000 | u32 [heap+6E01B6D0]+890 >= 100000 <= 666666660
+c money.1000000 | u32 [heap+6E01B6D0]+890 >= 1000000 <= 666666660
+
+build EB75A3490903F50D
+c money.10000 | u32 [heap+6E41B6D0]+890 >= 10000 <= 666666660
+c money.100000 | u32 [heap+6E41B6D0]+890 >= 100000 <= 666666660
+c money.1000000 | u32 [heap+6E41B6D0]+890 >= 1000000 <= 666666660

@@ -1,0 +1,27 @@
+# The Binding of Isaac: Afterbirth+: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010021C000B6A000 The Binding of Isaac: Afterbirth+
+
+a coins.100 | Well off | Have 100 coins
+a coins.9999 | Maxed out | Have 9,999 coins
+
+build 40506B6C03196447
+c coins.100 | u32 [[[[main+110030]+61E0]+A558]+1DD0]+D70 >= 100 <= 99990
+c coins.9999 | u32 [[[[main+110030]+61E0]+A558]+1DD0]+D70 >= 9999 <= 99990
+
+build 4FB46E8CDFAD75AD
+c coins.100 | u8 [[[main+5960B8]+C330]+0]+26AC >= 100 <= 255
+
+build 9872B9E3508B9FFE
+c coins.100 | u8 [[[main+4FAE90]+C710]+0]+26AC >= 100 <= 255
+
+build B33A680A4EEAEEDF
+c coins.100 | u32 [[[[[[main+110FF0]+8]+2BDF8]+18]+19B0]+0]+16D8 >= 100 <= 99990
+c coins.9999 | u32 [[[[[[main+110FF0]+8]+2BDF8]+18]+19B0]+0]+16D8 >= 9999 <= 99990
+
+build B6E5BDB9DC12E1D1
+c coins.100 | u32 [[[[main+110030]+918]+1D8]+2AB0]+EC8 >= 100 <= 99990
+c coins.9999 | u32 [[[[main+110030]+918]+1D8]+2AB0]+EC8 >= 9999 <= 99990
+
+build CD4463054576D9BE
+c coins.100 | u8 [[[main+738B80]+CAB8]+0]+1C9C >= 100 <= 255

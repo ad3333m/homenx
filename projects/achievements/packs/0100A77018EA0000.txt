@@ -1,0 +1,15 @@
+# DRAGON QUEST MONSTERS: The Dark Prince: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100A77018EA0000 DRAGON QUEST MONSTERS: The Dark Prince
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 6B72212DABB91A6F
+c level.25 | u32 main+2EA5820 >= 25 <= 4294967295
+c level.25 | u32 main+2EA5824 >= 25 <= 4294967295
+c level.50 | u32 main+2EA5820 >= 50 <= 4294967295
+c level.50 | u32 main+2EA5824 >= 50 <= 4294967295
+c level.99 | u32 main+2EA5820 >= 99 <= 4294967295
+c level.99 | u32 main+2EA5824 >= 99 <= 4294967295

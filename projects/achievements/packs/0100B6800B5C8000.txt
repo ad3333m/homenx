@@ -1,0 +1,23 @@
+# Graveyard Keeper: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B6800B5C8000 Graveyard Keeper
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 10BE30FEAD5AD443
+c money.100000 | u32 main+336830 >= 100000 <= 4294967295
+c money.1000000 | u32 main+336830 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+336830 >= 10000000 <= 4294967295
+
+build 9356531EDD2EC448
+c money.100000 | u32 main+1C0EF0 >= 100000 <= 4294967295
+c money.100000 | u32 main+1BF064 >= 100000 <= 4294967295
+c money.100000 | u32 main+1BFC18 >= 100000 <= 4294967295
+c money.1000000 | u32 main+1C0EF0 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+1BF064 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+1BFC18 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+1C0EF0 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+1BF064 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+1BFC18 >= 10000000 <= 4294967295

@@ -1,0 +1,27 @@
+# Door Kickers: Action Squad: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005ED00CD70000 Door Kickers: Action Squad
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 1D3380EE5CC8DC3A
+c level.25 | u32 main+8B0D10 >= 25 <= 999990
+c level.25 | u32 main+8B0D14 >= 25 <= 999990
+c level.25 | u32 main+8B0D18 >= 25 <= 999990
+c level.25 | u32 main+8B0D1C >= 25 <= 999990
+c level.25 | u32 main+8B0D20 >= 25 <= 999990
+c level.25 | u32 main+8B0D24 >= 25 <= 999990
+c level.50 | u32 main+8B0D10 >= 50 <= 999990
+c level.50 | u32 main+8B0D14 >= 50 <= 999990
+c level.50 | u32 main+8B0D18 >= 50 <= 999990
+c level.50 | u32 main+8B0D1C >= 50 <= 999990
+c level.50 | u32 main+8B0D20 >= 50 <= 999990
+c level.50 | u32 main+8B0D24 >= 50 <= 999990
+c level.99 | u32 main+8B0D10 >= 99 <= 999990
+c level.99 | u32 main+8B0D14 >= 99 <= 999990
+c level.99 | u32 main+8B0D18 >= 99 <= 999990
+c level.99 | u32 main+8B0D1C >= 99 <= 999990
+c level.99 | u32 main+8B0D20 >= 99 <= 999990
+c level.99 | u32 main+8B0D24 >= 99 <= 999990

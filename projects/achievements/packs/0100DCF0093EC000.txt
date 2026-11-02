@@ -1,0 +1,12 @@
+# Everspace - Stellar Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100DCF0093EC000 Everspace - Stellar Edition
+
+a credits.1000 | Saving up | Have 1,000 Credits
+a credits.10000 | Well off | Have 10,000 Credits
+a credits.100000 | Rolling in it | Have 100,000 Credits
+
+build 71873FEB4648FA39
+c credits.1000 | u32 [[[main+5744C48]+50]+8]+A0 >= 1000 <= 99999990
+c credits.10000 | u32 [[[main+5744C48]+50]+8]+A0 >= 10000 <= 99999990
+c credits.100000 | u32 [[[main+5744C48]+50]+8]+A0 >= 100000 <= 99999990

@@ -1,0 +1,27 @@
+# Gloomhaven: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010035E0184E2000 Gloomhaven
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build C4748E5EB7F6E0C9
+c gold.100000 | u32 main+1E59894 >= 100000 <= 4294967295
+c gold.100000 | u32 main+1E64C04 >= 100000 <= 4294967295
+c gold.100000 | u32 main+25FBAD0 >= 100000 <= 4294967295
+c gold.100000 | u32 main+2E23F58 >= 100000 <= 4294967295
+c gold.100000 | u32 main+3153DEC >= 100000 <= 4294967295
+c gold.100000 | u32 main+3170270 >= 100000 <= 4294967295
+c gold.1000000 | u32 main+1E59894 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+1E64C04 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+25FBAD0 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+2E23F58 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+3153DEC >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+3170270 >= 1000000 <= 4294967295
+c gold.10000000 | u32 main+1E59894 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+1E64C04 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+25FBAD0 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+2E23F58 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+3153DEC >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+3170270 >= 10000000 <= 4294967295

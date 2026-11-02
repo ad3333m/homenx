@@ -1,0 +1,10 @@
+# Poopdie - Chapter One: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010051A011AD8000 Poopdie - Chapter One
+
+a coins.100 | Well off | Have 100 coins
+a coins.9999 | Maxed out | Have 9,999 coins
+
+build A260850758DF224C
+c coins.100 | u16 [[[[main+30B9F40]+B20]+40]+B8]+18 >= 100 <= 65535
+c coins.9999 | u16 [[[[main+30B9F40]+B20]+40]+B8]+18 >= 9999 <= 65535

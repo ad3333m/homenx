@@ -1,0 +1,28 @@
+# Railway Empire - Nintendo Switch Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002EE00DC02000 Railway Empire - Nintendo Switch Edition
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 126D0DE908B959FE
+c money.100000 | u32 [[[main+1099C40]+78]+4C]+4D0 >= 100000 <= 4294967295
+c money.100000 | u32 [[[[[main+1099C40]+220]+C4]+38]+20]+4F0 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+1099C40]+78]+4C]+4D0 >= 1000000 <= 4294967295
+c money.1000000 | u32 [[[[[main+1099C40]+220]+C4]+38]+20]+4F0 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+1099C40]+78]+4C]+4D0 >= 10000000 <= 4294967295
+c money.10000000 | u32 [[[[[main+1099C40]+220]+C4]+38]+20]+4F0 >= 10000000 <= 4294967295
+
+build 25F8FB4F9D1FAC9D
+c money.100000 | u32 [[[[[main+116BD18]+A8]+0]+258]+90]+630 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[[[main+116BD18]+A8]+0]+258]+90]+630 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[[[main+116BD18]+A8]+0]+258]+90]+630 >= 10000000 <= 4294967295
+
+build C501187900EBF465
+c money.100000 | u32 [[[main+109AC50]+78]+4C]+4D0 >= 100000 <= 4294967295
+c money.100000 | u32 [[[main+109AC50]+78]+11C]+4F0 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+109AC50]+78]+4C]+4D0 >= 1000000 <= 4294967295
+c money.1000000 | u32 [[[main+109AC50]+78]+11C]+4F0 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+109AC50]+78]+4C]+4D0 >= 10000000 <= 4294967295
+c money.10000000 | u32 [[[main+109AC50]+78]+11C]+4F0 >= 10000000 <= 4294967295

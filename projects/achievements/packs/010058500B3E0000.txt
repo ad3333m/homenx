@@ -1,0 +1,15 @@
+# Labyrinth of Refrain: Coven of Dusk: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010058500B3E0000 Labyrinth of Refrain: Coven of Dusk
+
+a silver.100000 | Saving up | Have 100,000 silver
+a silver.1000000 | Well off | Have 1,000,000 silver
+a silver.10000000 | Rolling in it | Have 10,000,000 silver
+
+build A70B9EB509780B4A
+c silver.100000 | u32 main+218418 >= 100000 <= 4294967295
+c silver.100000 | u32 main+21C1CC >= 100000 <= 4294967295
+c silver.1000000 | u32 main+218418 >= 1000000 <= 4294967295
+c silver.1000000 | u32 main+21C1CC >= 1000000 <= 4294967295
+c silver.10000000 | u32 main+218418 >= 10000000 <= 4294967295
+c silver.10000000 | u32 main+21C1CC >= 10000000 <= 4294967295

@@ -1,0 +1,12 @@
+# Pokémon Mystery Dungeon: Rescue Team DX: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01003D200BAA2000 Pokémon Mystery Dungeon: Rescue Team DX
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 9DDA1EFEEF70DE46
+c level.25 | u32 main+2768654 >= 25 <= 4294967295
+c level.50 | u32 main+2768654 >= 50 <= 4294967295
+c level.99 | u32 main+2768654 >= 99 <= 4294967295

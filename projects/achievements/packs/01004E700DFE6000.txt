@@ -1,0 +1,26 @@
+# River City Girls: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01004E700DFE6000 River City Girls
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 55670FA38F492343
+c money.100000 | u32 main+28BD2C >= 100000 <= 4294967295
+c money.100000 | u32 main+28BDA4 >= 100000 <= 4294967295
+c money.1000000 | u32 main+28BD2C >= 1000000 <= 4294967295
+c money.1000000 | u32 main+28BDA4 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+28BD2C >= 10000000 <= 4294967295
+c money.10000000 | u32 main+28BDA4 >= 10000000 <= 4294967295
+
+build 73E0765BF7B07047
+c money.100000 | u32 main+2699A0 >= 100000 <= 4294967295
+c money.100000 | u32 main+2699A4 >= 100000 <= 4294967295
+c money.100000 | u32 main+2699A8 >= 100000 <= 4294967295
+c money.1000000 | u32 main+2699A0 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+2699A4 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+2699A8 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+2699A0 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+2699A4 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+2699A8 >= 10000000 <= 4294967295

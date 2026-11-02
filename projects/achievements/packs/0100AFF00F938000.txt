@@ -1,0 +1,8 @@
+# Metaverse Keeper: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100AFF00F938000 Metaverse Keeper
+
+a money.888 | Maxed out | Save up 888
+
+build 52E597EFE89C6348
+c money.888 | u32 [[[[[[[main+5C58A58]+B8]+0]+50]+F8]+40]+80]+2B4 >= 888 <= 8880

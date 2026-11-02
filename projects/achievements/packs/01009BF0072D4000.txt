@@ -1,0 +1,8 @@
+# Captain Toad: Treasure Tracker: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01009BF0072D4000 Captain Toad: Treasure Tracker
+
+a coins.999 | Maxed out | Have 999 coins
+
+build 8F75C9B8B7FF69D9
+c coins.999 | u32 [[[main+1073A10]+40]+8]+F8 >= 999 <= 9990

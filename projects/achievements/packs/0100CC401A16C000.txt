@@ -1,0 +1,33 @@
+# 0100CC401A16C000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100CC401A16C000
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 14026324C6864D20
+c level.25 | u64 main+C7DFC8 >= 25 <= 250
+c level.25 | u64 main+C7DFC8 >= 25 <= 42949672970
+c level.25 | u64 main+C7DFC8 >= 25 <= 85899345940
+c level.25 | u64 main+C7DFC8 >= 25 <= 128849018910
+c level.25 | u64 main+C7DFC8 >= 25 <= 171798691880
+c level.25 | u64 main+C7DFC8 >= 25 <= 214748364850
+c level.25 | u64 main+C7DFC8 >= 25 <= 257698037820
+c level.25 | u64 main+C7DFC8 >= 25 <= 300647710790
+c level.50 | u64 main+C7DFC8 >= 50 <= 500
+c level.50 | u64 main+C7DFC8 >= 50 <= 42949672970
+c level.50 | u64 main+C7DFC8 >= 50 <= 85899345940
+c level.50 | u64 main+C7DFC8 >= 50 <= 128849018910
+c level.50 | u64 main+C7DFC8 >= 50 <= 171798691880
+c level.50 | u64 main+C7DFC8 >= 50 <= 214748364850
+c level.50 | u64 main+C7DFC8 >= 50 <= 257698037820
+c level.50 | u64 main+C7DFC8 >= 50 <= 300647710790
+c level.99 | u64 main+C7DFC8 >= 99 <= 990
+c level.99 | u64 main+C7DFC8 >= 99 <= 42949672970
+c level.99 | u64 main+C7DFC8 >= 99 <= 85899345940
+c level.99 | u64 main+C7DFC8 >= 99 <= 128849018910
+c level.99 | u64 main+C7DFC8 >= 99 <= 171798691880
+c level.99 | u64 main+C7DFC8 >= 99 <= 214748364850
+c level.99 | u64 main+C7DFC8 >= 99 <= 257698037820
+c level.99 | u64 main+C7DFC8 >= 99 <= 300647710790

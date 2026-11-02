@@ -1,0 +1,12 @@
+# Hauntii: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BB801B79C000 Hauntii
+
+a coins.10000 | Saving up | Have 10,000 coins
+a coins.100000 | Well off | Have 100,000 coins
+a coins.1000000 | Rolling in it | Have 1,000,000 coins
+
+build 96C6B9C2240EBD4D
+c coins.10000 | u32 [[[[main+7405960]+B8]+0]+E0]+24 >= 10000 <= 999999990
+c coins.100000 | u32 [[[[main+7405960]+B8]+0]+E0]+24 >= 100000 <= 999999990
+c coins.1000000 | u32 [[[[main+7405960]+B8]+0]+E0]+24 >= 1000000 <= 999999990

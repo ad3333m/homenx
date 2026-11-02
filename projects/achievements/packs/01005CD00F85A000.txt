@@ -1,0 +1,14 @@
+# Underhero: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005CD00F85A000 Underhero
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build 4630FBC60041C444
+c gold.100 | u32 [[[[[main+3D8DA40]+B8]+0]+E8]+2C8]+18 >= 100 <= 999990
+c gold.1000 | u32 [[[[[main+3D8DA40]+B8]+0]+E8]+2C8]+18 >= 1000 <= 999990
+
+build 4C43A24535E79D47
+c gold.100 | u32 [[[[[main+3D9EB68]+B8]+0]+E8]+2C8]+18 >= 100 <= 999990
+c gold.1000 | u32 [[[[[main+3D9EB68]+B8]+0]+E8]+2C8]+18 >= 1000 <= 999990

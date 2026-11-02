@@ -1,0 +1,8 @@
+# Arcade Archives Mutant Night: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010072C009826000 Arcade Archives Mutant Night
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 3E18B0A894AA54BB
+c credits.153 | u8 [[[main+1078178]+310]+10]+10F >= 153 <= 255

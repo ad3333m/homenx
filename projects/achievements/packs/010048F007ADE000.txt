@@ -1,0 +1,10 @@
+# Tangledeep: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010048F007ADE000 Tangledeep
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build AB6322343406634A
+c money.100 | u32 [[[[[main+3DDD688]+48]+608]+98]+A0]+2E8 >= 100 <= 999990
+c money.1000 | u32 [[[[[main+3DDD688]+48]+608]+98]+A0]+2E8 >= 1000 <= 999990

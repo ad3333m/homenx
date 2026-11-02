@@ -1,0 +1,10 @@
+# Toon Shooters 2: The Freelancers: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D31013F24000 Toon Shooters 2: The Freelancers
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build C41D950BA5984BFC
+c money.100 | u32 [[[[[[main+37EA708]+88]+B8]+20]+10]+98]+58 >= 100 <= 200000
+c money.1000 | u32 [[[[[[main+37EA708]+88]+B8]+20]+10]+98]+58 >= 1000 <= 200000

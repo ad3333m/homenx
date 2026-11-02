@@ -1,0 +1,18 @@
+# Borderlands: The Pre-Sequel: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010007400FF24000 Borderlands: The Pre-Sequel
+
+a coins.500 | Maxed out | Have 500 coins
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 090B1F7F7AF35D00
+c coins.500 | u32 [[main+4D5C6F0]+220]+4E4 >= 500 <= 5000
+c money.100 | u32 [[main+4D5C6F0]+220]+480 >= 100 <= 999990
+c money.1000 | u32 [[main+4D5C6F0]+220]+480 >= 1000 <= 999990
+c level.25 | u32 main+1354DF4 >= 25 <= 4294967295
+c level.50 | u32 main+1354DF4 >= 50 <= 4294967295
+c level.99 | u32 main+1354DF4 >= 99 <= 4294967295

@@ -1,0 +1,12 @@
+# Blacksmith of the Sand Kingdom: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010068E013450000 Blacksmith of the Sand Kingdom
+
+a money.10000 | Saving up | Save up 10,000
+a money.100000 | Well off | Save up 100,000
+a money.1000000 | Rolling in it | Save up 1,000,000
+
+build 52E9B20C87354246
+c money.10000 | u32 [[[main+325BFB0]+B8]+0]+2F8 >= 10000 <= 888888880
+c money.100000 | u32 [[[main+325BFB0]+B8]+0]+2F8 >= 100000 <= 888888880
+c money.1000000 | u32 [[[main+325BFB0]+B8]+0]+2F8 >= 1000000 <= 888888880

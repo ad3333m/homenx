@@ -1,0 +1,8 @@
+# Arcade Archives GRADIUS III: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006230131A4000 Arcade Archives GRADIUS III
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build A9E99D1CFFC554C7
+c credits.153 | u8 [[main+14E4358]+6F0]+35 >= 153 <= 255

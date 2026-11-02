@@ -1,0 +1,10 @@
+# HAAK: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100822012D76000 HAAK
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 758C4FC2ED63CD43
+c coins.100 | u32 [[[[main+48D8120]+B8]+0]+118]+2C >= 100 <= 215090
+c coins.1000 | u32 [[[[main+48D8120]+B8]+0]+118]+2C >= 1000 <= 215090

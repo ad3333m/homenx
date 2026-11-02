@@ -1,0 +1,10 @@
+# Lost Sea: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010071B00964A000 Lost Sea
+
+a gold.100 | Well off | Have 100 gold
+a gold.9999 | Maxed out | Have 9,999 gold
+
+build 53A7C333F5A5164E
+c gold.100 | u32 [[[[[main+1F4D170]+A0]+8]+1C0]+28]+1F0 >= 100 <= 99990
+c gold.9999 | u32 [[[[[main+1F4D170]+A0]+8]+1C0]+28]+1F0 >= 9999 <= 99990

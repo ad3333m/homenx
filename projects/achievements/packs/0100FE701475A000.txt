@@ -1,0 +1,22 @@
+# Teenage Mutant Ninja Turtles: Shredder's Revenge - Anniversary Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100FE701475A000 Teenage Mutant Ninja Turtles: Shredder's Revenge - Anniversary Edition
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 3602EA0CB9BB3183
+c level.25 | u32 main+130852C >= 25 <= 4294967295
+c level.50 | u32 main+130852C >= 50 <= 4294967295
+c level.99 | u32 main+130852C >= 99 <= 4294967295
+
+build 3CB1B07ABE602860
+c level.25 | u32 main+12FB5EC >= 25 <= 4294967295
+c level.50 | u32 main+12FB5EC >= 50 <= 4294967295
+c level.99 | u32 main+12FB5EC >= 99 <= 4294967295
+
+build F3280D919E4A625B
+c level.25 | u32 main+12E120C >= 25 <= 4294967295
+c level.50 | u32 main+12E120C >= 50 <= 4294967295
+c level.99 | u32 main+12E120C >= 99 <= 4294967295

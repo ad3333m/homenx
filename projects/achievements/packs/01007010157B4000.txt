@@ -1,0 +1,12 @@
+# 01007010157B4000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01007010157B4000
+
+a silver.1000 | Saving up | Have 1,000 silver
+a silver.10000 | Well off | Have 10,000 silver
+a silver.100000 | Rolling in it | Have 100,000 silver
+
+build 2CD73D6B5D65673C
+c silver.1000 | u32 heap+893D204 >= 1000 <= 99999990
+c silver.10000 | u32 heap+893D204 >= 10000 <= 99999990
+c silver.100000 | u32 heap+893D204 >= 100000 <= 99999990

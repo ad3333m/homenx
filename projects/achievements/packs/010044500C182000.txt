@@ -1,0 +1,12 @@
+# Sid Meier’s Civilization VI: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010044500C182000 Sid Meier’s Civilization VI
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 199E91FC40CB4F7D
+c money.100000 | u32 [[[[[[main+41934D8]+18]+2860]+8]+18]+180]+10 >= 100000 <= 2559997440
+c money.1000000 | u32 [[[[[[main+41934D8]+18]+2860]+8]+18]+180]+10 >= 1000000 <= 2559997440
+c money.10000000 | u32 [[[[[[main+41934D8]+18]+2860]+8]+18]+180]+10 >= 10000000 <= 2559997440

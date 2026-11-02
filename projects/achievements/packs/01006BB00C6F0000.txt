@@ -1,0 +1,10 @@
+# The Legend of Zelda: Link’s Awakening: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006BB00C6F0000 The Legend of Zelda: Link’s Awakening
+
+a rupees.100 | Well off | Have 100 Rupees
+a rupees.9999 | Maxed out | Have 9,999 Rupees
+
+build AE16F71E002AF8CB
+c rupees.100 | u16 main+1CC0760 >= 100 <= 65535
+c rupees.9999 | u16 main+1CC0760 >= 9999 <= 65535

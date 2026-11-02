@@ -1,0 +1,15 @@
+# Battle Brothers – A Turn Based Tactical RPG: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100C5000F294000 Battle Brothers – A Turn Based Tactical RPG
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build 51B44A165A981DA6
+c gold.100000 | u32 [[[[main+A57B40]+50]+290]+D8]+D0 >= 100000 <= 4294967295
+c gold.100000 | u32 [[[[main+A57B40]+50]+290]+E0]+F30 >= 100000 <= 9999990
+c gold.1000000 | u32 [[[[main+A57B40]+50]+290]+D8]+D0 >= 1000000 <= 4294967295
+c gold.1000000 | u32 [[[[main+A57B40]+50]+290]+E0]+F30 >= 1000000 <= 10000000
+c gold.10000000 | u32 [[[[main+A57B40]+50]+290]+D8]+D0 >= 10000000 <= 4294967295
+c gold.10000000 | u32 [[[[main+A57B40]+50]+290]+E0]+F30 >= 10000000 <= 100000000

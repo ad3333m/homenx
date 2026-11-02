@@ -1,0 +1,14 @@
+# Guacamelee! Super Turbo Championship Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BAE00B470000 Guacamelee! Super Turbo Championship Edition
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+a silver.100 | Well off | Have 100 silver
+a silver.9999 | Maxed out | Have 9,999 silver
+
+build 184FC082F199328E
+c coins.100 | u32 main+11E3AF8 >= 100 <= 999990
+c coins.1000 | u32 main+11E3AF8 >= 1000 <= 999990
+c silver.100 | u32 main+11F9AD8 >= 100 <= 99990
+c silver.9999 | u32 main+11F9AD8 >= 9999 <= 99990

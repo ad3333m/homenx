@@ -1,0 +1,52 @@
+# DRAGON BALL XENOVERSE 2 for Nintendo Switch: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010078D000F88000 DRAGON BALL XENOVERSE 2 for Nintendo Switch
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 0D0E5AAB66AD6795
+c level.25 | u32 heap+54A2E954 >= 25 <= 990
+c level.50 | u32 heap+54A2E954 >= 50 <= 990
+c level.99 | u32 heap+54A2E954 >= 99 <= 990
+
+build 0F4992D359C3B6DD
+c level.25 | u32 heap+54A2E954 >= 25 <= 990
+c level.50 | u32 heap+54A2E954 >= 50 <= 990
+c level.99 | u32 heap+54A2E954 >= 99 <= 990
+
+build 15F6AFFE27BC79DC
+c level.25 | u32 heap+54C2E954 >= 25 <= 990
+c level.50 | u32 heap+54C2E954 >= 50 <= 990
+c level.99 | u32 heap+54C2E954 >= 99 <= 990
+
+build 54C53BF518BEF0ED
+c level.25 | u32 heap+54A2E954 >= 25 <= 990
+c level.50 | u32 heap+54A2E954 >= 50 <= 990
+c level.99 | u32 heap+54A2E954 >= 99 <= 990
+
+build 5D6D051AEA5D556D
+c level.25 | u32 heap+4CE2D954 >= 25 <= 990
+c level.50 | u32 heap+4CE2D954 >= 50 <= 990
+c level.99 | u32 heap+4CE2D954 >= 99 <= 990
+
+build 867B51C287259559
+c level.25 | u32 heap+54A2E954 >= 25 <= 990
+c level.50 | u32 heap+54A2E954 >= 50 <= 990
+c level.99 | u32 heap+54A2E954 >= 99 <= 990
+
+build F89026442C938F06
+c level.25 | u32 heap+54A2E954 >= 25 <= 990
+c level.50 | u32 heap+54A2E954 >= 50 <= 990
+c level.99 | u32 heap+54A2E954 >= 99 <= 990
+
+build FF91EEDA841180D5
+c level.25 | u32 main+7320A0 >= 25 <= 4294967295
+c level.50 | u32 main+7320A0 >= 50 <= 4294967295
+c level.99 | u32 main+7320A0 >= 99 <= 4294967295
+
+build FFD194436F8D3D2D
+c level.25 | u32 heap+54A2E954 >= 25 <= 990
+c level.50 | u32 heap+54A2E954 >= 50 <= 990
+c level.99 | u32 heap+54A2E954 >= 99 <= 990

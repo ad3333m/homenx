@@ -1,0 +1,12 @@
+# Bomber Crew: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01007900080B6000 Bomber Crew
+
+a money.1000 | Saving up | Save up 1,000
+a money.10000 | Well off | Save up 10,000
+a money.100000 | Rolling in it | Save up 100,000
+
+build 2B039C01B7596146
+c money.1000 | u32 [[[main+2E42750]+E650]+28]+30 >= 1000 <= 99999990
+c money.10000 | u32 [[[main+2E42750]+E650]+28]+30 >= 10000 <= 99999990
+c money.100000 | u32 [[[main+2E42750]+E650]+28]+30 >= 100000 <= 99999990

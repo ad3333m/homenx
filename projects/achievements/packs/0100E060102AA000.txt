@@ -1,0 +1,10 @@
+# Blood will be Spilled: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E060102AA000 Blood will be Spilled
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 7C02CA59F9D3F54A
+c money.100 | u32 [[[[[main+3C309B0]+B8]+0]+B8]+20]+8C >= 100 <= 999990
+c money.1000 | u32 [[[[[main+3C309B0]+B8]+0]+B8]+20]+8C >= 1000 <= 999990

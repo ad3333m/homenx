@@ -1,0 +1,29 @@
+# Little Noah: Scion of Paradise: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100535014D76000 Little Noah: Scion of Paradise
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 289F756D51EA8A9E
+c money.100000 | u32 main+15E1E68 >= 100000 <= 4294967295
+c money.100000 | u32 main+15E2360 >= 100000 <= 4294967295
+c money.100000 | u32 [[[[main+38C78B0]+6E0]+A48]+40]+728 >= 100000 <= 9999990
+c money.1000000 | u32 main+15E1E68 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+15E2360 >= 1000000 <= 4294967295
+c money.1000000 | u32 [[[[main+38C78B0]+6E0]+A48]+40]+728 >= 1000000 <= 10000000
+c money.10000000 | u32 main+15E1E68 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+15E2360 >= 10000000 <= 4294967295
+c money.10000000 | u32 [[[[main+38C78B0]+6E0]+A48]+40]+728 >= 10000000 <= 100000000
+
+build 99B1CD48C88835F6
+c money.100000 | u32 main+15E1E68 >= 100000 <= 4294967295
+c money.100000 | u32 main+15E2360 >= 100000 <= 4294967295
+c money.100000 | u32 [[[[main+38C78B0]+6E0]+A48]+40]+728 >= 100000 <= 9999990
+c money.1000000 | u32 main+15E1E68 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+15E2360 >= 1000000 <= 4294967295
+c money.1000000 | u32 [[[[main+38C78B0]+6E0]+A48]+40]+728 >= 1000000 <= 10000000
+c money.10000000 | u32 main+15E1E68 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+15E2360 >= 10000000 <= 4294967295
+c money.10000000 | u32 [[[[main+38C78B0]+6E0]+A48]+40]+728 >= 10000000 <= 100000000

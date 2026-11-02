@@ -1,0 +1,12 @@
+# Touhou Luna Nights: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D850131B0000 Touhou Luna Nights
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build FE5B26032BFC9289
+c gold.100000 | u32 heap+A5BB4F04 >= 100000 <= 4294967295
+c gold.1000000 | u32 heap+A5BB4F04 >= 1000000 <= 4294967295
+c gold.10000000 | u32 heap+A5BB4F04 >= 10000000 <= 4294967295

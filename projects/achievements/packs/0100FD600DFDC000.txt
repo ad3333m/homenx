@@ -1,0 +1,10 @@
+# 0100FD600DFDC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100FD600DFDC000
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build BF57B4D7BA5EF145
+c gold.100 | u32 [[[[main+28946A0]+A0]+20]+20]+74 >= 100 <= 999990
+c gold.1000 | u32 [[[[main+28946A0]+A0]+20]+20]+74 >= 1000 <= 999990

@@ -1,0 +1,30 @@
+# 01001C400E9D8000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01001C400E9D8000
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 3F57F096B84C7CFB
+c money.100000 | u32 main+3E2690 >= 100000 <= 1852061220
+c money.100000 | u32 main+3E2690 >= 100000 <= 1852071460
+c money.100000 | u32 main+3E2690 >= 100000 <= 1852081700
+c money.100000 | u32 heap+52F48B94 >= 100000 <= 999999990
+c money.1000000 | u32 main+3E2690 >= 1000000 <= 1852061220
+c money.1000000 | u32 main+3E2690 >= 1000000 <= 1852071460
+c money.1000000 | u32 main+3E2690 >= 1000000 <= 1852081700
+c money.1000000 | u32 heap+52F48B94 >= 1000000 <= 999999990
+c money.10000000 | u32 main+3E2690 >= 10000000 <= 1852061220
+c money.10000000 | u32 main+3E2690 >= 10000000 <= 1852071460
+c money.10000000 | u32 main+3E2690 >= 10000000 <= 1852081700
+c money.10000000 | u32 heap+52F48B94 >= 10000000 <= 999999990
+c level.25 | u32 heap+52F48B98 >= 25 <= 999999990
+c level.25 | u32 heap+53CFACF0 >= 25 <= 999999990
+c level.50 | u32 heap+52F48B98 >= 50 <= 999999990
+c level.50 | u32 heap+53CFACF0 >= 50 <= 999999990
+c level.99 | u32 heap+52F48B98 >= 99 <= 999999990
+c level.99 | u32 heap+53CFACF0 >= 99 <= 999999990

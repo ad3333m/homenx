@@ -1,0 +1,18 @@
+# Illusion of L'Phalcia: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01000B700EC22000 Illusion of L'Phalcia
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+
+build DCAD50AEF4E03C48
+c gold.10000 | u32 heap+83F80A58 >= 10000 <= 100000000
+c gold.10000 | u32 heap+96215288 >= 10000 <= 100000000
+c gold.10000 | u32 heap+96216288 >= 10000 <= 100000000
+c gold.100000 | u32 heap+83F80A58 >= 100000 <= 100000000
+c gold.100000 | u32 heap+96215288 >= 100000 <= 100000000
+c gold.100000 | u32 heap+96216288 >= 100000 <= 100000000
+c gold.1000000 | u32 heap+83F80A58 >= 1000000 <= 100000000
+c gold.1000000 | u32 heap+96215288 >= 1000000 <= 100000000
+c gold.1000000 | u32 heap+96216288 >= 1000000 <= 100000000

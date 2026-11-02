@@ -1,0 +1,17 @@
+# Narcos: Rise of the Cartels: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010072B00BDDE000 Narcos: Rise of the Cartels
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 188F1ED1673FACBD
+c money.100000 | u32 [[[main+553BFE8]+8]+278]+1DC >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+553BFE8]+8]+278]+1DC >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+553BFE8]+8]+278]+1DC >= 10000000 <= 4294967295
+
+build 2E6FA6FAE12D8085
+c money.100000 | u32 [main+5539960]-15E24 >= 100000 <= 4294967295
+c money.1000000 | u32 [main+5539960]-15E24 >= 1000000 <= 4294967295
+c money.10000000 | u32 [main+5539960]-15E24 >= 10000000 <= 4294967295

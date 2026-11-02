@@ -1,0 +1,21 @@
+# METALLIC CHILD: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01009DE014D6E000 METALLIC CHILD
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Max level | Reach level 99
+
+build 0E8F4C919CF90AA2
+c level.25 | u32 [[[[[main+4573D98]+B8]+298]+550]+20]+58 >= 25 <= 990
+c level.25 | u32 [[[[[main+4573D98]+B8]+298]+550]+28]+58 >= 25 <= 990
+c level.25 | u32 [[[[[main+4573D98]+B8]+298]+550]+30]+58 >= 25 <= 990
+c level.25 | u32 [[[[[main+4573D98]+B8]+298]+550]+38]+58 >= 25 <= 990
+c level.50 | u32 [[[[[main+4573D98]+B8]+298]+550]+20]+58 >= 50 <= 990
+c level.50 | u32 [[[[[main+4573D98]+B8]+298]+550]+28]+58 >= 50 <= 990
+c level.50 | u32 [[[[[main+4573D98]+B8]+298]+550]+30]+58 >= 50 <= 990
+c level.50 | u32 [[[[[main+4573D98]+B8]+298]+550]+38]+58 >= 50 <= 990
+c level.99 | u32 [[[[[main+4573D98]+B8]+298]+550]+20]+58 >= 99 <= 990
+c level.99 | u32 [[[[[main+4573D98]+B8]+298]+550]+28]+58 >= 99 <= 990
+c level.99 | u32 [[[[[main+4573D98]+B8]+298]+550]+30]+58 >= 99 <= 990
+c level.99 | u32 [[[[[main+4573D98]+B8]+298]+550]+38]+58 >= 99 <= 990

@@ -1,0 +1,18 @@
+# NARUTO SHIPPUDEN: Ultimate Ninja Storm Trilogy: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100EC800800C000 NARUTO SHIPPUDEN: Ultimate Ninja Storm Trilogy
+
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build 577EFDFDBB7545CF
+c money.100 | u32 main+329096C >= 100 <= 999990
+c money.100 | u32 main+32AC018 >= 100 <= 999990
+c money.100 | u32 main+337BAC8 >= 100 <= 9999990
+c money.1000 | u32 main+329096C >= 1000 <= 999990
+c money.1000 | u32 main+32AC018 >= 1000 <= 999990
+c money.1000 | u32 main+337BAC8 >= 1000 <= 9999990
+c money.10000 | u32 main+329096C >= 10000 <= 999990
+c money.10000 | u32 main+32AC018 >= 10000 <= 999990
+c money.10000 | u32 main+337BAC8 >= 10000 <= 9999990

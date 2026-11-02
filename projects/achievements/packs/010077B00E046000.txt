@@ -1,0 +1,12 @@
+# Spyro Reignited Trilogy: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010077B00E046000 Spyro Reignited Trilogy
+
+a gems.100 | Saving up | Have 100 Gems
+a gems.1000 | Well off | Have 1,000 Gems
+a gems.10000 | Rolling in it | Have 10,000 Gems
+
+build D2775FAFCF4835CB
+c gems.100 | u32 [main+616E400]+2C4 >= 100 <= 6000000
+c gems.1000 | u32 [main+616E400]+2C4 >= 1000 <= 6000000
+c gems.10000 | u32 [main+616E400]+2C4 >= 10000 <= 6000000

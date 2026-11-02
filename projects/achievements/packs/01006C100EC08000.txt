@@ -1,0 +1,24 @@
+# Minecraft Dungeons Hero Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006C100EC08000 Minecraft Dungeons Hero Edition
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 5EE3F44479A972EA
+c gold.100000 | u32 [[[[main+7CF3188]+218]+0]+108]+14 >= 100000 <= 4294967295
+c gold.1000000 | u32 [[[[main+7CF3188]+218]+0]+108]+14 >= 1000000 <= 4294967295
+c gold.10000000 | u32 [[[[main+7CF3188]+218]+0]+108]+14 >= 10000000 <= 4294967295
+c level.25 | u32 [[[[main+85C1A68]+1A8]+288]+D0]+150 >= 25 <= 4294967295
+c level.50 | u32 [[[[main+85C1A68]+1A8]+288]+D0]+150 >= 50 <= 4294967295
+c level.99 | u32 [[[[main+85C1A68]+1A8]+288]+D0]+150 >= 99 <= 4294967295
+
+build FD6B97411349DDB3
+c money.100 | u32 [[[[[main+8016010]+30]+6B8]+F8]+F0]+8 >= 100 <= 888880
+c money.1000 | u32 [[[[[main+8016010]+30]+6B8]+F8]+F0]+8 >= 1000 <= 888880

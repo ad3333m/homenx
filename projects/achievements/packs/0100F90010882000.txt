@@ -1,0 +1,17 @@
+# Ys Origin: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F90010882000 Ys Origin
+
+a gold.100 | Saving up | Have 100 gold
+a gold.1000 | Well off | Have 1,000 gold
+a gold.10000 | Rolling in it | Have 10,000 gold
+
+build 11C2B5B0961CD855
+c gold.100 | u32 [main+42C398]+134 >= 100 <= 9999990
+c gold.1000 | u32 [main+42C398]+134 >= 1000 <= 9999990
+c gold.10000 | u32 [main+42C398]+134 >= 10000 <= 9999990
+
+build 31FC374BE830F17E
+c gold.100 | u32 [main+42C398]+134 >= 100 <= 9999990
+c gold.1000 | u32 [main+42C398]+134 >= 1000 <= 9999990
+c gold.10000 | u32 [main+42C398]+134 >= 10000 <= 9999990

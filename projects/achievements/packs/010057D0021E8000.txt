@@ -1,0 +1,8 @@
+# Shovel Knight: Treasure Trove: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010057D0021E8000 Shovel Knight: Treasure Trove
+
+a coins.135 | Maxed out | Have 135 coins
+
+build B9C8987A2F5EE46E
+c coins.135 | u8 main+E8DFB8 >= 135 <= 255

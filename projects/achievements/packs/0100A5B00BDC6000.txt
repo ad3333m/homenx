@@ -1,0 +1,20 @@
+# FINAL FANTASY VII: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100A5B00BDC6000 FINAL FANTASY VII
+
+a gil.10000 | Saving up | Have 10,000 Gil
+a gil.100000 | Well off | Have 100,000 Gil
+a gil.1000000 | Rolling in it | Have 1,000,000 Gil
+
+build 99B42A70EC0234B5
+c gil.10000 | u32 heap+6920BCB4 >= 10000 <= 999999990
+c gil.10000 | u32 heap+6387C6C8 >= 10000 <= 655350
+c gil.100000 | u32 heap+6920BCB4 >= 100000 <= 999999990
+c gil.100000 | u32 heap+6387C6C8 >= 100000 <= 1000000
+c gil.1000000 | u32 heap+6920BCB4 >= 1000000 <= 999999990
+c gil.1000000 | u32 heap+6387C6C8 >= 1000000 <= 10000000
+
+build CA4ED0693797F529
+c gil.10000 | u32 heap+7715BCB4 >= 10000 <= 999999990
+c gil.100000 | u32 heap+7715BCB4 >= 100000 <= 999999990
+c gil.1000000 | u32 heap+7715BCB4 >= 1000000 <= 999999990

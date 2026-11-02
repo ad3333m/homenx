@@ -1,0 +1,12 @@
+# Ara Fell: Enhanced Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010080B0115BA000 Ara Fell: Enhanced Edition
+
+a coins.10000 | Saving up | Have 10,000 coins
+a coins.100000 | Well off | Have 100,000 coins
+a coins.1000000 | Rolling in it | Have 1,000,000 coins
+
+build 50D84C959A7A6F42
+c coins.10000 | u32 [[[[main+362A9C8]+B8]+18]+78]+1C >= 10000 <= 999999990
+c coins.100000 | u32 [[[[main+362A9C8]+B8]+18]+78]+1C >= 100000 <= 999999990
+c coins.1000000 | u32 [[[[main+362A9C8]+B8]+18]+78]+1C >= 1000000 <= 999999990

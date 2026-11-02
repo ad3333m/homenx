@@ -1,0 +1,12 @@
+# FRONT MISSION 1st: Remake: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F200178F4000 FRONT MISSION 1st: Remake
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 3F80B00963C3B024
+c money.100000 | u32 main+3759844 >= 100000 <= 1846315600
+c money.1000000 | u32 main+3759844 >= 1000000 <= 1846315600
+c money.10000000 | u32 main+3759844 >= 10000000 <= 1846315600

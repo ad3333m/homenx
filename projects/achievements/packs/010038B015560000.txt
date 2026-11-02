@@ -1,0 +1,12 @@
+# FINAL FANTASY TACTICS - The Ivalice Chronicles Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010038B015560000 FINAL FANTASY TACTICS - The Ivalice Chronicles Nintendo Switch 2 Edition
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build F90AC33A22C85DA5
+c gold.100000 | u32 main+B569E0 >= 100000 <= 4000000000
+c gold.1000000 | u32 main+B569E0 >= 1000000 <= 4000000000
+c gold.10000000 | u32 main+B569E0 >= 10000000 <= 4000000000

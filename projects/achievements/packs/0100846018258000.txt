@@ -1,0 +1,23 @@
+# ANNO: Mutationem: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100846018258000 ANNO: Mutationem
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 4AB357090740A54F
+c money.100000 | u32 main+190FE14 >= 100000 <= 3496084630
+c money.100000 | u32 main+1913720 >= 100000 <= 3496048150
+c money.1000000 | u32 main+190FE14 >= 1000000 <= 3496084630
+c money.1000000 | u32 main+1913720 >= 1000000 <= 3496048150
+c money.10000000 | u32 main+190FE14 >= 10000000 <= 3496084630
+c money.10000000 | u32 main+1913720 >= 10000000 <= 3496048150
+
+build 60990251C36F1E4C
+c money.100000 | u32 main+1AA3964 >= 100000 <= 3491950070
+c money.100000 | u32 main+1AA7270 >= 100000 <= 3491913590
+c money.1000000 | u32 main+1AA3964 >= 1000000 <= 3491950070
+c money.1000000 | u32 main+1AA7270 >= 1000000 <= 3491913590
+c money.10000000 | u32 main+1AA3964 >= 10000000 <= 3491950070
+c money.10000000 | u32 main+1AA7270 >= 10000000 <= 3491913590

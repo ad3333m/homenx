@@ -1,0 +1,8 @@
+# Arcade Archives TIME PILOT: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100AF300D2E8000 Arcade Archives TIME PILOT
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 0A43EF9DDC07DD2B
+c credits.153 | u8 [[main+1B9CB0]+608]+1CE >= 153 <= 255

@@ -1,0 +1,8 @@
+# Operation Hardcore: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010039C00A45C000 Operation Hardcore
+
+a money.999 | Maxed out | Save up 999
+
+build 35C56D941EB3D44A
+c money.999 | u32 [[[main+1DCC2D8]+280]+DD0]+20 >= 999 <= 9990

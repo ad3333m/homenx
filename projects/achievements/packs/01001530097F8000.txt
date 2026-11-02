@@ -1,0 +1,8 @@
+# Arcade Archives PUNCH-OUT!!: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01001530097F8000 Arcade Archives PUNCH-OUT!!
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build EFA7C305C7475BE2
+c credits.153 | u8 heap+10E7833 >= 153 <= 255

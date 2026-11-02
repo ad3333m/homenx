@@ -1,0 +1,25 @@
+# 0100C2D00EBD4000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100C2D00EBD4000
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 1F27449539E34189
+c money.100000 | u32 [[main+50BA80A8]+2168]+CAD0 >= 100000 <= 4294967295
+c money.100000 | u32 [[main+60BFD790]+8]+CAD0 >= 100000 <= 4294967295
+c money.1000000 | u32 [[main+50BA80A8]+2168]+CAD0 >= 1000000 <= 4294967295
+c money.1000000 | u32 [[main+60BFD790]+8]+CAD0 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[main+50BA80A8]+2168]+CAD0 >= 10000000 <= 4294967295
+c money.10000000 | u32 [[main+60BFD790]+8]+CAD0 >= 10000000 <= 4294967295
+
+build 3353DF7ACBA29330
+c money.100000 | u32 [[main+50BA80A8]+2168]+CAD0 >= 100000 <= 4294967295
+c money.1000000 | u32 [[main+50BA80A8]+2168]+CAD0 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[main+50BA80A8]+2168]+CAD0 >= 10000000 <= 4294967295
+
+build 74B04562D41E3C1E
+c money.100000 | u32 [[[main+50BA70A8]+2448]+B0]-90 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+50BA70A8]+2448]+B0]-90 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+50BA70A8]+2448]+B0]-90 >= 10000000 <= 4294967295

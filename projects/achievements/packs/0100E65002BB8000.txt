@@ -1,0 +1,25 @@
+# Stardew Valley: Nintendo Switch 2 Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E65002BB8000 Stardew Valley: Nintendo Switch 2 Edition
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+a money.100 | Saving up | Save up 100
+a money.1000 | Well off | Save up 1,000
+a money.10000 | Rolling in it | Save up 10,000
+
+build 44BA37318C492264
+c gold.10000 | u32 [main+49D4B78]+324 >= 10000 <= 100000000
+c gold.100000 | u32 [main+49D4B78]+324 >= 100000 <= 100000000
+c gold.1000000 | u32 [main+49D4B78]+324 >= 1000000 <= 100000000
+
+build 54D5695B9F5D8248
+c money.100 | u32 [[[[main+A62F788]+1D0]+58]+10]+58 >= 100 <= 9999990
+c money.1000 | u32 [[[[main+A62F788]+1D0]+58]+10]+58 >= 1000 <= 9999990
+c money.10000 | u32 [[[[main+A62F788]+1D0]+58]+10]+58 >= 10000 <= 9999990
+
+build C45898E4542ECCDA
+c gold.10000 | u32 [[[[[[main+8AA5440]+E8]+50]+30]+58]+10]+58 >= 10000 <= 100000000
+c gold.100000 | u32 [[[[[[main+8AA5440]+E8]+50]+30]+58]+10]+58 >= 100000 <= 100000000
+c gold.1000000 | u32 [[[[[[main+8AA5440]+E8]+50]+30]+58]+10]+58 >= 1000000 <= 100000000

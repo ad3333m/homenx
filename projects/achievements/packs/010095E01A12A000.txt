@@ -1,0 +1,32 @@
+# Afterimage: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010095E01A12A000 Afterimage
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 18AA1A686407F14C
+c level.25 | u64 main+3DFCF78 >= 25 <= 18446744073709551615
+c level.50 | u64 main+3DFCF78 >= 50 <= 18446744073709551615
+c level.99 | u64 main+3DFCF78 >= 99 <= 18446744073709551615
+
+build 30FB804D46200DF3
+c level.25 | u64 main+3DFFF78 >= 25 <= 18446744073709551615
+c level.50 | u64 main+3DFFF78 >= 50 <= 18446744073709551615
+c level.99 | u64 main+3DFFF78 >= 99 <= 18446744073709551615
+
+build 68E2DC6FAC56AD51
+c level.25 | u64 main+3E11F78 >= 25 <= 18446744073709551615
+c level.50 | u64 main+3E11F78 >= 50 <= 18446744073709551615
+c level.99 | u64 main+3E11F78 >= 99 <= 18446744073709551615
+
+build 872BD0CCED31F664
+c level.25 | u64 main+3DFDF78 >= 25 <= 18446744073709551615
+c level.50 | u64 main+3DFDF78 >= 50 <= 18446744073709551615
+c level.99 | u64 main+3DFDF78 >= 99 <= 18446744073709551615
+
+build EACF2312BDA9682A
+c level.25 | u64 main+3E17F78 >= 25 <= 18446744073709551615
+c level.50 | u64 main+3E17F78 >= 50 <= 18446744073709551615
+c level.99 | u64 main+3E17F78 >= 99 <= 18446744073709551615

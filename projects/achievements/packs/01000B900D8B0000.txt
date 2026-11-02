@@ -1,0 +1,27 @@
+# Cadence of Hyrule: Crypt of the NecroDancer featuring The Legend of Zelda: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01000B900D8B0000 Cadence of Hyrule: Crypt of the NecroDancer featuring The Legend of Zelda
+
+a coins.999 | Maxed out | Have 999 coins
+a gems.100 | Well off | Have 100 Gems
+a gems.9999 | Maxed out | Have 9,999 Gems
+a rupees.100 | Well off | Have 100 Rupees
+a rupees.9999 | Maxed out | Have 9,999 Rupees
+
+build 58D659D1017E8350
+c gems.100 | u32 [main+8A9118]+C >= 100 <= 99990
+c gems.9999 | u32 [main+8A9118]+C >= 9999 <= 99990
+
+build 7179A4BD112B6C65
+c coins.999 | u32 main+30A4EBC >= 999 <= 9990
+
+build B2C7C52E52FA468F
+c rupees.100 | u32 main+2F37118 >= 100 <= 99990
+c rupees.9999 | u32 main+2F37118 >= 9999 <= 99990
+
+build BD63F1CDF679829E
+c coins.999 | u32 main+2F508B0 >= 999 <= 9990
+
+build DC18649D072E8743
+c gems.100 | u16 [main+8C21A0]+C >= 100 <= 65535
+c gems.9999 | u16 [main+8C21A0]+C >= 9999 <= 65535

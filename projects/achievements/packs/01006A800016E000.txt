@@ -1,0 +1,12 @@
+# Super Smash Bros. Ultimate: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006A800016E000 Super Smash Bros. Ultimate
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build FD471EB458C915E7
+c gold.1000 | u32 [main+649E6D8]-6443C >= 1000 <= 99999990
+c gold.10000 | u32 [main+649E6D8]-6443C >= 10000 <= 99999990
+c gold.100000 | u32 [main+649E6D8]-6443C >= 100000 <= 99999990

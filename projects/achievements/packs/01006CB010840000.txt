@@ -1,0 +1,17 @@
+# Oceanhorn 2: Knights of the Lost Realm: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006CB010840000 Oceanhorn 2: Knights of the Lost Realm
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build 53CE4DC2FB6423A2
+c gold.1000 | u32 [[[[main+5331BC8]+678]+10]+28]+ED0 >= 1000 <= 99999990
+c gold.10000 | u32 [[[[main+5331BC8]+678]+10]+28]+ED0 >= 10000 <= 99999990
+c gold.100000 | u32 [[[[main+5331BC8]+678]+10]+28]+ED0 >= 100000 <= 99999990
+
+build E5E739813C69B5A6
+c gold.1000 | u32 [[[[main+5331F28]+678]+10]+28]+ED0 >= 1000 <= 99999990
+c gold.10000 | u32 [[[[main+5331F28]+678]+10]+28]+ED0 >= 10000 <= 99999990
+c gold.100000 | u32 [[[[main+5331F28]+678]+10]+28]+ED0 >= 100000 <= 99999990

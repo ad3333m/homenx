@@ -1,0 +1,8 @@
+# Tiny Troopers Joint Ops XL: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B52006E8C000 Tiny Troopers Joint Ops XL
+
+a money.255 | Maxed out | Save up 255
+
+build 4EED78E274C5824B
+c money.255 | u8 [[[main+215B658]+30]+38]+A0 >= 255 <= 255

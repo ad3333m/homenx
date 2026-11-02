@@ -1,0 +1,102 @@
+# Cult of the Lamb: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002E7016C46000 Cult of the Lamb
+
+a souls.100000 | Saving up | Have 100,000 Souls
+a souls.1000000 | Well off | Have 1,000,000 Souls
+a souls.10000000 | Rolling in it | Have 10,000,000 Souls
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 145EBD7448EA3C44
+c souls.100000 | u32 main+1C4E2A0 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1C4E2A0 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1C4E2A0 >= 10000000 <= 4294967295
+c level.25 | u64 main+1EFF9A4 >= 25 <= 18446744073709551615
+c level.25 | u32 main+1EFF4C0 >= 25 <= 4294967295
+c level.25 | u32 main+1964C98 >= 25 <= 4294967295
+c level.50 | u64 main+1EFF9A4 >= 50 <= 18446744073709551615
+c level.50 | u32 main+1EFF4C0 >= 50 <= 4294967295
+c level.50 | u32 main+1964C98 >= 50 <= 4294967295
+c level.99 | u64 main+1EFF9A4 >= 99 <= 18446744073709551615
+c level.99 | u32 main+1EFF4C0 >= 99 <= 4294967295
+c level.99 | u32 main+1964C98 >= 99 <= 4294967295
+
+build 1525DE78A44C7C43
+c souls.100000 | u32 main+1F469A0 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1F469A0 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1F469A0 >= 10000000 <= 4294967295
+c level.25 | u32 main+1E7A108 >= 25 <= 4294967295
+c level.50 | u32 main+1E7A108 >= 50 <= 4294967295
+c level.99 | u32 main+1E7A108 >= 99 <= 4294967295
+
+build 197BC60165822F42
+c souls.100000 | u32 main+1BAEB70 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1BAEB70 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1BAEB70 >= 10000000 <= 4294967295
+c level.25 | u32 main+352AFA8 >= 25 <= 4294967295
+c level.50 | u32 main+352AFA8 >= 50 <= 4294967295
+c level.99 | u32 main+352AFA8 >= 99 <= 4294967295
+
+build 256BA72170C0FD42
+c souls.100000 | u32 main+1E5B7E0 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1E5B7E0 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1E5B7E0 >= 10000000 <= 4294967295
+c level.25 | u32 main+1AD0C28 >= 25 <= 4294967295
+c level.50 | u32 main+1AD0C28 >= 50 <= 4294967295
+c level.99 | u32 main+1AD0C28 >= 99 <= 4294967295
+
+build 29A631EFA29ED044
+c souls.100000 | u32 main+1FD8950 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1FD8950 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1FD8950 >= 10000000 <= 4294967295
+c level.25 | u32 main+1F08F28 >= 25 <= 4294967295
+c level.50 | u32 main+1F08F28 >= 50 <= 4294967295
+c level.99 | u32 main+1F08F28 >= 99 <= 4294967295
+
+build 810C3396125C2340
+c souls.100000 | u32 main+1CF0500 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1CF0500 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1CF0500 >= 10000000 <= 4294967295
+c level.25 | u32 main+1ABDAB8 >= 25 <= 4294967295
+c level.50 | u32 main+1ABDAB8 >= 50 <= 4294967295
+c level.99 | u32 main+1ABDAB8 >= 99 <= 4294967295
+
+build 9232F3A3E6E87E49
+c souls.100000 | u32 main+1DF5DE0 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1DF5DE0 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1DF5DE0 >= 10000000 <= 4294967295
+c level.25 | u32 main+1B2D858 >= 25 <= 4294967295
+c level.50 | u32 main+1B2D858 >= 50 <= 4294967295
+c level.99 | u32 main+1B2D858 >= 99 <= 4294967295
+
+build B5DC69CED031D447
+c souls.100000 | u32 main+1CB0230 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1CB0230 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1CB0230 >= 10000000 <= 4294967295
+c level.25 | u64 main+216E4E4 >= 25 <= 18446744073709551615
+c level.25 | u32 main+216EA10 >= 25 <= 4294967295
+c level.25 | u32 main+1B88308 >= 25 <= 4294967295
+c level.50 | u64 main+216E4E4 >= 50 <= 18446744073709551615
+c level.50 | u32 main+216EA10 >= 50 <= 4294967295
+c level.50 | u32 main+1B88308 >= 50 <= 4294967295
+c level.99 | u64 main+216E4E4 >= 99 <= 18446744073709551615
+c level.99 | u32 main+216EA10 >= 99 <= 4294967295
+c level.99 | u32 main+1B88308 >= 99 <= 4294967295
+
+build E3C7E73DC1261246
+c souls.100000 | u32 main+2024330 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+2024330 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+2024330 >= 10000000 <= 4294967295
+c level.25 | u32 main+1DA4948 >= 25 <= 4294967295
+c level.50 | u32 main+1DA4948 >= 50 <= 4294967295
+c level.99 | u32 main+1DA4948 >= 99 <= 4294967295
+
+build FAC51B97919FDB45
+c souls.100000 | u32 main+1DC7C70 >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1DC7C70 >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1DC7C70 >= 10000000 <= 4294967295
+c level.25 | u32 main+1CA7BB4 >= 25 <= 4294967295
+c level.50 | u32 main+1CA7BB4 >= 50 <= 4294967295
+c level.99 | u32 main+1CA7BB4 >= 99 <= 4294967295

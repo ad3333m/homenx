@@ -1,0 +1,15 @@
+# Shin Megami Tensei V: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010063B012DC6000 Shin Megami Tensei V
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 68FED4970010ACF3
+c level.25 | u32 main+137465C >= 25 <= 4294967295
+c level.25 | u32 main+1375ACC >= 25 <= 4294967295
+c level.50 | u32 main+137465C >= 50 <= 4294967295
+c level.50 | u32 main+1375ACC >= 50 <= 4294967295
+c level.99 | u32 main+137465C >= 99 <= 4294967295
+c level.99 | u32 main+1375ACC >= 99 <= 4294967295

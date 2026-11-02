@@ -1,0 +1,8 @@
+# Arcade Archives Renegade: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010081E001DD2000 Arcade Archives Renegade
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 440BA52CE133424A
+c credits.153 | u8 heap+777026 >= 153 <= 255

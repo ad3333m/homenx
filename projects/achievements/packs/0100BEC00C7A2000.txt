@@ -1,0 +1,8 @@
+# Arcade Archives ATHENA: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BEC00C7A2000 Arcade Archives ATHENA
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 2769E70ED09EA790
+c credits.153 | u8 heap+1E8B5F5 >= 153 <= 255

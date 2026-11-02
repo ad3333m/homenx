@@ -1,0 +1,10 @@
+# Nintendo 64 – Nintendo Classics: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100C9A00ECE6000 Nintendo 64 – Nintendo Classics
+
+a rupees.100 | Well off | Have 100 Rupees
+a rupees.1000 | Rolling in it | Have 1,000 Rupees
+
+build EB79EF243458597C
+c rupees.100 | u16 [main+5D20C0]+11ACB5 >= 100 <= 65535
+c rupees.1000 | u16 [main+5D20C0]+11ACB5 >= 1000 <= 65535

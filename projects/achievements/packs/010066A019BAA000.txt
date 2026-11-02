@@ -1,0 +1,11 @@
+# Hellboy Web of Wyrd: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010066A019BAA000 Hellboy Web of Wyrd
+
+a money.888 | Maxed out | Save up 888
+
+build E231ABF6A8CBA232
+c money.888 | u16 [[[[main+60F06A0]+488]+2C8]+1F0]+218 >= 888 <= 8880
+c money.888 | u16 [[[[main+6090B70]+B8]+8]+140]+3A8 >= 888 <= 8880
+c money.888 | u16 [[[[main+60F06A0]+488]+2C8]+1F0]+118 >= 888 <= 8880
+c money.888 | u16 [[[[main+6090B70]+B8]+8]+140]+3B0 >= 888 <= 8880

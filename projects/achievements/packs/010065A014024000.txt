@@ -1,0 +1,21 @@
+# Grand Theft Auto: San Andreas – The Definitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010065A014024000 Grand Theft Auto: San Andreas – The Definitive Edition
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 6FB56071CCB321B6
+c level.25 | u32 main+4859630 >= 25 <= 4294967295
+c level.25 | u32 main+4859634 >= 25 <= 4294967295
+c level.25 | u32 main+4859638 >= 25 <= 4294967295
+c level.25 | u32 main+FFDF28 >= 25 <= 4294967295
+c level.50 | u32 main+4859630 >= 50 <= 4294967295
+c level.50 | u32 main+4859634 >= 50 <= 4294967295
+c level.50 | u32 main+4859638 >= 50 <= 4294967295
+c level.50 | u32 main+FFDF28 >= 50 <= 4294967295
+c level.99 | u32 main+4859630 >= 99 <= 4294967295
+c level.99 | u32 main+4859634 >= 99 <= 4294967295
+c level.99 | u32 main+4859638 >= 99 <= 4294967295
+c level.99 | u32 main+FFDF28 >= 99 <= 4294967295

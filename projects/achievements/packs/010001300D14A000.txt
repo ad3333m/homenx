@@ -1,0 +1,16 @@
+# Castle Crashers Remastered: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010001300D14A000 Castle Crashers Remastered
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 14F313FD9D44962C
+c money.100 | u32 [[[[[[main+396650]+50]+110]+110]+18]+78]+C >= 100 <= 999990
+c money.1000 | u32 [[[[[[main+396650]+50]+110]+110]+18]+78]+C >= 1000 <= 999990
+c level.25 | u32 [[[[[[main+396650]+50]+110]+110]+18]+90]+C >= 25 <= 99990
+c level.50 | u32 [[[[[[main+396650]+50]+110]+110]+18]+90]+C >= 50 <= 99990
+c level.99 | u32 [[[[[[main+396650]+50]+110]+110]+18]+90]+C >= 99 <= 99990

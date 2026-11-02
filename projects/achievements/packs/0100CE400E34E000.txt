@@ -1,0 +1,24 @@
+# Thief Simulator: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100CE400E34E000 Thief Simulator
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build D01CBD41CAA0D840
+c money.100000 | u32 heap+94777E64 >= 100000 <= 4294967295
+c money.1000000 | u32 heap+94777E64 >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+94777E64 >= 10000000 <= 4294967295
+c level.25 | u32 heap+94777E60 >= 25 <= 4294967295
+c level.25 | u32 heap+94777E68 >= 25 <= 4294967295
+c level.25 | u32 heap+94777E6C >= 25 <= 50410
+c level.50 | u32 heap+94777E60 >= 50 <= 4294967295
+c level.50 | u32 heap+94777E68 >= 50 <= 4294967295
+c level.50 | u32 heap+94777E6C >= 50 <= 50410
+c level.99 | u32 heap+94777E60 >= 99 <= 4294967295
+c level.99 | u32 heap+94777E68 >= 99 <= 4294967295
+c level.99 | u32 heap+94777E6C >= 99 <= 50410

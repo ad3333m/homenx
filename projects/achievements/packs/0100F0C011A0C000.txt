@@ -1,0 +1,14 @@
+# Captain Sabertooth and the Magic Diamond: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F0C011A0C000 Captain Sabertooth and the Magic Diamond
+
+a gems.100 | Well off | Have 100 Gems
+a gems.1000 | Rolling in it | Have 1,000 Gems
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build A8AC006445691DFD
+c gems.100 | u32 [[[[main+5CB8E50]+8]+118]+F0]+74 >= 100 <= 999990
+c gems.1000 | u32 [[[[main+5CB8E50]+8]+118]+F0]+74 >= 1000 <= 999990
+c money.100 | u32 [[[[main+5CB8E50]+8]+118]+F0]+34 >= 100 <= 999990
+c money.1000 | u32 [[[[main+5CB8E50]+8]+118]+F0]+34 >= 1000 <= 999990

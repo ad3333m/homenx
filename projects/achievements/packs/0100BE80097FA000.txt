@@ -1,0 +1,8 @@
+# Arcade Archives 10-Yard Fight: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BE80097FA000 Arcade Archives 10-Yard Fight
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 24B914A613DD2511
+c credits.153 | u8 heap+17E5056 >= 153 <= 255

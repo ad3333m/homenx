@@ -1,0 +1,22 @@
+# The Messenger: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100DC300AC78000 The Messenger
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 2A979C3FDF717642
+c money.100 | u32 [[[heap+940D8DC8]+20]+28]+20 >= 100 <= 999990
+c money.1000 | u32 [[[heap+940D8DC8]+20]+28]+20 >= 1000 <= 999990
+
+build D8E60563C302AA41
+c money.100 | u32 [[[heap+1CBFE58]+20]+28]+20 >= 100 <= 999990
+c money.1000 | u32 [[[heap+1CBFE58]+20]+28]+20 >= 1000 <= 999990
+
+build EABD92AD1CDC0E43
+c money.100 | u32 [[[heap+1CBEEE8]+20]+28]+20 >= 100 <= 999990
+c money.1000 | u32 [[[heap+1CBEEE8]+20]+28]+20 >= 1000 <= 999990
+
+build EDE81745C5421D45
+c money.100 | u32 [[[heap+95132DC8]+20]+28]+20 >= 100 <= 999990
+c money.1000 | u32 [[[heap+95132DC8]+20]+28]+20 >= 1000 <= 999990

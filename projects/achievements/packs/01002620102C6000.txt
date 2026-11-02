@@ -1,0 +1,10 @@
+# BioShock 2 Remastered: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002620102C6000 BioShock 2 Remastered
+
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 7D1714279435589C
+c money.100 | u32 [[[main+212DCF8]+48]+3C0]+F84 >= 100 <= 99990
+c money.9999 | u32 [[[main+212DCF8]+48]+3C0]+F84 >= 9999 <= 99990

@@ -1,0 +1,12 @@
+# MARVEL Cosmic Invasion: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010059D020C26000 MARVEL Cosmic Invasion
+
+a credits.100000 | Saving up | Have 100,000 Credits
+a credits.1000000 | Well off | Have 1,000,000 Credits
+a credits.10000000 | Rolling in it | Have 10,000,000 Credits
+
+build D72DF31AD403322F
+c credits.100000 | u32 main+5D43AC >= 100000 <= 4294967295
+c credits.1000000 | u32 main+5D43AC >= 1000000 <= 4294967295
+c credits.10000000 | u32 main+5D43AC >= 10000000 <= 4294967295

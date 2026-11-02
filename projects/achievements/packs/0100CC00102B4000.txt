@@ -1,0 +1,20 @@
+# Tony Hawk's Pro Skater 1 + 2: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100CC00102B4000 Tony Hawk's Pro Skater 1 + 2
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 8AFCBE6A930CD42E
+c money.100000 | u32 [[[main+7650568]+10]+A0]+8 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+7650568]+10]+A0]+8 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+7650568]+10]+A0]+8 >= 10000000 <= 4294967295
+
+build 93A4BFB86BCA2C3D
+c money.100000 | u32 [[[main+75FA538]+10]+A0]+8 >= 100000 <= 4294967295
+c money.100000 | u32 [[[main+75FA538]+10]+A0]+8 >= 100000 <= 9999990
+c money.1000000 | u32 [[[main+75FA538]+10]+A0]+8 >= 1000000 <= 4294967295
+c money.1000000 | u32 [[[main+75FA538]+10]+A0]+8 >= 1000000 <= 10000000
+c money.10000000 | u32 [[[main+75FA538]+10]+A0]+8 >= 10000000 <= 4294967295
+c money.10000000 | u32 [[[main+75FA538]+10]+A0]+8 >= 10000000 <= 100000000

@@ -1,0 +1,12 @@
+# Dungeon Limbus: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100CAB012FCC000 Dungeon Limbus
+
+a level.20 | Leveling up | Reach level 20
+a level.45 | Seasoned | Reach level 45
+a level.88 | Max level | Reach level 88
+
+build 73E570746ED6AA41
+c level.20 | u32 [[[[[main+2EE80A0]+B8]+0]+C0]+18]+98 >= 20 <= 880
+c level.45 | u32 [[[[[main+2EE80A0]+B8]+0]+C0]+18]+98 >= 45 <= 880
+c level.88 | u32 [[[[[main+2EE80A0]+B8]+0]+C0]+18]+98 >= 88 <= 880

@@ -1,0 +1,12 @@
+# MachiKnights -Blood bagos-: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F2400D434000 MachiKnights -Blood bagos-
+
+a money.1000 | Saving up | Save up 1,000
+a money.10000 | Well off | Save up 10,000
+a money.100000 | Rolling in it | Save up 100,000
+
+build 8EB9F6FB15B3428B
+c money.1000 | u32 [main+5302910]-3F8 >= 1000 <= 99999990
+c money.10000 | u32 [main+5302910]-3F8 >= 10000 <= 99999990
+c money.100000 | u32 [main+5302910]-3F8 >= 100000 <= 99999990

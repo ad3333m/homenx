@@ -1,0 +1,10 @@
+# Ultracore: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E5C00DC46000 Ultracore
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 13082AAB64BDB509
+c coins.100 | u16 heap+2156844 >= 100 <= 65535
+c coins.1000 | u16 heap+2156844 >= 1000 <= 65535

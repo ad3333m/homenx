@@ -1,0 +1,14 @@
+# Hob: The Definitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01004B100A5CC000 Hob: The Definitive Edition
+
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 2144E3740A714489
+c money.100 | u32 [[[[[main+12B4548]+C0]+38]+2C0]+40]+4A0 >= 100 <= 99990
+c money.9999 | u32 [[[[[main+12B4548]+C0]+38]+2C0]+40]+4A0 >= 9999 <= 99990
+
+build 4E7978E35F9D7490
+c money.100 | u32 [[[[[main+12B6608]+68]+258]+40]+10]+4B8 >= 100 <= 99990
+c money.9999 | u32 [[[[[main+12B6608]+68]+258]+40]+10]+4B8 >= 9999 <= 99990

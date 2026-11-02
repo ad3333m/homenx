@@ -1,0 +1,79 @@
+# Digimon Story Cyber Sleuth: Complete Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010014E00DB56000 Digimon Story Cyber Sleuth: Complete Edition
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+a yen.10000 | Saving up | Have 10,000 yen
+a yen.100000 | Well off | Have 100,000 yen
+a yen.1000000 | Rolling in it | Have 1,000,000 yen
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 92A6C699E4BAE7DA
+c money.100000 | u32 heap+D87C6A8 >= 100000 <= 99999990
+c money.100000 | u32 main+67F54 >= 100000 <= 4294967295
+c money.100000 | u32 heap+4A1FD08 >= 100000 <= 1000000
+c money.100000 | u32 heap+4A1FD09 >= 100000 <= 1000000
+c money.100000 | u32 heap+4A1FD0A >= 100000 <= 1000000
+c money.1000000 | u32 heap+D87C6A8 >= 1000000 <= 99999990
+c money.1000000 | u32 main+67F54 >= 1000000 <= 4294967295
+c money.1000000 | u32 heap+4A1FD08 >= 1000000 <= 10000000
+c money.1000000 | u32 heap+4A1FD09 >= 1000000 <= 10000000
+c money.1000000 | u32 heap+4A1FD0A >= 1000000 <= 10000000
+c money.10000000 | u32 heap+D87C6A8 >= 10000000 <= 100000000
+c money.10000000 | u32 main+67F54 >= 10000000 <= 4294967295
+c money.10000000 | u32 heap+4A1FD08 >= 10000000 <= 100000000
+c money.10000000 | u32 heap+4A1FD09 >= 10000000 <= 100000000
+c money.10000000 | u32 heap+4A1FD0A >= 10000000 <= 100000000
+c level.25 | u32 main+5EC2C >= 25 <= 4294967295
+c level.25 | u32 main+5EC30 >= 25 <= 4294967295
+c level.25 | u32 main+5E574 >= 25 <= 4294967295
+c level.25 | u8 heap+D85F968 >= 25 <= 255
+c level.25 | u8 heap+D85FBA8 >= 25 <= 255
+c level.25 | u8 heap+D85FDE8 >= 25 <= 255
+c level.50 | u32 main+5EC2C >= 50 <= 4294967295
+c level.50 | u32 main+5EC30 >= 50 <= 4294967295
+c level.50 | u32 main+5E574 >= 50 <= 4294967295
+c level.50 | u8 heap+D85F968 >= 50 <= 255
+c level.50 | u8 heap+D85FBA8 >= 50 <= 255
+c level.50 | u8 heap+D85FDE8 >= 50 <= 255
+c level.99 | u32 main+5EC2C >= 99 <= 4294967295
+c level.99 | u32 main+5EC30 >= 99 <= 4294967295
+c level.99 | u32 main+5E574 >= 99 <= 4294967295
+c level.99 | u8 heap+D85F968 >= 99 <= 255
+c level.99 | u8 heap+D85FBA8 >= 99 <= 255
+c level.99 | u8 heap+D85FDE8 >= 99 <= 255
+
+build BEDAE701DD8565CD
+c money.100000 | u32 main+67F54 >= 100000 <= 4294967295
+c money.1000000 | u32 main+67F54 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+67F54 >= 10000000 <= 4294967295
+c level.25 | u32 main+5E574 >= 25 <= 4294967295
+c level.25 | u32 main+5EC2C >= 25 <= 4294967295
+c level.25 | u32 main+5EC30 >= 25 <= 4294967295
+c level.50 | u32 main+5E574 >= 50 <= 4294967295
+c level.50 | u32 main+5EC2C >= 50 <= 4294967295
+c level.50 | u32 main+5EC30 >= 50 <= 4294967295
+c level.99 | u32 main+5E574 >= 99 <= 4294967295
+c level.99 | u32 main+5EC2C >= 99 <= 4294967295
+c level.99 | u32 main+5EC30 >= 99 <= 4294967295
+
+build CA86DBB44A335EAD
+c money.100000 | u32 heap+D87C6A8 >= 100000 <= 99999990
+c money.100000 | u32 heap+D8976A8 >= 100000 <= 1000000
+c money.100000 | u32 heap+D8976A9 >= 100000 <= 1000000
+c money.100000 | u32 heap+D8976AA >= 100000 <= 1000000
+c money.1000000 | u32 heap+D87C6A8 >= 1000000 <= 99999990
+c money.1000000 | u32 heap+D8976A8 >= 1000000 <= 10000000
+c money.1000000 | u32 heap+D8976A9 >= 1000000 <= 10000000
+c money.1000000 | u32 heap+D8976AA >= 1000000 <= 10000000
+c money.10000000 | u32 heap+D87C6A8 >= 10000000 <= 100000000
+c money.10000000 | u32 heap+D8976A8 >= 10000000 <= 100000000
+c money.10000000 | u32 heap+D8976A9 >= 10000000 <= 100000000
+c money.10000000 | u32 heap+D8976AA >= 10000000 <= 100000000
+c yen.10000 | u32 heap+5D1FD08 >= 10000 <= 999999990
+c yen.100000 | u32 heap+5D1FD08 >= 100000 <= 999999990
+c yen.1000000 | u32 heap+5D1FD08 >= 1000000 <= 999999990

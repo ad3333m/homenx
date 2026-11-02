@@ -1,0 +1,15 @@
+# Alien: Isolation: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010075D00E8BA000 Alien: Isolation
+
+a scrap.10000 | Saving up | Have 10,000 Scrap
+a scrap.100000 | Well off | Have 100,000 Scrap
+a scrap.1000000 | Rolling in it | Have 1,000,000 Scrap
+
+build 32620C385527E689
+c scrap.10000 | u32 heap+9F049CD0 >= 10000 <= 999999990
+c scrap.10000 | u32 heap+9F049CB0 >= 10000 <= 100000
+c scrap.100000 | u32 heap+9F049CD0 >= 100000 <= 999999990
+c scrap.100000 | u32 heap+9F049CB0 >= 100000 <= 1000000
+c scrap.1000000 | u32 heap+9F049CD0 >= 1000000 <= 999999990
+c scrap.1000000 | u32 heap+9F049CB0 >= 1000000 <= 10000000

@@ -1,0 +1,40 @@
+# DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01006C300E9F0000 DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+a medals.1000 | Saving up | Have 1,000 Medals
+a medals.10000 | Well off | Have 10,000 Medals
+a medals.100000 | Rolling in it | Have 100,000 Medals
+
+build 0237ABE1EE27DA42
+c gold.100000 | u32 main+9F59C4 >= 100000 <= 4294967295
+c gold.100000 | u32 main+9F58C0 >= 100000 <= 1846376970
+c gold.1000000 | u32 main+9F59C4 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+9F58C0 >= 1000000 <= 1846376970
+c gold.10000000 | u32 main+9F59C4 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+9F58C0 >= 10000000 <= 1846376970
+
+build 1719AABFA5EAE42B
+c gold.100000 | u32 [[main+7817C30]+128]+C0 >= 100000 <= 99999990
+c gold.100000 | u32 [[main+7817C30]+128]+CC >= 100000 <= 9999990
+c gold.100000 | u32 main+9F3914 >= 100000 <= 4294967295
+c gold.1000000 | u32 [[main+7817C30]+128]+C0 >= 1000000 <= 99999990
+c gold.1000000 | u32 [[main+7817C30]+128]+CC >= 1000000 <= 10000000
+c gold.1000000 | u32 main+9F3914 >= 1000000 <= 4294967295
+c gold.10000000 | u32 [[main+7817C30]+128]+C0 >= 10000000 <= 100000000
+c gold.10000000 | u32 [[main+7817C30]+128]+CC >= 10000000 <= 100000000
+c gold.10000000 | u32 main+9F3914 >= 10000000 <= 4294967295
+
+build 191270F5ED4DB907
+c gold.100000 | u32 main+9F59C4 >= 100000 <= 4294967295
+c gold.100000 | u32 main+9F58C0 >= 100000 <= 1846376970
+c gold.1000000 | u32 main+9F59C4 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+9F58C0 >= 1000000 <= 1846376970
+c gold.10000000 | u32 main+9F59C4 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+9F58C0 >= 10000000 <= 1846376970
+c medals.1000 | u32 [[[[main+7815B60]+130]+368]+0]+18 >= 1000 <= 99999990
+c medals.10000 | u32 [[[[main+7815B60]+130]+368]+0]+18 >= 10000 <= 99999990
+c medals.100000 | u32 [[[[main+7815B60]+130]+368]+0]+18 >= 100000 <= 99999990

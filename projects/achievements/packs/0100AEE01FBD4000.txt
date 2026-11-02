@@ -1,0 +1,15 @@
+# Astral Flux: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100AEE01FBD4000 Astral Flux
+
+a coins.100000 | Saving up | Have 100,000 coins
+a coins.1000000 | Well off | Have 1,000,000 coins
+a coins.10000000 | Rolling in it | Have 10,000,000 coins
+
+build DCACF33E9B107665
+c coins.100000 | u32 main+429BFF0 >= 100000 <= 1850739600
+c coins.100000 | u32 main+429BFF0 >= 100000 <= 1850760080
+c coins.1000000 | u32 main+429BFF0 >= 1000000 <= 1850739600
+c coins.1000000 | u32 main+429BFF0 >= 1000000 <= 1850760080
+c coins.10000000 | u32 main+429BFF0 >= 10000000 <= 1850739600
+c coins.10000000 | u32 main+429BFF0 >= 10000000 <= 1850760080

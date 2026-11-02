@@ -1,0 +1,10 @@
+# DRAGON QUEST: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100EFC00EFB2000 DRAGON QUEST
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build 4C1E8F555E6B88DA
+c gold.100 | u32 heap+25280F8 >= 100 <= 500000
+c gold.1000 | u32 heap+25280F8 >= 1000 <= 500000

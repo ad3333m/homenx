@@ -1,0 +1,42 @@
+# Monster Hunter Stories 2: Wings of Ruin: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E21011446000 Monster Hunter Stories 2: Wings of Ruin
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 4B8E91070D920211
+c money.100000 | u32 heap+43772220 >= 100000 <= 88888880
+c money.1000000 | u32 heap+43772220 >= 1000000 <= 88888880
+c money.10000000 | u32 heap+43772220 >= 10000000 <= 100000000
+
+build 52D3FBEF16F2D951
+c money.100000 | u32 heap+40732670 >= 100000 <= 4294967295
+c money.1000000 | u32 heap+40732670 >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+40732670 >= 10000000 <= 4294967295
+
+build BCD9FDDEBA070270
+c money.100000 | u32 heap+40732670 >= 100000 <= 4294967295
+c money.1000000 | u32 heap+40732670 >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+40732670 >= 10000000 <= 4294967295
+c level.25 | u16 heap+4050AFFA >= 25 <= 990
+c level.25 | u16 heap+418634B6 >= 25 <= 990
+c level.50 | u16 heap+4050AFFA >= 50 <= 990
+c level.50 | u16 heap+418634B6 >= 50 <= 990
+c level.99 | u16 heap+4050AFFA >= 99 <= 990
+c level.99 | u16 heap+418634B6 >= 99 <= 990
+
+build EE762E3C16403A53
+c money.100000 | u32 heap+40732670 >= 100000 <= 4294967295
+c money.1000000 | u32 heap+40732670 >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+40732670 >= 10000000 <= 4294967295
+c level.25 | u16 heap+4050AFFA >= 25 <= 980
+c level.25 | u32 main+BF11D4 >= 25 <= 4294967295
+c level.50 | u16 heap+4050AFFA >= 50 <= 980
+c level.50 | u32 main+BF11D4 >= 50 <= 4294967295
+c level.99 | u16 heap+4050AFFA >= 99 <= 990
+c level.99 | u32 main+BF11D4 >= 99 <= 4294967295

@@ -1,0 +1,12 @@
+# Mega Man Zero/ZX Legacy Collection: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010025C00D410000 Mega Man Zero/ZX Legacy Collection
+
+a crystals.100 | Well off | Have 100 Crystals
+a crystals.1000 | Rolling in it | Have 1,000 Crystals
+
+build 2A38895C5E732182
+c crystals.100 | u16 main+2FB673E >= 100 <= 65535
+c crystals.100 | u16 main+2FBDFEE >= 100 <= 65535
+c crystals.1000 | u16 main+2FB673E >= 1000 <= 65535
+c crystals.1000 | u16 main+2FBDFEE >= 1000 <= 65535

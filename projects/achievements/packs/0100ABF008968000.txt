@@ -1,0 +1,53 @@
+# Pokémon Sword + Pokémon Sword Expansion Pass: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100ABF008968000 Pokémon Sword + Pokémon Sword Expansion Pass
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 4628A512B1D93D37
+c money.100000 | u32 heap+45072DF4 >= 100000 <= 99999990
+c money.1000000 | u32 heap+45072DF4 >= 1000000 <= 99999990
+c money.10000000 | u32 heap+45072DF4 >= 10000000 <= 100000000
+
+build 479BD2B581F4BC6A
+c money.100000 | u32 heap+45072DF4 >= 100000 <= 9999990
+c money.100000 | u32 main+1438A24 >= 100000 <= 1846192720
+c money.100000 | u32 main+1438A24 >= 100000 <= 1846151760
+c money.1000000 | u32 heap+45072DF4 >= 1000000 <= 10000000
+c money.1000000 | u32 main+1438A24 >= 1000000 <= 1846192720
+c money.1000000 | u32 main+1438A24 >= 1000000 <= 1846151760
+c money.10000000 | u32 heap+45072DF4 >= 10000000 <= 100000000
+c money.10000000 | u32 main+1438A24 >= 10000000 <= 1846192720
+c money.10000000 | u32 main+1438A24 >= 10000000 <= 1846151760
+
+build 5A7EEBF172343616
+c money.100000 | u32 heap+4506AE04 >= 100000 <= 9999990
+c money.100000 | u32 main+1414914 >= 100000 <= 1846192720
+c money.100000 | u32 main+1414914 >= 100000 <= 1846151760
+c money.1000000 | u32 heap+4506AE04 >= 1000000 <= 10000000
+c money.1000000 | u32 main+1414914 >= 1000000 <= 1846192720
+c money.1000000 | u32 main+1414914 >= 1000000 <= 1846151760
+c money.10000000 | u32 heap+4506AE04 >= 10000000 <= 100000000
+c money.10000000 | u32 main+1414914 >= 10000000 <= 1846192720
+c money.10000000 | u32 main+1414914 >= 10000000 <= 1846151760
+
+build 8DAFEDBB5BE81C2C
+c money.100000 | u32 heap+4293AE34 >= 100000 <= 99999990
+c money.100000 | u32 main+137B94C >= 100000 <= 4294967295
+c money.1000000 | u32 heap+4293AE34 >= 1000000 <= 99999990
+c money.1000000 | u32 main+137B94C >= 1000000 <= 4294967295
+c money.10000000 | u32 heap+4293AE34 >= 10000000 <= 100000000
+c money.10000000 | u32 main+137B94C >= 10000000 <= 4294967295
+
+build A3B75BCD3311385A
+c money.100000 | u32 heap+45072DF4 >= 100000 <= 9999990
+c money.100000 | u32 main+1438F14 >= 100000 <= 1846192720
+c money.100000 | u32 main+1438F14 >= 100000 <= 1846151760
+c money.1000000 | u32 heap+45072DF4 >= 1000000 <= 10000000
+c money.1000000 | u32 main+1438F14 >= 1000000 <= 1846192720
+c money.1000000 | u32 main+1438F14 >= 1000000 <= 1846151760
+c money.10000000 | u32 heap+45072DF4 >= 10000000 <= 100000000
+c money.10000000 | u32 main+1438F14 >= 10000000 <= 1846192720
+c money.10000000 | u32 main+1438F14 >= 10000000 <= 1846151760

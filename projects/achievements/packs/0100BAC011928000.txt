@@ -1,0 +1,20 @@
+# Deadly Premonition 2: A Blessing In Disguise: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BAC011928000 Deadly Premonition 2: A Blessing In Disguise
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 3C9B3ECFAD8A9542
+c money.100000 | u32 main+502A68 >= 100000 <= 4026533120
+c money.100000 | u32 main+502A78 >= 100000 <= 999999990
+c money.1000000 | u32 main+502A68 >= 1000000 <= 4026533120
+c money.1000000 | u32 main+502A78 >= 1000000 <= 999999990
+c money.10000000 | u32 main+502A68 >= 10000000 <= 4026533120
+c money.10000000 | u32 main+502A78 >= 10000000 <= 999999990
+
+build 47855F311DB97849
+c money.100000 | u32 [[main+3D3CE28]+B8]+80 >= 100000 <= 999999990
+c money.1000000 | u32 [[main+3D3CE28]+B8]+80 >= 1000000 <= 999999990
+c money.10000000 | u32 [[main+3D3CE28]+B8]+80 >= 10000000 <= 999999990

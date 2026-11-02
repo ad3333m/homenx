@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <map>
 #include <set>
 #include <string>
 #include <system_error>
@@ -133,6 +134,7 @@ struct Live {
     std::uint64_t title = 0;
     switchu::packs::Pack pack;
     std::set<std::string> done; // its achievements earned already
+    std::map<std::string, int> streak; // seconds in a row each one's condition has held
     bool attached = false;
     switchu::packs::Bases bases;
     std::string build;          // this version's build id (upper hex)
@@ -166,7 +168,8 @@ inline bool attach(Live& l) {
     return true;
 }
 
-// The pack's achievements whose condition holds now: kept and shown, at once.
+// The pack's achievements whose condition has held for 3 checks in a row (a second each: a
+// pointer read during a loading screen can briefly give nonsense): kept and shown, at once.
 inline void checkPack(Live& l) {
     namespace ach = switchu::achievements;
     const switchu::packs::Reader read = [](std::uint64_t address, void* out, std::size_t size) {
@@ -174,7 +177,9 @@ inline void checkPack(Live& l) {
     };
     std::vector<const switchu::packs::Achievement*> now;
     for (const auto& a : l.pack.list) {
-        if (!l.done.count(a.id) && switchu::packs::anyHolds(a, l.build, l.bases, read)) now.push_back(&a);
+        if (l.done.count(a.id)) continue;
+        if (!switchu::packs::anyHolds(a, l.build, l.bases, read)) l.streak.erase(a.id);
+        else if (++l.streak[a.id] >= 3) now.push_back(&a);
     }
     if (now.empty()) return;
     ach::Earned e = ach::load();
@@ -184,7 +189,8 @@ inline void checkPack(Live& l) {
         l.done.insert(a->id);
     }
     ach::save(e);
-    for (const auto* a : now) notify(a->name, l.pack.game);
+    const std::string game = l.pack.game.empty() ? gameName(l.title) : l.pack.game;
+    for (const auto* a : now) notify(a->name, game);
 }
 
 inline void threadFunc(void*) {

@@ -1,0 +1,25 @@
+# Atelier Ryza 2: Lost Legends & the Secret Fairy: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01009A9012022000 Atelier Ryza 2: Lost Legends & the Secret Fairy
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+a gems.1000 | Saving up | Have 1,000 Gems
+a gems.10000 | Well off | Have 10,000 Gems
+a gems.100000 | Rolling in it | Have 100,000 Gems
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build D539FA1D45BE2D76
+c coins.100 | u32 main+1A77670 >= 100 <= 999990
+c coins.1000 | u32 main+1A77670 >= 1000 <= 999990
+c gems.1000 | u32 main+1A71D3C >= 1000 <= 999990
+c gems.10000 | u32 main+1A71D3C >= 10000 <= 999990
+c gems.100000 | u32 main+1A71D3C >= 100000 <= 1000000
+
+build DD026564E85D710B
+c gems.1000 | u32 main+1A8DD74 >= 1000 <= 99999990
+c gems.10000 | u32 main+1A8DD74 >= 10000 <= 99999990
+c gems.100000 | u32 main+1A8DD74 >= 100000 <= 99999990
+c gold.100 | u32 main+1A936B0 >= 100 <= 999990
+c gold.1000 | u32 main+1A936B0 >= 1000 <= 999990

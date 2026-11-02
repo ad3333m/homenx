@@ -1,0 +1,8 @@
+# Arcade Archives VS. SUPER MARIO BROS.: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010021D00812A000 Arcade Archives VS. SUPER MARIO BROS.
+
+a coins.249 | Maxed out | Have 249 coins
+
+build 35244CBEA8258FCD
+c coins.249 | u8 heap+17E67C7 >= 249 <= 255

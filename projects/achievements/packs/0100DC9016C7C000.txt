@@ -1,0 +1,12 @@
+# Touken Ranbu Warriors: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100DC9016C7C000 Touken Ranbu Warriors
+
+a coins.10000 | Saving up | Have 10,000 coins
+a coins.100000 | Well off | Have 100,000 coins
+a coins.1000000 | Rolling in it | Have 1,000,000 coins
+
+build DB92FB1A713C6B45
+c coins.10000 | u32 [[[[[main+1E2D9E8]+10]+8]+20]+0]+5C >= 10000 <= 999999990
+c coins.100000 | u32 [[[[[main+1E2D9E8]+10]+8]+20]+0]+5C >= 100000 <= 999999990
+c coins.1000000 | u32 [[[[[main+1E2D9E8]+10]+8]+20]+0]+5C >= 1000000 <= 999999990

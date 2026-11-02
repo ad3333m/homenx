@@ -1,0 +1,10 @@
+# One More Gate : A Wakfu Legend Complete Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100DAA01B108000 One More Gate : A Wakfu Legend Complete Edition
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build D292CFAE2F8B7F37
+c gold.100 | u32 [[[[[main+537A830]+B8]+0]+58]+20]+10 >= 100 <= 999990
+c gold.1000 | u32 [[[[[main+537A830]+B8]+0]+58]+20]+10 >= 1000 <= 999990

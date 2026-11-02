@@ -1,0 +1,10 @@
+# Nickelodeon Kart Racers: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D6200933C000 Nickelodeon Kart Racers
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build F7DE0EBC3764568A
+c money.100 | u32 [main+7060D0]+20 >= 100 <= 999990
+c money.1000 | u32 [main+7060D0]+20 >= 1000 <= 999990

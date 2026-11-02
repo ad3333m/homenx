@@ -1,0 +1,39 @@
+# FINAL FANTASY X/X-2 HD Remaster: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BC300CB48000 FINAL FANTASY X/X-2 HD Remaster
+
+a gil.100000 | Saving up | Have 100,000 Gil
+a gil.1000000 | Well off | Have 1,000,000 Gil
+a gil.10000000 | Rolling in it | Have 10,000,000 Gil
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Max level | Reach level 99
+
+build 1CE9F39DDB8A1A93
+c gil.100000 | u32 [[[[[[[[[[[[main+67B0CD0]+20]+0]+210]+7E10]+1C0]+1C0]+1C0]+1C0]+1C0]+A0]+40]+75EC >= 100000 <= 4294967295
+c gil.1000000 | u32 [[[[[[[[[[[[main+67B0CD0]+20]+0]+210]+7E10]+1C0]+1C0]+1C0]+1C0]+1C0]+A0]+40]+75EC >= 1000000 <= 4294967295
+c gil.10000000 | u32 [[[[[[[[[[[[main+67B0CD0]+20]+0]+210]+7E10]+1C0]+1C0]+1C0]+1C0]+1C0]+A0]+40]+75EC >= 10000000 <= 4294967295
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF >= 25 <= 255
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94 >= 25 <= 255
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94 >= 25 <= 255
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94 >= 25 <= 255
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94 >= 25 <= 255
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94 >= 25 <= 255
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94+94 >= 25 <= 255
+c level.25 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94+94+94 >= 25 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF >= 50 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94 >= 50 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94 >= 50 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94 >= 50 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94 >= 50 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94 >= 50 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94+94 >= 50 <= 255
+c level.50 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94+94+94 >= 50 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF >= 99 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94 >= 99 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94 >= 99 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94 >= 99 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94 >= 99 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94 >= 99 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94+94 >= 99 <= 255
+c level.99 | u8 [[[main+67B0550]+6F68]+3838]+63FF+94+94+94+94+94+94+94 >= 99 <= 255

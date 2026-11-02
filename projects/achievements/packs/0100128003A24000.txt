@@ -1,0 +1,10 @@
+# Elliot Quest: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100128003A24000 Elliot Quest
+
+a gold.100 | Well off | Have 100 gold
+a gold.9999 | Maxed out | Have 9,999 gold
+
+build F35372F6362E4E05
+c gold.100 | u32 [main+7B2CB8]+348 >= 100 <= 99990
+c gold.9999 | u32 [main+7B2CB8]+348 >= 9999 <= 99990

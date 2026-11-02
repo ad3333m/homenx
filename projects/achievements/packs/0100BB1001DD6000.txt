@@ -1,0 +1,8 @@
+# Arcade Archives CRAZY CLIMBER: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BB1001DD6000 Arcade Archives CRAZY CLIMBER
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 88E11D3D8A79074F
+c credits.153 | u8 heap+1845072 >= 153 <= 255

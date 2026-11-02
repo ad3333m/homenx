@@ -20,9 +20,11 @@ int main() {
         "a flag | Done | A flag is set\n"
         "a bad id | Nope | an id with a space is skipped\n"
         "a speed | Fast | A float\n"
+        "a gil | Rich | A range\n"
         "build 3ca12dfaab9c82da\n"
         "c moons | u32 [[main+10]+20]+8 >= 100\n"
         "c flag | u8 heap+40 & 0x4\n"
+        "c gil | u32 heap+70 >= 1000 <= 99999\n"
         "c speed | f32 heap+50 > 2.5\n"
         "c speed | u8 heap+60 == 7\n"
         "c nothing | u32 main+0 == 1\n"
@@ -30,7 +32,7 @@ int main() {
         "c moons | s16 main-8 < 0\n");
     const packs::Pack p = packs::parse(text);
     assert(p.valid() && p.title == 0x0100000000010000ULL && p.game == "Test Game");
-    assert(p.list.size() == 3 && p.list[0].id == "moons" && p.list[0].about == "Collect 100 moons");
+    assert(p.list.size() == 4 && p.list[0].id == "moons" && p.list[0].about == "Collect 100 moons");
 
     std::vector<std::uint8_t> ram(0x10000, 0);
     auto put = [&](std::uint64_t at, const void* v, std::size_t n) { std::memcpy(&ram[at], v, n); };
@@ -73,6 +75,14 @@ int main() {
     put(0x8000 + 0x60, &seven, 1);
     assert(packs::anyHolds(p.list[2], "3CA12DFAAB9C82DA", b, read));
     assert(!packs::anyHolds(p.list[2], "2222", b, read));
+
+    // A range: too much is nonsense (a pointer read too soon), not an unlock.
+    const packs::Condition* gil = packs::forBuild(p.list[3], "3CA12DFAAB9C82DA");
+    const std::uint32_t some = 5000, garbage = 0x7F000000;
+    put(0x8000 + 0x70, &some, 4);
+    assert(gil && packs::holds(*gil, b, read));
+    put(0x8000 + 0x70, &garbage, 4);
+    assert(!packs::holds(*gil, b, read));
 
     // Another version: only what it lists; signed values.
     const packs::Condition* old = packs::forBuild(p.list[0], "1111AAAABBBBCCCC");

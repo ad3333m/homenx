@@ -1,0 +1,12 @@
+# Black Future '88: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010049000B69E000 Black Future '88
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+
+build 6B058D50FDCEDB4A
+c gold.10000 | u32 [[[[[[main+3F01C00]+10]+5C0]+90]+18]+18]+170 >= 10000 <= 999999990
+c gold.100000 | u32 [[[[[[main+3F01C00]+10]+5C0]+90]+18]+18]+170 >= 100000 <= 999999990
+c gold.1000000 | u32 [[[[[[main+3F01C00]+10]+5C0]+90]+18]+18]+170 >= 1000000 <= 999999990

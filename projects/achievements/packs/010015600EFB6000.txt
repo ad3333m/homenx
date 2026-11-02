@@ -1,0 +1,18 @@
+# DRAGON QUEST III: The Seeds of Salvation: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010015600EFB6000 DRAGON QUEST III: The Seeds of Salvation
+
+a gold.100 | Saving up | Have 100 gold
+a gold.1000 | Well off | Have 1,000 gold
+a gold.10000 | Rolling in it | Have 10,000 gold
+
+build 43D16253CD0BDD2A
+c gold.100 | u32 heap+2A0CB90 >= 100 <= 999990
+c gold.100 | u16 heap+2A1BC60 >= 100 <= 2110
+c gold.100 | u32 heap+2A0CB90 >= 100 <= 9999990
+c gold.1000 | u32 heap+2A0CB90 >= 1000 <= 999990
+c gold.1000 | u16 heap+2A1BC60 >= 1000 <= 10000
+c gold.1000 | u32 heap+2A0CB90 >= 1000 <= 9999990
+c gold.10000 | u32 heap+2A0CB90 >= 10000 <= 999990
+c gold.10000 | u16 heap+2A1BC60 >= 10000 <= 65535
+c gold.10000 | u32 heap+2A0CB90 >= 10000 <= 9999990

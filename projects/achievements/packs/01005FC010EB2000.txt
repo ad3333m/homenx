@@ -1,0 +1,10 @@
+# Potata: Fairy Flower: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005FC010EB2000 Potata: Fairy Flower
+
+a gold.100 | Well off | Have 100 gold
+a gold.9999 | Maxed out | Have 9,999 gold
+
+build 42F4F5085262684B
+c gold.100 | u32 [[[[main+3C09D50]+B8]+0]+20]+40 >= 100 <= 99990
+c gold.9999 | u32 [[[[main+3C09D50]+B8]+0]+20]+40 >= 9999 <= 99990

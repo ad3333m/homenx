@@ -1,0 +1,20 @@
+# NEO: The World Ends with You: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010043B013C5C000 NEO: The World Ends with You
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 6A3E02D91948EC42
+c money.100000 | u32 [[[main+4501F50]+4F8]+190]+24 >= 100000 <= 99999990
+c money.100000 | u32 main+1FFBFA8 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+4501F50]+4F8]+190]+24 >= 1000000 <= 99999990
+c money.1000000 | u32 main+1FFBFA8 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+4501F50]+4F8]+190]+24 >= 10000000 <= 100000000
+c money.10000000 | u32 main+1FFBFA8 >= 10000000 <= 4294967295
+
+build F48FBF0922D5424A
+c money.100000 | u32 [[[[main+51A0740]+B8]+148]+1E0]+24 >= 100000 <= 99999990
+c money.1000000 | u32 [[[[main+51A0740]+B8]+148]+1E0]+24 >= 1000000 <= 99999990
+c money.10000000 | u32 [[[[main+51A0740]+B8]+148]+1E0]+24 >= 10000000 <= 100000000

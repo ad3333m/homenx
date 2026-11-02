@@ -1,0 +1,12 @@
+# 0100FE301C4BC000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100FE301C4BC000
+
+a credits.10000 | Saving up | Have 10,000 Credits
+a credits.100000 | Well off | Have 100,000 Credits
+a credits.1000000 | Rolling in it | Have 1,000,000 Credits
+
+build D8B02B6F4739B8F4
+c credits.10000 | u32 [[main+F849B8]+148]+F728 >= 10000 <= 999999990
+c credits.100000 | u32 [[main+F849B8]+148]+F728 >= 100000 <= 999999990
+c credits.1000000 | u32 [[main+F849B8]+148]+F728 >= 1000000 <= 999999990

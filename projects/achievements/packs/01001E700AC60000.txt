@@ -1,0 +1,8 @@
+# SEGA AGES Wonder Boy: Monster Land: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01001E700AC60000 SEGA AGES Wonder Boy: Monster Land
+
+a gold.100 | Saving up | Have 100 gold
+
+build 28071EC935DBB7A3
+c gold.100 | u8 heap+AE5B921C >= 100 <= 255

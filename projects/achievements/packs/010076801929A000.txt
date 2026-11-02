@@ -1,0 +1,62 @@
+# STORY OF SEASONS: A Wonderful Life: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010076801929A000 STORY OF SEASONS: A Wonderful Life
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 31F04134CF9813D8
+c money.100000 | u32 [[[main+519A3350]+288E10]+8]+AB78 >= 100000 <= 999999990
+c money.100000 | u32 main+A5723C >= 100000 <= 1865813550
+c money.100000 | u32 main+C087DC >= 100000 <= 4294967295
+c money.100000 | u32 main+C1BE68 >= 100000 <= 4294967295
+c money.100000 | u32 main+C0EC74 >= 100000 <= 1851402010
+c money.100000 | u32 main+C0C0CC >= 100000 <= 4294967295
+c money.100000 | u32 main+A6A8E8 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+519A3350]+288E10]+8]+AB78 >= 1000000 <= 999999990
+c money.1000000 | u32 main+A5723C >= 1000000 <= 1865813550
+c money.1000000 | u32 main+C087DC >= 1000000 <= 4294967295
+c money.1000000 | u32 main+C1BE68 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+C0EC74 >= 1000000 <= 1851402010
+c money.1000000 | u32 main+C0C0CC >= 1000000 <= 4294967295
+c money.1000000 | u32 main+A6A8E8 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+519A3350]+288E10]+8]+AB78 >= 10000000 <= 999999990
+c money.10000000 | u32 main+A5723C >= 10000000 <= 1865813550
+c money.10000000 | u32 main+C087DC >= 10000000 <= 4294967295
+c money.10000000 | u32 main+C1BE68 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+C0EC74 >= 10000000 <= 1851402010
+c money.10000000 | u32 main+C0C0CC >= 10000000 <= 4294967295
+c money.10000000 | u32 main+A6A8E8 >= 10000000 <= 4294967295
+c level.25 | u32 main+A2613C >= 25 <= 4294967295
+c level.50 | u32 main+A2613C >= 50 <= 4294967295
+c level.99 | u32 main+A2613C >= 99 <= 4294967295
+
+build FDBD3A3B672290F8
+c money.100000 | u32 main+A56AEC >= 100000 <= 1865813550
+c money.100000 | u32 main+C07E2C >= 100000 <= 4294967295
+c money.100000 | u32 main+C1B4B8 >= 100000 <= 4294967295
+c money.100000 | u32 main+C0E2C4 >= 100000 <= 1851402010
+c money.100000 | u32 main+C0B71C >= 100000 <= 4294967295
+c money.100000 | u32 main+A6A148 >= 100000 <= 4294967295
+c money.100000 | u32 [[[[main+519A1808]+48]+A150]+A0E]+8 >= 100000 <= 4294967295
+c money.1000000 | u32 main+A56AEC >= 1000000 <= 1865813550
+c money.1000000 | u32 main+C07E2C >= 1000000 <= 4294967295
+c money.1000000 | u32 main+C1B4B8 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+C0E2C4 >= 1000000 <= 1851402010
+c money.1000000 | u32 main+C0B71C >= 1000000 <= 4294967295
+c money.1000000 | u32 main+A6A148 >= 1000000 <= 4294967295
+c money.1000000 | u32 [[[[main+519A1808]+48]+A150]+A0E]+8 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+A56AEC >= 10000000 <= 1865813550
+c money.10000000 | u32 main+C07E2C >= 10000000 <= 4294967295
+c money.10000000 | u32 main+C1B4B8 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+C0E2C4 >= 10000000 <= 1851402010
+c money.10000000 | u32 main+C0B71C >= 10000000 <= 4294967295
+c money.10000000 | u32 main+A6A148 >= 10000000 <= 4294967295
+c money.10000000 | u32 [[[[main+519A1808]+48]+A150]+A0E]+8 >= 10000000 <= 4294967295
+c level.25 | u32 main+A259EC >= 25 <= 4294967295
+c level.50 | u32 main+A259EC >= 50 <= 4294967295
+c level.99 | u32 main+A259EC >= 99 <= 4294967295

@@ -1,0 +1,8 @@
+# ACA NEOGEO TOP HUNTER RODDY & CATHY: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100A0D004FB0000 ACA NEOGEO TOP HUNTER RODDY & CATHY
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build 46F7CA498F8E3A92
+c credits.153 | u8 main+1240FA7 >= 153 <= 255

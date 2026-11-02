@@ -1,0 +1,15 @@
+# I Am Setsuna: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100849000BDA000 I Am Setsuna
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 0BBA2167AED893BE
+c money.100000 | u32 main+2EA9D4 >= 100000 <= 4294967295
+c money.100000 | u32 main+2EACD0 >= 100000 <= 4294967295
+c money.1000000 | u32 main+2EA9D4 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+2EACD0 >= 1000000 <= 4294967295
+c money.10000000 | u32 main+2EA9D4 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+2EACD0 >= 10000000 <= 4294967295

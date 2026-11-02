@@ -1,0 +1,15 @@
+# LEGRAND LEGACY: Tale of the Fatebounds: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E7500BF84000 LEGRAND LEGACY: Tale of the Fatebounds
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build EC34FB71507C2B42
+c money.100000 | u32 main+3D0798 >= 100000 <= 99999990
+c money.100000 | u32 main+3D0790 >= 100000 <= 4026532480
+c money.1000000 | u32 main+3D0798 >= 1000000 <= 99999990
+c money.1000000 | u32 main+3D0790 >= 1000000 <= 4026532480
+c money.10000000 | u32 main+3D0798 >= 10000000 <= 100000000
+c money.10000000 | u32 main+3D0790 >= 10000000 <= 4026532480

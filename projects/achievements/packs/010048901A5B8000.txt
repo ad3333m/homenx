@@ -1,0 +1,12 @@
+# Masarada Town Story: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010048901A5B8000 Masarada Town Story
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build D836C194066412AE
+c money.100000 | u32 [[[main+3E2E450]+B8]+0]+88 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+3E2E450]+B8]+0]+88 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+3E2E450]+B8]+0]+88 >= 10000000 <= 4294967295

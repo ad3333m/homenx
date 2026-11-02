@@ -1,0 +1,10 @@
+# South Park: The Stick of Truth: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010095300B6A4000 South Park: The Stick of Truth
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 3728E6EB07B4E9EF
+c money.100 | u32 [[[[[[[[main+2952CC8]+20]+58]+E8]+88]+60]+10]+70]+28 >= 100 <= 999990
+c money.1000 | u32 [[[[[[[[main+2952CC8]+20]+58]+E8]+88]+60]+10]+70]+28 >= 1000 <= 999990

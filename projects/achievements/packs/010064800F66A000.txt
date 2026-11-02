@@ -1,0 +1,17 @@
+# Borderlands: Game of the Year Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010064800F66A000 Borderlands: Game of the Year Edition
+
+a money.1000 | Saving up | Save up 1,000
+a money.10000 | Well off | Save up 10,000
+a money.100000 | Rolling in it | Save up 100,000
+
+build 1C37C3673E0E4E7A
+c money.1000 | u32 [[main+3BAA898]+48]+388 >= 1000 <= 99999990
+c money.10000 | u32 [[main+3BAA898]+48]+388 >= 10000 <= 99999990
+c money.100000 | u32 [[main+3BAA898]+48]+388 >= 100000 <= 99999990
+
+build 88D224694A04940F
+c money.1000 | u32 [[main+3BAA898]+48]+388 >= 1000 <= 9999990
+c money.10000 | u32 [[main+3BAA898]+48]+388 >= 10000 <= 9999990
+c money.100000 | u32 [[main+3BAA898]+48]+388 >= 100000 <= 9999990

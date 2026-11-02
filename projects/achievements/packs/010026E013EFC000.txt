@@ -1,0 +1,30 @@
+# Paint the Town Red: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010026E013EFC000 Paint the Town Red
+
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build A9AF6300AADEF1D1
+c gold.100000 | u32 main+1A40A88 >= 100000 <= 4294967295
+c gold.100000 | u32 main+1A3F1C8 >= 100000 <= 4294967295
+c gold.100000 | u32 main+1A3F4CC >= 100000 <= 4294967295
+c gold.100000 | u32 main+1A3F9E8 >= 100000 <= 4294967295
+c gold.100000 | u32 main+1A3FE58 >= 100000 <= 4294967295
+c gold.100000 | u32 main+1A402A0 >= 100000 <= 4294967295
+c gold.100000 | u32 main+1A40720 >= 100000 <= 4294967295
+c gold.1000000 | u32 main+1A40A88 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+1A3F1C8 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+1A3F4CC >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+1A3F9E8 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+1A3FE58 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+1A402A0 >= 1000000 <= 4294967295
+c gold.1000000 | u32 main+1A40720 >= 1000000 <= 4294967295
+c gold.10000000 | u32 main+1A40A88 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+1A3F1C8 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+1A3F4CC >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+1A3F9E8 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+1A3FE58 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+1A402A0 >= 10000000 <= 4294967295
+c gold.10000000 | u32 main+1A40720 >= 10000000 <= 4294967295

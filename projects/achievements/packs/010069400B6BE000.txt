@@ -1,0 +1,9 @@
+# For The King: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010069400B6BE000 For The King
+
+a gold.999 | Maxed out | Have 999 gold
+
+build 5105F83D319C8143
+c gold.999 | u32 [[[[main+4FD3BC0]+12130]+D0]+128]+134 >= 999 <= 9990
+c gold.999 | u32 [[[[[main+4FD3BC0]+12B18]+A0]+550]+128]+134 >= 999 <= 9990

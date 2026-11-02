@@ -1,0 +1,12 @@
+# MARVEL ULTIMATE ALLIANCE 3: The Black Order: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010060700AC50000 MARVEL ULTIMATE ALLIANCE 3: The Black Order
+
+a credits.100000 | Saving up | Have 100,000 Credits
+a credits.1000000 | Well off | Have 1,000,000 Credits
+a credits.10000000 | Rolling in it | Have 10,000,000 Credits
+
+build 066E47B7E18919A7
+c credits.100000 | u32 heap+2A306DC >= 100000 <= 4294967295
+c credits.1000000 | u32 heap+2A306DC >= 1000000 <= 4294967295
+c credits.10000000 | u32 heap+2A306DC >= 10000000 <= 4294967295

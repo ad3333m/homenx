@@ -1,0 +1,10 @@
+# 0100E0600BBC8001: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E0600BBC8001
+
+a money.100 | Well off | Save up 100
+a money.9999 | Maxed out | Save up 9,999
+
+build 8B679E3F55BD9DE5
+c money.100 | u32 heap+445164 >= 100 <= 99990
+c money.9999 | u32 heap+445164 >= 9999 <= 99990

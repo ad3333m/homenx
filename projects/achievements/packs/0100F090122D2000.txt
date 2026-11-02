@@ -1,0 +1,8 @@
+# Ring of Pain: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F090122D2000 Ring of Pain
+
+a souls.999 | Maxed out | Have 999 Souls
+
+build 3C9CF3FC790DE947
+c souls.999 | u32 [[[main+64B88E0]+B8]+0]+CC >= 999 <= 9990

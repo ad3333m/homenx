@@ -1,0 +1,10 @@
+# Grindstone: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100538012496000 Grindstone
+
+a gems.100 | Well off | Have 100 Gems
+a gems.1003 | Maxed out | Have 1,003 Gems
+
+build 55F3E1211440FA49
+c gems.100 | u32 heap+F2825F10 >= 100 <= 10030
+c gems.1003 | u32 heap+F2825F10 >= 1003 <= 10030

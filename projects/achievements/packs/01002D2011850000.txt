@@ -1,0 +1,10 @@
+# Shovel Knight: Shovel of Hope: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002D2011850000 Shovel Knight: Shovel of Hope
+
+a gold.100 | Well off | Have 100 gold
+a gold.1000 | Rolling in it | Have 1,000 gold
+
+build 6DA1D223E4557E3D
+c gold.100 | u32 [[main+C33E48]+70]+12C >= 100 <= 999990
+c gold.1000 | u32 [[main+C33E48]+70]+12C >= 1000 <= 999990

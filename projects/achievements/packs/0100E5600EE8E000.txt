@@ -1,0 +1,12 @@
+# Atelier Escha & Logy: Alchemists of the Dusk Sky DX: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E5600EE8E000 Atelier Escha & Logy: Alchemists of the Dusk Sky DX
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+a silver.999 | Maxed out | Have 999 silver
+
+build 4BBB3B3455D306C6
+c coins.100 | u32 main+E142A8 >= 100 <= 999990
+c coins.1000 | u32 main+E142A8 >= 1000 <= 999990
+c silver.999 | u32 main+E0F83A >= 999 <= 9990

@@ -1,0 +1,12 @@
+# 010081C0191D8000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010081C0191D8000
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build C2CFBA98AB20C0D7
+c gold.1000 | u32 [main+5E9A200]+2AAFBA4 >= 1000 <= 10000000
+c gold.10000 | u32 [main+5E9A200]+2AAFBA4 >= 10000 <= 10000000
+c gold.100000 | u32 [main+5E9A200]+2AAFBA4 >= 100000 <= 10000000

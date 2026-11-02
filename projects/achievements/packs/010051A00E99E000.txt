@@ -1,0 +1,8 @@
+# Bug Fables: The Everlasting Sapling: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010051A00E99E000 Bug Fables: The Everlasting Sapling
+
+a berries.999 | Maxed out | Have 999 Berries
+
+build 98604B111C24534C
+c berries.999 | u16 [[[main+295FE88]+B8]+10]+17C >= 999 <= 9990

@@ -1,0 +1,12 @@
+# Wolfenstein: Youngblood: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01003BD00CAAE000 Wolfenstein: Youngblood
+
+a coins.1000 | Saving up | Have 1,000 coins
+a coins.10000 | Well off | Have 10,000 coins
+a coins.100000 | Rolling in it | Have 100,000 coins
+
+build 21A35D07D6E6C2F0
+c coins.1000 | u32 main+72739B0 >= 1000 <= 99999990
+c coins.10000 | u32 main+72739B0 >= 10000 <= 99999990
+c coins.100000 | u32 main+72739B0 >= 100000 <= 99999990

@@ -1,0 +1,21 @@
+# Raging Bytes: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100F97019AA6000 Raging Bytes
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 832A31B2FD898542
+c level.25 | u32 [[[[main+2BFE820]+B8]+70]+48]+20 >= 25 <= 9990
+c level.25 | u32 [[[[main+2BFE820]+B8]+70]+48]+E8 >= 25 <= 9990
+c level.25 | u32 [[[[main+2BFE820]+B8]+70]+48]+1B0 >= 25 <= 9990
+c level.25 | u32 [[[[main+2BFE820]+B8]+70]+48]+278 >= 25 <= 9990
+c level.50 | u32 [[[[main+2BFE820]+B8]+70]+48]+20 >= 50 <= 9990
+c level.50 | u32 [[[[main+2BFE820]+B8]+70]+48]+E8 >= 50 <= 9990
+c level.50 | u32 [[[[main+2BFE820]+B8]+70]+48]+1B0 >= 50 <= 9990
+c level.50 | u32 [[[[main+2BFE820]+B8]+70]+48]+278 >= 50 <= 9990
+c level.99 | u32 [[[[main+2BFE820]+B8]+70]+48]+20 >= 99 <= 9990
+c level.99 | u32 [[[[main+2BFE820]+B8]+70]+48]+E8 >= 99 <= 9990
+c level.99 | u32 [[[[main+2BFE820]+B8]+70]+48]+1B0 >= 99 <= 9990
+c level.99 | u32 [[[[main+2BFE820]+B8]+70]+48]+278 >= 99 <= 9990

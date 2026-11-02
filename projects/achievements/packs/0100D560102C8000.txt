@@ -1,0 +1,10 @@
+# BioShock Infinite: The Complete Edition: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100D560102C8000 BioShock Infinite: The Complete Edition
+
+a silver.100 | Well off | Have 100 silver
+a silver.9999 | Maxed out | Have 9,999 silver
+
+build 48681F1D90704F6C
+c silver.100 | u32 [[[main+2805170]+690]+8]+8C >= 100 <= 99990
+c silver.9999 | u32 [[[main+2805170]+690]+8]+8C >= 9999 <= 99990

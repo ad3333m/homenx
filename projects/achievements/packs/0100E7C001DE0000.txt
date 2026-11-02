@@ -1,0 +1,8 @@
+# Arcade Archives Kid's Horehore Daisakusen: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E7C001DE0000 Arcade Archives Kid's Horehore Daisakusen
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build AF0DD1DB8E3F7DAE
+c credits.153 | u8 heap+74F4021E >= 153 <= 255

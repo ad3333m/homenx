@@ -1,0 +1,36 @@
+# 01001F0019804000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01001F0019804000
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 93747E10D2E58CB4
+c money.100000 | u32 [[[main+519A3350]+288E10]+8]+AB78 >= 100000 <= 999999990
+c money.100000 | u32 main+A572FC >= 100000 <= 1865813550
+c money.100000 | u32 main+C08A8C >= 100000 <= 4294967295
+c money.100000 | u32 main+C1C118 >= 100000 <= 4294967295
+c money.100000 | u32 main+C0EF24 >= 100000 <= 1851402010
+c money.100000 | u32 main+C0C37C >= 100000 <= 4294967295
+c money.100000 | u32 main+A6A9A8 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[main+519A3350]+288E10]+8]+AB78 >= 1000000 <= 999999990
+c money.1000000 | u32 main+A572FC >= 1000000 <= 1865813550
+c money.1000000 | u32 main+C08A8C >= 1000000 <= 4294967295
+c money.1000000 | u32 main+C1C118 >= 1000000 <= 4294967295
+c money.1000000 | u32 main+C0EF24 >= 1000000 <= 1851402010
+c money.1000000 | u32 main+C0C37C >= 1000000 <= 4294967295
+c money.1000000 | u32 main+A6A9A8 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[main+519A3350]+288E10]+8]+AB78 >= 10000000 <= 999999990
+c money.10000000 | u32 main+A572FC >= 10000000 <= 1865813550
+c money.10000000 | u32 main+C08A8C >= 10000000 <= 4294967295
+c money.10000000 | u32 main+C1C118 >= 10000000 <= 4294967295
+c money.10000000 | u32 main+C0EF24 >= 10000000 <= 1851402010
+c money.10000000 | u32 main+C0C37C >= 10000000 <= 4294967295
+c money.10000000 | u32 main+A6A9A8 >= 10000000 <= 4294967295
+c level.25 | u32 main+A261FC >= 25 <= 4294967295
+c level.50 | u32 main+A261FC >= 50 <= 4294967295
+c level.99 | u32 main+A261FC >= 99 <= 4294967295

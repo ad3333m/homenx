@@ -1,0 +1,15 @@
+# Koumajou Remilia: Scarlet Symphony: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100532015746000 Koumajou Remilia: Scarlet Symphony
+
+a souls.100000 | Saving up | Have 100,000 Souls
+a souls.1000000 | Well off | Have 1,000,000 Souls
+a souls.10000000 | Rolling in it | Have 10,000,000 Souls
+
+build 887EC8C9A74C314F
+c souls.100000 | u32 main+1398CC0 >= 100000 <= 4294967295
+c souls.100000 | u32 main+139825C >= 100000 <= 4294967295
+c souls.1000000 | u32 main+1398CC0 >= 1000000 <= 4294967295
+c souls.1000000 | u32 main+139825C >= 1000000 <= 4294967295
+c souls.10000000 | u32 main+1398CC0 >= 10000000 <= 4294967295
+c souls.10000000 | u32 main+139825C >= 10000000 <= 4294967295

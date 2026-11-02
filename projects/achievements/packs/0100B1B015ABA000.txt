@@ -1,0 +1,12 @@
+# The Good Life: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B1B015ABA000 The Good Life
+
+a money.10000 | Saving up | Save up 10,000
+a money.100000 | Well off | Save up 100,000
+a money.1000000 | Rolling in it | Save up 1,000,000
+
+build 4B7C5DE5DE1B9F5B
+c money.10000 | u32 [[[[main+34516D0]+B8]+0]+2B0]+48 >= 10000 <= 999999000
+c money.100000 | u32 [[[[main+34516D0]+B8]+0]+2B0]+48 >= 100000 <= 999999000
+c money.1000000 | u32 [[[[main+34516D0]+B8]+0]+2B0]+48 >= 1000000 <= 999999000

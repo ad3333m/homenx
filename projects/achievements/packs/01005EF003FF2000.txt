@@ -1,0 +1,9 @@
+# Kingdom Two Crowns: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01005EF003FF2000 Kingdom Two Crowns
+
+a coins.100 | Maxed out | Have 100 coins
+
+build F2DA1E131CD72241
+c coins.100 | u32 [[[[[[main+36D4E30]+B8]+0]+68]+D0]+C8]+58 >= 100 <= 1000
+c coins.100 | u8 [[[[[[main+36D4E30]+B8]+0]+68]+D0]+C8]+53 >= 100 <= 255

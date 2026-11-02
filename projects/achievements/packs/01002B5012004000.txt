@@ -1,0 +1,10 @@
+# Adventures of Pip: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01002B5012004000 Adventures of Pip
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 27E9E9DD95465D4E
+c money.100 | u32 [[[[[[[[main+3C4A928]+F0]+6710]+38]+18]+D8]+10]+18]+48 >= 100 <= 999990
+c money.1000 | u32 [[[[[[[[main+3C4A928]+F0]+6710]+38]+18]+D8]+10]+18]+48 >= 1000 <= 999990

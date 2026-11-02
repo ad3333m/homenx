@@ -1,0 +1,18 @@
+# AK-xolotl: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010082201B00C000 AK-xolotl
+
+a gems.100000 | Saving up | Have 100,000 Gems
+a gems.1000000 | Well off | Have 1,000,000 Gems
+a gems.10000000 | Rolling in it | Have 10,000,000 Gems
+a gold.100000 | Saving up | Have 100,000 gold
+a gold.1000000 | Well off | Have 1,000,000 gold
+a gold.10000000 | Rolling in it | Have 10,000,000 gold
+
+build 507D73E10F8F2C8B
+c gems.100000 | u32 main+1BEA8E4 >= 100000 <= 4294967295
+c gems.1000000 | u32 main+1BEA8E4 >= 1000000 <= 4294967295
+c gems.10000000 | u32 main+1BEA8E4 >= 10000000 <= 4294967295
+c gold.100000 | u32 main+1C71050 >= 100000 <= 4294967295
+c gold.1000000 | u32 main+1C71050 >= 1000000 <= 4294967295
+c gold.10000000 | u32 main+1C71050 >= 10000000 <= 4294967295

@@ -1,0 +1,12 @@
+# Mary Skelter 2: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01003DE00C95E000 Mary Skelter 2
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build 1CAA05A4630E7769
+c gold.1000 | u32 main+1069238 >= 1000 <= 99999990
+c gold.10000 | u32 main+1069238 >= 10000 <= 99999990
+c gold.100000 | u32 main+1069238 >= 100000 <= 99999990

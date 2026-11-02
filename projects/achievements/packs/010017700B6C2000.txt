@@ -1,0 +1,12 @@
+# New Super Lucky's Tale: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010017700B6C2000 New Super Lucky's Tale
+
+a coins.100000 | Saving up | Have 100,000 coins
+a coins.1000000 | Well off | Have 1,000,000 coins
+a coins.10000000 | Rolling in it | Have 10,000,000 coins
+
+build 14872049185C584C
+c coins.100000 | u32 [[[[[[[[main+3966A70]+40]+A0]+0]+60]+18]+10]+28]+24 >= 100000 <= 4294967295
+c coins.1000000 | u32 [[[[[[[[main+3966A70]+40]+A0]+0]+60]+18]+10]+28]+24 >= 1000000 <= 4294967295
+c coins.10000000 | u32 [[[[[[[[main+3966A70]+40]+A0]+0]+60]+18]+10]+28]+24 >= 10000000 <= 4294967295

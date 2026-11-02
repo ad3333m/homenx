@@ -1,0 +1,12 @@
+# NINJA GAIDEN Σ: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E2F014F46000 NINJA GAIDEN Σ
+
+a money.100 | Well off | Save up 100
+a money.1000 | Rolling in it | Save up 1,000
+
+build 73C01D12EC628195
+c money.100 | u32 main+D22540 >= 100 <= 999990
+c money.100 | u32 main+D23990 >= 100 <= 999990
+c money.1000 | u32 main+D22540 >= 1000 <= 999990
+c money.1000 | u32 main+D23990 >= 1000 <= 999990

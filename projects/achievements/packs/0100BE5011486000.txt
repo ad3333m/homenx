@@ -1,0 +1,12 @@
+# Within the Blade: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100BE5011486000 Within the Blade
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 8BFBA06708A55F7B
+c level.25 | u64 [[[[main+1068B008]+58]+10]+2000]+30 >= 25 <= 18446744073709551615
+c level.50 | u64 [[[[main+1068B008]+58]+10]+2000]+30 >= 50 <= 18446744073709551615
+c level.99 | u64 [[[[main+1068B008]+58]+10]+2000]+30 >= 99 <= 18446744073709551615

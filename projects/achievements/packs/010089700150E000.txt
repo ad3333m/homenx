@@ -1,0 +1,42 @@
+# Dragon Marked for Death: Advanced Attackers: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010089700150E000 Dragon Marked for Death: Advanced Attackers
+
+a gold.1000 | Saving up | Have 1,000 gold
+a gold.10000 | Well off | Have 10,000 gold
+a gold.100000 | Rolling in it | Have 100,000 gold
+
+build 185A67621D9B8D61
+c gold.1000 | u32 heap+814284 >= 1000 <= 99999990
+c gold.10000 | u32 heap+814284 >= 10000 <= 99999990
+c gold.100000 | u32 heap+814284 >= 100000 <= 99999990
+
+build 4233B4516CB5B3D8
+c gold.1000 | u32 heap+888288 >= 1000 <= 99999990
+c gold.10000 | u32 heap+888288 >= 10000 <= 99999990
+c gold.100000 | u32 heap+888288 >= 100000 <= 99999990
+
+build 66D0494FB531F45F
+c gold.1000 | u32 heap+818284 >= 1000 <= 99999990
+c gold.10000 | u32 heap+818284 >= 10000 <= 99999990
+c gold.100000 | u32 heap+818284 >= 100000 <= 99999990
+
+build 70A2F7FC803E2D0E
+c gold.1000 | u32 heap+814284 >= 1000 <= 99999990
+c gold.10000 | u32 heap+814284 >= 10000 <= 99999990
+c gold.100000 | u32 heap+814284 >= 100000 <= 99999990
+
+build E4114EB197E80CA8
+c gold.1000 | u32 heap+818284 >= 1000 <= 99999990
+c gold.10000 | u32 heap+818284 >= 10000 <= 99999990
+c gold.100000 | u32 heap+818284 >= 100000 <= 99999990
+
+build E671D5F4979F0CEA
+c gold.1000 | u32 heap+814284 >= 1000 <= 99999990
+c gold.10000 | u32 heap+814284 >= 10000 <= 99999990
+c gold.100000 | u32 heap+814284 >= 100000 <= 99999990
+
+build E6D27D568F3EA9C8
+c gold.1000 | u32 heap+81627C >= 1000 <= 99999990
+c gold.10000 | u32 heap+81627C >= 10000 <= 99999990
+c gold.100000 | u32 heap+81627C >= 100000 <= 99999990

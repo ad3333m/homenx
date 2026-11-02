@@ -1,0 +1,12 @@
+# Penny-Punching Princess: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100C510049E0000 Penny-Punching Princess
+
+a gold.100 | Well off | Have 100 gold
+a gold.9999 | Maxed out | Have 9,999 gold
+
+build 84D19A943300E243
+c gold.100 | u32 [main+10B4B28]+7C >= 100 <= 99990
+c gold.100 | u32 [main+10B4B28]+7C+8 >= 100 <= 99990
+c gold.9999 | u32 [main+10B4B28]+7C >= 9999 <= 99990
+c gold.9999 | u32 [main+10B4B28]+7C+8 >= 9999 <= 99990

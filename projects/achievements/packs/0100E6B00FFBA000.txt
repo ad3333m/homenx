@@ -1,0 +1,10 @@
+# King Lucas: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100E6B00FFBA000 King Lucas
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build EA5BA579F77A014A
+c coins.100 | u32 [[[[main+2D26A88]+A0]+30]+B8]+30 >= 100 <= 100000
+c coins.1000 | u32 [[[[main+2D26A88]+A0]+30]+B8]+30 >= 1000 <= 100000

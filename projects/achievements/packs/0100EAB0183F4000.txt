@@ -1,0 +1,12 @@
+# Harvest Moon: The Winds of Anthos: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100EAB0183F4000 Harvest Moon: The Winds of Anthos
+
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 695AF56D26630F0D
+c money.100000 | u32 [[[[main+6B56A28]+B8]+0]+80]+30 >= 100000 <= 4294967295
+c money.1000000 | u32 [[[[main+6B56A28]+B8]+0]+80]+30 >= 1000000 <= 4294967295
+c money.10000000 | u32 [[[[main+6B56A28]+B8]+0]+80]+30 >= 10000000 <= 4294967295

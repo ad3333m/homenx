@@ -1,0 +1,10 @@
+# Undertale: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 010080B00AD66000 Undertale
+
+a coins.100 | Well off | Have 100 coins
+a coins.1000 | Rolling in it | Have 1,000 coins
+
+build 24DB41FCD513D080
+c coins.100 | u16 [[main+DB0580]+2B0]+D6 >= 100 <= 65535
+c coins.1000 | u16 [[main+DB0580]+2B0]+D6 >= 1000 <= 65535

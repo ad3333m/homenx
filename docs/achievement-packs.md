@@ -47,6 +47,10 @@ c capclear | u8 [main+2E5F000]+12 == 1
   - `[...]` reads the pointer stored there: `[[main+2D21A90]+20]+1C0` follows two pointers, then adds 0x1C0.
 - **comparison:** `==`, `!=`, `>=`, `>`, `<=`, `<`. `&` means "any of these bits are set" (`& 0x4`).
 - **number:** decimal, or hex with `0x`.
+- **a second comparison** (optional): `u32 [main+1234]+10 >= 10000 <= 9999999`. Both must hold. Use it to rule out
+  nonsense: a pointer read during a loading screen can briefly point somewhere else.
+
+A condition has to hold for 3 seconds in a row before the achievement unlocks.
 
 An achievement can have several `c` lines for one version: any of them unlocks it. Use this for games with save
 slots, where each slot keeps its values somewhere else. An achievement with no condition for the running version

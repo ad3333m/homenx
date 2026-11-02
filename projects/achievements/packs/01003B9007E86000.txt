@@ -1,0 +1,12 @@
+# Hammerwatch: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01003B9007E86000 Hammerwatch
+
+a cash.100 | Saving up | Save up 100
+a cash.1000 | Well off | Save up 1,000
+a cash.10000 | Rolling in it | Save up 10,000
+
+build 6EE12E07E6151A74
+c cash.100 | u32 [[[[[main+2F175F8]+A8]+28]+48]+0]+68 >= 100 <= 9999990
+c cash.1000 | u32 [[[[[main+2F175F8]+A8]+28]+48]+0]+68 >= 1000 <= 9999990
+c cash.10000 | u32 [[[[[main+2F175F8]+A8]+28]+48]+0]+68 >= 10000 <= 9999990

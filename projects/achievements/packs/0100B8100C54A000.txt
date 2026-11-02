@@ -1,0 +1,15 @@
+# Rack N Ruin: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B8100C54A000 Rack N Ruin
+
+a souls.100 | Saving up | Have 100 Souls
+a souls.1000 | Well off | Have 1,000 Souls
+a souls.10000 | Rolling in it | Have 10,000 Souls
+
+build 4E587FE27A463D4C
+c souls.100 | u32 [[[[[main+2F5F170]+A0]+0]+60]+28]+18 >= 100 <= 9999990
+c souls.100 | u32 [[[[[main+2F5F170]+A0]+0]+60]+28]+20 >= 100 <= 1000
+c souls.1000 | u32 [[[[[main+2F5F170]+A0]+0]+60]+28]+18 >= 1000 <= 9999990
+c souls.1000 | u32 [[[[[main+2F5F170]+A0]+0]+60]+28]+20 >= 1000 <= 10000
+c souls.10000 | u32 [[[[[main+2F5F170]+A0]+0]+60]+28]+18 >= 10000 <= 9999990
+c souls.10000 | u32 [[[[[main+2F5F170]+A0]+0]+60]+28]+20 >= 10000 <= 100000

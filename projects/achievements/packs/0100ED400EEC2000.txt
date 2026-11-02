@@ -1,0 +1,30 @@
+# STORY OF SEASONS: Friends of Mineral Town: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100ED400EEC2000 STORY OF SEASONS: Friends of Mineral Town
+
+a gold.10000 | Saving up | Have 10,000 gold
+a gold.100000 | Well off | Have 100,000 gold
+a gold.1000000 | Rolling in it | Have 1,000,000 gold
+a money.100000 | Saving up | Save up 100,000
+a money.1000000 | Well off | Save up 1,000,000
+a money.10000000 | Rolling in it | Save up 10,000,000
+
+build 5CE05588B1D56EC0
+c money.100000 | u32 main+3C6E6C >= 100000 <= 4294967295
+c money.1000000 | u32 main+3C6E6C >= 1000000 <= 4294967295
+c money.10000000 | u32 main+3C6E6C >= 10000000 <= 4294967295
+
+build 9587AA1DA8220111
+c gold.10000 | u32 [[main+60C00790]+380]+CAD0 >= 10000 <= 100000000
+c gold.100000 | u32 [[main+60C00790]+380]+CAD0 >= 100000 <= 100000000
+c gold.1000000 | u32 [[main+60C00790]+380]+CAD0 >= 1000000 <= 100000000
+
+build B781309CF5399C6A
+c money.100000 | u32 main+3C6E9C >= 100000 <= 4294967295
+c money.1000000 | u32 main+3C6E9C >= 1000000 <= 4294967295
+c money.10000000 | u32 main+3C6E9C >= 10000000 <= 4294967295
+
+build E963F5692EB8AEDD
+c gold.10000 | u32 heap+4188AD90 >= 10000 <= 10000000
+c gold.100000 | u32 heap+4188AD90 >= 100000 <= 10000000
+c gold.1000000 | u32 heap+4188AD90 >= 1000000 <= 10000000

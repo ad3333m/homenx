@@ -1,0 +1,12 @@
+# 0100B25019F26000: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B25019F26000
+
+a credits.100000 | Saving up | Have 100,000 Credits
+a credits.1000000 | Well off | Have 1,000,000 Credits
+a credits.10000000 | Rolling in it | Have 10,000,000 Credits
+
+build 60718C394601501B
+c credits.100000 | u32 [[[main+70793B8]+B8]+8]+58 >= 100000 <= 4294967295
+c credits.1000000 | u32 [[[main+70793B8]+B8]+8]+58 >= 1000000 <= 4294967295
+c credits.10000000 | u32 [[[main+70793B8]+B8]+8]+58 >= 10000000 <= 4294967295

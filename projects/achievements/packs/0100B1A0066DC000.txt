@@ -1,0 +1,10 @@
+# Volgarr the Viking: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100B1A0066DC000 Volgarr the Viking
+
+a gold.100 | Well off | Have 100 gold
+a gold.1003 | Maxed out | Have 1,003 gold
+
+build A2AD2E750B402FAC
+c gold.100 | u32 [main+1B1A54]+8 >= 100 <= 10030
+c gold.1003 | u32 [main+1B1A54]+8 >= 1003 <= 10030

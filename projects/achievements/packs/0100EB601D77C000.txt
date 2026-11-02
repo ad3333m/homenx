@@ -1,0 +1,15 @@
+# Doll Explorer: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 0100EB601D77C000 Doll Explorer
+
+a level.25 | Leveling up | Reach level 25
+a level.50 | Seasoned | Reach level 50
+a level.99 | Veteran | Reach level 99
+
+build 8551F33A28808C97
+c level.25 | u32 [[main+3E771D0]+B8]+128 >= 25 <= 990
+c level.25 | u64 [[main+3E771D0]+B8]+128+4 >= 25 <= 4252017624030
+c level.50 | u32 [[main+3E771D0]+B8]+128 >= 50 <= 990
+c level.50 | u64 [[main+3E771D0]+B8]+128+4 >= 50 <= 4252017624030
+c level.99 | u32 [[main+3E771D0]+B8]+128 >= 99 <= 990
+c level.99 | u64 [[main+3E771D0]+B8]+128+4 >= 99 <= 4252017624030

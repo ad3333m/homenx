@@ -1,0 +1,8 @@
+# Arcade Archives MOON PATROL: achievements made from HamletDuFromage/switch-cheats-db's codes for its
+# currency, level or experience (tools/make_all_packs.py). Not checked on a console.
+game 01003000097FE000 Arcade Archives MOON PATROL
+
+a credits.153 | Maxed out | Have 153 Credits
+
+build C8FADC5AF4CD1DFC
+c credits.153 | u8 heap+17E6085 >= 153 <= 255
