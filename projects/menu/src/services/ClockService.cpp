@@ -1,8 +1,11 @@
 #include "ClockService.hpp"
 
+#include <switchu/time_budget.hpp>
+
 namespace switchu::services {
 
 CalendarSnapshot ClockService::refresh() {
+    timebudget::poll(); // the time service may have had no session to spare when HOME started
     u64 timestamp = 0;
     Result rc = timeGetCurrentTime(TimeType_UserSystemClock, &timestamp);
     if (R_FAILED(rc))
