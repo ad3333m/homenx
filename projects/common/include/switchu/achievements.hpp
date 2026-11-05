@@ -15,6 +15,20 @@
 // own events -- a boss beaten -- would need its memory read, game by game.)
 namespace switchu::achievements {
 
+// Game-specific pack goals are the default. Generic playtime/launch milestones
+// remain available as an opt-in, with existing earned records preserved.
+inline constexpr const char* kMilestonesFlag = "sdmc:/config/SwitchU/achievement_milestones";
+inline bool milestonesEnabled() {
+    std::error_code ec;
+    return std::filesystem::exists(kMilestonesFlag, ec);
+}
+inline void setMilestonesEnabled(bool enabled) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    if (enabled) std::ofstream(kMilestonesFlag) << '1';
+    else std::filesystem::remove(kMilestonesFlag, ec);
+}
+
 struct Milestone {
     const char* id;   // as kept in the file
     const char* name;
@@ -24,13 +38,10 @@ struct Milestone {
 };
 
 inline constexpr Milestone kPerGame[] = {
-    {"first", "First steps", "Start it", false, 1},
-    {"h1", "Getting into it", "Play it for 1 hour", true, 1},
     {"h10", "Hooked", "Play it for 10 hours", true, 10},
     {"h25", "Dedicated", "Play it for 25 hours", true, 25},
     {"h50", "Devoted", "Play it for 50 hours", true, 50},
     {"h100", "Legend", "Play it for 100 hours", true, 100},
-    {"l10", "Regular player", "Start it 10 times", false, 10},
     {"l50", "Old friend", "Start it 50 times", false, 50},
 };
 

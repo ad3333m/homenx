@@ -112,6 +112,7 @@ inline std::string gameName(std::uint64_t title) {
 // file yet, what was earned before HomeNX counted is kept without a word.)
 inline void award(std::uint64_t title, const switchu::achievements::Play& play, std::uint64_t sessionSeconds) {
     namespace ach = switchu::achievements;
+    if (!ach::milestonesEnabled()) return;
     ach::Earned e = ach::load(); // (HOME may have written it since)
     const bool quiet = !e.existed;
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
@@ -231,7 +232,7 @@ inline void threadFunc(void*) {
             }
             if (live.attached) checkPack(live);
         }
-        if (!pdm) continue;
+        if (!pdm || !switchu::achievements::milestonesEnabled()) continue;
         bool check = false;
         if (!known) {
             PdmPlayStatistics st{};

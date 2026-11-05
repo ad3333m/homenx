@@ -11,6 +11,11 @@
 
 namespace cards {
 
+struct CustomPage {
+    std::string name;
+    std::vector<std::string> titles;
+};
+
 // Writes `data` to `path` on CardsNX's writer thread (Library.cpp): the
 // screen's thread never waits on the SD card, which an install or the
 // pictures can keep busy for seconds. The newest data for a path wins.
@@ -20,6 +25,12 @@ void flushWrites(); // everything written (before HOME closes)
 // CardsNX's settings (the gear, or the Nintendo page > Settings), in
 // sdmc:/config/CardsNX/settings.json.
 struct Settings {
+    static constexpr int kBuiltinPages = 4;
+    static constexpr int kMaxCustomPages = 8;
+    static constexpr int kMaxPages = kBuiltinPages + kMaxCustomPages;
+    std::vector<CustomPage> customPages;
+    bool notificationCards = true;
+    bool lockGameBanner = true;
     bool music = true;
     int musicVolume = 60;     // 0..100
     bool shuffle = false;
@@ -68,7 +79,24 @@ struct Settings {
     long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
     bool perfLog = true;      // sdmc:/config/CardsNX/perf.log: start-up times and slow frames
     std::string language;     // "es", "ja", ... ("" = the console's)
-    std::vector<std::string> order[4]; // My order, per page: ids (hex)
+    std::vector<std::string> order[kMaxPages]; // My order, per page: ids (hex)
+
+    void normalizePages() {
+        if (customPages.size() > kMaxCustomPages) customPages.resize(kMaxCustomPages);
+        const int count = kBuiltinPages + static_cast<int>(customPages.size());
+        std::vector<int> valid;
+        for (int page : pageOrder)
+            if (page >= 0 && page < count && std::find(valid.begin(), valid.end(), page) == valid.end()) valid.push_back(page);
+        for (int page = 0; page < count; ++page)
+            if (std::find(valid.begin(), valid.end(), page) == valid.end()) valid.push_back(page);
+        pageOrder = std::move(valid);
+        hiddenPages.erase(std::remove_if(hiddenPages.begin(), hiddenPages.end(), [count](int page) {
+            return page < 0 || page >= count;
+        }), hiddenPages.end());
+        std::sort(hiddenPages.begin(), hiddenPages.end());
+        hiddenPages.erase(std::unique(hiddenPages.begin(), hiddenPages.end()), hiddenPages.end());
+        if (static_cast<int>(hiddenPages.size()) == count) hiddenPages.erase(hiddenPages.begin());
+    }
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
 
@@ -88,10 +116,22 @@ struct Settings {
             bgMotion = j.value("bgMotion", bgMotion);
             startPage = j.value("startPage", startPage);
             pageOrder = j.value("pageOrder", pageOrder);
-            std::vector<int> check = pageOrder; // each page once, else the usual order
-            std::sort(check.begin(), check.end());
-            if (check == std::vector<int>{0, 1, 2}) pageOrder.push_back(3); // from before there was Media
-            else if (check != std::vector<int>{0, 1, 2, 3}) pageOrder = {0, 1, 2, 3};
+            customPages.clear();
+            if (j.contains("customPages") && j["customPages"].is_array())
+                for (const auto& page : j["customPages"]) {
+                    if (!page.is_object() || !page.contains("name") || !page["name"].is_string()) continue;
+                    CustomPage custom;
+                    custom.name = page["name"].get<std::string>();
+                    if (custom.name.empty()) continue;
+                    if (page.contains("titles") && page["titles"].is_array())
+                        for (const auto& id : page["titles"])
+                            if (id.is_string() && std::find(custom.titles.begin(), custom.titles.end(), id.get<std::string>()) == custom.titles.end())
+                                custom.titles.push_back(id.get<std::string>());
+                    customPages.push_back(std::move(custom));
+                    if (customPages.size() == kMaxCustomPages) break;
+                }
+            notificationCards = j.value("notificationCards", notificationCards);
+            lockGameBanner = j.value("lockGameBanner", lockGameBanner);
             sort = j.value("sortOrder", sort);
             haze = j.value("haze", haze);
             boxArt = j.value("boxArt", boxArt);
@@ -134,6 +174,7 @@ struct Settings {
             for (int p = 0; p < 4; ++p) order[p] = j.value(keys[p], order[p]);
         } catch (...) {
         }
+        normalizePages();
     }
 
     void save() const {
@@ -147,6 +188,10 @@ struct Settings {
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
+        j["customPages"] = nlohmann::json::array();
+        for (const auto& page : customPages) j["customPages"].push_back({{"name", page.name}, {"titles", page.titles}});
+        j["notificationCards"] = notificationCards;
+        j["lockGameBanner"] = lockGameBanner;
         writeLater(kPath, j.dump(2));
     }
 };

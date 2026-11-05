@@ -1,4 +1,5 @@
 #include "widgets/LockScreen.hpp"
+#include "widgets/BatteryDrawing.hpp"
 
 #include <nxui/core/I18n.hpp>
 #include <switchu/lock_picture.hpp>
@@ -36,6 +37,8 @@ void LockScreen::setNotifications(const std::vector<notifications::Item>& items)
 }
 
 void LockScreen::show(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
+    if (!m_active) switchu::lockpicture::next(armGetSystemTick());
+    m_batteryPoll = 0.f;
     m_gpu = &gpu;
     m_renderer = &renderer;
     m_active = true;
@@ -161,6 +164,14 @@ void LockScreen::openSelectedNotif() {
 void LockScreen::onUpdate(float dt) {
     if (!m_active) return;
     m_time += dt;
+    m_batteryPoll -= dt;
+    if (m_batteryPoll <= 0.f) {
+        m_batteryPoll = 5.f;
+        u32 percent = 0;
+        if (R_SUCCEEDED(psmGetBatteryChargePercentage(&percent))) m_batteryPercent = static_cast<int>(percent);
+        PsmChargerType charger{};
+        if (R_SUCCEEDED(psmGetChargerType(&charger))) m_batteryCharging = charger != PsmChargerType_Unconnected;
+    }
     m_pw.update(dt);
 
     if (!m_wallpaperLoaded && m_gpu && m_renderer) {
@@ -231,6 +242,12 @@ void LockScreen::onRender(nxui::Renderer& renderer) {
                            nxui::Color(1.f, 1.f, 1.f, 0.92f), 1.f);
     }
 
+    switchu::battery_drawing::drawBattery(renderer, {1160.f, 40.f + yOffset, 42.f, 22.f},
+                                         m_batteryPercent, m_batteryCharging, m_fade);
+    if (m_small && m_batteryPercent >= 0) {
+        const std::string percent = std::to_string(m_batteryPercent) + "%";
+        renderer.drawText(percent, {1085.f, 36.f + yOffset}, m_small, nxui::Color::white(), 0.85f);
+    }
     // The password: its dots where the prompt was (entering it, or making it).
     if (m_pwSet || m_setup) {
         const std::string title = m_pw.prompt();

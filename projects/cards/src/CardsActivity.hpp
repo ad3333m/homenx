@@ -64,8 +64,27 @@ public:
 private:
     enum class Zone { Top, Cards, Bottom };
     enum Page { kGames, kHomebrew, kNintendo, kMedia, kPageCount };
+    int pageCount() const { return kPageCount + static_cast<int>(m_settings.customPages.size()); }
+    std::string pageName(int page) const;
+    void rebuildCustomPages();
+    void openCustomPages();
+    void openPagePicker();
+    void editCustomPage(int page);
+    void addToCustomPage(const Game& game);
+    void openAchievementLibrary();
+    void openStorage();
+    void readStorage();
+    void openWallpaperSelection();
+    void showWallpaperSelection();
+    std::vector<std::string> m_lockPlaylist, m_wallSelectionFiles;
+    std::future<std::vector<std::string>> m_wallSelectionJob;
+    void moveSoftware(const Game& game, bool toSd);
+    bool softwareBusy(std::uint64_t id) const;
+    void updateStorage();
+    void drawNotificationCard(nxui::Renderer& renderer);
+    void notifyCard(std::string title, std::string message, std::string glyph = "news");
     // The top bar's buttons, left to right.
-    enum Top { kTopMenu, kTopDiscord, kTopSort, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
+    enum Top { kTopMenu, kTopDiscord, kTopAchievements, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
                kTopCount };
     struct Art {
         std::unique_ptr<nxui::Texture> card, bg, icon;
@@ -249,7 +268,8 @@ private:
     void loadLockPicture();
     std::string m_lockPicture, m_lockTexFor;
     std::unique_ptr<nxui::Texture> m_lockTex;
-    std::unique_ptr<nxui::Texture> m_lockGameTex; // the open game's last picture, behind the lock
+    std::uint64_t m_lockGameId = 0;
+    std::string m_lockGameName;
     std::future<Pixels> m_lockJob;
     // Settings > Look > Lock screen: the time and date when the console wakes.
     bool m_tv1080 = false; // Settings > Look > TV resolution (config/SwitchU/resolution.txt)
@@ -509,8 +529,8 @@ private:
     const char* m_drawMarkName = "";
     void drawStep(const char* next);
 
-    std::vector<Game> m_pages[kPageCount];
-    int m_sels[kPageCount] = {0, 0, 0, 0};
+    std::vector<Game> m_pages[Settings::kMaxPages];
+    int m_sels[Settings::kMaxPages] = {};
     int m_page = kGames;
     std::map<std::uint64_t, Art> m_art;
     float m_scroll = 0.f;  // the row's position, easing to sel()
@@ -613,6 +633,22 @@ private:
     bool m_notifOpen = false;
     std::vector<std::pair<std::string, std::string>> m_notifRows; // title, detail
     std::string m_message;
+    struct Notice { std::string title, text, glyph; };
+    std::deque<Notice> m_notices;
+    Notice m_notice;
+    float m_noticeAge = 0.f;
+    int m_lastBatteryNotice = 101, m_lastControllerCount = -1;
+    float m_controllerCheckIn = 0.f;
+    void updateNotices(float dt);
+    std::future<std::uint32_t> m_storageJob;
+    std::string m_storageGame;
+    std::array<std::string, 2> m_storageSummary = {"Reading...", "Reading..."};
+    struct StorageSnapshot {
+        std::array<std::string, 2> summary;
+        std::map<std::uint64_t, std::string> locations;
+    };
+    std::map<std::uint64_t, std::string> m_storageLocations;
+    std::future<StorageSnapshot> m_storageReadJob;
     float m_messageFor = 0.f;
     std::vector<std::unique_ptr<nxui::Texture>> m_userPictures;
 

@@ -2,7 +2,9 @@
 
 605 games have their own achievements: the packs in `projects/achievements/packs`, made by
 `tools/make_mario_packs.py` and `tools/make_all_packs.py` from switch-cheats-db. Every game also has the
-play-time milestones. None of these have been checked on a console yet.
+optional play-time milestones (Settings > Achievements > Playtime milestones).
+Game-specific goals are shown by default; first-launch rewards have been removed.
+None of these have been checked on a console yet.
 
 | Game | Title ID | Achievements |
 |---|---|---|

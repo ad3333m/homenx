@@ -42,6 +42,7 @@ class AchievementsGui : public tsl::Gui {
 public:
     tsl::elm::Element* createUI() override {
         const ach::Earned earned = ach::load();
+        const bool milestones = ach::milestonesEnabled();
         const std::uint64_t tid = runningTitle();
         auto* frame = new tsl::elm::OverlayFrame("Achievements", "HomeNX");
         auto* list = new tsl::elm::List();
@@ -60,9 +61,9 @@ public:
                 return earned.when.count(ach::key(tid, ("p." + p.id).c_str())) != 0;
             };
             int got = 0;
-            int count = static_cast<int>(sizeof(ach::kPerGame) / sizeof(ach::kPerGame[0]) + pack.list.size());
+            int count = static_cast<int>((milestones ? sizeof(ach::kPerGame) / sizeof(ach::kPerGame[0]) : 0) + pack.list.size());
             for (const auto& p : pack.list) got += packDone(p) ? 1 : 0;
-            for (const ach::Milestone& m : ach::kPerGame)
+            if (milestones) for (const ach::Milestone& m : ach::kPerGame)
                 got += earned.when.count(ach::key(tid, m.id)) || ach::progress(m, play) >= 1.f ? 1 : 0;
             list->addItem(new tsl::elm::CategoryHeader(game + "  " + std::to_string(got) + " / " + std::to_string(count)));
             for (const auto& p : pack.list) {
@@ -70,19 +71,20 @@ public:
                 item->setValue(packDone(p) ? "Earned" : "Locked", !packDone(p));
                 list->addItem(item);
             }
-            for (const ach::Milestone& m : ach::kPerGame) {
+            if (milestones) for (const ach::Milestone& m : ach::kPerGame) {
                 const bool done = earned.when.count(ach::key(tid, m.id)) || ach::progress(m, play) >= 1.f;
                 auto* item = new tsl::elm::ListItem(m.name);
                 item->setValue(progressText(m, play, done), !done);
                 list->addItem(item);
             }
-            list->addItem(new tsl::elm::CategoryHeader("Today's play adds up back on HOME", true));
+            if (milestones) list->addItem(new tsl::elm::CategoryHeader("Today's play adds up back on HOME", true));
+            else if (pack.list.empty()) list->addItem(new tsl::elm::CategoryHeader("No game-specific achievements are available for this game yet", true));
         } else {
             list->addItem(new tsl::elm::CategoryHeader("Open a game to see its achievements"));
         }
         const ach::Play all{earned.totalSeconds, earned.gamesPlayed};
-        list->addItem(new tsl::elm::CategoryHeader("All your games  " + hours(all.seconds) + " h", true));
-        for (const ach::Milestone& m : ach::kOverall) {
+        if (milestones) list->addItem(new tsl::elm::CategoryHeader("All your games  " + hours(all.seconds) + " h", true));
+        if (milestones) for (const ach::Milestone& m : ach::kOverall) {
             const bool done = earned.when.count(ach::overallKey(m.id)) || ach::progress(m, all) >= 1.f;
             auto* item = new tsl::elm::ListItem(m.name);
             item->setValue(progressText(m, all, done), !done);
