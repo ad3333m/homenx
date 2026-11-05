@@ -797,7 +797,7 @@ void CardsActivity::perfLine(const std::string& line) {
     char head[24];
     std::snprintf(head, sizeof(head), "[%8.1f s] ", sinceStartMs() / 1000.f);
     std::lock_guard<std::mutex> lk(m_mu);
-    m_perfOut += head + line + "\n";
+    if (m_perfOut.size() < (128u << 10)) m_perfOut += head + line + "\n";
 }
 
 void CardsActivity::onDestroy() {
@@ -1066,10 +1066,16 @@ void CardsActivity::worker(int index) {
             }
             continue;
         }
+        // Bound transient compressed/decoded/scaling memory independently of
+        // the completed-result queue. Never held by the rendering thread.
+        static std::mutex artworkDecodeMutex;
+        std::unique_lock<std::mutex> decodeLock(artworkDecodeMutex);
         Done done;
         done.id = job.game.id;
         done.what = job.what;
         done.gen = job.gen;
+        try {
+        takeArtworkReadStats();
         const std::uint64_t jobStart = armGetSystemTick();
         const Game look = forLookup(job.game); // (renamed: its pictures are found by its real name)
         std::vector<std::uint8_t> data;
@@ -1116,8 +1122,9 @@ void CardsActivity::worker(int index) {
                 data = gameIcon(look);
             }
         }
+        const auto readFinished = armGetSystemTick();
         if (!data.empty()) {
-            int w = 0, h = 0, ch = 0;
+            int w = 0, h = 0;
             stbi_uc* px = decodePicture(data.data(), static_cast<int>(data.size()), w, h);
             if (px) {
                 done.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
@@ -1155,6 +1162,22 @@ void CardsActivity::worker(int index) {
                 }
             }
         }
+        const auto reads = takeArtworkReadStats();
+        char readDiagnostic[180];
+        std::snprintf(readDiagnostic, sizeof(readDiagnostic),
+                      "[ART] title=%016llX read=%.2fms bytes=%llu MiB_s=%.2f failures=%u slow=%d",
+                      static_cast<unsigned long long>(done.id), reads.milliseconds,
+                      static_cast<unsigned long long>(reads.bytes),
+                      reads.milliseconds > 0 ? reads.bytes / (1048.576 * reads.milliseconds) : 0.,
+                      reads.failures, reads.milliseconds > 100.);
+        perfLine(readDiagnostic);
+        char artDiagnostic[220];
+        std::snprintf(artDiagnostic, sizeof(artDiagnostic),
+                      "[ART] title=%016llX kind=%d source=%.2fms bytes=%zu decode_scale_save=%.2fms result=%zu",
+                      static_cast<unsigned long long>(done.id), done.what, ticksMs(readFinished - jobStart),
+                      data.size(), ticksMs(armGetSystemTick() - readFinished), done.rgba.capacity());
+        perfLine(artDiagnostic);
+        decodeLock.unlock();
         const float took = ticksMs(armGetSystemTick() - jobStart);
         if (took > 800.f) { // a picture that took long (the internet, mostly)
             char line[160];
@@ -1163,10 +1186,47 @@ void CardsActivity::worker(int index) {
                           took, done.rgba.empty() ? " (nothing came)" : "");
             perfLine(line);
         }
-        std::lock_guard<std::mutex> lk(m_mu);
+        } catch (const std::exception&) {
+            done.rgba = {};
+            done.small = {};
+            perfLine("[ART] load failed (allocation or I/O exception); retry deferred");
+        }
+        if (decodeLock.owns_lock()) decodeLock.unlock();
+        std::unique_lock<std::mutex> lk(m_mu);
+        m_cv.wait(lk, [this]() {
+            std::size_t bytes = 0;
+            for (const auto& d : m_done) bytes += d.rgba.capacity() + d.small.capacity();
+            return m_quit || (m_done.size() < 6 && bytes < (12u << 20));
+        });
+        if (m_quit) break;
         m_done.push_back(std::move(done));
     }
     threadDone();
+}
+
+// Admission uses the device's charged bytes, including retired images awaiting
+// safe reclamation. This deliberately also reserves room for non-art textures.
+bool CardsActivity::reserveArtwork(std::uint64_t bytes) {
+    auto used = [&]() { return app().gpu().imageMemoryUsed(); };
+    while (bytes > kArtworkBudget || used() > kArtworkBudget - bytes) {
+        auto victim = m_art.end();
+        const Game* chosen = current();
+        for (auto it = m_art.begin(); it != m_art.end(); ++it) {
+            const auto id = it->first;
+            if ((chosen && chosen->id == id) || id == m_bgId || id == m_bgPrevId ||
+                (!it->second.card && !it->second.bg && !it->second.icon)) continue;
+            if (victim == m_art.end() || it->second.lastAccess < victim->second.lastAccess)
+                victim = it;
+        }
+        if (victim == m_art.end()) return false;
+        auto& a = victim->second;
+        a.card.reset(); a.bg.reset(); a.icon.reset();
+        a.cardAsked = a.bgAsked = a.iconAsked = false;
+        perfLine("[ART] evicted LRU entry; GPU bytes remain charged until retirement");
+        // Never wait for retirement here. Retry admission on a later frame.
+        return false;
+    }
+    return true;
 }
 
 void CardsActivity::wantArt() {
@@ -1175,6 +1235,7 @@ void CardsActivity::wantArt() {
     auto add = [&](int i, int what) {
         if (i < 0 || i >= static_cast<int>(page.size())) return;
         Art& a = m_art[page[(size_t)i].id];
+        a.lastAccess = ++m_artAccess;
         bool& asked = what == kBackground ? a.bgAsked : what == kIcon ? a.iconAsked : a.cardAsked;
         if (asked || m_time < a.retryAt) return;
         if (what == kBackground && page[(size_t)i].action == "get") return; // a download glyph isn't a background
@@ -1207,10 +1268,31 @@ void CardsActivity::wantArt() {
         add(s + d, kIcon);
         add(s - d, kIcon);
     }
+    // Cancel queued requests outside the new working set. In-flight work owns
+    // its data and completes safely; asked flags deduplicate it.
+    {
+        std::lock_guard<std::mutex> lk(m_mu);
+        for (auto it = m_jobs.begin(); it != m_jobs.end();) {
+            auto found = std::find_if(page.begin(), page.end(), [&](const Game& g) { return g.id == it->game.id; });
+            const int distance = found == page.end() ? 10000 : std::abs(static_cast<int>(found - page.begin()) - s);
+            const int radius = it->what == kCard ? 12 : 2;
+            if (it->what != kLaunch && distance > radius) {
+                auto& a = m_art[it->game.id];
+                (it->what == kBackground ? a.bgAsked : it->what == kIcon ? a.iconAsked : a.cardAsked) = false;
+                it = m_jobs.erase(it);
+            } else ++it;
+        }
+    }
     if (jobs.empty()) return;
     {
         std::lock_guard<std::mutex> lk(m_mu); // what's near the selection now goes first
         for (auto it = jobs.rbegin(); it != jobs.rend(); ++it) m_jobs.push_front(std::move(*it));
+        while (m_jobs.size() > 40) {
+            const auto& job = m_jobs.back();
+            auto& a = m_art[job.game.id];
+            (job.what == kBackground ? a.bgAsked : job.what == kIcon ? a.iconAsked : a.cardAsked) = false;
+            m_jobs.pop_back();
+        }
     }
     m_cv.notify_all();
 }
@@ -1239,6 +1321,7 @@ void CardsActivity::takeArt() {
             if (m_statusIn.temperature >= 0) m_temp = m_statusIn.temperature;
         }
     }
+    m_cv.notify_all();
     const Game* cur = current();
     const std::uint64_t selected = cur ? cur->id : 0;
     const std::uint64_t until = armGetSystemTick() + armNsToTicks(4'000'000ULL);
@@ -1264,11 +1347,35 @@ void CardsActivity::takeArt() {
                     : d.what == kIcon       ? &it->second.iconAsked
                     : d.what == kCard       ? &it->second.cardAsked
                                             : nullptr;
+        if (d.what != kLaunch && d.id != selected) {
+            const auto& page = games();
+            const auto found = std::find_if(page.begin(), page.end(), [&](const Game& g) { return g.id == d.id; });
+            const int distance = found == page.end() ? 10000 : std::abs(static_cast<int>(found - page.begin()) - sel());
+            if (distance > (d.what == kCard ? 12 : 2)) {
+                if (asked) *asked = false;
+                continue;
+            }
+        }
         if (d.rgba.empty()) { // nothing came (the network not up yet?): asked again in a while
             if (asked) *asked = false;
             it->second.retryAt = m_time + (m_time < 10.f ? 2.f : 15.f);
             continue;
         }
+        if (d.what == kBackground && it->second.bg) continue;
+#ifdef NXUI_BACKEND_DEKO3D
+        dk::ImageLayout artLayout;
+        dk::ImageLayoutMaker{app().gpu().device()}.setFlags(0)
+            .setFormat(DkImageFormat_RGBA8_Unorm).setDimensions(d.w, d.h).initialize(artLayout);
+        const std::uint64_t needed = (static_cast<std::uint64_t>(artLayout.getSize()) + 4095) & ~4095ull;
+#else
+        const std::uint64_t needed = static_cast<std::uint64_t>(d.w) * d.h * 4;
+#endif
+        if (!reserveArtwork(needed)) {
+            if (asked) *asked = false;
+            it->second.retryAt = m_time + 0.5f;
+            continue;
+        }
+        const auto uploadStart = armGetSystemTick();
         auto tex = std::make_unique<nxui::Texture>();
         if (!tex->loadFromPixels(app().gpu(), app().renderer(), d.rgba.data(), d.w, d.h)) {
             // No room in the picture memory: far ones go now and this one is asked
@@ -1308,7 +1415,7 @@ void CardsActivity::takeArt() {
             // that until it's back, never a blank card.
             if (!d.small.empty() && (d.kind == ArtKind::Grid || d.kind == ArtKind::Box) && !m_thumbs.count(d.id)) {
                 auto small = std::make_unique<nxui::Texture>();
-                if (small->loadFromPixels(app().gpu(), app().renderer(), d.small.data(), d.sw, d.sh))
+                if (reserveArtwork(65536) && small->loadFromPixels(app().gpu(), app().renderer(), d.small.data(), d.sw, d.sh))
                     m_thumbs[d.id] = {std::move(small), m_time, d.kind};
             }
             if (!m_perfFirstCard && d.id == selected) {
@@ -1318,64 +1425,26 @@ void CardsActivity::takeArt() {
                 perfLine(line);
             }
         }
+        char diagnostic[180];
+        std::snprintf(diagnostic, sizeof(diagnostic), "[ART] title=%016llX upload=%.2fms cache_used=%llu budget=%llu",
+                      static_cast<unsigned long long>(d.id), ticksMs(armGetSystemTick() - uploadStart),
+                      static_cast<unsigned long long>(app().gpu().imageMemoryUsed()),
+                      static_cast<unsigned long long>(kArtworkBudget));
+        perfLine(diagnostic);
+        if (d.id == selected && it->second.selectedTick) {
+            char visible[100];
+            std::snprintf(visible, sizeof(visible), "[ART] title=%016llX kind=%d visible_after=%.2fms",
+                          static_cast<unsigned long long>(d.id), d.what,
+                          ticksMs(armGetSystemTick() - it->second.selectedTick));
+            perfLine(visible);
+        }
         ++m_perfUploads;
     }
     if (batch) app().gpu().endTextureUploadBatch();
 
-    // Far from the selection, on any page: let the pictures go, now and then and
-    // all together (freeing one waits for the GPU; the rest are then free).
-    // Also when the picture memory runs low (fonts and HomeNX's screens use it
-    // too), or a picture just had no room.
-    const bool tight = app().gpu().imageMemoryAvailable() < (32ull << 20);
-    const bool now = m_evictNow;
-    if (!now && ((m_evictIn -= 1.f / 60.f) > 0.f || m_leaving)) return;
-    m_evictIn = 2.f;
-    m_evictNow = false;
-    int loaded = 0;
-    for (const auto& [id, a] : m_art) loaded += (a.card ? 1 : 0) + (a.bg ? 3 : 0);
-    // A whole page of covers stays while there's room: one let go came back
-    // blank until it loaded again, and with the SD card busy (an install, the
-    // list) that took seconds -- the covers that "disappeared".
-    if (loaded < 140 && !tight && !now) {
-        m_shortBefore = false;
-        return;
-    }
-    // Backgrounds go first (one is as big as six covers), and the far icons;
-    // covers only when that wasn't enough by the next time ("covers
-    // disappear", build 175) -- and then their small copies stand in.
-    const bool shortNow = tight || now, coversToo = shortNow && m_shortBefore;
-    m_shortBefore = shortNow;
-    const int keepCards = coversToo ? 14 : 60; // 14: still well past the ~6 on screen either side
-    const int keepBackgrounds = shortNow ? 1 : 6;
-    if (shortNow) {
-        char line[96];
-        std::snprintf(line, sizeof(line), "pictures let go (%s, %llu MB free)%s", now ? "one had no room" : "memory low",
-                      static_cast<unsigned long long>(app().gpu().imageMemoryAvailable() >> 20), coversToo ? ": covers too" : "");
-        perfLine(line);
-    }
-    std::map<std::uint64_t, int> distance;
-    for (int p = 0; p < kPageCount; ++p) {
-        const auto& page = m_pages[p];
-        const int s = m_sels[p];
-        for (size_t i = 0; i < page.size(); ++i) // another page's: as if 8 further away
-            distance[page[i].id] = std::abs(static_cast<int>(i) - s) + (p == m_page ? 0 : 8);
-    }
-    for (auto& [id, a] : m_art) {
-        auto d = distance.find(id);
-        const int dist = d == distance.end() ? 1000 : d->second;
-        if (a.card && dist > keepCards) {
-            a.card.reset();
-            a.cardAsked = false;
-        }
-        if (a.icon && dist > keepCards) {
-            a.icon.reset();
-            a.iconAsked = false;
-        }
-        if (a.bg && dist > keepBackgrounds && id != m_bgId && id != m_bgPrevId) {
-            a.bg.reset();
-            a.bgAsked = false;
-        }
-    }
+    // Budget admission performs LRU retirement; no periodic distance-based
+    // purge competes with it. Deferred resources stay charged by GpuDevice.
+
 }
 
 void CardsActivity::forgetAllArt() {
@@ -1420,6 +1489,12 @@ void CardsActivity::select(int index) {
     m_sheen = m_settings.motion ? 0.f : 1.f;
     const std::uint64_t id = page[(size_t)index].id;
     auto it = m_art.find(id);
+    m_art[id].lastAccess = ++m_artAccess;
+    m_art[id].selectedTick = armGetSystemTick();
+    char cacheLine[100];
+    std::snprintf(cacheLine, sizeof(cacheLine), "[ART] title=%016llX cache=%s",
+                  static_cast<unsigned long long>(id), it != m_art.end() && it->second.bg ? "HIT" : "MISS");
+    perfLine(cacheLine);
     if (it != m_art.end() && it->second.bg && m_bgId != id) {
         m_bgPrevId = m_bgId;
         m_bgId = id;
@@ -6944,7 +7019,7 @@ void CardsActivity::onUpdate(float dt) {
             char line[460];
             std::snprintf(line, sizeof(line),
                           "slow frame %.1f ms: daemon %.1f, pictures %.1f (%d uploaded), discord %.1f, the rest of update %.1f "
-                          "(most: %s %.1f), drawing %.1f (most: %s %.1f), GPU/system %.1f (GPU waits: frame %.1f, uploads %.1f; "
+                          "(most: %s %.1f), drawing %.1f (most: %s %.1f), outside update/draw %.1f (unattributed; measured GPU waits: frame %.1f, uploads %.1f; "
                           "%d freed in %.1f)",
                           interval, m_perfPumpMs, m_perfArtMs, m_perfUploads, m_perfDiscordMs,
                           std::max(0.f, m_perfUpdateMs - m_perfPumpMs - m_perfArtMs - m_perfDiscordMs), m_perfMarkName,

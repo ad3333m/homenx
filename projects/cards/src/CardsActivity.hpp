@@ -71,6 +71,7 @@ private:
         std::unique_ptr<nxui::Texture> card, bg, icon;
         ArtKind kind = ArtKind::Banner, bgKind = ArtKind::Banner, iconKind = ArtKind::Icon;
         bool cardAsked = false, bgAsked = false, iconAsked = false;
+        std::uint64_t lastAccess = 0, selectedTick = 0;
         float cardIn = -10.f; // when it arrived (it fades in)
         float retryAt = 0.f;  // nothing came: asked again after this
     };
@@ -116,6 +117,13 @@ private:
     // Bumped when every picture is let go (a Pictures setting changed): what was
     // being made for the old setting is dropped when it arrives.
     int m_artGen = 0;
+#ifndef CARDS_ARTWORK_GPU_MB
+#define CARDS_ARTWORK_GPU_MB 72
+#endif
+    static constexpr std::uint64_t kArtworkBudget = CARDS_ARTWORK_GPU_MB * 1024ull * 1024ull;
+    std::uint64_t m_artAccess = 0;
+    bool reserveArtwork(std::uint64_t bytes);
+
     // The queue is cleared (a page switch, a new order): what was asked and isn't
     // here yet is asked for again near the new selection.
     void requeueArt();

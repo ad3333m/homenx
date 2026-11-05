@@ -40,7 +40,9 @@ package("libsdl")
             includedirs = path.join(root, "include"),
             linkdirs = path.join(root, "lib"),
             links = {"SDL2"},
-            syslinks = {"pthread"}
+            -- Mesa EGL needs its dispatch library after the graphics archives.
+            -- The switch-pkg fetch metadata can omit this transitive dependency.
+            syslinks = {"glapi", "pthread"}
         }
     end)
 package_end()
