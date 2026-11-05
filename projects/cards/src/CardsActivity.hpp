@@ -86,7 +86,7 @@ private:
     void drawNotificationCard(nxui::Renderer& renderer);
     void notifyCard(std::string title, std::string message, std::string glyph = "news");
     // The top bar's buttons, left to right.
-    enum Top { kTopMenu, kTopDiscord, kTopTrophy, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
+    enum Top { kTopMenu, kTopDiscord, kTopSort, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
                kTopCount };
     struct Art {
         std::unique_ptr<nxui::Texture> card, bg, icon;
@@ -361,7 +361,6 @@ private:
                                         bool every, long long seenAt, std::uint32_t installed);
     std::future<Achieved> m_achJob;
     void openAchievements(const Game& g);
-    void openAllAchievements();             // the trophy: every game's, then the ones across games
     std::vector<MenuItem> overallAchievementRows();
     void welcomeBack(const Game& g);        // Achievements > Welcome back, as it starts
     bool m_scanAsked = false;              // Settings > Home > Look for new software

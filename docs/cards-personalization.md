@@ -27,16 +27,14 @@ same wallpaper rotation selection.
 - **Notifications:** floating cards show battery warnings, controller changes,
   achievements, Discord alerts and completed transfers, with an icon, accent
   border, entrance/exit animation and timeout indicator. System notices also
-  appear in notification history. Settings > Notifications can disable the
+  appear in notification history. Settings > Home can disable the
   cards; an active software transfer still shows its status.
-- **Achievements:** open them using the trophy in the top bar, the top-left menu,
-  the game's lower panel, or Settings > Achievements. Every game has milestones
+- **Achievements:** **+ > Achievements** on a game. Every game has milestones
   (play time, a long session, coming back after months), and games with a pack
-  have their own goals too. Settings > Achievements turns the milestones off;
-  existing earned records are preserved. First-launch rewards are removed.
-- **Sorting:** choose the order in Settings > Home > Sort games. Y no longer
-  cycles the four sort orders, and the former sort icon opens achievements.
-- **Storage:** Settings > Storage shows console/microSD capacity and software
+  have their own goals too. Settings > Home > Playtime milestones turns the
+  milestones off; existing earned records are preserved. First-launch rewards are removed.
+- **Sorting:** the sort button in the top bar, or Settings > Home > Sort games.
+- **Storage:** Settings > Console shows console/microSD capacity and software
   locations. Select installed software, a destination, and confirm the move.
   Transfers use the console's NS application-management service, on a worker.
   Save data remains on the console. Running software must be closed first, and

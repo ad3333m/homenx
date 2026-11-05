@@ -8,14 +8,14 @@ Put `CardsNX.nro` in `sdmc:/switch/CardsNX/` (HomeNX installs it there for you).
 
 ### What's on screen
 - **Games:** box art for every installed game, with the cover fitting the card. Art comes from SteamGridDB if you've set a key in HomeNX, otherwise from GameTDB. The eShop banner is the last resort.
-- **Achievements:** the trophy at the top shows them all, the one on a game's panel shows that game's. Every game has play-time milestones, and 605 games have their own (coins, money, levels, all the purple coins in each of Super Mario Odyssey's kingdoms...). With Ultrahand they pop up over the game the moment they happen.
+- **Achievements:** + > Achievements on a game. Every game has play-time milestones, and 605 games have their own (coins, money, levels, all the purple coins in each of Super Mario Odyssey's kingdoms...). With Ultrahand they pop up over the game the moment they happen.
 - **Green dots:** how many players are online in that game on [Nextendo](https://nextendo.network) right now. The number in the pill is the total.
 - **Homebrew page:** your .nro apps (Sphaira, Discord/SwitchCord and the Homebrew Manager first) and your NRO forwarders.
 - **Nintendo page:** News (as HOME), eShop, Album, Controllers, Mii Maker, Friends, Browser (BrowseNX, downloaded the first time) and Settings.
-- **Top bar:** the menu, Discord, achievements, a pill (you, the time, battery, free space, Nextendo players), notifications, music, power and settings. Tap your picture to choose, add or remove users, see your friend code or add a friend.
+- **Top bar:** the menu, Discord, the sort, a pill (you, the time, battery, free space, Nextendo players), notifications, music, power and settings. Tap your picture to choose, add or remove users, see your friend code or add a friend.
 - **Custom pages:** up to eight, with any games and apps on them (Settings > Home > Custom pages, then + > Add to custom page on a card). + > Hide this card takes a card off HOME without deleting anything.
 - **Your own pictures:** put JPG or PNG files in `sdmc:/config/CardsNX/my-pictures`: they come first when you choose a card, background or title picture.
-- **Storage:** Settings > Storage shows the space left and moves games between the console and the SD card.
+- **Storage:** Settings > Console shows the space left and moves games between the console and the SD card.
 - **Notifications:** a card when a controller comes or goes, when the battery is low and for achievements. With Ultrahand the battery and controller ones show in games too.
 
 ### Buttons

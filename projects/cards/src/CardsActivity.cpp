@@ -59,11 +59,10 @@ constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 
 constexpr float kCardMidY = 291.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
 const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
 constexpr float kPanelRadius = 35.f;
-const float kPanelTrophyX = kPanel.x + 22.f + 262.f + 8.f + 77.f + 8.f + 38.5f; // after the options button
 // The top bar: menu, Discord and sort on the left; the pill (you,
 // the time, battery, free space, Nextendo) ends at kPillRight; then the bell,
 // music, power and settings.
-constexpr float kMenuX = 134.f, kDiscordX = 219.f, kTrophyX = 304.f, kPillRight = 872.f;
+constexpr float kMenuX = 134.f, kDiscordX = 219.f, kSortX = 304.f, kPillRight = 872.f;
 constexpr float kBellX = 908.f, kMusicX = 976.f, kPowerX = 1061.f, kGearX = 1146.f;
 // Settings: sections on the left, rows on the right.
 const nxui::Rect kSheet{120.f, 52.f, 1040.f, 616.f};
@@ -101,7 +100,7 @@ const MediaApp kMediaApps[] = {
     {"Cinejoy", {"cinejoy", nullptr}, nullptr, nullptr},
 };
 const char* const kSortNames[] = {"Last Played", "Title", "Most Played", "My Order"};
-constexpr int kSortCycle[] = {1, 3, 0, 2}; // Settings > Home > Sort games: Title, My Order, Last Played, Most Played
+constexpr int kSortCycle[] = {1, 3, 0, 2}; // The sort button, Settings > Home > Sort games: Title, My Order, Last Played, Most Played
 struct Accent {
     const char* name;
     nxui::Color color;
@@ -3302,7 +3301,7 @@ struct IntroPage {
 const IntroPage kIntro[] = {
     {"Welcome to CardsNX", "Your games are cards. Left and right move between them, A plays. Either stick works too.", "play"},
     {"Each card's options", "+ on a card: its pictures, a new name, another page for it, or delete it. X closes the software that's open.", "dots"},
-    {"Pages", "ZL and ZR go through Games, Homebrew, Media and Nintendo. The trophy at the top shows your achievements.", "trophy"},
+    {"Pages", "ZL and ZR go through Games, Homebrew, Media and Nintendo. + on a game shows its achievements.", "sort"},
 #ifdef SWITCHU_MENU
     {"Quick Settings and more", "R opens Quick Settings: music, brightness, Wi-Fi, Bluetooth and power. L opens Discord. The gear at the top is Settings.", "gear"},
 #else
@@ -3445,7 +3444,7 @@ void CardsActivity::openOptions() {
 #endif
     if (g.action.empty()) {
         items.push_back(action("Add to custom page", [this, g]() { addToCustomPage(g); }));
-        items.back().glyph = "dots";
+        items.back().glyph = "copy";
         if (m_page >= kPageCount) {
             const int page = m_page;
             items.push_back(action("Remove from this page", [this, g, page]() {
@@ -3455,6 +3454,7 @@ void CardsActivity::openOptions() {
                 rebuildCustomPages();
                 requeueArt();
             }));
+            items.back().glyph = "trash";
         }
         items.push_back(action("Hide this card", [this, g]() { hideCard(g); })); // (it stays installed)
         items.back().glyph = "moon";
@@ -3742,47 +3742,6 @@ std::vector<CardsActivity::MenuItem> CardsActivity::overallAchievementRows() {
     return items;
 }
 
-// The trophy (top bar, the panel): every game with what it has earned of all its
-// achievements, the most first (A: that game's), then the ones across every game.
-void CardsActivity::openAllAchievements() {
-    namespace ach = switchu::achievements;
-    const ach::Earned earned = ach::load();
-    const bool milestones = ach::milestonesEnabled();
-    struct Row {
-        Game g;
-        int got = 0, count = 0;
-    };
-    std::vector<Row> rows;
-    for (const Game& g : m_pages[kGames]) {
-        if (!g.path.empty() || !g.action.empty() || g.homebrew) continue;
-        const switchu::packs::Pack pack = switchu::packs::load(g.id);
-        Row r{g};
-        for (const switchu::packs::Achievement& p : pack.list) {
-            ++r.count;
-            r.got += earned.when.count(ach::key(g.id, ("p." + p.id).c_str())) ? 1 : 0;
-        }
-        const ach::Facts play{g.playSeconds};
-        if (milestones) for (const ach::Milestone& m : ach::kPerGame) {
-            if (!hasPerfect(m, pack)) continue;
-            ++r.count;
-            r.got += earned.when.count(ach::key(g.id, m.id)) || ach::progress(m, play) >= 1.f ? 1 : 0;
-        }
-        rows.push_back(std::move(r));
-    }
-    std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.got > b.got; });
-    std::vector<MenuItem> items;
-    for (const Row& r : rows) {
-        const Game g = r.g;
-        MenuItem row = action(g.name, [this, g]() { openAchievements(g); });
-        const std::string have = std::to_string(r.got) + " / " + std::to_string(r.count);
-        row.value = [have]() { return have; };
-        items.push_back(std::move(row));
-    }
-    for (MenuItem& row : overallAchievementRows()) items.push_back(std::move(row));
-    if (items.empty()) items.push_back(info("Install a game to see its achievements here", nullptr));
-    openMenu("Achievements", std::move(items));
-}
-
 // Achievements > Welcome back: a game started again after 6 months away (said back on HOME).
 void CardsActivity::welcomeBack(const Game& g) {
     namespace ach = switchu::achievements;
@@ -3843,7 +3802,7 @@ void CardsActivity::openTitlePicker(const Game& g, bool cover, const std::string
 // look from another game).
 void CardsActivity::searchPicker() {
     if (m_key.empty()) {
-        say("Searching needs a SteamGridDB key: Settings > Pictures.");
+        say("Searching needs a SteamGridDB key: Settings > Look.");
         return;
     }
     const std::string initial = m_pickQuery.empty() ? m_pickGame.name : m_pickQuery[0] == '#' ? m_pickLabel : m_pickQuery;
@@ -3927,7 +3886,7 @@ void CardsActivity::pickChoice(int index) {
     });
     m_pickOpen = false;
     m_audio.play("activation");
-    if (!cover && !hero && !m_settings.titlePics) say("Saved. It shows when Settings > Pictures > Title pictures is on.");
+    if (!cover && !hero && !m_settings.titlePics) say("Saved. It shows when Settings > Look > Title pictures is on.");
 }
 
 void CardsActivity::updatePicker() {
@@ -4130,7 +4089,7 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
     if (m_pickChoices.size() <= (m_pickWall == 3 ? 0u : 1u)) {
         const std::string none = m_pickWall == 3 ? "No screenshots yet: press the Capture button."
                                  : m_pickWall ? "Put pictures in sdmc:/config/CardsNX/backgrounds, or take a screenshot."
-                                 : m_key.empty() ? "Pictures to choose come from SteamGridDB: add a key in Settings > Pictures."
+                                 : m_key.empty() ? "Pictures to choose come from SteamGridDB: add a key in Settings > Look."
                                  : m_pickQuery.empty() ? "SteamGridDB has no pictures for this game. Y to search another name."
                                                        : "Nothing found. Y to search again.";
         textMid(r, m_fBody, none, 640.f - measured(m_fBody, none).x * 0.5f, kPickCard.y + 330.f + dy, kMuted.withAlpha(a));
@@ -4388,7 +4347,6 @@ void CardsActivity::openDots() {
 #endif
     m_dotsTiles.push_back({"Discord", "discord", nxui::Color(0.35f, 0.40f, 0.95f, 1.f), [this]() { openDiscord(); }});
     m_dotsTiles.push_back({"Users", "friends", nxui::Color(1.f, 0.6f, 0.2f, 1.f), [this]() { openUsers(); }});
-    m_dotsTiles.push_back({"Achievements", "trophy", nxui::Color(1.f, 0.78f, 0.25f, 1.f), [this]() { openAllAchievements(); }});
     m_dotsTiles.push_back({"Pages", "copy", nxui::Color(0.36f, 0.68f, 1.f, 1.f), [this]() { openPagePicker(); }});
     m_dotsTiles.push_back({"Music", "music", nxui::Color(0.95f, 0.35f, 0.6f, 1.f), [this]() { openMusic(); }});
     m_dotsTiles.push_back({"Quick", "sun", nxui::Color(1.f, 0.78f, 0.25f, 1.f), [this]() { openQuick(); }});
@@ -5515,7 +5473,7 @@ void CardsActivity::buildSettings() {
         return card ? card->name : std::string("An app that's gone");
     }, [this, save](int) {
         m_settings.panelApp = m_settings.panelApp == "news" ? "" : "news";
-        m_bottomSel = std::min(m_bottomSel, m_settings.panelApp.empty() ? 3 : 4);
+        m_bottomSel = std::min(m_bottomSel, m_settings.panelApp.empty() ? 2 : 3);
         save();
     });
     panel.detail = "The panel's right button. Any app: + on its card > Put on the panel button";
@@ -5720,17 +5678,14 @@ void CardsActivity::buildSettings() {
             syncPopupsFlag();
 #endif
         }, "Battery, controllers and achievements; in games too, with Ultrahand"));
-    m_sheet.push_back(std::move(notices));
-    Section achievements{"Achievements", "trophy", {}};
-    achievements.rows.push_back(action("View achievements", [this]() { openAllAchievements(); }));
     m_milestonesOn = switchu::achievements::milestonesEnabled();
-    achievements.rows.push_back(toggle("Playtime milestones", [this]() { return m_milestonesOn; },
+    notices.rows.push_back(toggle("Playtime milestones", [this]() { return m_milestonesOn; },
         [this]() {
             m_milestonesOn = !m_milestonesOn;
             switchu::achievements::setMilestonesEnabled(m_milestonesOn);
         },
         "For every game. Each game's own goals stay on without them."));
-    m_sheet.push_back(std::move(achievements));
+    m_sheet.push_back(std::move(notices));
     Section storage{"Storage", "copy", {}};
     storage.rows.push_back(info("Console memory", [this]() { return m_storageSummary[0]; }));
     storage.rows.push_back(info("microSD card", [this]() { return m_storageSummary[1]; }));
@@ -6069,6 +6024,21 @@ void CardsActivity::buildSettings() {
     }));
 #endif
     m_sheet.push_back(std::move(about));
+    // Fewer tabs: these go at the end of another's rows.
+    auto fold = [this](const char* from, const char* into) {
+        const auto named = [this](const char* name) {
+            return std::find_if(m_sheet.begin(), m_sheet.end(), [name](const Section& s) { return s.name == name; });
+        };
+        const auto source = named(from);
+        const auto target = named(into);
+        if (source == m_sheet.end() || target == m_sheet.end()) return;
+        for (MenuItem& row : source->rows) target->rows.push_back(std::move(row));
+        m_sheet.erase(source);
+    };
+    fold("Notifications", "Home");
+    fold("Pictures", "Look");
+    fold("Storage", "Console");
+    fold("About", "Updates");
     // His order (Settings > Home > Settings tab order); tabs new since go after.
     const auto& wanted = m_settings.sheetOrder;
     auto rank = [&wanted](const Section& sec) {
@@ -7194,7 +7164,18 @@ void CardsActivity::activateTop(int index) {
     switch (index) {
         case kTopMenu: openDots(); break;
         case kTopDiscord: openDiscord(); break;
-        case kTopTrophy: openAllAchievements(); break; // (the sort is in Settings > Home only)
+        case kTopSort:
+            if (m_page == kGames) {
+                int at = 0;
+                for (int i = 0; i < 4; ++i)
+                    if (kSortCycle[i] == m_settings.sort) at = i;
+                sortGames(kSortCycle[(at + 1) % 4]);
+                m_settings.save();
+                m_audio.play("toggle_on");
+            } else {
+                switchPage(1);
+            }
+            break;
         case kTopUser: openUsers(); break;
         case kTopPlayers:
             say(m_playersTotal < 0 ? "Counting Nextendo players..."
@@ -7213,14 +7194,8 @@ void CardsActivity::activateBottom(int index) {
     switch (index) {
         case 0: play(); break;
         case 1: openOptions(); break;
-        case 2: {
-            const Game* g = current();
-            if (g && g->path.empty() && g->action.empty() && !g->homebrew) openAchievements(*g);
-            else openAllAchievements();
-            break;
-        }
-        case 3: switchPage(1); break;
-        case 4:
+        case 2: switchPage(1); break;
+        case 3:
 #ifdef SWITCHU_MENU
             if (m_settings.panelApp == "news") {
                 openNews();
@@ -7565,7 +7540,7 @@ bool CardsActivity::handleTouch() {
         int hit = -1;
         if (inCircle(kMenuX, kTopY, 40.f)) hit = kTopMenu;
         else if (inCircle(kDiscordX, kTopY, 40.f)) hit = kTopDiscord;
-        else if (inCircle(kTrophyX, kTopY, 40.f)) hit = kTopTrophy;
+        else if (inCircle(kSortX, kTopY, 40.f)) hit = kTopSort;
         else if (m_userHit.contains(x, y)) hit = kTopUser;
         else if (m_settings.players && m_playersHit.contains(x, y)) hit = kTopPlayers;
         else if (inCircle(kBellX, kTopY, 32.f)) hit = kTopBell;
@@ -7584,9 +7559,8 @@ bool CardsActivity::handleTouch() {
         int hit = -1;
         if (nxui::Rect{kPanel.x + 22.f, by, 262.f, 77.f}.contains(x, y)) hit = 0;
         else if (inCircle(kPanel.x + 22.f + 262.f + 8.f + 38.5f, cy, 40.f)) hit = 1;
-        else if (inCircle(kPanelTrophyX, cy, 40.f)) hit = 2;
-        else if (inCircle(right - 77.f - 8.f - 38.5f, cy, 40.f)) hit = 3;
-        else if (inCircle(right - 38.5f, cy, 40.f)) hit = 4;
+        else if (inCircle(right - 77.f - 8.f - 38.5f, cy, 40.f)) hit = 2;
+        else if (inCircle(right - 38.5f, cy, 40.f)) hit = 3;
         if (hit >= 0) {
             m_zone = Zone::Bottom;
             m_bottomSel = hit;
@@ -8148,7 +8122,7 @@ void CardsActivity::onUpdate(float dt) {
         }
         if (got.said.size() == 1) notifyCard("Achievement unlocked", got.said[0], "trophy");
         else if (got.said.size() > 1)
-            notifyCard(trf("{count} achievements unlocked", {std::to_string(got.said.size())}), "The trophy at the top shows them", "trophy");
+            notifyCard(trf("{count} achievements unlocked", {std::to_string(got.said.size())}), "+ on a game shows them", "trophy");
     }
     // Pictures for every game, on their own, so scrolling never waits on the internet: only
     // after 45 s with nothing pressed, stopped by the next press (it carries on at the next
@@ -8496,9 +8470,9 @@ void CardsActivity::onUpdate(float dt) {
             m_topSel = next;
         } else {
 #ifdef SWITCHU_MENU
-            const int last = m_settings.panelApp.empty() ? 3 : 4; // Settings > Home > Panel button: Nothing
+            const int last = m_settings.panelApp.empty() ? 2 : 3; // Settings > Home > Panel button: Nothing
 #else
-            const int last = 4;
+            const int last = 3;
 #endif
             const int next = std::clamp(m_bottomSel + move, 0, last);
             if (next != m_bottomSel) m_audio.play("navigation");
@@ -8718,7 +8692,7 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     const int dms = m_discord.started() ? m_discord.unreadDms() : 0;
     if (dms > 0) badge(kDiscordX + 14.f, y - 40.f, dms);
 #endif
-    glassCircle(r, kTrophyX, y, kCircle, top && m_topSel == kTopTrophy, "trophy", 34.f, a, pressedOf(kTopTrophy));
+    glassCircle(r, kSortX, y, kCircle, top && m_topSel == kTopSort, "sort", 34.f, a, pressedOf(kTopSort));
 
     // The pill: you (and whether you're online), the time, battery, free space, Nextendo.
     const float face = 34.f, gap = 16.f;
@@ -9281,27 +9255,25 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     textMid(r, m_fPlay, word, px + 34.f, playRect.y + playRect.height * 0.5f, ink);
     glassCircle(r, panel.x + 22.f + 262.f + 8.f + 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 1, "dots", 32.f, a,
                 pressedOf(1));
-    // Achievements: the game's (anything else: every game's).
-    glassCircle(r, kPanelTrophyX, by + 38.5f, 77.f, bottom && m_bottomSel == 2, "trophy", 32.f, a, pressedOf(2));
     const float right = panel.x + panel.width - 22.f;
-    glassCircle(r, right - 77.f - 8.f - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 3, "copy", 32.f, a, pressedOf(3));
+    glassCircle(r, right - 77.f - 8.f - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 2, "copy", 32.f, a, pressedOf(2));
 #ifdef SWITCHU_MENU
     if (m_settings.panelApp == "news") {
-        glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 4, "news", 32.f, a, pressedOf(4));
+        glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 3, "news", 32.f, a, pressedOf(3));
     } else if (!m_settings.panelApp.empty()) { // a card's own picture in it
         const Game* card = panelCard();
         auto it = card ? m_art.find(card->id) : m_art.end();
         const nxui::Texture* pic = it != m_art.end() && it->second.icon && it->second.icon->valid() ? it->second.icon.get() : nullptr;
-        glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 4, pic ? "" : "play", 30.f, a, pressedOf(4));
+        glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 3, pic ? "" : "play", 30.f, a, pressedOf(3));
         if (pic) {
-            const float s = 44.f * (1.f - 0.06f * pressedOf(4));
+            const float s = 44.f * (1.f - 0.06f * pressedOf(3));
             r.drawTextureRounded(pic, {right - 38.5f - s * 0.5f, by + 38.5f - s * 0.5f, s, s}, 12.f, kWhite.withAlpha(a));
         } else if (card) {
             wantPanelIcon(*card);
         }
     }
 #else
-    glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 4, "home", 34.f, a, pressedOf(4));
+    glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 3, "home", 34.f, a, pressedOf(3));
 #endif
     // Which page this is: a dot each under the page button, in your order (not the hidden ones).
     int shownPages = 0;
@@ -9411,7 +9383,7 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
     if (m_notifOpen) {
         // A card for each: a bell on an accent tile, who or what, then the words.
         const float rows = static_cast<float>(std::max<size_t>(1, m_notifRows.size()));
-        nxui::Rect box{kGearX + 38.f - 460.f, 84.f - 12.f * (1.f - a), 460.f, 60.f + rows * 64.f + 40.f};
+        nxui::Rect box{kGearX + 38.f - 460.f, 84.f - 12.f * (1.f - a), 460.f, 60.f + rows * 74.f + 40.f};
         r.drawRoundedRect({box.x - 4.f, box.y + 10.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.28f * a),
                           28.f); // its shadow
         frost(r, box, 24.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.82f * a));
@@ -9423,14 +9395,14 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
         if (m_notifRows.empty())
             textMid(r, m_fBody, "You're all caught up", box.x + 22.f, box.y + 82.f, kMuted.withAlpha(a));
         for (size_t i = 0; i < m_notifRows.size(); ++i) {
-            const nxui::Rect card{box.x + 12.f, box.y + 58.f + static_cast<float>(i) * 64.f, box.width - 24.f, 58.f};
+            const nxui::Rect card{box.x + 12.f, box.y + 58.f + static_cast<float>(i) * 74.f, box.width - 24.f, 68.f};
             r.drawRoundedRect(card, nxui::Color(1.f, 1.f, 1.f, 0.06f * a), 16.f);
-            const nxui::Rect tile{card.x + 10.f, card.y + 12.f, 34.f, 34.f};
+            const nxui::Rect tile{card.x + 10.f, card.y + 17.f, 34.f, 34.f};
             r.drawRoundedRect(tile, accent(0.85f * a), 10.f);
             icon(r, "bell", tile.x + 17.f, tile.y + 17.f, 19.f, kWhite.withAlpha(a));
             const float tx = tile.x + tile.width + 12.f, room = card.x + card.width - 12.f - tx;
-            r.drawText(fit(m_fPill, m_notifRows[i].first, room), {tx, card.y + 5.f}, &m_fPill, kWhite.withAlpha(a));
-            r.drawText(fit(m_fBody, m_notifRows[i].second, room), {tx, card.y + 31.f}, &m_fBody, kMuted.withAlpha(a));
+            textMid(r, m_fPill, fit(m_fPill, m_notifRows[i].first, room), tx, card.y + 22.f, kWhite.withAlpha(a));
+            textMid(r, m_fBody, fit(m_fBody, m_notifRows[i].second, room), tx, card.y + 48.f, kMuted.withAlpha(a));
         }
         if (m_notifRows.empty()) drawHints(r, box.x + box.width - 20.f, box.y + box.height - 22.f, {{"B", "Close"}}, a);
         else drawHints(r, box.x + box.width - 20.f, box.y + box.height - 22.f, {{"X", "Clear all"}, {"B", "Close"}}, a);
@@ -9920,18 +9892,20 @@ void CardsActivity::drawNotificationCard(nxui::Renderer& r) {
                       nxui::Color(0.f, 0.f, 0.f, 0.28f * a), 27.f);
     frost(r, panel, 24.f, nxui::Color(0.07f, 0.09f, 0.14f, 0.96f * a));
     r.drawRoundedRectOutline(panel, accent(0.65f * a), 24.f, 1.5f);
-    r.drawCircle({panel.x + 38.f, panel.y + 38.f}, 23.f, accent(0.18f * a));
-    icon(r, display.glyph.c_str(), panel.x + 38.f, panel.y + 38.f, 25.f, accent(a));
-    textMid(r, m_fLabel, fit(m_fLabel, display.title, 360.f), panel.x + 74.f, panel.y + 34.f, kWhite.withAlpha(a));
+    // The icon on its own at the left; the name, then the message clear of it, in one column.
+    r.drawCircle({panel.x + 42.f, panel.y + 56.f}, 25.f, accent(0.18f * a));
+    icon(r, display.glyph.c_str(), panel.x + 42.f, panel.y + 56.f, 27.f, accent(a));
+    const float textX = panel.x + 84.f, textW = panel.x + panel.width - 24.f - textX;
+    textMid(r, m_fLabel, fit(m_fLabel, display.title, textW), textX, panel.y + 30.f, kWhite.withAlpha(a));
     size_t cut = display.text.size();
-    while (cut > 0 && measured(m_fBody, display.text.substr(0, cut)).x > 404.f) {
+    while (cut > 0 && measured(m_fBody, display.text.substr(0, cut)).x > textW) {
         const auto space = display.text.rfind(' ', cut - 1);
         if (space == std::string::npos) break;
         cut = space;
     }
-    textMid(r, m_fBody, fit(m_fBody, display.text.substr(0, cut), 404.f), panel.x + 28.f, panel.y + 72.f, kMuted.withAlpha(a));
+    textMid(r, m_fBody, fit(m_fBody, display.text.substr(0, cut), textW), textX, panel.y + 66.f, kMuted.withAlpha(a));
     if (cut < display.text.size())
-        textMid(r, m_fBody, fit(m_fBody, display.text.substr(cut + 1), 404.f), panel.x + 28.f, panel.y + 96.f, kMuted.withAlpha(a));
+        textMid(r, m_fBody, fit(m_fBody, display.text.substr(cut + 1), textW), textX, panel.y + 90.f, kMuted.withAlpha(a));
     if (!transferring) r.drawRoundedRect({panel.x + 24.f, panel.y + panel.height - 6.f, (panel.width - 48.f) * std::max(0.f, 1.f - m_noticeAge / 5.f), 2.f}, accent(0.7f * a), 1.f);
 }
 
