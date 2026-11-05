@@ -81,6 +81,28 @@ bool inForwarder() {
 
 } // namespace
 
+// libnx's own __appInit, without the time service (nor HID): this program never reads the clock, and its
+// timeInitialize() aborted the launch (2345-0038, InitFail_Time) whenever the console's time service had run out of
+// sessions (0x64274: it only has a few for every process together, and each timeInitialize() takes 6).
+extern "C" void __appInit(void) {
+    if (R_FAILED(smInitialize())) diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_SM));
+    if (hosversionGet() == 0 && R_SUCCEEDED(setsysInitialize())) {
+        SetSysFirmwareVersion fw;
+        if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) hosversionSet(MAKEHOSVERSION(fw.major, fw.minor, fw.micro));
+        setsysExit();
+    }
+    if (R_FAILED(appletInitialize())) diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_AM));
+    if (R_FAILED(fsInitialize())) diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_FS));
+    fsdevMountSdmc();
+}
+
+extern "C" void __appExit(void) {
+    fsdevUnmountAll();
+    fsExit();
+    appletExit();
+    smExit();
+}
+
 int main(int argc, char** argv) {
     if (readLine(kChained) == processId()) { // the app we started exited: back to HOME
         std::remove(kChained);

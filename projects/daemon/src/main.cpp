@@ -8,6 +8,7 @@
 #include <switchu/ns_ext.hpp>
 #include <switchu/file_log.hpp>
 #include <switchu/sd_commit.hpp>
+#include <switchu/time_budget.hpp>
 #include "achievements_watch.hpp"
 #include "app_manager.hpp"
 #include "ecs.hpp"
@@ -31,7 +32,6 @@
 
 using namespace switchu;
 
-static bool g_timeReady = false;
 static bool g_setsysReady = false;
 static bool g_setReady = false;
 static bool g_nsReady = false;
@@ -76,10 +76,10 @@ extern "C" void __appInit(void) {
     }
     svcOutputDebugString("[SwitchU-daemon] appletInitialize OK", 37);
 
-    rc = timeInitialize();
-    g_timeReady = R_SUCCEEDED(rc);
-    if (R_FAILED(rc))
-        svcOutputDebugString("[SwitchU-daemon] timeInitialize FAIL", 37);
+    // No timeInitialize(): it holds 6 of the time service's few sessions, which HOME and homebrew then lacked (see
+    // switchu/time_budget.hpp). time() only needs the boot time; setting the clock opens what it needs.
+    if (!switchu::timebudget::syncBootTime())
+        svcOutputDebugString("[SwitchU-daemon] time not available yet", 39);
 
     rc = setsysInitialize();
     g_setsysReady = R_SUCCEEDED(rc);
@@ -153,7 +153,7 @@ extern "C" void __appInit(void) {
     switchu::FileLog::open("daemon");
     switchu::FileLog::log("[daemon] __appInit complete (sd mount: 0x%X)", rc);
     switchu::FileLog::log("[daemon] services time=%d setsys=%d set=%d ns=%d ldr=%d account=%d nssu=%d avm=%d psm=%d lbl=%d hid=%d",
-                          g_timeReady ? 1 : 0,
+                          switchu::timebudget::syncBootTime() ? 1 : 0,
                           g_setsysReady ? 1 : 0,
                           g_setReady ? 1 : 0,
                           g_nsReady ? 1 : 0,
@@ -182,7 +182,6 @@ extern "C" void __appExit(void) {
     if (g_nsReady) nsExit();
     if (g_setReady) setExit();
     if (g_setsysReady) setsysExit();
-    if (g_timeReady) timeExit();
 
     appletExit();
     fsdevUnmountAll();
@@ -680,6 +679,7 @@ static Result setInternetTimeSync(bool enabled) {
 }
 
 static Result setManualDateTime(const smi::ManualDateTimeArgs& args) {
+    switchu::timebudget::FullScope time; // the time service, clocks and time zone, for this call only
     TimeCalendarTime calendar{};
     calendar.year = static_cast<u16>(args.year);
     calendar.month = static_cast<u8>(args.month);
@@ -741,6 +741,7 @@ static Result setManualDateTime(const smi::ManualDateTimeArgs& args) {
     switchu::FileLog::log(
         "[settings-time] daemon temporary automaticCorrection enable=0x%X network=0x%X wait=0x%X restore=0x%X",
         enableRc, networkRc, waitRc, restoreRc);
+    __libnx_init_time(); // time() counts from the boot time: read it again from the new clock
 
     if (R_FAILED(enableRc))
         return enableRc;
@@ -2636,6 +2637,7 @@ int main(int argc, char* argv[]) {
     switchu::daemon::achievements_watch::start();
 
     while (g_running.load()) {
+        switchu::timebudget::syncBootTime(); // until it has worked once
         mainLoop();
         waitForMainWork();
     }

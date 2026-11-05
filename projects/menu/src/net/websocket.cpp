@@ -85,7 +85,13 @@ bool WebSocket::Connect(const std::string& url, const std::vector<std::string>& 
     curl_easy_setopt(c, CURLOPT_SSL_ENABLE_ALPN, 0L);
     CURLcode rc = switchu::tls::perform(c, target, switchu::tls::kHomeCerts); // (refused: HomeNX's roots)
     if (rc != CURLE_OK) {
-        err = Str::Format("connect: %s", curl_easy_strerror(rc));
+        // Which stage failed: ip=none means before any address was found (name lookup), errno is the socket's.
+        const char* ip = nullptr;
+        long osErr = 0;
+        curl_easy_getinfo(c, CURLINFO_PRIMARY_IP, &ip);
+        curl_easy_getinfo(c, CURLINFO_OS_ERRNO, &osErr);
+        err = Str::Format("connect: %s (rc=%d ip=%s errno=%ld)", curl_easy_strerror(rc), static_cast<int>(rc),
+                          ip && *ip ? ip : "none", osErr);
         Close();
         return false;
     }

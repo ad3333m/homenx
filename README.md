@@ -149,7 +149,7 @@ The output goes to `build/cross/aarch64/release/`.
 
 ## Credits and legal
 
-- PowerCmptr for the HomeNX lock screen and Discord token sign-in
+- [Cyan](https://github.com/cyanctl) for the HomeNX lock screen and Discord token sign-in
   ([ad3333m/homenx#5](https://github.com/ad3333m/homenx/pull/5)).
 - The code HomeNX builds on, the apps it includes and their licenses:
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

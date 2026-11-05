@@ -109,6 +109,12 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
 bool artCached(const Game& game, bool title);
 // stb_image's decode (RGBA), refusing pictures too big to hold (over 4096 on a side or 9 MP)
 // and letting only two big ones (2 MP and up) decode at once: crashes came from many at once.
+struct ArtworkReadStats {
+    std::uint64_t bytes = 0;
+    double milliseconds = 0;
+    unsigned failures = 0;
+};
+ArtworkReadStats takeArtworkReadStats(); // calling worker's reads only
 unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h);
 // The console's clock: automatic (from the internet), or set by hand (HOME only).
 bool autoClock();
