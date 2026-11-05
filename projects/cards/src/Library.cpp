@@ -5,6 +5,7 @@
 #include <switchu/control_cache.hpp>
 #include <switchu/hekate_rtc.hpp>
 #include <switchu/ns_ext.hpp>
+#include <switchu/time_budget.hpp>
 #include <switchu/tls_roots.hpp>
 #include "homebrew/HomebrewStore.hpp"
 #ifdef SWITCHU_MENU
@@ -816,6 +817,7 @@ unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h
 // before: the clock kept correcting itself until a restart, so the Date, Hour
 // and Minute rows seemed to do nothing.
 bool autoClock() {
+    switchu::timebudget::FullScope time;
     u8 on = 0;
     if (R_SUCCEEDED(serviceDispatchOut(timeGetServiceSession(), 100, on))) return on != 0;
     bool flag = false;
@@ -827,11 +829,13 @@ bool autoClock() {
 }
 
 bool setAutoClock(bool on) {
+    switchu::timebudget::FullScope time;
     const u8 flag = on;
     return R_SUCCEEDED(serviceDispatchIn(timeGetServiceSession(), 101, flag));
 }
 
 bool setClock(long long posixSeconds) {
+    switchu::timebudget::FullScope time;
     return posixSeconds > 0 && R_SUCCEEDED(timeSetCurrentTime(TimeType_UserSystemClock, static_cast<u64>(posixSeconds)));
 }
 

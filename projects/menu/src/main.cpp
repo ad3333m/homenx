@@ -16,6 +16,7 @@
 #include <string>
 #endif
 #include <switch.h>
+#include <switchu/time_budget.hpp>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <algorithm>
@@ -134,8 +135,6 @@ extern "C" void __appInit(void) {
     rc = hidInitialize();
     if (R_FAILED(rc)) svcOutputDebugString("[SwitchU-menu] hidInitialize FAIL", 33);
 
-    timeInitialize();
-    __libnx_init_time();
     setsysInitialize();
     setInitialize();
     plInitialize(PlServiceType_System);
@@ -149,6 +148,9 @@ extern "C" void __appInit(void) {
         if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw)))
             hosversionSet(MAKEHOSVERSION(fw.major, fw.minor, fw.micro) | BIT(31));
     }
+    // Not timeInitialize(): the time service rarely has its 6 sessions free for HOME (see switchu/time_budget.hpp).
+    // ClockService tries again if it fails here.
+    switchu::timebudget::poll();
 
     rc = fsdevMountSdmc();
     if (R_FAILED(rc)) {
