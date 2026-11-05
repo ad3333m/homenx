@@ -132,10 +132,12 @@ void RemoteAuth::Set(Phase p) {
 }
 
 void RemoteAuth::Run() {
+    LOG("remote auth: key generation start");
     Platform::SetCpuBoost(true);
     Key key;
     bool generated = key.Generate();
     Platform::SetCpuBoost(false);
+    LOG("remote auth: key generation done (ok=%d)", generated ? 1 : 0);
     if (!generated) {
         std::lock_guard<std::mutex> lk(mu_);
         snap_.phase = Phase::Failed;
@@ -164,6 +166,7 @@ bool RemoteAuth::Session(Key& key) {
     std::string err;
     std::vector<std::string> headers = {"Origin: https://discord.com",
                                         std::string("User-Agent: ") + Client::kUserAgent};
+    LOG("remote auth: connecting");
     if (!ws.Connect("wss://remote-auth-gateway.discord.gg/?v=2", headers, err)) {
         LOG("remote auth: %s", err.c_str());
         std::lock_guard<std::mutex> lk(mu_);
