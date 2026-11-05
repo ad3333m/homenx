@@ -46,7 +46,8 @@ struct Settings {
     std::vector<std::string> mediaIn, mediaOut;
     std::vector<std::string> gamesIn, gamesOut; // moved by hand onto / off the Games page (ports, ...)
     std::vector<std::string> fullCards;         // homebrew drawn as games' cards (+ > Show as a full card)
-    bool shuffleWall = false; // Look > Shuffle background: another of your pictures at each start
+    bool lockShuffle = false;          // Lock screen > Shuffle pictures: another each time it locks
+    std::vector<std::string> lockPool; // the ones it picks from (X in Picture); none: all of yours
     std::uint64_t nroHash = 0;  // the .nro files at the last full read (homebrewHash)
     int titles = -1;            // the installed titles then (installedTitleCount)
     bool askUser = false;       // starting a game asks who's playing, as Nintendo's HOME does
@@ -55,6 +56,7 @@ struct Settings {
     bool lockMusic = false;     // the menu's music keeps playing on the lock screen
     bool keepHomebrew = true;   // HOME leaves a homebrew app open to resume, as a game (off: HOME closes it)
     std::string hbPath, hbHost; // the homebrew app left open and the game it runs as (HOME only)
+    int sheetBack = -1, sheetBackRow = 0; // Settings' tab and row while one of Nintendo's screens is open (HOME only)
     std::vector<int> hiddenPages; // pages not shown (ZL / ZR skip them; one always stays)
     bool spotify = false;       // the music player shows Spotify, not HOME music (HOME only)
     long long picturesAt = 0;   // when every game's pictures were last made sure of (seconds)
@@ -107,7 +109,8 @@ struct Settings {
             gamesIn = j.value("gamesIn", gamesIn);
             gamesOut = j.value("gamesOut", gamesOut);
             fullCards = j.value("fullCards", fullCards);
-            shuffleWall = j.value("shuffleWall", shuffleWall);
+            lockShuffle = j.value("lockShuffle", lockShuffle);
+            lockPool = j.value("lockPool", lockPool);
             nroHash = j.value("nroHash", nroHash);
             titles = j.value("titles", titles);
             askUser = j.value("askUser", askUser);
@@ -117,6 +120,8 @@ struct Settings {
             keepHomebrew = j.value("keepHomebrew", keepHomebrew);
             hbPath = j.value("hbPath", hbPath);
             hbHost = j.value("hbHost", hbHost);
+            sheetBack = j.value("sheetBack", sheetBack);
+            sheetBackRow = j.value("sheetBackRow", sheetBackRow);
             hiddenPages = j.value("hiddenPages", hiddenPages);
             spotify = j.value("spotify", spotify);
             picturesAt = j.value("picturesAt", picturesAt);
@@ -141,9 +146,9 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"shuffleWall", shuffleWall},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"lockShuffle", lockShuffle}, {"lockPool", lockPool},
                             {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
+                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};

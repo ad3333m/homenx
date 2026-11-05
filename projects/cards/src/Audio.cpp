@@ -231,10 +231,17 @@ std::string fromFileName(const std::string& path) {
 // SD card can be busy for seconds; HOME's start waited 250 ms on these).
 bool Audio::start() {
     std::srand(static_cast<unsigned>(armGetSystemTick())); // HOME starts afresh after every game: else the same "random" songs
-    // SDL's audio device, opened here and not at HOME's start-up (it was part
-    // of the freeze before the first frame on the way back from a game).
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) return false;
-    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096) < 0) return false;
+    // SDL's audio device, on a thread (update carries on when it's open): at HOME's
+    // start-up it was part of the freeze before the first frame on the way back from
+    // a game, and on the screen's thread a stall of up to 80 ms (perf.log).
+    m_openJob = std::async(std::launch::async, []() {
+        offTheScreensCore();
+        return SDL_InitSubSystem(SDL_INIT_AUDIO) >= 0 && Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096) >= 0;
+    });
+    return true;
+}
+
+void Audio::opened() {
     Mix_AllocateChannels(8);
     m_open = true;
     Mix_Volume(-1, MIX_MAX_VOLUME * m_soundVolume / 100);
@@ -259,10 +266,11 @@ bool Audio::start() {
             l.sounds.emplace_back(name, readAll(std::string(kSounds) + "/sfx/" + name + ".wav"));
         return l;
     });
-    return true;
+    setMusic(m_music, m_volume); // (as HOME asked meanwhile)
 }
 
 void Audio::stop() {
+    if (m_openJob.valid() && m_openJob.get()) m_open = true; // (it opened just now: closed below)
     if (!m_open) return;
     if (m_infoJob.valid()) m_infoJob.wait();
     if (m_trackJob.valid()) m_trackJob.wait();
@@ -324,6 +332,10 @@ void Audio::update() {
     if (m_lastTick && m_isPlaying && !m_userPaused && !m_sysPaused)
         m_position += static_cast<float>(armTicksToNs(now - m_lastTick)) / 1e9f;
     m_lastTick = now;
+    if (m_openJob.valid()) { // the device is opening
+        if (m_openJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        if (m_openJob.get()) opened();
+    }
     if (!m_open) return;
     if (m_infoJob.valid()) { // the songs and sounds are read
         if (m_infoJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;

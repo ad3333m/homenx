@@ -2,56 +2,91 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <system_error>
 
-// HomeNX achievements: milestones every game has, from its play data (pdm).
-// HOME (CardsNX) keeps what's earned and says the new ones when you're back from
-// a game; the overlay (homenx-achievements.ovl) shows them over a game. (A game's
-// own events -- a boss beaten -- would need its memory read, game by game.)
+// HomeNX achievements: milestones every game has, from its play data (pdm) and what
+// happens while it's played, besides a game's own (achievement_packs.hpp). HOME
+// (CardsNX) keeps what's earned and says the new ones when you're back from a game;
+// the daemon shows them the moment they happen; the overlay (homenx-achievements.ovl)
+// lists them over a game. Only games count: not media apps (achievements_skip.txt).
 namespace switchu::achievements {
+
+// What a milestone counts.
+enum class Kind : std::uint8_t {
+    Hours,     // play time: the game's (kPerGame), every game's (kOverall)
+    Games,     // different games played
+    Installed, // games installed (HOME counts them)
+    Earned,    // the games' own achievements earned (their packs)
+    Moment,    // earned the moment it happens: no count to show
+};
 
 struct Milestone {
     const char* id;   // as kept in the file
     const char* name;
     const char* about;
-    bool hours;       // a goal in hours played, else in times started (games played, for kOverall)
-    std::uint32_t goal;
+    Kind kind;
+    std::uint32_t goal; // hours, games or achievements (a Moment: unused)
 };
 
 inline constexpr Milestone kPerGame[] = {
-    {"first", "First steps", "Start it", false, 1},
-    {"h1", "Getting into it", "Play it for 1 hour", true, 1},
-    {"h10", "Hooked", "Play it for 10 hours", true, 10},
-    {"h25", "Dedicated", "Play it for 25 hours", true, 25},
-    {"h50", "Devoted", "Play it for 50 hours", true, 50},
-    {"h100", "Legend", "Play it for 100 hours", true, 100},
-    {"l10", "Regular player", "Start it 10 times", false, 10},
-    {"l50", "Old friend", "Start it 50 times", false, 50},
+    {"h10", "Hooked", "Play it for 10 hours", Kind::Hours, 10},
+    {"h25", "Dedicated", "Play it for 25 hours", Kind::Hours, 25},
+    {"h50", "Devoted", "Play it for 50 hours", Kind::Hours, 50},
+    {"h100", "Legend", "Play it for 100 hours", Kind::Hours, 100},
+    {"session3", "Lost in it", "Play it for 3 hours in one go", Kind::Moment, 0},
+    {"back", "Welcome back", "Play it again after 6 months away", Kind::Moment, 0},
+    {"perfect", "Perfect", "Earn every one of its own achievements", Kind::Moment, 0}, // (only with a pack)
 };
 
-// Across every game: Play.launches is the games played, Play.seconds all the time.
 inline constexpr Milestone kOverall[] = {
-    {"games5", "Explorer", "Play 5 different games", false, 5},
-    {"games15", "Globetrotter", "Play 15 different games", false, 15},
-    {"total100", "Marathon", "Play for 100 hours in all", true, 100},
-    {"total500", "Lifer", "Play for 500 hours in all", true, 500},
+    {"games5", "Explorer", "Play 5 different games", Kind::Games, 5},
+    {"games15", "Globetrotter", "Play 15 different games", Kind::Games, 15},
+    {"lib25", "Collector", "Have 25 games installed", Kind::Installed, 25},
+    {"lib50", "Curator", "Have 50 games installed", Kind::Installed, 50},
+    {"lib100", "Archivist", "Have 100 games installed", Kind::Installed, 100},
+    {"hunt10", "Achievement hunter", "Earn 10 of your games' own achievements", Kind::Earned, 10},
+    {"hunt50", "Trophy room", "Earn 50 of your games' own achievements", Kind::Earned, 50},
+    {"night", "Night owl", "Play a game between midnight and 4 a.m.", Kind::Moment, 0},
+    {"total100", "Marathon", "Play games for 100 hours in all", Kind::Hours, 100},
+    {"total500", "Lifer", "Play games for 500 hours in all", Kind::Hours, 500},
+    {"total1000", "Unstoppable", "Play games for 1,000 hours in all", Kind::Hours, 1000},
 };
 
-struct Play {
+inline const Milestone* milestone(const char* id) {
+    for (const Milestone& m : kPerGame)
+        if (std::strcmp(m.id, id) == 0) return &m;
+    for (const Milestone& m : kOverall)
+        if (std::strcmp(m.id, id) == 0) return &m;
+    return nullptr;
+}
+
+// The numbers milestones count: one game's (seconds only), or every game's.
+struct Facts {
     std::uint64_t seconds = 0;
-    std::uint32_t launches = 0;
+    std::uint32_t games = 0;
+    std::uint32_t installed = 0;
+    std::uint32_t earned = 0;
 };
 
-// How far along, 0..1 (1: earned).
-inline float progress(const Milestone& m, const Play& p) {
-    const double have = m.hours ? static_cast<double>(p.seconds) / 3600.0 : static_cast<double>(p.launches);
-    const double f = have / static_cast<double>(m.goal);
-    return f >= 1.0 ? 1.f : static_cast<float>(f);
+// How far along, 0..1 (1: earned). A Moment has no count: 0 until it happens.
+inline float progress(const Milestone& m, const Facts& f) {
+    double have = 0.0;
+    switch (m.kind) {
+        case Kind::Hours: have = static_cast<double>(f.seconds) / 3600.0; break;
+        case Kind::Games: have = f.games; break;
+        case Kind::Installed: have = f.installed; break;
+        case Kind::Earned: have = f.earned; break;
+        case Kind::Moment: return 0.f;
+    }
+    const double r = have / static_cast<double>(m.goal);
+    return r >= 1.0 ? 1.f : static_cast<float>(r);
 }
 
 inline constexpr const char* kPath = "sdmc:/config/SwitchU/achievements.txt";
@@ -72,6 +107,13 @@ inline std::string key(std::uint64_t titleId, const char* id) {
 }
 
 inline std::string overallKey(const char* id) { return std::string("all ") + id; }
+
+// The games' own achievements earned (their packs' are kept as "p.<id>").
+inline std::uint32_t earnedFromPacks(const Earned& e) {
+    std::uint32_t n = 0;
+    for (const auto& [k, t] : e.when) n += k.find(" p.") != std::string::npos ? 1 : 0;
+    return n;
+}
 
 inline Earned load() {
     Earned e;
@@ -109,6 +151,30 @@ inline void save(const Earned& e) {
     }
     std::filesystem::remove(kPath, ec);
     std::filesystem::rename(tmp, kPath, ec);
+}
+
+// Apps that aren't games (HOME's Media page: YouTube and the like): their time isn't play.
+inline constexpr const char* kSkipPath = "sdmc:/config/SwitchU/achievements_skip.txt";
+
+inline std::set<std::uint64_t> loadSkipped() {
+    std::set<std::uint64_t> out;
+    std::ifstream in(kSkipPath);
+    std::string line;
+    while (std::getline(in, line))
+        if (!line.empty()) out.insert(std::strtoull(line.c_str(), nullptr, 16));
+    return out;
+}
+
+inline void saveSkipped(const std::set<std::uint64_t>& ids) {
+    if (ids == loadSkipped()) return;
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    std::ofstream out(kSkipPath, std::ios::trunc);
+    char buf[24];
+    for (const std::uint64_t id : ids) {
+        std::snprintf(buf, sizeof(buf), "%016llX\n", static_cast<unsigned long long>(id));
+        out << buf;
+    }
 }
 
 } // namespace switchu::achievements

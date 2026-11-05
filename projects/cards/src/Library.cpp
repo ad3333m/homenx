@@ -369,17 +369,27 @@ std::vector<Game> listGames() {
             for (size_t i = 0; i < games.size(); ++i) games[i].flags = views[i].flags;
     }
 
+    // A game's name and version are kept from the first time it's seen: read again when its
+    // installed version changes (an update came), or the version shown stayed the old one.
+    std::map<std::uint64_t, std::uint32_t> versions = readVersions();
+    bool versionsChanged = false;
     std::unique_ptr<NsApplicationControlData> control;
     for (Game& g : games) {
+        const std::uint32_t installed = installedVersion(g.id);
+        const auto known = versions.find(g.id);
+        const bool updated = installed && (known == versions.end() || known->second != installed);
+        if (updated) {
+            versions[g.id] = installed;
+            versionsChanged = true;
+        }
         switchu::control_cache::Meta meta;
-        if (!switchu::control_cache::readMeta(g.id, meta)) { // not seen by HOME yet: ask the system, keep it for HOME too
+        if (updated || !switchu::control_cache::readMeta(g.id, meta)) { // not seen by HOME yet, or updated: ask the system, keep it for HOME too
             if (!control) control.reset(new (std::nothrow) NsApplicationControlData);
             u64 size = 0;
             if (control && R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, g.id, control.get(),
-                                                                   sizeof(NsApplicationControlData), &size))) {
+                                                                   sizeof(NsApplicationControlData), &size)))
                 switchu::control_cache::writeFromControlData(g.id, *control, size);
-                switchu::control_cache::readMeta(g.id, meta);
-            }
+            switchu::control_cache::readMeta(g.id, meta);
         }
         g.name = meta.name[0] ? meta.name : meta.english_name;
         g.version = meta.display_version;
@@ -390,6 +400,7 @@ std::vector<Game> listGames() {
         g.homebrew = (g.id >> 56) == 0x05 && (g.id >> 48) != 0x0500;
         if (g.name.empty()) g.name = hexId(g.id);
     }
+    if (versionsChanged) writeVersions(versions);
     // (Play times and last played aren't asked here: pdm takes one slow call per
     // game, and HOME's stats job asks them anyway -- the titles took 9-11 s to read
     // at every start, the screen stalling meanwhile. takeLists keeps the ones it had.)
@@ -788,10 +799,8 @@ unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h
     return px;
 }
 
-// Automatic time is the time service's (IStaticService 100 / 101, as System
-// Settings does it; HOME's time:a may change it). Only the setting was changed
-// before: the clock kept correcting itself until a restart, so the Date, Hour
-// and Minute rows seemed to do nothing.
+// Automatic time is the time service's (IStaticService 100). Changing it, and the
+// clock, goes through the daemon (Settings > Console): HOME's own changes didn't stick.
 bool autoClock() {
     u8 on = 0;
     if (R_SUCCEEDED(serviceDispatchOut(timeGetServiceSession(), 100, on))) return on != 0;
@@ -803,13 +812,59 @@ bool autoClock() {
     return flag;
 }
 
-bool setAutoClock(bool on) {
-    const u8 flag = on;
-    return R_SUCCEEDED(serviceDispatchIn(timeGetServiceSession(), 101, flag));
+// Basic Black or Basic White: Nintendo's screens (the keyboard, the eShop...) follow it.
+bool darkTheme() {
+    ColorSetId id = ColorSetId_Light;
+    if (R_SUCCEEDED(setsysInitialize())) {
+        setsysGetColorSetId(&id);
+        setsysExit();
+    }
+    return id == ColorSetId_Dark;
 }
 
-bool setClock(long long posixSeconds) {
-    return posixSeconds > 0 && R_SUCCEEDED(timeSetCurrentTime(TimeType_UserSystemClock, static_cast<u64>(posixSeconds)));
+bool setDarkTheme(bool dark) {
+    if (R_FAILED(setsysInitialize())) return false;
+    const Result rc = setsysSetColorSetId(dark ? ColorSetId_Dark : ColorSetId_Light);
+    setsysExit();
+    return R_SUCCEEDED(rc);
+}
+
+// What's installed of a game: its update's version, else its own (0 when it can't tell).
+std::uint32_t installedVersion(std::uint64_t id) {
+    NsApplicationContentMetaStatus list[16] = {};
+    s32 n = 0;
+    std::uint32_t v = 0;
+    if (R_SUCCEEDED(nsListApplicationContentMetaStatus(id, 0, list, 16, &n)))
+        for (s32 i = 0; i < n && i < 16; ++i)
+            if (list[i].meta_type == NcmContentMetaType_Application || list[i].meta_type == NcmContentMetaType_Patch)
+                v = std::max(v, list[i].version);
+    return v;
+}
+
+namespace {
+constexpr const char* kVersionsPath = "sdmc:/config/CardsNX/versions.txt"; // "<title id> <installed version>"
+} // namespace
+
+std::map<std::uint64_t, std::uint32_t> readVersions() {
+    std::map<std::uint64_t, std::uint32_t> out;
+    std::ifstream in(kVersionsPath);
+    unsigned long long id = 0;
+    unsigned long v = 0;
+    std::string line;
+    while (std::getline(in, line))
+        if (std::sscanf(line.c_str(), "%llx %lu", &id, &v) == 2) out[id] = static_cast<std::uint32_t>(v);
+    return out;
+}
+
+void writeVersions(const std::map<std::uint64_t, std::uint32_t>& versions) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
+    std::ofstream out(kVersionsPath, std::ios::trunc);
+    char buf[40];
+    for (const auto& [id, v] : versions) {
+        std::snprintf(buf, sizeof(buf), "%016llX %lu\n", static_cast<unsigned long long>(id), static_cast<unsigned long>(v));
+        out << buf;
+    }
 }
 
 bool artCached(const Game& game, bool title) {
@@ -909,6 +964,12 @@ bool keptBack(std::uint64_t id, const char* ext) {
     std::filesystem::remove(path, ec);
     std::filesystem::rename(aside, path, ec);
     return !ec;
+}
+
+std::vector<std::uint8_t> chosenTitleArt(const Game& game) {
+    const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".titleme";
+    std::error_code ec;
+    return std::filesystem::exists(path, ec) ? readFile(path) : std::vector<std::uint8_t>();
 }
 
 std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy) {
@@ -1808,6 +1869,12 @@ bool setBluetooth(bool on) {
     if (R_FAILED(setsysInitialize())) return false;
     const bool ok = R_SUCCEEDED(setsysSetBluetoothEnableFlag(on));
     setsysExit();
+    // The flag alone waits for a restart: the radio itself changes now.
+    if (ok && hosversionAtLeast(13, 0, 0) && R_SUCCEEDED(btmsysInitialize())) {
+        if (on) btmsysEnableRadio();
+        else btmsysDisableRadio();
+        btmsysExit();
+    }
     return ok;
 }
 

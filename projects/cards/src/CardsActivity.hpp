@@ -51,7 +51,8 @@ class CardsActivity final : public nxui::Activity {
 public:
     // As HOME: what the daemon said at start (a game suspended, one running,
     // the console just booted).
-    explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false, bool atBoot = true);
+    explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false, bool atBoot = true,
+                           bool fromApplet = false);
     bool onCreate() override;
 #ifdef SWITCHU_MENU
     bool presentInitialFrame(nxui::Renderer& ren) override;
@@ -65,7 +66,7 @@ private:
     enum class Zone { Top, Cards, Bottom };
     enum Page { kGames, kHomebrew, kNintendo, kMedia, kPageCount };
     // The top bar's buttons, left to right.
-    enum Top { kTopMenu, kTopDiscord, kTopSort, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
+    enum Top { kTopMenu, kTopDiscord, kTopTrophy, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
                kTopCount };
     struct Art {
         std::unique_ptr<nxui::Texture> card, bg, icon;
@@ -91,6 +92,7 @@ private:
     };
     std::future<Changes> m_changesJob;
     float m_changesIn = 10.f; // the next look for new software (installed titles, .nro files)
+    bool m_listsStale = false; // the first look after a start, sooner than the regular ones
     float m_lastActivity = 0.f; // when something was last pressed (pictures for every game wait for quiet)
     int m_changesChecks = 0;
     // Every game and .nro (slow: seconds), on whatever thread calls it; or only
@@ -251,7 +253,7 @@ private:
     bool m_musicPausedForLock = false;      // the lock screen paused the music
     nxui::Font m_fLock, m_fLockDate;
     std::string m_date;
-    void lock();
+    void lock(bool shuffle = true); // (shuffle: Lock screen > Shuffle pictures picks the next)
     void beginUnlock(); // the unlock animation starts; what the lock held comes back
     bool updateLock(float dt);
     void drawLock(nxui::Renderer& r);
@@ -327,11 +329,15 @@ private:
         long long newest = 0;          // the latest time anything was earned
     };
     static Achieved collectAchievements(const std::vector<PlayStat>& stats, const std::map<std::uint64_t, std::string>& names,
-                                        bool every, long long seenAt);
+                                        bool every, long long seenAt, std::uint32_t installed);
     std::future<Achieved> m_achJob;
     void openAchievements(const Game& g);
+    void openAllAchievements();             // the trophy: every game's, then the ones across games
+    std::vector<MenuItem> overallAchievementRows();
+    void welcomeBack(const Game& g);        // Achievements > Welcome back, as it starts
     bool m_scanAsked = false;              // Settings > Home > Look for new software
     bool m_autoClock = true;               // Settings > Console > Set the time automatically
+    bool m_darkTheme = false;              // Settings > Console > Theme (Nintendo's screens)
     // The first time: a few pages on the basics.
     bool m_introOpen = false;
     int m_introPage = 0;
@@ -467,8 +473,13 @@ private:
     // The buttons' icons: their small files read into RAM once, off the screen's
     // thread (an SD read at each icon's first draw stuttered the buttons; the
     // files are ~3 KB, all of them together one card transaction).
-    std::map<std::string, std::vector<std::uint8_t>> m_iconFiles;
-    std::future<std::vector<std::pair<std::string, std::vector<std::uint8_t>>>> m_iconFilesJob;
+    struct IconPixels {
+        std::string name;
+        std::vector<std::uint8_t> rgba;
+        int w = 0, h = 0;
+    };
+    std::map<std::string, IconPixels> m_iconFiles; // decoded, waiting for their first draw
+    std::future<std::vector<IconPixels>> m_iconFilesJob;
     // Every game's cover as a very small picture: read and decoded for all of
     // them at once while HOME starts, uploaded a few a frame, drawn until the
     // full cover arrives (a card never shows its name instead of its cover).
@@ -555,6 +566,7 @@ private:
     std::unique_ptr<nxui::Texture> m_avatar;
     std::string m_clock, m_battery, m_free;
     bool m_online = false, m_charging = false;
+    std::future<Pixels> m_avatarJob; // the picture of you, read on a thread (loadAvatar)
     struct Status {
         std::string clock, battery, free;
         bool online = false, charging = false;
@@ -568,6 +580,24 @@ private:
     std::future<std::string> m_sdTestJob;
     std::atomic<int> m_sdTestPct{0};
     std::string m_sdTestResult;
+    // A whole panel over Settings for a job that takes a while: updating, USB file
+    // transfer, the SD card test, pairing a controller.
+    enum class Task { None, Update, Mtp, SdTest, Pairing };
+    struct TaskView {
+        std::string title, status, detail, button; // button: what A does ("" = nothing)
+        const char* icon = "gear";
+        float progress = -1.f; // 0..1, -1 = no bar
+    };
+    Task m_task = Task::None;
+    float m_taskIn = 1.f;
+    std::string m_updateInstalled; // the build installed now (a file: read once)
+    void openTask(Task t);
+    void closeTask();
+    void flipMtp();
+    TaskView taskView();
+    void taskButton();
+    void updateTask();
+    void drawTask(nxui::Renderer& r);
     void startSdTest();
     bool m_statusFresh = false;
     int m_unread = 0;
@@ -650,7 +680,7 @@ private:
         std::vector<std::string> lines;
     };
     std::vector<LogEntry> m_log;
-    void shuffleWallpaper(); // Look > Shuffle background
+    void shuffleLockPicture(); // Lock screen > Shuffle pictures
     // Bluetooth headphones and speakers (13.0.0+), as Nintendo's System Settings has them.
     bool bluetoothAudio(); // btm:sys open (btmsysExit after), else it says why not
     void startAudioScan();
@@ -658,7 +688,12 @@ private:
     void refreshAudioName();
     void openAudioDevices();
     void connectAudio(const std::array<std::uint8_t, 6>& address, const std::string& name);
-    float m_btScanLeft = 0.f, m_btConnectIn = 0.f;
+    void stopAudioScan();
+    void showAudioScan();
+    bool m_btScanning = false;
+    float m_btScanLeft = 0.f, m_btScanPoll = 0.f, m_btConnectIn = 0.f, m_btConnectPoll = 0.f;
+    std::vector<std::pair<std::array<std::uint8_t, 6>, std::string>> m_btFound; // what a search has found so far
+    std::array<std::uint8_t, 6> m_btConnectAddr{};
     std::string m_btConnectName, m_btAudioName; // the one being connected; the one connected
     Mtp m_mtp; // Settings > Console > Connect to a computer: USB file transfer from HOME itself
 
@@ -723,6 +758,9 @@ private:
     std::uint64_t m_startSuspended = 0;
     bool m_startRunning = false;
     bool m_atBoot = true;
+    bool m_fromApplet = false; // back from one of Nintendo's screens (not from a game)
+    int m_reopenSec = -1, m_reopenRow = 0; // Settings comes back where it was (rememberSheet)
+    void rememberSheet();
     AppletLauncher m_launcher;
     std::uint64_t m_pendingLaunch = 0; // starts once the open game has closed (a game's id, or a .nro's)
     void resumeOpen(int index);
@@ -746,11 +784,14 @@ private:
     void enterText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,
                    std::function<void(const std::string&)> done, nxui::Widget* back, bool sensitive = false);
     bool m_discordTokenEntryPending = false; // Discord's panel asked for the token keyboard
-    void openSocial(bool miis);
+    void openSocial();
+    std::future<std::string> m_friendCodeJob; // the user's friend code, for their popup
+    std::string m_friendCode;
     std::shared_ptr<ControllerTestScreen> m_padTest; // Settings > Controllers: HomeNX's test screen
     void openPadTest();
     bool m_pairing = false;                          // HomeNX's own pairing, 30 s
     std::uint8_t m_pairedBefore = 0;
+    int m_padsBefore = 0;
     float m_pairingLeft = 0.f, m_pairingPoll = 0.f;
     void startPairing();
     void stopPairing();

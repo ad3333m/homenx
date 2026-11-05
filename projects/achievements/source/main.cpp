@@ -17,12 +17,13 @@
 namespace {
 namespace ach = switchu::achievements;
 
-// The game being played (0: none): the application's process, its program id.
+// The game being played (0: none): the application's process, its program id
+// (a collection's games are its ID + 1, + 2...: the application's ID).
 std::uint64_t runningTitle() {
     std::uint64_t pid = 0, tid = 0;
     if (R_FAILED(pmdmntGetApplicationProcessId(&pid))) return 0;
     if (R_FAILED(pminfoGetProgramId(&tid, pid))) return 0;
-    return tid;
+    return (tid >> 56) == 0x01 ? tid & ~0x1FFFULL : tid;
 }
 
 std::string hours(std::uint64_t seconds) {
@@ -31,11 +32,15 @@ std::string hours(std::uint64_t seconds) {
     return buf;
 }
 
-// "Earned", or how far along ("3.2 / 10 h", "4 / 10").
-std::string progressText(const ach::Milestone& m, const ach::Play& p, bool earned) {
+// "Earned", or how far along ("3.2 / 10 h", "4 / 10"); "Locked" when there's no count here.
+std::string progressText(const ach::Milestone& m, const ach::Facts& f, bool earned) {
     if (earned) return "Earned";
-    if (m.hours) return hours(p.seconds) + " / " + std::to_string(m.goal) + " h";
-    return std::to_string(p.launches) + " / " + std::to_string(m.goal);
+    switch (m.kind) {
+        case ach::Kind::Hours: return hours(f.seconds) + " / " + std::to_string(m.goal) + " h";
+        case ach::Kind::Games: return std::to_string(f.games) + " / " + std::to_string(m.goal);
+        case ach::Kind::Earned: return std::to_string(f.earned) + " / " + std::to_string(m.goal);
+        default: return "Locked"; // (installed games: HOME counts them)
+    }
 }
 
 class AchievementsGui : public tsl::Gui {
@@ -49,21 +54,21 @@ public:
             std::string game = switchu::control_cache::formatTitleId(tid);
             switchu::control_cache::Meta meta;
             if (switchu::control_cache::readMeta(tid, meta)) game = meta.name[0] ? meta.name : meta.english_name;
-            ach::Play play;
+            ach::Facts play;
             PdmPlayStatistics st{};
-            if (R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationId(tid, false, &st))) {
-                play.seconds = st.playtime / 1000000000ULL;
-                play.launches = st.total_launches;
-            }
+            if (R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationId(tid, false, &st))) play.seconds = st.playtime / 1000000000ULL;
             const switchu::packs::Pack pack = switchu::packs::load(tid); // its own (docs/achievement-packs.md)
             auto packDone = [&](const switchu::packs::Achievement& p) {
                 return earned.when.count(ach::key(tid, ("p." + p.id).c_str())) != 0;
             };
-            int got = 0;
-            int count = static_cast<int>(sizeof(ach::kPerGame) / sizeof(ach::kPerGame[0]) + pack.list.size());
+            auto shown = [&](const ach::Milestone& m) { return pack.valid() || std::string(m.id) != "perfect"; };
+            int got = 0, count = static_cast<int>(pack.list.size());
             for (const auto& p : pack.list) got += packDone(p) ? 1 : 0;
-            for (const ach::Milestone& m : ach::kPerGame)
+            for (const ach::Milestone& m : ach::kPerGame) {
+                if (!shown(m)) continue;
+                ++count;
                 got += earned.when.count(ach::key(tid, m.id)) || ach::progress(m, play) >= 1.f ? 1 : 0;
+            }
             list->addItem(new tsl::elm::CategoryHeader(game + "  " + std::to_string(got) + " / " + std::to_string(count)));
             for (const auto& p : pack.list) {
                 auto* item = new tsl::elm::ListItem(p.name);
@@ -71,6 +76,7 @@ public:
                 list->addItem(item);
             }
             for (const ach::Milestone& m : ach::kPerGame) {
+                if (!shown(m)) continue;
                 const bool done = earned.when.count(ach::key(tid, m.id)) || ach::progress(m, play) >= 1.f;
                 auto* item = new tsl::elm::ListItem(m.name);
                 item->setValue(progressText(m, play, done), !done);
@@ -80,7 +86,7 @@ public:
         } else {
             list->addItem(new tsl::elm::CategoryHeader("Open a game to see its achievements"));
         }
-        const ach::Play all{earned.totalSeconds, earned.gamesPlayed};
+        const ach::Facts all{earned.totalSeconds, earned.gamesPlayed, 0, ach::earnedFromPacks(earned)};
         list->addItem(new tsl::elm::CategoryHeader("All your games  " + hours(all.seconds) + " h", true));
         for (const ach::Milestone& m : ach::kOverall) {
             const bool done = earned.when.count(ach::overallKey(m.id)) || ach::progress(m, all) >= 1.f;

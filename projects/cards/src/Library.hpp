@@ -111,8 +111,8 @@ bool artCached(const Game& game, bool title);
 unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h);
 // The console's clock: automatic (from the internet), or set by hand (HOME only).
 bool autoClock();
-bool setAutoClock(bool on);
-bool setClock(long long posixSeconds);
+bool darkTheme();
+bool setDarkTheme(bool dark);
 // SteamGridDB's games for what was typed (part of a name is enough): id and "Name (year)".
 std::vector<std::pair<long long, std::string>> steamGridDbFind(const std::string& query, const std::string& key, size_t n);
 // When each was last played (POSIX seconds), from the console's play log.
@@ -132,6 +132,12 @@ void forgetShown(std::uint64_t id); // its picture changed (chosen, downloaded a
 // Bros. Wonder): the first SteamGridDB icon with clear edges. Empty: none.
 // busy: another search was running (it's asked again a little later).
 std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy = nullptr);
+std::vector<std::uint8_t> chosenTitleArt(const Game& game); // only + > Title picture's
+// What's installed of a game (its update's version, else its own), and what was seen
+// last (config/CardsNX/versions.txt): a change reads its name and version again.
+std::uint32_t installedVersion(std::uint64_t id);
+std::map<std::uint64_t, std::uint32_t> readVersions();
+void writeVersions(const std::map<std::uint64_t, std::uint32_t>& versions);
 // + > Title picture: SteamGridDB's icons and logos for the game to choose from
 // (no background first), with the one an older CardsNX picked. Slow: a thread.
 struct TitleChoice {

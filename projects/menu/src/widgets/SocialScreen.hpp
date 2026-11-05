@@ -58,6 +58,7 @@ public:
     void hide();
     // Straight to a page: your Miis (the Mii Maker), or your profile.
     void showMiisPage() { openMiis(); }
+    void showAddFriend() { startAddFriend(); }
     void showProfilePage();
     bool isActive() const { return m_active || m_anim > 0.001f; }
     bool isOpen() const { return m_active; }

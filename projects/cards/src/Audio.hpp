@@ -41,6 +41,8 @@ public:
     void playTrack(size_t index);
 
 private:
+    void opened(); // the device opened (start's thread): the rest of starting
+    std::future<bool> m_openJob;
     void startTrack(size_t index);
     void loadWanted();
     size_t shuffled() const; // a random song, not the one playing (2+ songs)

@@ -705,7 +705,10 @@ void SocialScreen::activateItem() {
     if (m_zone == Zone::Tiles) {
         if (m_cb.onActivate) m_cb.onActivate();
         switch (m_tile) {
-            case 0: openMiis(); break;
+            case 0: // (CardsNX: Nintendo's editor)
+                if (m_cb.onMiiEditor) m_cb.onMiiEditor();
+                else openMiis();
+                break;
             case 1: startAddFriend(); break;
             case 2: openRequests(); break;
             case 3: if (m_cb.onDiscord) m_cb.onDiscord(); break;

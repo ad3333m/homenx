@@ -108,19 +108,35 @@ inline std::string gameName(std::uint64_t title) {
     return meta.name[0] ? meta.name : meta.english_name;
 }
 
+// The hour on the console's clock, in its time zone (12 when it can't tell).
+inline int localHour() {
+    u64 now = 0;
+    TimeCalendarTime t{};
+    TimeCalendarAdditionalInfo info{};
+    if (R_FAILED(timeGetCurrentTime(TimeType_UserSystemClock, &now)) || R_FAILED(timeToCalendarTimeWithMyRule(now, &t, &info)))
+        return 12;
+    return t.hour;
+}
+
 // What the game's play reached: kept, and shown. (The first time, when there's no
 // file yet, what was earned before HomeNX counted is kept without a word.)
-inline void award(std::uint64_t title, const switchu::achievements::Play& play, std::uint64_t sessionSeconds) {
+inline void award(std::uint64_t title, std::uint64_t gameSeconds, std::uint64_t sessionSeconds) {
     namespace ach = switchu::achievements;
     ach::Earned e = ach::load(); // (HOME may have written it since)
     const bool quiet = !e.existed;
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     std::vector<const ach::Milestone*> mine, overall;
+    const ach::Facts game{gameSeconds};
     for (const ach::Milestone& m : ach::kPerGame)
-        if (ach::progress(m, play) >= 1.f && e.when.emplace(ach::key(title, m.id), now).second) mine.push_back(&m);
-    const ach::Play all{e.totalSeconds + sessionSeconds, e.gamesPlayed};
+        if (ach::progress(m, game) >= 1.f && e.when.emplace(ach::key(title, m.id), now).second) mine.push_back(&m);
+    if (sessionSeconds >= 3 * 3600 && e.when.emplace(ach::key(title, "session3"), now).second)
+        mine.push_back(ach::milestone("session3"));
+    const ach::Facts all{e.totalSeconds + sessionSeconds, e.gamesPlayed, 0, ach::earnedFromPacks(e)};
     for (const ach::Milestone& m : ach::kOverall)
         if (ach::progress(m, all) >= 1.f && e.when.emplace(ach::overallKey(m.id), now).second) overall.push_back(&m);
+    // Past the first minutes of a game, between midnight and 4 a.m.
+    if (sessionSeconds >= 300 && localHour() < 4 && e.when.emplace(ach::overallKey("night"), now).second)
+        overall.push_back(ach::milestone("night"));
     if (mine.empty() && overall.empty() && !quiet) return;
     ach::save(e);
     if (quiet) return;
@@ -193,16 +209,25 @@ inline void checkPack(Live& l) {
         e.when.emplace(ach::key(l.title, ("p." + a->id).c_str()), when);
         l.done.insert(a->id);
     }
+    // What they bring: all of the game's own (Perfect), and the count across games.
+    std::vector<const ach::Milestone*> more;
+    if (l.done.size() >= l.pack.list.size() && e.when.emplace(ach::key(l.title, "perfect"), when).second)
+        more.push_back(ach::milestone("perfect"));
+    const ach::Facts f{0, 0, 0, ach::earnedFromPacks(e)};
+    for (const ach::Milestone& m : ach::kOverall)
+        if (m.kind == ach::Kind::Earned && ach::progress(m, f) >= 1.f && e.when.emplace(ach::overallKey(m.id), when).second)
+            more.push_back(&m);
     ach::save(e);
     const std::string game = l.pack.game.empty() ? gameName(l.title) : l.pack.game;
     for (const auto* a : now) notify(a->name, game);
+    for (const ach::Milestone* m : more) notify(m->name, m->kind == ach::Kind::Moment ? game : std::string());
 }
 
 inline void threadFunc(void*) {
     const bool pdm = R_SUCCEEDED(pdmqryInitialize());
     std::uint64_t title = 0, base = 0, playedNs = 0, checkedNs = 0, last = armGetSystemTick();
-    std::uint32_t launches = 0, session = ~0u;
-    bool known = false;
+    std::uint32_t session = ~0u;
+    bool known = false, counted = false; // counted: a game (not a media app: achievements_skip.txt)
     Live live;
     while (g_running.load()) {
         // Every second while a game with a pack is in front (it unlocks at once), else every 10 s.
@@ -220,6 +245,7 @@ inline void threadFunc(void*) {
             title = t;
             playedNs = checkedNs = 0;
             known = false;
+            counted = t && !switchu::achievements::loadSkipped().count(t);
             live.attached = false; // (a new process)
         }
         if (!t) continue; // (HOME or nothing in front: the time isn't play)
@@ -231,21 +257,20 @@ inline void threadFunc(void*) {
             }
             if (live.attached) checkPack(live);
         }
-        if (!pdm) continue;
+        if (!pdm || !counted) continue;
         bool check = false;
         if (!known) {
             PdmPlayStatistics st{};
             if (R_FAILED(pdmqryQueryPlayStatisticsByApplicationId(t, false, &st))) continue;
             base = st.playtime / 1'000'000'000ULL;
-            launches = st.total_launches;
-            known = check = true; // (a launch milestone: right away)
+            known = check = true;
         } else {
             playedNs += ns;
             check = playedNs - checkedNs >= 60'000'000'000ULL; // the hours: once a minute is plenty
         }
         if (check) {
             checkedNs = playedNs;
-            award(t, {base + playedNs / 1'000'000'000ULL, launches ? launches : 1u}, playedNs / 1'000'000'000ULL);
+            award(t, base + playedNs / 1'000'000'000ULL, playedNs / 1'000'000'000ULL);
         }
     }
     switchu::dmnt::close();
