@@ -180,6 +180,9 @@ target("SwitchU")
     add_includedirs("projects/common/include", {public = false})
     add_includedirs("projects/menu/src", {public = false})
     add_files("projects/menu/src/**.cpp")
+    for _, symbol in ipairs({"timeInitialize", "smGetServiceWrapper", "svcSendSyncRequest", "shmemLoadRemote", "shmemMap", "svcMapSharedMemory"}) do
+        add_ldflags("-Wl,--wrap=" .. symbol, {force = true})
+    end
     -- HomeNX Discord panel: SwitchCord's client code uses yyjson (C) and mbedtls.
     add_files("projects/menu/src/third_party/yyjson.c")
     -- HomeNX: Settings > HomeNX updates the frontend with the Toggle's updater.

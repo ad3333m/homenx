@@ -2,6 +2,7 @@
 #include "core/WiiUMenuApp.hpp"
 #include "core/DebugLog.hpp"
 #include "core/Config.hpp"
+#include "services/TimeDiagnostics.hpp"
 #include "tutorial/TutorialActivity.hpp"
 #include <nxui/Application.hpp>
 #include <nxui/core/GpuDevice.hpp>
@@ -43,8 +44,6 @@ extern "C" {
     size_t __nx_heap_size = kMenuAppletHeapSize;
 
     TimeServiceType __nx_time_service_type = TimeServiceType_Menu;
-
-    void __libnx_init_time(void);
 
     void __nx_win_init(void);
     void __nx_win_exit(void);
@@ -89,7 +88,8 @@ extern "C" void __libnx_initheap(void) {
 
 #ifdef SWITCHU_HOMEBREW
 extern "C" void userAppInit(void) {
-    timeInitialize();
+    const Result timeResult = timeInitialize();
+    switchu::time_debug::probe(timeResult);
     plInitialize(PlServiceType_System);
     setInitialize();
     setsysInitialize();
@@ -134,8 +134,9 @@ extern "C" void __appInit(void) {
     rc = hidInitialize();
     if (R_FAILED(rc)) svcOutputDebugString("[SwitchU-menu] hidInitialize FAIL", 33);
 
-    timeInitialize();
-    __libnx_init_time();
+    const Result timeResult = timeInitialize();
+    switchu::time_debug::probe(timeResult);
+    switchu::time_debug::initializeLibcTime(timeResult);
     setsysInitialize();
     setInitialize();
     plInitialize(PlServiceType_System);
@@ -159,6 +160,7 @@ extern "C" void __appInit(void) {
 
     switchu::FileLog::open("menu");
     DebugLog::openFileLog();
+    switchu::time_debug::flush();
     DebugLog::log("[menu] __appInit complete (sd mount: 0x%X)", rc);
 
     rc = nsInitialize();
@@ -263,6 +265,7 @@ int main(int argc, char* argv[]) {
 #ifdef SWITCHU_HOMEBREW
     g_homenxStartTick = armGetSystemTick();
     DebugLog::openFileLog();
+    switchu::time_debug::flush();
     DebugLog::log("[hb] main() entry");
     DebugLog::log("[main] applet config...");
 #else
