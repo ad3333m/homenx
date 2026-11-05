@@ -6650,7 +6650,7 @@ void CardsActivity::watchNotices(float dt) {
             const char* name = (s & HidNpadStyleTag_NpadJoyDual) ? "Joy-Con pair"
                              : (s & HidNpadStyleTag_NpadFullKey) ? "Pro Controller"
                              : (s & HidNpadStyleTag_NpadJoyLeft) ? "Joy-Con (L)"
-                             : (s & HidNpadStyleTag_NpadJoyRight) ? "Joy-Con (R)" : "Controller";
+                             : (s & HidNpadStyleTag_NpadJoyRight) ? "Joy-Con (R)" : "A controller";
             notice(now ? "Controller connected" : "Controller disconnected", name, "pad",
                    now ? nxui::Color(0.25f, 0.61f, 1.f, 1.f) : nxui::Color(0.56f, 0.56f, 0.60f, 1.f));
         }
@@ -6668,6 +6668,32 @@ void CardsActivity::watchNotices(float dt) {
     }
     m_noticeBattery = pct;
     m_noticeCharging = m_charging;
+}
+
+void CardsActivity::drawMessage(nxui::Renderer& r) {
+    if (m_messageFor > 0.f && !m_message.empty()) {
+        const float a = std::min(1.f, m_messageFor * 3.f) * easeOut((4.5f - m_messageFor) * 5.f);
+        // Two lines when it's long: words up to the width, then the rest.
+        std::string first = m_message, second;
+        if (measured(m_fBody, m_message).x > 820.f) {
+            size_t cut = m_message.size();
+            while (cut != std::string::npos && cut > 0 && measured(m_fBody, m_message.substr(0, cut)).x > 820.f)
+                cut = m_message.rfind(' ', cut - 1);
+            if (cut != std::string::npos && cut > 0) {
+                first = m_message.substr(0, cut);
+                second = fit(m_fBody, m_message.substr(cut + 1), 820.f);
+            } else {
+                first = fit(m_fBody, m_message, 820.f);
+            }
+        }
+        const float w = std::max(measured(m_fBody, first).x, measured(m_fBody, second).x) + 44.f;
+        const float h = second.empty() ? 42.f : 68.f;
+        const nxui::Rect pill{640.f - w * 0.5f, 450.f + 10.f * (1.f - a) - (h - 42.f) * 0.5f - (m_moving ? 52.f : 0.f), w, h};
+        frost(r, pill, 21.f, nxui::Color(0.06f, 0.07f, 0.10f, 0.75f * a));
+        r.drawRoundedRectOutline(pill, nxui::Color(1.f, 1.f, 1.f, 0.15f * a), 21.f, 1.5f);
+        textMid(r, m_fBody, first, pill.x + 22.f, pill.y + (second.empty() ? 21.f : 22.f), kWhite.withAlpha(a));
+        if (!second.empty()) textMid(r, m_fBody, second, pill.x + 22.f, pill.y + 46.f, kWhite.withAlpha(a));
+    }
 }
 
 void CardsActivity::drawNotice(nxui::Renderer& r) {
@@ -8693,29 +8719,6 @@ void CardsActivity::draw(nxui::Renderer& r) {
         r.drawRoundedRectOutline(pill, accent(0.6f), 20.f, 1.5f);
         textMid(r, m_fBody, hint, pill.x + 22.f, pill.y + 20.f, kWhite);
     }
-    if (m_messageFor > 0.f && !m_message.empty()) {
-        const float a = std::min(1.f, m_messageFor * 3.f) * easeOut((4.5f - m_messageFor) * 5.f);
-        // Two lines when it's long: words up to the width, then the rest.
-        std::string first = m_message, second;
-        if (measured(m_fBody, m_message).x > 820.f) {
-            size_t cut = m_message.size();
-            while (cut != std::string::npos && cut > 0 && measured(m_fBody, m_message.substr(0, cut)).x > 820.f)
-                cut = m_message.rfind(' ', cut - 1);
-            if (cut != std::string::npos && cut > 0) {
-                first = m_message.substr(0, cut);
-                second = fit(m_fBody, m_message.substr(cut + 1), 820.f);
-            } else {
-                first = fit(m_fBody, m_message, 820.f);
-            }
-        }
-        const float w = std::max(measured(m_fBody, first).x, measured(m_fBody, second).x) + 44.f;
-        const float h = second.empty() ? 42.f : 68.f;
-        const nxui::Rect pill{640.f - w * 0.5f, 450.f + 10.f * (1.f - a) - (h - 42.f) * 0.5f - (m_moving ? 52.f : 0.f), w, h};
-        frost(r, pill, 21.f, nxui::Color(0.06f, 0.07f, 0.10f, 0.75f * a));
-        r.drawRoundedRectOutline(pill, nxui::Color(1.f, 1.f, 1.f, 0.15f * a), 21.f, 1.5f);
-        textMid(r, m_fBody, first, pill.x + 22.f, pill.y + (second.empty() ? 21.f : 22.f), kWhite.withAlpha(a));
-        if (!second.empty()) textMid(r, m_fBody, second, pill.x + 22.f, pill.y + 46.f, kWhite.withAlpha(a));
-    }
     drawStep("draw: the menus");
     drawSheet(r);
     drawPopup(r); // (over Settings)
@@ -8731,6 +8734,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
 #ifdef SWITCHU_MENU
     drawNews(r);
 #endif
+    drawMessage(r); // (over the menus: under Settings' sheet it could hardly be read)
     drawIntro(r);
     drawLaunch(r);
     drawReturn(r);

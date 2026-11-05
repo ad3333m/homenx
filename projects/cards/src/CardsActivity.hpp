@@ -601,6 +601,7 @@ private:
     void notice(std::string title, std::string text, const char* glyph, const nxui::Color& tint);
     void watchNotices(float dt);
     void drawNotice(nxui::Renderer& r);
+    void drawMessage(nxui::Renderer& r);
     // A whole panel over Settings for a job that takes a while: updating, USB file
     // transfer, the SD card test, pairing a controller.
     enum class Task { None, Update, Mtp, SdTest, Pairing, Move };
