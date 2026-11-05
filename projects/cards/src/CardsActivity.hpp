@@ -64,7 +64,27 @@ public:
 
 private:
     enum class Zone { Top, Cards, Bottom };
-    enum Page { kGames, kHomebrew, kNintendo, kMedia, kCustom1, kCustom2, kCustom3, kPageCount };
+    enum Page { kGames, kHomebrew, kNintendo, kMedia, kPageCount };
+    int pageCount() const { return kPageCount + static_cast<int>(m_settings.customPages.size()); }
+    std::string pageName(int page) const;
+    void rebuildCustomPages();
+    void openCustomPages();
+    void openPagePicker();
+    void editCustomPage(int page);
+    void addToCustomPage(const Game& game);
+    void openStorage();
+    void readStorage(bool withTitles = false);
+    bool m_storageWantTitles = false;
+    void openWallpaperSelection();
+    void showWallpaperSelection();
+    std::vector<std::string> m_lockPlaylist, m_wallSelectionFiles;
+    bool m_lockRotate = false, m_milestonesOn = true; // (files: read when Settings opens, not every frame)
+    std::future<std::vector<std::string>> m_wallSelectionJob;
+    void moveSoftware(const Game& game, bool toSd);
+    bool softwareBusy(std::uint64_t id) const;
+    void updateStorage();
+    void drawNotificationCard(nxui::Renderer& renderer);
+    void notifyCard(std::string title, std::string message, std::string glyph = "news");
     // The top bar's buttons, left to right.
     enum Top { kTopMenu, kTopDiscord, kTopTrophy, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
                kTopCount };
@@ -251,7 +271,8 @@ private:
     void loadLockPicture();
     std::string m_lockPicture, m_lockTexFor;
     std::unique_ptr<nxui::Texture> m_lockTex;
-    std::unique_ptr<nxui::Texture> m_lockGameTex; // the open game's last picture, behind the lock
+    std::uint64_t m_lockGameId = 0;
+    std::string m_lockGameName;
     std::future<Pixels> m_lockJob;
     // Settings > Look > Lock screen: the time and date when the console wakes.
     bool m_tv1080 = false; // Settings > Look > TV resolution (config/SwitchU/resolution.txt)
@@ -261,7 +282,7 @@ private:
     bool m_musicPausedForLock = false;      // the lock screen paused the music
     nxui::Font m_fLock, m_fLockDate;
     std::string m_date;
-    void lock(bool shuffle = true); // (shuffle: Lock screen > Shuffle pictures picks the next)
+    void lock(bool shuffle = true); // (shuffle: a new wallpaper, if they rotate; not for a preview)
     void beginUnlock(); // the unlock animation starts; what the lock held comes back
     bool updateLock(float dt);
     void drawLock(nxui::Renderer& r);
@@ -394,13 +415,6 @@ private:
     bool optionsTouch();
     void drawOptions(nxui::Renderer& r);
     void openSettings(int section = 0);
-    // Your own pages (three at most): any games and apps, under a name you give them.
-    std::string pageName(int page) const;
-    int pageSlots() const; // the pages there are (the first in pageOrder)
-    void rebuildCustomPages();
-    void newCustomPage(const std::string& firstGame);
-    void openCustomPages();
-    void openAddToPage(const Game& g);
     // Cards hidden with + (nothing is deleted); Settings > Home > Hidden cards brings them back.
     void hideCard(const Game& g);
     void openHiddenCards();
@@ -532,8 +546,8 @@ private:
     const char* m_drawMarkName = "";
     void drawStep(const char* next);
 
-    std::vector<Game> m_pages[kPageCount];
-    int m_sels[kPageCount] = {0, 0, 0, 0};
+    std::vector<Game> m_pages[Settings::kMaxPages];
+    int m_sels[Settings::kMaxPages] = {};
     int m_page = kGames;
     std::map<std::uint64_t, Art> m_art;
     float m_scroll = 0.f;  // the row's position, easing to sel()
@@ -600,24 +614,10 @@ private:
     std::future<std::string> m_sdTestJob;
     std::atomic<int> m_sdTestPct{0};
     std::string m_sdTestResult;
-    // A notice: a glass capsule sliding down from the top, one at a time.
-    struct Notice {
-        std::string title, text;
-        const char* glyph;
-        nxui::Color tint;
-    };
-    std::deque<Notice> m_notices;
-    float m_noticeT = 0.f, m_noticePoll = 1.f;
-    int m_noticeBattery = -1;
-    bool m_noticeCharging = false, m_noticePadsKnown = false;
-    std::uint32_t m_noticePads[8] = {};
-    void notice(std::string title, std::string text, const char* glyph, const nxui::Color& tint);
-    void watchNotices(float dt);
-    void drawNotice(nxui::Renderer& r);
     void drawMessage(nxui::Renderer& r);
     // A whole panel over Settings for a job that takes a while: updating, USB file
     // transfer, the SD card test, pairing a controller.
-    enum class Task { None, Update, Mtp, SdTest, Pairing, Move };
+    enum class Task { None, Update, Mtp, SdTest, Pairing };
     struct TaskView {
         std::string title, status, detail, button; // button: what A does ("" = nothing)
         const char* icon = "gear";
@@ -670,6 +670,22 @@ private:
     bool m_notifOpen = false;
     std::vector<std::pair<std::string, std::string>> m_notifRows; // title, detail
     std::string m_message;
+    struct Notice { std::string title, text, glyph; };
+    std::deque<Notice> m_notices;
+    Notice m_notice;
+    float m_noticeAge = 0.f;
+    int m_lastBatteryNotice = 101, m_lastControllerCount = -1;
+    float m_controllerCheckIn = 0.f;
+    void updateNotices(float dt);
+    std::future<std::uint32_t> m_storageJob;
+    std::string m_storageGame;
+    std::array<std::string, 2> m_storageSummary = {"Reading...", "Reading..."};
+    struct StorageSnapshot {
+        std::array<std::string, 2> summary;
+        std::map<std::uint64_t, std::string> locations;
+    };
+    std::map<std::uint64_t, std::string> m_storageLocations;
+    std::future<StorageSnapshot> m_storageReadJob;
     float m_messageFor = 0.f;
     std::vector<std::unique_ptr<nxui::Texture>> m_userPictures;
 
@@ -691,7 +707,6 @@ private:
         ConsoleSettings console;
         int nextendo = 0;
         QuickStatus quick;
-        std::string spaceConsole, spaceSd;
     };
     std::future<Facts> m_factsJob;
     void readFactsLater();
@@ -716,7 +731,6 @@ private:
         std::vector<std::string> lines;
     };
     std::vector<LogEntry> m_log;
-    void shuffleLockPicture(); // Lock screen > Shuffle pictures
     // Bluetooth headphones and speakers (13.0.0+), as Nintendo's System Settings has them.
     bool bluetoothAudio(); // btm:sys open (btmsysExit after), else it says why not
     void startAudioScan();
@@ -822,15 +836,6 @@ private:
                    std::function<void(const std::string&)> done, nxui::Widget* back, bool sensitive = false);
     bool m_discordTokenEntryPending = false; // Discord's panel asked for the token keyboard
     void openSocial();
-    // Settings > Storage.
-    std::string m_spaceConsole, m_spaceSd;
-    std::future<std::vector<StorageTitle>> m_storageJob;
-    std::future<std::uint32_t> m_moveJob;
-    std::string m_moveName, m_moveEnded;
-    bool m_moveToSd = false, m_moveFailed = false;
-    void openStorageTitles();
-    void showStorageTitles(const std::vector<StorageTitle>& titles);
-    void startMove(std::uint64_t id, const std::string& name, bool toSd);
     void syncPopupsFlag();
     std::future<std::string> m_friendCodeJob; // the user's friend code, for their popup
     std::string m_friendCode;

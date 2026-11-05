@@ -27,6 +27,20 @@ enum class Kind : std::uint8_t {
     Moment,    // earned the moment it happens: no count to show
 };
 
+// The milestones work for every game; each game's own goals (its pack) stay either way.
+// Settings > Achievements turns them off. What was earned is kept.
+inline constexpr const char* kMilestonesOffFlag = "sdmc:/config/SwitchU/achievement_milestones_off";
+inline bool milestonesEnabled() {
+    std::error_code ec;
+    return !std::filesystem::exists(kMilestonesOffFlag, ec);
+}
+inline void setMilestonesEnabled(bool enabled) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    if (enabled) std::filesystem::remove(kMilestonesOffFlag, ec);
+    else std::ofstream(kMilestonesOffFlag) << '1';
+}
+
 struct Milestone {
     const char* id;   // as kept in the file
     const char* name;

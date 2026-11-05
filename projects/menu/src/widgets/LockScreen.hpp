@@ -45,6 +45,9 @@ private:
     bool m_pwSet = false, m_setup = false, m_wasSetup = false;
     switchu::lockpw::Entry m_pw;
     float m_time = 0.f;
+    int m_batteryPercent = -1;
+    bool m_batteryCharging = false;
+    float m_batteryPoll = 0.f;
     void openSelectedNotif();
     void moveNotifSel(int delta);
 

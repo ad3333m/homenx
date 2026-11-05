@@ -12,6 +12,11 @@
 
 namespace cards {
 
+struct CustomPage {
+    std::string name;
+    std::vector<std::string> titles;
+};
+
 // Writes `data` to `path` on CardsNX's writer thread (Library.cpp): the
 // screen's thread never waits on the SD card, which an install or the
 // pictures can keep busy for seconds. The newest data for a path wins.
@@ -21,6 +26,12 @@ void flushWrites(); // everything written (before HOME closes)
 // CardsNX's settings (the gear, or the Nintendo page > Settings), in
 // sdmc:/config/CardsNX/settings.json.
 struct Settings {
+    static constexpr int kBuiltinPages = 4;
+    static constexpr int kMaxCustomPages = 8;
+    static constexpr int kMaxPages = kBuiltinPages + kMaxCustomPages;
+    std::vector<CustomPage> customPages;
+    bool notificationCards = true;
+    bool lockGameBanner = true;
     bool music = true;
     int musicVolume = 60;     // 0..100
     bool shuffle = false;
@@ -31,10 +42,8 @@ struct Settings {
     bool motion = true;       // animations (off: things move straight to place)
     bool bgMotion = true;     // the background art drifts
     int startPage = 0;        // (old: the page order's first is where it opens now)
-    // The pages in order: 0 games, 1 homebrew, 2 Nintendo, 3 media, 4-6 your own (those not made yet come last).
-    std::vector<int> pageOrder = {0, 1, 2, 3, 4, 5, 6};
-    std::vector<std::string> customPages = {"", "", ""}; // your own pages' names ("": not made); what's on them: order[4..6]
-    int lastPage = -1; // your own page something was started from: back there afterwards
+    std::vector<int> pageOrder = {0, 1, 2, 3}; // the pages in order: 0 games, 1 homebrew, 2 Nintendo, 3 media, then custom pages
+    int lastPage = -1; // the custom page something was started from: back there afterwards
     int sort = 1;             // 0 last played, 1 title, 2 most played, 3 my order (Plus > Move)
     int haze = 45;            // how much the background art is softened, 0..80
     bool boxArt = true;       // box covers on cards (off: the eShop banner)
@@ -50,8 +59,6 @@ struct Settings {
     std::vector<std::string> mediaIn, mediaOut;
     std::vector<std::string> gamesIn, gamesOut; // moved by hand onto / off the Games page (ports, ...)
     std::vector<std::string> fullCards;         // homebrew drawn as games' cards (+ > Show as a full card)
-    bool lockShuffle = false;          // Lock screen > Shuffle pictures: another each time it locks
-    std::vector<std::string> lockPool; // the ones it picks from (X in Picture); none: all of yours
     std::uint64_t nroHash = 0;  // the .nro files at the last full read (homebrewHash)
     int titles = -1;            // the installed titles then (installedTitleCount)
     bool askUser = false;       // starting a game asks who's playing, as Nintendo's HOME does
@@ -59,7 +66,6 @@ struct Settings {
     bool lockScreen = false;    // a lock screen when the console wakes
     bool lockMusic = false;     // the menu's music keeps playing on the lock screen
     bool keepHomebrew = true;   // HOME leaves a homebrew app open to resume, as a game (off: HOME closes it)
-    bool popups = true;         // the capsule at the top for the battery and controllers (and Ultrahand's in a game)
     std::string hbPath, hbHost; // the homebrew app left open and the game it runs as (HOME only)
     std::map<std::string, std::string> hiddenCards; // cards hidden with + (their ids and names): still installed
     int sheetBack = -1, sheetBackRow = 0; // Settings' tab and row while one of Nintendo's screens is open (HOME only)
@@ -76,7 +82,24 @@ struct Settings {
     long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
     bool perfLog = true;      // sdmc:/config/CardsNX/perf.log: start-up times and slow frames
     std::string language;     // "es", "ja", ... ("" = the console's)
-    std::vector<std::string> order[7]; // My order, per page: ids (hex). Your own pages: what's on them, too.
+    std::vector<std::string> order[kMaxPages]; // My order, per page: ids (hex)
+
+    void normalizePages() {
+        if (customPages.size() > kMaxCustomPages) customPages.resize(kMaxCustomPages);
+        const int count = kBuiltinPages + static_cast<int>(customPages.size());
+        std::vector<int> valid;
+        for (int page : pageOrder)
+            if (page >= 0 && page < count && std::find(valid.begin(), valid.end(), page) == valid.end()) valid.push_back(page);
+        for (int page = 0; page < count; ++page)
+            if (std::find(valid.begin(), valid.end(), page) == valid.end()) valid.push_back(page);
+        pageOrder = std::move(valid);
+        hiddenPages.erase(std::remove_if(hiddenPages.begin(), hiddenPages.end(), [count](int page) {
+            return page < 0 || page >= count;
+        }), hiddenPages.end());
+        std::sort(hiddenPages.begin(), hiddenPages.end());
+        hiddenPages.erase(std::unique(hiddenPages.begin(), hiddenPages.end()), hiddenPages.end());
+        if (static_cast<int>(hiddenPages.size()) == count) hiddenPages.erase(hiddenPages.begin());
+    }
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
 
@@ -96,22 +119,23 @@ struct Settings {
             bgMotion = j.value("bgMotion", bgMotion);
             startPage = j.value("startPage", startPage);
             pageOrder = j.value("pageOrder", pageOrder);
-            std::vector<int> check = pageOrder; // each page once, else the usual order
-            std::sort(check.begin(), check.end());
-            if (check == std::vector<int>{0, 1, 2}) { // from before there was Media
-                pageOrder.push_back(3);
-                check.push_back(3);
-            }
-            if (check == std::vector<int>{0, 1, 2, 3}) { // from before there were your own
-                for (int p : {4, 5, 6}) pageOrder.push_back(p);
-            } else if (check != std::vector<int>{0, 1, 2, 3, 4, 5, 6}) {
-                pageOrder = {0, 1, 2, 3, 4, 5, 6};
-            }
-            customPages = j.value("customPages", customPages);
-            customPages.resize(3);
-            std::stable_partition(pageOrder.begin(), pageOrder.end(),
-                                  [this](int p) { return p < 4 || !customPages[(size_t)(p - 4)].empty(); });
+            customPages.clear();
+            if (j.contains("customPages") && j["customPages"].is_array())
+                for (const auto& page : j["customPages"]) {
+                    if (!page.is_object() || !page.contains("name") || !page["name"].is_string()) continue;
+                    CustomPage custom;
+                    custom.name = page["name"].get<std::string>();
+                    if (custom.name.empty()) continue;
+                    if (page.contains("titles") && page["titles"].is_array())
+                        for (const auto& id : page["titles"])
+                            if (id.is_string() && std::find(custom.titles.begin(), custom.titles.end(), id.get<std::string>()) == custom.titles.end())
+                                custom.titles.push_back(id.get<std::string>());
+                    customPages.push_back(std::move(custom));
+                    if (customPages.size() == kMaxCustomPages) break;
+                }
+            notificationCards = j.value("notificationCards", notificationCards);
             lastPage = j.value("lastPage", lastPage);
+            lockGameBanner = j.value("lockGameBanner", lockGameBanner);
             sort = j.value("sortOrder", sort);
             haze = j.value("haze", haze);
             boxArt = j.value("boxArt", boxArt);
@@ -127,8 +151,6 @@ struct Settings {
             gamesIn = j.value("gamesIn", gamesIn);
             gamesOut = j.value("gamesOut", gamesOut);
             fullCards = j.value("fullCards", fullCards);
-            lockShuffle = j.value("lockShuffle", lockShuffle);
-            lockPool = j.value("lockPool", lockPool);
             nroHash = j.value("nroHash", nroHash);
             titles = j.value("titles", titles);
             askUser = j.value("askUser", askUser);
@@ -136,7 +158,6 @@ struct Settings {
             lockScreen = j.value("lockScreen", lockScreen);
             lockMusic = j.value("lockMusic", lockMusic);
             keepHomebrew = j.value("keepHomebrew", keepHomebrew);
-            popups = j.value("popups", popups);
             hbPath = j.value("hbPath", hbPath);
             hbHost = j.value("hbHost", hbHost);
             hiddenCards = j.value("hiddenCards", hiddenCards);
@@ -155,11 +176,11 @@ struct Settings {
             listsAt = j.value("listsAt", listsAt);
             perfLog = j.value("perfLog", perfLog);
             language = j.value("language", language);
-            const char* const keys[7] = {"orderGames", "orderHomebrew", "orderNintendo", "orderMedia",
-                                         "orderCustom1", "orderCustom2", "orderCustom3"};
-            for (int p = 0; p < 7; ++p) order[p] = j.value(keys[p], order[p]);
+            const char* const keys[4] = {"orderGames", "orderHomebrew", "orderNintendo", "orderMedia"};
+            for (int p = 0; p < 4; ++p) order[p] = j.value(keys[p], order[p]);
         } catch (...) {
         }
+        normalizePages();
     }
 
     void save() const {
@@ -167,13 +188,16 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"lockShuffle", lockShuffle}, {"lockPool", lockPool},
-                            {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"popups", popups}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
+                            {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
+                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
-                            {"orderMedia", order[3]}, {"orderCustom1", order[4]}, {"orderCustom2", order[5]},
-                            {"orderCustom3", order[6]}, {"customPages", customPages}, {"lastPage", lastPage}};
+                            {"orderMedia", order[3]}};
+        j["customPages"] = nlohmann::json::array();
+        for (const auto& page : customPages) j["customPages"].push_back({{"name", page.name}, {"titles", page.titles}});
+        j["notificationCards"] = notificationCards;
+        j["lastPage"] = lastPage;
+        j["lockGameBanner"] = lockGameBanner;
         writeLater(kPath, j.dump(2));
     }
 };

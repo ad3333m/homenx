@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -25,6 +26,65 @@ inline void set(const std::string& picture) {
     std::error_code ec;
     std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
     std::ofstream(kPath) << picture;
+}
+
+inline constexpr const char* kPlaylistPath = "sdmc:/config/SwitchU/lock_pictures.txt";
+inline constexpr const char* kRotatePath = "sdmc:/config/SwitchU/lock_picture_shuffle";
+
+inline std::vector<std::string> playlist() {
+    std::vector<std::string> pictures;
+    std::ifstream in(kPlaylistPath);
+    std::string path;
+    while (pictures.size() < 256 && std::getline(in, path)) {
+        if (!path.empty() && path.back() == '\r') path.pop_back();
+        if (!path.empty() && std::find(pictures.begin(), pictures.end(), path) == pictures.end()) pictures.push_back(path);
+    }
+    return pictures;
+}
+
+inline void savePlaylist(const std::vector<std::string>& pictures) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    const std::string temporary = std::string(kPlaylistPath) + ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        for (const auto& path : pictures) if (!path.empty() && path.find_first_of("\r\n") == std::string::npos) out << path << '\n';
+        out.flush();
+        if (!out) return;
+    }
+    std::filesystem::rename(temporary, kPlaylistPath, ec);
+    if (ec) { // fsdev's SD filesystem does not replace an existing destination.
+        std::filesystem::remove(kPlaylistPath, ec);
+        if (!ec) std::filesystem::rename(temporary, kPlaylistPath, ec);
+    }
+}
+
+inline bool rotationEnabled() {
+    std::error_code ec;
+    return std::filesystem::exists(kRotatePath, ec);
+}
+
+inline void setRotation(bool enabled) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    if (enabled) std::ofstream(kRotatePath) << '1';
+    else std::filesystem::remove(kRotatePath, ec);
+}
+
+// Choose at each lock, retaining the last usable picture if files were removed.
+inline std::string next(std::uint64_t seed) {
+    const std::string previous = get();
+    if (!rotationEnabled()) return previous;
+    auto pictures = playlist();
+    std::error_code ec;
+    pictures.erase(std::remove_if(pictures.begin(), pictures.end(), [&ec](const std::string& path) {
+        return !std::filesystem::is_regular_file(path, ec);
+    }), pictures.end());
+    if (pictures.empty()) return previous;
+    if (pictures.size() > 1) pictures.erase(std::remove(pictures.begin(), pictures.end(), previous), pictures.end());
+    const std::string chosen = pictures[seed % pictures.size()];
+    set(chosen);
+    return chosen;
 }
 
 // Where the Album is: the SD card's, and emuMMC's own when it runs one (its
