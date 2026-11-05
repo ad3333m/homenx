@@ -39,6 +39,7 @@ const std::map<std::string, std::string> kKnown = {
     {"nxdumptool", "DarkMatterCore/nxdumptool"},
     {"nxactivitylog", "tallbl0nde/NX-Activity-Log"},
     {"lightbrowser", "ad3333m/switch-lite-duck"},
+    {"melondsswitch", "FrcJules/melonDS-switch"},
 };
 // Public repos of this account are matched by name too.
 constexpr const char* kOwnAccount = "ad3333m";
