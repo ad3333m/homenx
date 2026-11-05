@@ -42,6 +42,12 @@
 #include <unordered_map>
 
 namespace cards {
+thread_local ArtworkReadStats artworkReadStats;
+ArtworkReadStats takeArtworkReadStats() {
+    auto stats = artworkReadStats;
+    artworkReadStats = {};
+    return stats;
+}
 namespace {
 
 constexpr const char* kCacheDir = "sdmc:/config/SwitchU/cards";
@@ -95,8 +101,25 @@ long get(const std::string& url, std::string& out, const std::vector<std::string
 }
 
 std::vector<std::uint8_t> readFile(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
-    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
+    struct ReadTimer {
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        bool success = false;
+        ~ReadTimer() {
+            artworkReadStats.milliseconds += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            if (!success) ++artworkReadStats.failures;
+        }
+    } timer;
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) return {};
+    const auto length = in.tellg();
+    if (length <= 0 || length > (16 << 20)) return {};
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
+    in.seekg(0);
+    if (!in.read(reinterpret_cast<char*>(bytes.data()), length)) return {};
+    timer.success = true;
+    artworkReadStats.bytes += bytes.size();
+    return bytes;
 }
 
 void writeFile(const std::string& path, const std::string& data) {
@@ -767,14 +790,14 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
 unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h) {
     int ch = 0;
     if (!data || size <= 0 || !stbi_info_from_memory(data, size, &w, &h, &ch)) return nullptr;
-    if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || static_cast<long long>(w) * h > 9LL * 1024 * 1024) return nullptr;
+    if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || static_cast<long long>(w) * h > 4LL * 1024 * 1024) return nullptr;
     const bool big = static_cast<long long>(w) * h >= 2LL * 1024 * 1024;
     static std::mutex mu;
     static std::condition_variable cv;
     static int bigNow = 0;
     if (big) {
         std::unique_lock<std::mutex> lk(mu);
-        cv.wait(lk, [] { return bigNow < 2; });
+        cv.wait(lk, [] { return bigNow < 1; });
         ++bigNow;
     }
     unsigned char* px = stbi_load_from_memory(data, size, &w, &h, &ch, 4);
@@ -838,6 +861,7 @@ bool readShown(const std::string& path, std::vector<std::uint8_t>& rgba, int& w,
     std::memcpy(head, data.data(), sizeof(head));
     if (head[0] != 0x32584E43 || head[1] <= 0 || head[2] <= 0 || head[1] > 4096 || head[2] > 4096) return false; // "CNX2"
     uLongf bytes = static_cast<uLongf>(head[1]) * static_cast<uLongf>(head[2]) * 4u;
+    if (bytes > (16u << 20)) return false;
     rgba.resize(bytes);
     if (uncompress(rgba.data(), &bytes, data.data() + sizeof(head), static_cast<uLong>(data.size() - sizeof(head))) != Z_OK
         || bytes != rgba.size()) {
