@@ -55,12 +55,14 @@ enum class SystemMessage : uint32_t {
 
     MenuReady             = 40,
     MenuClosing           = 41,
+    LockFramePresented    = 43,
 };
 
 enum class MenuStartMode : uint32_t {
     MainMenu       = 0,
     StartupBoot    = 1,
     AppletReturn   = 2,
+    WakeUp         = 3, // show the lock screen before the suspended game can resume
 };
 
 struct CommandHeader {

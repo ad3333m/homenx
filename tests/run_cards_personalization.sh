@@ -17,6 +17,10 @@ c++ -std=gnu++20 -Iprojects/cards/src -Iprojects/common/include -I"$json_include
     -fsanitize=address,undefined -g tests/cards_personalization_test.cpp -o "$test_dir/test"
 ASAN_OPTIONS=detect_leaks=0 "$test_dir/test"
 echo 'Cards personalization tests passed.'
+c++ -std=gnu++20 -Iprojects/common/include -I"$json_include" \
+    -fsanitize=address,undefined -g tests/lock_screen_wake_test.cpp -o "$test_dir/wake-test"
+ASAN_OPTIONS=detect_leaks=0 "$test_dir/wake-test"
+echo 'Wake lock-screen and controller notification tests passed.'
 nx_include="${DEVKITPRO:-/opt/devkitpro}/libnx/include"
 if [[ ! -f "$nx_include/switch/services/ns.h" ]]; then
     echo 'The installed libnx headers are required for the storage protocol test.' >&2

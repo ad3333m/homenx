@@ -399,7 +399,7 @@ std::uint64_t g_homenxStartTick = 0;
 bool WiiUMenuApp::presentInitialFrame(nxui::Renderer& ren) {
     m_tFirstFrame = armGetSystemTick();
 #ifdef SWITCHU_MENU
-    if (!m_fastReturnRequested)
+    if (m_wakeStart || !m_fastReturnRequested)
         return false;
 
     auto& gpu = app().gpu();
@@ -767,6 +767,13 @@ bool WiiUMenuApp::saveLeaveFrame(nxui::Renderer& ren) {
 }
 
 void WiiUMenuApp::onAfterPresent(nxui::Renderer& ren) {
+#ifdef SWITCHU_MENU
+    if (m_wakeStart && m_wakePresentedFrames < 3 && ++m_wakePresentedFrames == 3) {
+        app().gpu().waitIdle();
+        switchu::menu::smi_cmd::sendSimple(switchu::smi::SystemMessage::LockFramePresented);
+    }
+#endif
+
     // HomeNX: frame times for 1.5 s after pressing a game, so a hitch shows in menu.log.
     const std::uint64_t now = armGetSystemTick();
     const unsigned frameMs = m_prevPresentTick
@@ -1068,6 +1075,7 @@ bool WiiUMenuApp::onCreate() {
     switchu::menu::smi_cmd::menuReady();
 #endif
 
+    if (m_wakeStart) showLockScreen(m_config.musicEnabled);
     if (!fastReturn) {
 #ifdef SWITCHU_MENU
         if (m_bootStart && lockScreenOn()) showLockScreen(m_config.musicEnabled); // (the console just started)
