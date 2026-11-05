@@ -295,6 +295,7 @@ nxui::Color sectionTint(const char* icon) {
         {"home", 0.20f, 0.56f, 1.00f}, {"gear", 0.69f, 0.32f, 0.87f},  {"moon", 0.35f, 0.34f, 0.84f},
         {"music", 1.00f, 0.27f, 0.36f}, {"wifi", 0.19f, 0.69f, 0.78f}, {"bluetooth", 0.00f, 0.48f, 1.00f},
         {"power", 0.56f, 0.56f, 0.60f}, {"tag", 0.20f, 0.78f, 0.35f},  {"sort", 1.00f, 0.58f, 0.00f},
+        {"download", 0.20f, 0.56f, 1.00f}, {"copy", 0.19f, 0.69f, 0.78f},
     };
     for (const Tint& t : kTints)
         if (std::strcmp(t.icon, icon) == 0) return nxui::Color(t.r, t.g, t.b, 1.f);
@@ -647,6 +648,7 @@ bool CardsActivity::onCreate() {
     applyNames();
     applyOrder(kHomebrew);
     applyOrder(kNintendo);
+    rebuildCustomPages();
 
     // You: the one chosen in the pill, else the last account that played, else the first.
     AccountUidLike chosen;
@@ -756,6 +758,7 @@ bool CardsActivity::onCreate() {
         m_settings.hbHost.clear();
     }
     syncHomebrewFlag();
+    syncPopupsFlag();
 #endif
     const std::uint64_t tEnd = armGetSystemTick();
     char line[200];
@@ -854,6 +857,8 @@ void CardsActivity::onDestroy() {
 #ifdef SWITCHU_MENU
     stopPairing();
     if (m_friendCodeJob.valid()) m_friendCodeJob.wait();
+    if (m_storageJob.valid()) m_storageJob.wait();
+    if (m_moveJob.valid()) m_moveJob.wait(); // (it's cancelled: m_jobsStop)
     if (m_newsJob.valid()) m_newsJob.wait();
     if (m_updateJob.valid()) m_updateJob.wait();
     // Discord's threads use the sockets: they stop before the sockets go.
@@ -1385,7 +1390,11 @@ void CardsActivity::takeArt() {
         const auto& page = m_pages[p];
         const int s = m_sels[p];
         for (size_t i = 0; i < page.size(); ++i) // another page's: as if 8 further away
-            distance[page[i].id] = std::abs(static_cast<int>(i) - s) + (p == m_page ? 0 : 8);
+        {
+            const int far = std::abs(static_cast<int>(i) - s) + (p == m_page ? 0 : 8);
+            const auto [at, fresh] = distance.emplace(page[i].id, far);
+            if (!fresh) at->second = std::min(at->second, far); // (on your own page too: the nearest counts)
+        }
     }
     for (auto& [id, a] : m_art) {
         auto d = distance.find(id);
@@ -1424,6 +1433,15 @@ void CardsActivity::forgetAllArt() {
 // ---------------------------------------------------------------- the lists
 
 void CardsActivity::selectById(std::uint64_t id) {
+    const int mine = m_settings.lastPage; // started from your own page: back there
+    if (mine >= kCustom1 && mine < kPageCount && !pageHidden(mine))
+        for (size_t i = 0; i < m_pages[mine].size(); ++i)
+            if (m_pages[mine][i].id == id) {
+                m_page = mine;
+                m_sels[mine] = static_cast<int>(i);
+                m_scroll = static_cast<float>(i);
+                return;
+            }
     for (int p = 0; p < kPageCount; ++p)
         for (size_t i = 0; i < m_pages[p].size(); ++i)
             if (m_pages[p][i].id == id) {
@@ -1461,7 +1479,125 @@ int CardsActivity::pagePos(int page) const {
     return 0;
 }
 
+std::string CardsActivity::pageName(int page) const {
+    return page >= kCustom1 ? m_settings.customPages[(size_t)(page - kCustom1)] : tr(kPageNames[page]);
+}
+
+int CardsActivity::pageSlots() const {
+    int n = kCustom1;
+    for (const std::string& name : m_settings.customPages) n += name.empty() ? 0 : 1;
+    return n;
+}
+
+// What's on your own pages: copies of the cards on the real ones.
+void CardsActivity::rebuildCustomPages() {
+    for (int page = kCustom1; page < kPageCount; ++page) {
+        std::vector<Game> here;
+        for (const std::string& key : m_settings.order[page]) {
+            const std::uint64_t id = std::strtoull(key.c_str(), nullptr, 16);
+            bool found = false;
+            for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)}) {
+                for (const Game& g : m_pages[p])
+                    if (g.id == id) {
+                        here.push_back(g);
+                        found = true;
+                        break;
+                    }
+                if (found) break;
+            }
+        }
+        m_pages[page] = std::move(here);
+        m_sels[page] = std::clamp(m_sels[page], 0, std::max(0, static_cast<int>(m_pages[page].size()) - 1));
+    }
+}
+
+void CardsActivity::newCustomPage(const std::string& firstGame) {
+    askText("New page", "Its name", std::string(), 20, [this, firstGame](const std::string& name) {
+        if (name.empty()) return;
+        for (int i = 0; i < 3; ++i) {
+            if (!m_settings.customPages[(size_t)i].empty()) continue;
+            const int page = kCustom1 + i;
+            m_settings.customPages[(size_t)i] = name;
+            m_settings.order[page].clear();
+            if (!firstGame.empty()) m_settings.order[page].push_back(firstGame);
+            auto& order = m_settings.pageOrder; // after the last page there is
+            order.erase(std::find(order.begin(), order.end(), page));
+            order.insert(order.begin() + (pageSlots() - 1), page);
+            m_settings.save();
+            rebuildCustomPages();
+            m_audio.play("toggle_on");
+            say(trf("{page} is a new page: ZL and ZR go there.", {name}));
+            return;
+        }
+    });
+}
+
+// Settings > Home > Your own pages.
+void CardsActivity::openCustomPages() {
+    std::vector<MenuItem> items;
+    for (int i = 0; i < 3; ++i) {
+        const std::string name = m_settings.customPages[(size_t)i];
+        if (name.empty()) continue;
+        const int page = kCustom1 + i;
+        items.push_back(action(name, [this, i, page, name]() {
+            openMenu(name, {
+                action("Rename", [this, i, name]() {
+                    askText("Rename", "Its name", name, 20, [this, i](const std::string& text) {
+                        if (text.empty()) return;
+                        m_settings.customPages[(size_t)i] = text;
+                        m_settings.save();
+                    });
+                }),
+                action("Delete this page", [this, i, page]() {
+                    m_settings.customPages[(size_t)i].clear();
+                    m_settings.order[page].clear();
+                    m_pages[page].clear();
+                    auto& hidden = m_settings.hiddenPages;
+                    hidden.erase(std::remove(hidden.begin(), hidden.end(), page), hidden.end());
+                    auto& order = m_settings.pageOrder; // the ones not made come last
+                    order.erase(std::find(order.begin(), order.end(), page));
+                    order.push_back(page);
+                    m_settings.save();
+                    if (m_page == page) goToPage(firstShownPage(), 0);
+                    m_audio.play("toggle_off");
+                }, true),
+                action("Cancel", [] {}),
+            });
+        }));
+    }
+    if (pageSlots() < kPageCount) items.push_back(action("New page", [this]() { newCustomPage(std::string()); }));
+    items.push_back(action("Done", [] {}));
+    openMenu("Your own pages", std::move(items));
+}
+
+// Plus > Add to a page: which of your own pages it's on.
+void CardsActivity::openAddToPage(const Game& g) {
+    const std::string key = idText(g.id);
+    std::vector<MenuItem> items;
+    for (int i = 0; i < 3; ++i) {
+        if (m_settings.customPages[(size_t)i].empty()) continue;
+        const int page = kCustom1 + i;
+        items.push_back(toggle(m_settings.customPages[(size_t)i],
+            [this, page, key]() {
+                const auto& list = m_settings.order[page];
+                return std::find(list.begin(), list.end(), key) != list.end();
+            },
+            [this, page, key]() {
+                auto& list = m_settings.order[page];
+                const auto at = std::find(list.begin(), list.end(), key);
+                if (at != list.end()) list.erase(at);
+                else list.push_back(key);
+                m_settings.save();
+                rebuildCustomPages();
+            }));
+    }
+    if (pageSlots() < kPageCount) items.push_back(action("New page", [this, key]() { newCustomPage(key); }));
+    items.push_back(action("Done", [] {}));
+    openMenu(trf("Pages for {game}", {g.name}), std::move(items));
+}
+
 bool CardsActivity::pageHidden(int page) const {
+    if (page >= kCustom1 && m_settings.customPages[(size_t)(page - kCustom1)].empty()) return true; // (not made)
     const auto& hidden = m_settings.hiddenPages;
     return std::find(hidden.begin(), hidden.end(), page) != hidden.end();
 }
@@ -1489,6 +1625,7 @@ void CardsActivity::goToPage(int page, int dir) {
     // The Homebrew page: .nro apps added a while ago show (read on a thread).
     if (page == kHomebrew && static_cast<long long>(std::time(nullptr)) - m_settings.listsAt > 120) startListRefresh();
     if (m_moving) finishMove(true);
+    if (page >= kCustom1) rebuildCustomPages(); // (play times and the like, as they are now)
     m_page = page;
     m_pageDir = dir > 0 ? 1 : -1;
     m_pageIn = m_settings.motion ? 0.f : 1.f;
@@ -1632,6 +1769,7 @@ void CardsActivity::takeLists(Lists lists) {
         for (size_t i = 0; keep[p] && i < m_pages[p].size(); ++i)
             if (m_pages[p][i].id == keep[p]) m_sels[p] = static_cast<int>(i);
     }
+    rebuildCustomPages();
     m_scroll = static_cast<float>(sel());
     if (m_backTo) selectById(m_backTo);
     saveLists(m_pages[kGames], homebrewToSave());
@@ -1730,6 +1868,7 @@ void CardsActivity::moveToPage(const Game& g, int to) {
     splitMedia();
     applyOrder(kHomebrew);
     sortGames(m_settings.sort, false);
+    rebuildCustomPages();
     m_sels[from] = std::clamp(m_sels[from], 0, std::max(0, static_cast<int>(m_pages[from].size()) - 1));
     m_scroll = static_cast<float>(sel());
     saveOrder(to); // (saves the settings too)
@@ -1793,32 +1932,34 @@ void CardsActivity::openSheetOrder() {
 void CardsActivity::openPageOrder(int select) {
     std::vector<MenuItem> items;
     auto label = [this](int pos) {
-        return std::to_string(pos + 1) + ".  " + tr(kPageNames[m_settings.pageOrder[(size_t)pos]]);
+        return std::to_string(pos + 1) + ".  " + pageName(m_settings.pageOrder[(size_t)pos]);
     };
-    for (int pos = 0; pos < kPageCount; ++pos)
-        items.push_back(choice(label(pos), []() { return std::string("Move"); }, [this, pos, label](int d) {
+    const int slots = pageSlots();
+    for (int pos = 0; pos < slots; ++pos)
+        items.push_back(choice(label(pos), []() { return std::string("Move"); }, [this, pos, label, slots](int d) {
             const int to = pos + d;
-            if (to < 0 || to >= kPageCount) return;
+            if (to < 0 || to >= slots) return;
             std::swap(m_settings.pageOrder[(size_t)pos], m_settings.pageOrder[(size_t)to]);
             m_settings.save();
-            for (int i = 0; i < kPageCount && i < static_cast<int>(m_menu.size()); ++i) m_menu[(size_t)i].label = label(i);
+            for (int i = 0; i < slots && i < static_cast<int>(m_menu.size()); ++i) m_menu[(size_t)i].label = label(i);
             m_menuSel = to; // the page you're moving stays chosen
         }));
     items.push_back(action("Done", [] {}));
     openMenu("Page order  (< > moves a page)", std::move(items));
-    m_menuSel = std::clamp(select, 0, static_cast<int>(kPageCount));
+    m_menuSel = std::clamp(select, 0, slots);
 }
 
 // Settings > Home > Pages to show: hide a page (ZL / ZR skip it; one always shows).
 void CardsActivity::openPageShow() {
     std::vector<MenuItem> items;
-    for (int page : m_settings.pageOrder)
-        items.push_back(toggle(kPageNames[page], [this, page]() { return !pageHidden(page); }, [this, page]() {
+    for (int pos = 0; pos < pageSlots(); ++pos) {
+        const int page = m_settings.pageOrder[(size_t)pos];
+        items.push_back(toggle(pageName(page), [this, page]() { return !pageHidden(page); }, [this, page]() {
             auto& hidden = m_settings.hiddenPages;
             const auto at = std::find(hidden.begin(), hidden.end(), page);
             if (at != hidden.end()) {
                 hidden.erase(at);
-            } else if (static_cast<int>(hidden.size()) + 1 < kPageCount) {
+            } else if (static_cast<int>(hidden.size()) + 1 < pageSlots()) {
                 hidden.push_back(page);
             } else {
                 say("One page always shows.");
@@ -1827,6 +1968,7 @@ void CardsActivity::openPageShow() {
             m_settings.save();
             if (pageHidden(m_page)) goToPage(firstShownPage(), 0);
         }));
+    }
     items.push_back(action("Done", [] {}));
     openMenu("Pages to show", std::move(items));
 }
@@ -1847,6 +1989,10 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
 #ifdef SWITCHU_MENU
     if (m_update == static_cast<int>(Update::Installing)) {
         say("Wait for the update to finish first.");
+        return;
+    }
+    if (m_moveJob.valid()) {
+        say("Wait for the game to finish moving first.");
         return;
     }
 #endif
@@ -1917,6 +2063,7 @@ void CardsActivity::launchGame(const Game& g) {
     using namespace switchu::ns;
     const std::uint64_t id = g.id;
     m_settings.lastGame = idText(id); // back from it, it's chosen
+    m_settings.lastPage = m_page >= kCustom1 ? m_page : -1;
     if (!isRunning(id) && g.flags && !(g.flags & AppViewFlag_CanLaunch)) {
         if ((g.flags & AppViewFlag_IsGameCard) && !(g.flags & AppViewFlag_IsGameCardInserted))
             say(trf("Put the game card in to play {game}.", {g.name}));
@@ -2017,6 +2164,13 @@ void CardsActivity::askCloseFirst(std::uint64_t open, const std::string& title, 
 
 // The daemon closes homebrew on HOME only while this file is there (Settings >
 // Home > Keep homebrew open is off).
+void CardsActivity::syncPopupsFlag() { // (the daemon's, during a game)
+    constexpr const char* kFlag = "sdmc:/config/SwitchU/no_popups";
+    std::error_code ec;
+    if (m_settings.popups) std::filesystem::remove(kFlag, ec);
+    else std::ofstream(kFlag) << "1";
+}
+
 void CardsActivity::syncHomebrewFlag() {
     constexpr const char* kFlag = "sdmc:/config/SwitchU/homebrew_close_on_home";
     std::error_code ec;
@@ -2030,6 +2184,7 @@ void CardsActivity::openNro(const std::string& path) {
     for (size_t i = 0; i < games().size(); ++i)
         if (games()[i].path == path) index = static_cast<int>(i);
     if (index >= 0) m_settings.lastGame = idText(games()[(size_t)index].id);
+    m_settings.lastPage = m_page >= kCustom1 ? m_page : -1;
 #ifdef SWITCHU_MENU
     if (const std::uint64_t open = runningId()) {
         if (open == nroId(path)) { // left open (Settings > Home > Keep homebrew open): back to it
@@ -3284,7 +3439,11 @@ void CardsActivity::openOptions() {
         items.back().glyph = "copy";
     }
 #endif
-    if (g.action.empty() && m_page != kNintendo) // onto another page: ports with the games, ...
+    if (g.action.empty()) { // onto your own pages
+        items.push_back(action("Add to a page", [this, g]() { openAddToPage(g); }));
+        items.back().glyph = "dots";
+    }
+    if (g.action.empty() && m_page != kNintendo && m_page < kCustom1) // onto another page: ports with the games, ...
         for (int to : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
             if (to != m_page) {
                 items.push_back(action(trf("Move to {page}", {tr(kPageNames[to])}), [this, g, to]() { moveToPage(g, to); }));
@@ -4188,8 +4347,8 @@ nxui::Rect dotsPanel(size_t tiles) {
     const int rows = static_cast<int>((tiles + kDotsCols - 1) / kDotsCols);
     return {kDotsX, kDotsY, kDotsW, kDotsPad + 30.f + kDotsPagesH + 14.f + rows * (kDotsTileH + kDotsGap) - kDotsGap + kDotsPad};
 }
-nxui::Rect dotsPage(const nxui::Rect& p, int pos) {
-    const float w = (p.width - kDotsPad * 2.f - 8.f * 3.f) / 4.f;
+nxui::Rect dotsPage(const nxui::Rect& p, int pos, int count) {
+    const float w = (p.width - kDotsPad * 2.f - 8.f * static_cast<float>(count - 1)) / static_cast<float>(count);
     return {p.x + kDotsPad + (w + 8.f) * static_cast<float>(pos), p.y + kDotsPad + 30.f, w, kDotsPagesH};
 }
 nxui::Rect dotsTile(const nxui::Rect& p, int i) {
@@ -4230,7 +4389,7 @@ void CardsActivity::updateDots() {
     using B = nxui::Button;
     const int tiles = static_cast<int>(m_dotsTiles.size());
     const int rows = 1 + (tiles + kDotsCols - 1) / kDotsCols; // the pages, then the tiles
-    auto colsIn = [&](int row) { return row == 0 ? kPageCount : std::min(kDotsCols, tiles - (row - 1) * kDotsCols); };
+    auto colsIn = [&](int row) { return row == 0 ? pageSlots() : std::min(kDotsCols, tiles - (row - 1) * kDotsCols); };
     const bool up = in.isDown(B::DUp) || in.isDown(B::LStickU), down = in.isDown(B::DDown) || in.isDown(B::LStickD);
     const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
     if (in.isDown(B::B) || in.isDown(B::Plus)) {
@@ -4267,8 +4426,8 @@ bool CardsActivity::dotsTouch() {
         m_audio.play("hide_modal");
         return true;
     }
-    for (int pos = 0; pos < kPageCount; ++pos)
-        if (dotsPage(p, pos).contains(x, y)) {
+    for (int pos = 0; pos < pageSlots(); ++pos)
+        if (dotsPage(p, pos, pageSlots()).contains(x, y)) {
             goToPage(m_settings.pageOrder[(size_t)pos]);
             return true;
         }
@@ -4301,15 +4460,15 @@ void CardsActivity::drawDots(nxui::Renderer& r) {
     if (s < 0.999f) r.pushClipRect(p);
     textMid(r, m_fPill, "Pages", full.x + kDotsPad + 4.f, full.y + kDotsPad + 12.f - 10.f * (1.f - a), kMuted.withAlpha(a), 0.9f);
     // The pages, in your order: the one you're on filled.
-    for (int pos = 0; pos < kPageCount; ++pos) {
-        nxui::Rect b = dotsPage(full, pos);
+    for (int pos = 0; pos < pageSlots(); ++pos) {
+        nxui::Rect b = dotsPage(full, pos, pageSlots());
         b.y -= 10.f * (1.f - a);
         const int page = m_settings.pageOrder[(size_t)pos];
         const bool here = page == m_page, focused = m_dotsRow == 0 && m_dotsCol == pos;
         r.drawRoundedRect(b, here ? kWhite.withAlpha(0.92f * a) : nxui::Color(1.f, 1.f, 1.f, 0.08f * a), b.height * 0.5f);
         if (focused) r.drawRoundedRectOutline({b.x - 4.f, b.y - 4.f, b.width + 8.f, b.height + 8.f}, accent(ring * a),
                                               b.height * 0.5f + 4.f, 2.5f);
-        const std::string n = kPageNames[page];
+        const std::string n = pageName(page);
         const float ns = fitScale(m_fPill, n, b.width - 14.f, 0.75f);
         textMid(r, m_fPill, n, b.x + (b.width - measured(m_fPill, n).x * ns) * 0.5f, b.y + b.height * 0.5f,
                 here ? nxui::Color(0.f, 0.f, 0.f, a) : kWhite.withAlpha(a), ns);
@@ -5286,7 +5445,7 @@ void CardsActivity::buildSettings() {
     });
     order.value = [this]() {
         std::string s;
-        for (int p : m_settings.pageOrder) s += (s.empty() ? "" : ", ") + tr(kPageNames[p]);
+        for (int pos = 0; pos < pageSlots(); ++pos) s += (s.empty() ? "" : ", ") + pageName(m_settings.pageOrder[(size_t)pos]);
         return s;
     };
     order.detail = "CardsNX opens on the first; ZL / ZR go in this order";
@@ -5298,7 +5457,7 @@ void CardsActivity::buildSettings() {
     shown.value = [this]() {
         std::string s;
         for (int p : m_settings.pageOrder)
-            if (!pageHidden(p)) s += (s.empty() ? "" : ", ") + tr(kPageNames[p]);
+            if (!pageHidden(p)) s += (s.empty() ? "" : ", ") + pageName(p);
         return s;
     };
     shown.detail = "Hide a page you don't use: ZL / ZR skip it";
@@ -5349,8 +5508,11 @@ void CardsActivity::buildSettings() {
     });
     scan.detail = "Anything installed, or put on the SD card, that HOME doesn't show yet";
     home.rows.push_back(std::move(scan));
+    MenuItem own = action("Your own pages", [this]() { openCustomPages(); });
+    own.detail = "Up to three, with any games and apps on them";
+    home.rows.push_back(std::move(own));
     home.rows.push_back(action("Reset my order", [this]() {
-        for (auto& o : m_settings.order) o.clear();
+        for (int p = 0; p < kCustom1; ++p) m_settings.order[p].clear(); // (your own pages keep what's on them)
         m_settings.save();
         auto& homebrew = m_pages[kHomebrew];
         std::stable_sort(homebrew.begin(), homebrew.end(), [](const Game& a, const Game& b) { return a.order < b.order; });
@@ -5626,6 +5788,13 @@ void CardsActivity::buildSettings() {
     };
     mtp.detail = "USB file transfer (MTP): plug the Switch in, then copy files";
     console.rows.push_back(std::move(mtp));
+    console.rows.push_back(toggle("Battery and controller pop-ups", [this]() { return m_settings.popups; }, [this]() {
+        m_settings.popups = !m_settings.popups;
+        m_settings.save();
+#ifdef SWITCHU_MENU
+        syncPopupsFlag();
+#endif
+    }, "In games too, with Ultrahand"));
     MenuItem sdTest = action("Test the SD card", [this]() {
         if (m_sdTestResult.empty()) startSdTest();
         openTask(Task::SdTest);
@@ -5808,6 +5977,16 @@ void CardsActivity::buildSettings() {
         openNro(kToggle);
     }));
     m_sheet.push_back(std::move(updates));
+
+#ifdef SWITCHU_MENU
+    Section storage{"Storage", "download", {}};
+    storage.rows.push_back(info("Console", [this]() { return m_spaceConsole; }));
+    storage.rows.push_back(info("SD card", [this]() { return m_spaceSd; }));
+    MenuItem moveGames = action("Move games", [this]() { openStorageTitles(); });
+    moveGames.detail = "Between the console and the SD card";
+    storage.rows.push_back(std::move(moveGames));
+    m_sheet.push_back(std::move(storage));
+#endif
 
     Section about{"About", "dots", {}};
     about.rows.push_back(info("CardsNX", []() { return std::string(HOMENX_BUILD); }));
@@ -6393,6 +6572,10 @@ void CardsActivity::readFactsLater() {
         f.console = readConsoleSettings();
         f.nextendo = nextendoMode();
         f.quick = readQuickStatus();
+#ifdef SWITCHU_MENU
+        f.spaceConsole = spaceText(false);
+        f.spaceSd = spaceText(true);
+#endif
         const float ms = ticksMs(armGetSystemTick() - t0);
         if (ms > 100.f) {
             char line[80];
@@ -6423,6 +6606,10 @@ void CardsActivity::takeFacts(bool wait) {
     m_console = std::move(f.console);
     m_nextendoMode = f.nextendo;
     m_quick = f.quick;
+#ifdef SWITCHU_MENU
+    m_spaceConsole = std::move(f.spaceConsole);
+    m_spaceSd = std::move(f.spaceSd);
+#endif
 }
 
 void CardsActivity::openSettings(int section) {
@@ -6437,6 +6624,139 @@ void CardsActivity::openSettings(int section) {
     m_sheetRowsIn = 1.f;
     m_audio.play("show_modal");
 }
+
+// ---------------------------------------------------------------- notices
+
+void CardsActivity::notice(std::string title, std::string text, const char* glyph, const nxui::Color& tint) {
+    if (m_notices.size() >= 4) return; // (never a queue that takes minutes)
+    if (m_notices.empty()) m_noticeT = 0.f;
+    m_notices.push_back({std::move(title), std::move(text), glyph, tint});
+}
+
+// The battery and the controllers, once a second (the first look only remembers:
+// HOME starts again after every game).
+void CardsActivity::watchNotices(float dt) {
+    if (!m_notices.empty() && (m_noticeT += dt) > 4.f) {
+        m_notices.pop_front();
+        m_noticeT = 0.f;
+    }
+    if ((m_noticePoll -= dt) > 0.f) return;
+    m_noticePoll = 1.f;
+    const bool allowed = m_settings.popups && !m_leaving;
+    for (int id = 0; id < 8; ++id) {
+        const std::uint32_t now = hidGetNpadStyleSet(static_cast<HidNpadIdType>(HidNpadIdType_No1 + id));
+        if (m_noticePadsKnown && allowed && (now != 0) != (m_noticePads[id] != 0)) {
+            const std::uint32_t s = now ? now : m_noticePads[id];
+            const char* name = (s & HidNpadStyleTag_NpadJoyDual) ? "Joy-Con pair"
+                             : (s & HidNpadStyleTag_NpadFullKey) ? "Pro Controller"
+                             : (s & HidNpadStyleTag_NpadJoyLeft) ? "Joy-Con (L)"
+                             : (s & HidNpadStyleTag_NpadJoyRight) ? "Joy-Con (R)" : "Controller";
+            notice(now ? "Controller connected" : "Controller disconnected", name, "pad",
+                   now ? nxui::Color(0.25f, 0.61f, 1.f, 1.f) : nxui::Color(0.56f, 0.56f, 0.60f, 1.f));
+        }
+        m_noticePads[id] = now;
+    }
+    m_noticePadsKnown = true;
+    if (m_battery.empty()) return;
+    const int pct = std::atoi(m_battery.c_str());
+    if (m_noticeBattery >= 0 && allowed) {
+        const std::string percent = std::to_string(pct) + "%";
+        if (m_charging && !m_noticeCharging) notice("Charging", percent, "power", kGreen);
+        else if (m_charging && pct == 100 && m_noticeBattery < 100) notice("Fully charged", percent, "power", kGreen);
+        else if (!m_charging && pct <= 5 && m_noticeBattery > 5) notice("Battery very low", percent, "power", kRed);
+        else if (!m_charging && pct <= 15 && m_noticeBattery > 15) notice("Battery low", percent, "power", kRed);
+    }
+    m_noticeBattery = pct;
+    m_noticeCharging = m_charging;
+}
+
+void CardsActivity::drawNotice(nxui::Renderer& r) {
+    if (m_notices.empty()) return;
+    const Notice& n = m_notices.front();
+    const float in = std::min(1.f, m_noticeT / (m_settings.motion ? 0.42f : 0.01f));
+    const float out = std::clamp((m_noticeT - 3.7f) / 0.3f, 0.f, 1.f);
+    const float back = in - 1.f, drop = 1.f + 2.7f * back * back * back + 1.7f * back * back; // a little past, then back
+    const float a = std::min(1.f, in * 2.5f) * (1.f - out);
+    const float w = std::clamp(std::max(measured(m_fLabel, n.title).x, measured(m_fBody, n.text).x) + 116.f, 340.f, 760.f);
+    constexpr float h = 84.f;
+    const nxui::Rect box{640.f - w * 0.5f, -h + (h + 20.f) * (drop - out), w, h};
+    r.drawRoundedRect({box.x - 3.f, box.y + 8.f, box.width + 6.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.34f * a), h * 0.5f + 3.f);
+    frost(r, box, h * 0.5f, nxui::Color(0.07f, 0.08f, 0.11f, 0.86f * a));
+    r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.2f * a), h * 0.5f, 1.5f);
+    const nxui::Vec2 c{box.x + 46.f, box.y + h * 0.5f};
+    r.drawCircle(c, 28.f, n.tint.withAlpha(0.95f * a), 40);
+    icon(r, n.glyph, c.x, c.y, 30.f, kWhite.withAlpha(a));
+    textMid(r, m_fLabel, fit(m_fLabel, n.title, w - 116.f), box.x + 88.f, box.y + 30.f, kWhite.withAlpha(a));
+    textMid(r, m_fBody, fit(m_fBody, n.text, w - 116.f), box.x + 88.f, box.y + 58.f, kMuted.withAlpha(a));
+}
+
+// ---------------------------------------------------------------- Settings > Storage
+
+#ifdef SWITCHU_MENU
+void CardsActivity::openStorageTitles() {
+    if (m_moveJob.valid()) { // (one at a time)
+        openTask(Task::Move);
+        return;
+    }
+    if (m_storageJob.valid()) return;
+    std::vector<std::pair<std::uint64_t, std::string>> titles;
+    for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
+        for (const Game& g : m_pages[p])
+            if (g.path.empty() && g.action.empty() && (g.id >> 56) != 0xFF) titles.emplace_back(g.id, g.name);
+    m_storageJob = std::async(std::launch::async, [titles]() {
+        offScreenCore();
+        std::vector<StorageTitle> out = readStorageTitles(titles);
+        threadDone();
+        return out;
+    });
+    say("Reading how big your games are...");
+}
+
+void CardsActivity::showStorageTitles(const std::vector<StorageTitle>& titles) {
+    std::vector<MenuItem> items;
+    for (const StorageTitle& t : titles) {
+        const std::uint64_t id = t.id, console = t.onConsole, sd = t.onSd;
+        const std::string name = t.name;
+        MenuItem row = action(name, [this, id, name, console, sd]() {
+            std::vector<MenuItem> what;
+            if (console) {
+                what.push_back(info("On the console", [console]() { return sizeText(console); }));
+                what.push_back(action("Move to the SD card", [this, id, name]() { startMove(id, name, true); }));
+            }
+            if (sd) {
+                what.push_back(info("On the SD card", [sd]() { return sizeText(sd); }));
+                what.push_back(action("Move to the console", [this, id, name]() { startMove(id, name, false); }));
+            }
+            what.push_back(action("Cancel", [] {}));
+            openMenu(name, std::move(what));
+        });
+        row.value = [console, sd]() {
+            return sizeText(console + sd) + "   " + tr(console >= sd ? "Console" : "SD card");
+        };
+        items.push_back(std::move(row));
+    }
+    if (items.empty()) items.push_back(info("No games to move", nullptr));
+    items.push_back(action("Done", [] {}));
+    openMenu("Move games", std::move(items));
+}
+
+void CardsActivity::startMove(std::uint64_t id, const std::string& name, bool toSd) {
+    if (m_moveJob.valid()) return;
+    if (isRunning(id)) {
+        say("Close it first.");
+        return;
+    }
+    m_moveName = name;
+    m_moveToSd = toSd;
+    m_moveJob = std::async(std::launch::async, [this, id, toSd]() {
+        offScreenCore();
+        const std::uint32_t rc = moveTitle(id, toSd, m_jobsStop);
+        threadDone();
+        return rc;
+    });
+    openTask(Task::Move);
+}
+#endif
 
 // ---------------------------------------------------------------- jobs, over Settings
 
@@ -6563,6 +6883,18 @@ CardsActivity::TaskView CardsActivity::taskView() {
             }
             break;
         }
+        case Task::Move:
+            v.title = "Move games";
+            v.icon = "download";
+            if (m_moveJob.valid()) {
+                v.status = trf(m_moveToSd ? "Moving {game} to the SD card..." : "Moving {game} to the console...", {m_moveName});
+                v.detail = "Big games take a few minutes. You can go back, but nothing else can start until it's done.";
+                v.progress = std::fmod(m_time * 0.2f, 1.f);
+            } else {
+                v.status = m_moveEnded;
+                if (m_moveFailed) v.detail = "The game stays where it was. It may need more free space, or closing first.";
+            }
+            break;
         case Task::Pairing:
             v.title = "Pair a controller";
             v.icon = "bluetooth";
@@ -7424,7 +7756,23 @@ void CardsActivity::onUpdate(float dt) {
     }
     if (m_friendCodeJob.valid() && m_friendCodeJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         m_friendCode = m_friendCodeJob.get();
+    if (m_storageJob.valid() && m_storageJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const std::vector<StorageTitle> titles = m_storageJob.get();
+        if (m_sheetOpen) showStorageTitles(titles);
+    }
+    if (m_moveJob.valid() && m_moveJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const std::uint32_t rc = m_moveJob.get();
+        m_moveFailed = R_FAILED(rc);
+        char code[16];
+        std::snprintf(code, sizeof(code), "0x%X", rc);
+        m_moveEnded = m_moveFailed ? trf("{game} didn't move ({code}).", {m_moveName, code})
+                                   : trf(m_moveToSd ? "{game} is on the SD card now." : "{game} is on the console now.", {m_moveName});
+        if (m_task != Task::Move) say(m_moveEnded);
+        if (!m_moveFailed) reloadGames();
+        readFactsLater();
+    }
 #endif
+    watchNotices(dt);
     if (m_returnTex) { // the game's last picture: shown while HOME starts (the loading
                        // lag stays behind a still frame of the game), then it shrinks
                        // into its card while the cards rise in, as one movement.
@@ -7893,9 +8241,10 @@ void CardsActivity::onUpdate(float dt) {
             m_settings.achSeenAt = got.newest;
             m_settings.save();
         }
-        if (got.said.size() == 1) say(trf("Achievement unlocked: {what}", {got.said[0]}));
+        const nxui::Color gold(1.f, 0.77f, 0.12f, 1.f);
+        if (got.said.size() == 1) notice("Achievement unlocked", got.said[0], "trophy", gold);
         else if (got.said.size() > 1)
-            say(trf("{count} achievements unlocked: the trophy at the top shows them", {std::to_string(got.said.size())}));
+            notice(trf("{count} achievements unlocked", {std::to_string(got.said.size())}), "The trophy at the top shows them", "trophy", gold);
     }
     // Pictures for every game, on their own, so scrolling never waits on the internet: only
     // after 45 s with nothing pressed, stopped by the next press (it carries on at the next
@@ -8386,6 +8735,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawLaunch(r);
     drawReturn(r);
     drawLock(r);
+    drawNotice(r);
     drawStep("after drawing"); // (ends the last step's time)
 }
 
@@ -8617,6 +8967,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
     if (page.empty()) {
         textMid(r, m_fLabel, m_page == kHomebrew ? "No homebrew in sdmc:/switch"
                              : m_page == kMedia  ? "No media apps yet"
+                             : m_page >= kCustom1 ? "Nothing here yet: press + on a card, then Add to a page"
                                                  : "No games installed", 480.f, kCardMidY,
                 kWhite);
         return;
@@ -9070,10 +9421,12 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     glassCircle(r, right - 38.5f, by + 38.5f, 77.f, bottom && m_bottomSel == 4, "home", 34.f, a, pressedOf(4));
 #endif
     // Which page this is: a dot each under the page button, in your order (not the hidden ones).
+    int shownPages = 0;
+    for (int page : m_settings.pageOrder) shownPages += pageHidden(page) ? 0 : 1;
     for (int p = 0, at = 0; p < kPageCount; ++p) {
         if (pageHidden(m_settings.pageOrder[(size_t)p])) continue;
         const bool here = m_settings.pageOrder[(size_t)p] == m_page;
-        const float cx = right - 77.f - 8.f - 38.5f + (static_cast<float>(at++) - 1.f) * 12.f;
+        const float cx = right - 77.f - 8.f - 38.5f + (static_cast<float>(at++) - static_cast<float>(shownPages - 1) * 0.5f) * 10.f;
         r.drawCircle({cx, by + 77.f + 9.f}, here ? 3.5f : 2.5f, kWhite.withAlpha((here ? 0.95f : 0.4f) * a), 12);
     }
 }

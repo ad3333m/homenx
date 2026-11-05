@@ -14,7 +14,9 @@
 #include <switchu/file_log.hpp>
 
 #include <atomic>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <map>
@@ -102,6 +104,96 @@ inline void notify(const std::string& name, const std::string& game) {
     switchu::FileLog::log("[achievements] %s (%s)", name.c_str(), game.c_str());
 }
 
+// During a game: a controller coming or going, the battery running low. Ultrahand
+// shows them too, each with its own icon (none without Ultrahand: the files would
+// only pile up; none with Settings > Console > Battery and controller pop-ups off).
+inline void drawStatusIcon(const char* path, bool battery) {
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec)) return;
+    std::filesystem::create_directories("sdmc:/config/ultrahand/assets/notifications", ec);
+    constexpr int kDim = 50;
+    std::vector<std::uint8_t> px(kDim * kDim * 4, 0);
+    auto dot = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        std::uint8_t* p = &px[static_cast<size_t>(y * kDim + x) * 4];
+        p[0] = r;
+        p[1] = g;
+        p[2] = b;
+        p[3] = 255;
+    };
+    for (int y = 0; y < kDim; ++y)
+        for (int x = 0; x < kDim; ++x) {
+            if (battery) { // an outline, a tip and a red end
+                const bool edge = x >= 4 && x <= 41 && y >= 14 && y <= 35 && !(x >= 7 && x <= 38 && y >= 17 && y <= 32);
+                const bool tip = x >= 42 && x <= 45 && y >= 20 && y <= 29;
+                const bool left = x >= 10 && x <= 16 && y >= 20 && y <= 29;
+                if (edge || tip) dot(x, y, 235, 235, 240);
+                else if (left) dot(x, y, 255, 59, 48);
+            } else { // a controller: its body, two grips, two buttons left out
+                const bool body = x >= 8 && x <= 41 && y >= 15 && y <= 30;
+                const float lx = (x - 12.f) / 6.f, rx = (x - 37.f) / 6.f, gy = (y - 30.f) / 11.f;
+                const bool grips = y > 30 && (lx * lx + gy * gy <= 1.f || rx * rx + gy * gy <= 1.f);
+                const bool holes = (std::abs(x - 16) <= 2 && std::abs(y - 22) <= 2) || (std::abs(x - 33) <= 2 && std::abs(y - 22) <= 2);
+                if ((body || grips) && !holes) dot(x, y, 64, 156, 255);
+            }
+        }
+    if (FILE* f = std::fopen(path, "wb")) {
+        std::fwrite(px.data(), 1, px.size(), f);
+        std::fclose(f);
+    }
+}
+
+inline void statusPopup(const char* app, bool battery, const std::string& title, const std::string& text) {
+    char icon[96];
+    std::snprintf(icon, sizeof(icon), "sdmc:/config/ultrahand/assets/notifications/%s.rgba", app);
+    drawStatusIcon(icon, battery);
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/ultrahand/notifications", ec);
+    char path[96];
+    std::snprintf(path, sizeof(path), "sdmc:/config/ultrahand/notifications/%s-%llu.notify", app,
+                  static_cast<unsigned long long>(armGetSystemTick()));
+    if (FILE* f = std::fopen(path, "wb")) {
+        std::fprintf(f, "{\"title\":\"%s\",\"text\":\"%s\",\"font_size\":22,\"priority\":20,\"duration\":4000,\"show_time\":\"false\"}",
+                     jsonText(title).c_str(), jsonText(text).c_str());
+        std::fclose(f);
+    }
+}
+
+inline void watchStatus(bool inGame) {
+    static std::uint32_t styles[8] = {};
+    static bool known = false;
+    static std::uint32_t batteryWas = 101;
+    static std::uint64_t batteryAt = 0;
+    if (!inGame) {
+        known = false; // (changes on HOME were said there)
+        return;
+    }
+    std::error_code ec;
+    const bool allowed = std::filesystem::exists("sdmc:/switch/.overlays/ovlmenu.ovl", ec)
+                      && !std::filesystem::exists("sdmc:/config/SwitchU/no_popups", ec);
+    for (int id = 0; id < 8; ++id) {
+        const std::uint32_t now = hidGetNpadStyleSet(static_cast<HidNpadIdType>(HidNpadIdType_No1 + id));
+        if (known && allowed && (now != 0) != (styles[id] != 0)) {
+            const std::uint32_t s = now ? now : styles[id];
+            const char* name = (s & HidNpadStyleTag_NpadJoyDual) ? "Joy-Con pair"
+                             : (s & HidNpadStyleTag_NpadFullKey) ? "Pro Controller"
+                             : (s & HidNpadStyleTag_NpadJoyLeft) ? "Joy-Con (L)"
+                             : (s & HidNpadStyleTag_NpadJoyRight) ? "Joy-Con (R)" : "Controller";
+            statusPopup("HomeNXPad", false, now ? "Controller connected" : "Controller disconnected", name);
+        }
+        styles[id] = now;
+    }
+    known = true;
+    const std::uint64_t tick = armGetSystemTick();
+    if (tick < batteryAt) return;
+    batteryAt = tick + armNsToTicks(30'000'000'000ULL); // (the battery: every 30 s is plenty)
+    std::uint32_t pct = 0;
+    PsmChargerType charger = PsmChargerType_Unconnected;
+    if (R_FAILED(psmGetBatteryChargePercentage(&pct)) || R_FAILED(psmGetChargerType(&charger))) return;
+    if (allowed && charger == PsmChargerType_Unconnected && pct <= 15 && batteryWas > 15)
+        statusPopup("HomeNXBattery", true, "Battery low", std::to_string(pct) + "% left");
+    batteryWas = pct;
+}
+
 inline std::string gameName(std::uint64_t title) {
     switchu::control_cache::Meta meta;
     if (!switchu::control_cache::readMeta(title, meta)) return {};
@@ -126,9 +218,9 @@ inline void award(std::uint64_t title, std::uint64_t gameSeconds, std::uint64_t 
     const bool quiet = !e.existed;
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     std::vector<const ach::Milestone*> mine, overall;
-    const ach::Facts game{gameSeconds};
+    const ach::Facts played{gameSeconds};
     for (const ach::Milestone& m : ach::kPerGame)
-        if (ach::progress(m, game) >= 1.f && e.when.emplace(ach::key(title, m.id), now).second) mine.push_back(&m);
+        if (ach::progress(m, played) >= 1.f && e.when.emplace(ach::key(title, m.id), now).second) mine.push_back(&m);
     if (sessionSeconds >= 3 * 3600 && e.when.emplace(ach::key(title, "session3"), now).second)
         mine.push_back(ach::milestone("session3"));
     const ach::Facts all{e.totalSeconds + sessionSeconds, e.gamesPlayed, 0, ach::earnedFromPacks(e)};
@@ -230,9 +322,11 @@ inline void threadFunc(void*) {
     bool known = false, counted = false; // counted: a game (not a media app: achievements_skip.txt)
     Live live;
     while (g_running.load()) {
-        // Every second while a game with a pack is in front (it unlocks at once), else every 10 s.
+        // Every second while a game with a pack is in front (it unlocks at once), every 2 s
+        // with another game (a controller's pop-up shouldn't be late), else every 10 s.
         const bool fast = live.pack.valid() && live.title == g_title.load();
-        waitSingle(waiterForUEvent(&g_wake), fast ? 1'000'000'000ULL : 10'000'000'000ULL);
+        waitSingle(waiterForUEvent(&g_wake),
+                   fast ? 1'000'000'000ULL : g_title.load() ? 2'000'000'000ULL : 10'000'000'000ULL);
         if (!g_running.load()) break;
         const std::uint64_t now = armGetSystemTick();
         std::uint64_t ns = armTicksToNs(now - last);
@@ -248,6 +342,7 @@ inline void threadFunc(void*) {
             counted = t && !switchu::achievements::loadSkipped().count(t);
             live.attached = false; // (a new process)
         }
+        watchStatus(t != 0);
         if (!t) continue; // (HOME or nothing in front: the time isn't play)
         if (t != live.title) loadPack(live, t);
         if (live.pack.valid()) {

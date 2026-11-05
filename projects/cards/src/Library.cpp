@@ -1878,6 +1878,102 @@ bool setBluetooth(bool on) {
     return ok;
 }
 
+std::string sizeText(std::uint64_t bytes) {
+    const double gb = static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0); // (as System Settings counts)
+    char buf[32];
+    if (gb >= 100.0) std::snprintf(buf, sizeof(buf), "%.0f GB", gb);
+    else if (gb >= 1.0) std::snprintf(buf, sizeof(buf), "%.1f GB", gb);
+    else std::snprintf(buf, sizeof(buf), "%.0f MB", gb * 1024.0);
+    return buf;
+}
+
+std::string spaceText(bool sdCard) {
+    const NcmStorageId where = sdCard ? NcmStorageId_SdCard : NcmStorageId_BuiltInUser;
+    s64 total = 0, free = 0;
+    if (R_FAILED(nsGetTotalSpaceSize(where, &total)) || R_FAILED(nsGetFreeSpaceSize(where, &free)))
+        return tr("Not known");
+    return trf("{free} free of {total}", {sizeText(static_cast<std::uint64_t>(free)), sizeText(static_cast<std::uint64_t>(total))});
+}
+
+std::vector<StorageTitle> readStorageTitles(const std::vector<std::pair<std::uint64_t, std::string>>& titles) {
+    struct Entity { // nn::ns::ApplicationOccupiedSizeEntity
+        u8 storage;
+        u8 reserved[7];
+        s64 application, patch, addOn;
+    };
+    static_assert(sizeof(Entity) * 4 == sizeof(NsApplicationOccupiedSize));
+    std::vector<StorageTitle> out;
+    for (const auto& title : titles) {
+        NsApplicationOccupiedSize size{};
+        if (R_FAILED(nsCalculateApplicationOccupiedSize(title.first, &size))) continue;
+        const Entity* where = reinterpret_cast<const Entity*>(&size);
+        StorageTitle t;
+        t.id = title.first;
+        t.name = title.second;
+        for (int i = 0; i < 4; ++i) {
+            const auto bytes = static_cast<std::uint64_t>(where[i].application + where[i].patch + where[i].addOn);
+            if (where[i].storage == NcmStorageId_BuiltInUser) t.onConsole += bytes;
+            else if (where[i].storage == NcmStorageId_SdCard) t.onSd += bytes;
+        }
+        if (t.onConsole || t.onSd) out.push_back(std::move(t)); // (a game card's: nothing to move)
+    }
+    std::stable_sort(out.begin(), out.end(), [](const StorageTitle& a, const StorageTitle& b) {
+        return a.onConsole + a.onSd > b.onConsole + b.onSd;
+    });
+    return out;
+}
+
+// ns's RequestMoveApplicationEntity (10.0.0+), from switchbrew.org/wiki/NS_services.
+// ponytail: no progress shown (its GetProgress isn't documented); the job says when it's done.
+std::uint32_t moveTitle(std::uint64_t id, bool toSd, const std::atomic<bool>& stop) {
+    if (!hosversionAtLeast(10, 0, 0)) return MAKERESULT(Module_Libnx, LibnxError_IncompatSysVer);
+    Service manager;
+    Result rc = nsGetApplicationManagerInterface(&manager);
+    if (R_FAILED(rc)) return rc;
+    constexpr size_t kWorkMemory = 0x100000;
+    TransferMemory work;
+    rc = tmemCreate(&work, kWorkMemory, Perm_None);
+    if (R_FAILED(rc)) {
+        serviceClose(&manager);
+        return rc;
+    }
+    const u8 from = toSd ? NcmStorageId_BuiltInUser : NcmStorageId_SdCard;
+    const struct {
+        u8 to;
+        u8 pad[3];
+        u32 keepFlags;
+        u64 application;
+        u64 workSize;
+    } in = {static_cast<u8>(toSd ? NcmStorageId_SdCard : NcmStorageId_BuiltInUser), {0, 0, 0}, 0, id, kWorkMemory};
+    Service job;
+    Handle done = INVALID_HANDLE;
+    rc = serviceDispatchIn(&manager, 1310, in,
+        .buffer_attrs = {SfBufferAttr_HipcMapAlias | SfBufferAttr_In},
+        .buffers = {{&from, sizeof(from)}},
+        .in_num_handles = 1,
+        .in_handles = {work.handle},
+        .out_num_objects = 1,
+        .out_objects = &job,
+        .out_handle_attrs = {SfOutHandleAttr_HipcCopy},
+        .out_handles = &done);
+    if (R_SUCCEEDED(rc)) {
+        Event finished;
+        eventLoadRemote(&finished, done, false);
+        bool cancelled = false;
+        while (R_FAILED(eventWait(&finished, 500'000'000ULL)))
+            if (stop.load() && !cancelled) { // (HOME is closing)
+                serviceDispatch(&job, 1);
+                cancelled = true;
+            }
+        rc = serviceDispatch(&job, 0); // how it went
+        eventClose(&finished);
+        serviceClose(&job);
+    }
+    tmemClose(&work);
+    serviceClose(&manager);
+    return rc;
+}
+
 bool setAirplaneMode(bool on) {
     NifmSystem nifm;
     if (!nifm.open()) return false;

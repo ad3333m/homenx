@@ -64,7 +64,7 @@ public:
 
 private:
     enum class Zone { Top, Cards, Bottom };
-    enum Page { kGames, kHomebrew, kNintendo, kMedia, kPageCount };
+    enum Page { kGames, kHomebrew, kNintendo, kMedia, kCustom1, kCustom2, kCustom3, kPageCount };
     // The top bar's buttons, left to right.
     enum Top { kTopMenu, kTopDiscord, kTopTrophy, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
                kTopCount };
@@ -386,6 +386,13 @@ private:
     bool optionsTouch();
     void drawOptions(nxui::Renderer& r);
     void openSettings(int section = 0);
+    // Your own pages (three at most): any games and apps, under a name you give them.
+    std::string pageName(int page) const;
+    int pageSlots() const; // the pages there are (the first in pageOrder)
+    void rebuildCustomPages();
+    void newCustomPage(const std::string& firstGame);
+    void openCustomPages();
+    void openAddToPage(const Game& g);
     void buildSettings();
     void openPower();
     // The three dots: a menu dropping from its button, the pages on top and
@@ -580,9 +587,23 @@ private:
     std::future<std::string> m_sdTestJob;
     std::atomic<int> m_sdTestPct{0};
     std::string m_sdTestResult;
+    // A notice: a glass capsule sliding down from the top, one at a time.
+    struct Notice {
+        std::string title, text;
+        const char* glyph;
+        nxui::Color tint;
+    };
+    std::deque<Notice> m_notices;
+    float m_noticeT = 0.f, m_noticePoll = 1.f;
+    int m_noticeBattery = -1;
+    bool m_noticeCharging = false, m_noticePadsKnown = false;
+    std::uint32_t m_noticePads[8] = {};
+    void notice(std::string title, std::string text, const char* glyph, const nxui::Color& tint);
+    void watchNotices(float dt);
+    void drawNotice(nxui::Renderer& r);
     // A whole panel over Settings for a job that takes a while: updating, USB file
     // transfer, the SD card test, pairing a controller.
-    enum class Task { None, Update, Mtp, SdTest, Pairing };
+    enum class Task { None, Update, Mtp, SdTest, Pairing, Move };
     struct TaskView {
         std::string title, status, detail, button; // button: what A does ("" = nothing)
         const char* icon = "gear";
@@ -656,6 +677,7 @@ private:
         ConsoleSettings console;
         int nextendo = 0;
         QuickStatus quick;
+        std::string spaceConsole, spaceSd;
     };
     std::future<Facts> m_factsJob;
     void readFactsLater();
@@ -785,6 +807,16 @@ private:
                    std::function<void(const std::string&)> done, nxui::Widget* back, bool sensitive = false);
     bool m_discordTokenEntryPending = false; // Discord's panel asked for the token keyboard
     void openSocial();
+    // Settings > Storage.
+    std::string m_spaceConsole, m_spaceSd;
+    std::future<std::vector<StorageTitle>> m_storageJob;
+    std::future<std::uint32_t> m_moveJob;
+    std::string m_moveName, m_moveEnded;
+    bool m_moveToSd = false, m_moveFailed = false;
+    void openStorageTitles();
+    void showStorageTitles(const std::vector<StorageTitle>& titles);
+    void startMove(std::uint64_t id, const std::string& name, bool toSd);
+    void syncPopupsFlag();
     std::future<std::string> m_friendCodeJob; // the user's friend code, for their popup
     std::string m_friendCode;
     std::shared_ptr<ControllerTestScreen> m_padTest; // Settings > Controllers: HomeNX's test screen

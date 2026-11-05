@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cards {
@@ -212,6 +213,17 @@ bool setWifi(bool on);         // turning it on also ends Airplane mode
 bool setAirplaneMode(bool on);
 bool setBluetooth(bool on);
 void setBrightness(float level); // 0..1
+// Settings > Storage: the console and the SD card, and every game on them.
+struct StorageTitle {
+    std::uint64_t id = 0;
+    std::string name;
+    std::uint64_t onConsole = 0, onSd = 0; // bytes
+};
+std::string sizeText(std::uint64_t bytes);       // "3.2 GB"
+std::string spaceText(bool sdCard);              // "12.3 GB free of 59.4 GB"
+std::vector<StorageTitle> readStorageTitles(const std::vector<std::pair<std::uint64_t, std::string>>& titles); // biggest first
+// Nintendo's own move (what its Data Management does): back when it's done. 0 = moved.
+std::uint32_t moveTitle(std::uint64_t id, bool toSd, const std::atomic<bool>& stop);
 
 // Power. Hekate: the payload is handed to Atmosphere and this process (hbl)
 // reboots, which Atmosphere sends to it. Only the first Switch model can.
