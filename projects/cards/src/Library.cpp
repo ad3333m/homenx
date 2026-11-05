@@ -854,6 +854,27 @@ bool setDarkTheme(bool dark) {
     return R_SUCCEEDED(rc);
 }
 
+int tvResolution() {
+    SetSysTvSettings tv{};
+    if (R_SUCCEEDED(setsysInitialize())) {
+        setsysGetTvSettings(&tv);
+        setsysExit();
+    }
+    return std::clamp(static_cast<int>(tv.tv_resolution), 0, 3);
+}
+
+bool setTvResolution(int resolution) {
+    if (R_FAILED(setsysInitialize())) return false;
+    SetSysTvSettings tv{};
+    Result rc = setsysGetTvSettings(&tv);
+    if (R_SUCCEEDED(rc)) {
+        tv.tv_resolution = resolution;
+        rc = setsysSetTvSettings(&tv);
+    }
+    setsysExit();
+    return R_SUCCEEDED(rc);
+}
+
 // What's installed of a game: its update's version, else its own (0 when it can't tell).
 std::uint32_t installedVersion(std::uint64_t id) {
     NsApplicationContentMetaStatus list[16] = {};
@@ -1197,6 +1218,43 @@ std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, s
     return out;
 }
 
+std::vector<TitleChoice> myPictures(size_t max) {
+    std::error_code ec;
+    std::filesystem::create_directories(kMyPictures, ec); // (so it's there to be found)
+    std::vector<std::string> files;
+    for (const auto& e : std::filesystem::directory_iterator(kMyPictures, ec)) {
+        std::string ext = e.path().extension().string();
+        for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (ext == ".jpg" || ext == ".jpeg" || ext == ".png") files.push_back(e.path().string());
+    }
+    std::sort(files.begin(), files.end());
+    std::vector<TitleChoice> out;
+    for (const std::string& file : files) {
+        if (out.size() >= max) break;
+        const std::vector<std::uint8_t> data = readFile(file);
+        int w = 0, h = 0;
+        stbi_uc* px = data.empty() ? nullptr : decodePicture(data.data(), static_cast<int>(data.size()), w, h);
+        if (!px) continue; // (too big, or not a picture)
+        TitleChoice c;
+        c.file = file;
+        c.rgba.assign(px, px + static_cast<size_t>(w) * h * 4);
+        stbi_image_free(px);
+        shrink(c.rgba, w, h, 160);
+        c.w = w;
+        c.h = h;
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+// The chosen picture's bytes: yours from the SD card, else downloaded.
+static bool chosenBytes(const TitleChoice& choice, std::string& data) {
+    if (choice.file.empty()) return get(choice.url, data) == 200 && isPicture(data);
+    const std::vector<std::uint8_t> bytes = readFile(choice.file);
+    data.assign(bytes.begin(), bytes.end());
+    return isPicture(data);
+}
+
 bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
     forgetShown(game.id);
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bgme";
@@ -1206,7 +1264,7 @@ bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
         return true;
     }
     std::string data;
-    if (get(choice->url, data) != 200 || !isPicture(data)) return false;
+    if (!chosenBytes(*choice, data)) return false;
     writeFile(path, data);
     return true;
 }
@@ -1220,7 +1278,7 @@ bool chooseCoverArt(const Game& game, const TitleChoice* choice) {
         return true;
     }
     std::string data;
-    if (get(choice->url, data) != 200 || !isPicture(data)) return false;
+    if (!chosenBytes(*choice, data)) return false;
     writeFile(path, data);
     return true;
 }

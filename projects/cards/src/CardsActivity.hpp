@@ -401,6 +401,11 @@ private:
     void newCustomPage(const std::string& firstGame);
     void openCustomPages();
     void openAddToPage(const Game& g);
+    // Cards hidden with + (nothing is deleted); Settings > Home > Hidden cards brings them back.
+    void hideCard(const Game& g);
+    void openHiddenCards();
+    void dropHidden(std::vector<Game>& list) const;
+    int m_tvResolution = 0;
     void buildSettings();
     void openPower();
     // The three dots: a menu dropping from its button, the pages on top and
@@ -790,6 +795,7 @@ private:
     bool m_startRunning = false;
     bool m_atBoot = true;
     bool m_fromApplet = false; // back from one of Nintendo's screens (not from a game)
+    bool m_startedOk = false;  // it ran a moment: not a start that crashes (kCardsStarting)
     int m_reopenSec = -1, m_reopenRow = 0; // Settings comes back where it was (rememberSheet)
     void rememberSheet();
     AppletLauncher m_launcher;

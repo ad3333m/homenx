@@ -9,6 +9,9 @@
 
 namespace cards {
 
+// HOME started CardsNX this many times without it running a moment (see menu/src/main.cpp).
+inline constexpr const char* kCardsStarting = "sdmc:/config/SwitchU/cards_starting";
+
 // Where CardsNX's own files are (fonts/, icons/, certs/, gametdb.tsv): its
 // romfs as an .nro; HomeNX's install as HOME's frontend.
 #ifdef SWITCHU_MENU
@@ -160,6 +163,10 @@ std::vector<TitleChoice> titleChoices(const Game& game, const std::string& key, 
 // Downloads it and keeps it as the game's title picture for good (kept through
 // "Download new pictures"); nullptr: its own icon instead.
 bool chooseTitleArt(const Game& game, const TitleChoice* choice);
+// Your own pictures: JPG or PNG files put in this folder (up to about 2000 x 2000), first
+// in the card, background and title pictures' choosers.
+inline constexpr const char* kMyPictures = "sdmc:/config/CardsNX/my-pictures";
+std::vector<TitleChoice> myPictures(size_t max);
 // + > Card picture: SteamGridDB's covers (600x900) for the game to choose from.
 std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max = 15,
                                       const std::string& query = {});
@@ -218,6 +225,8 @@ int gpuMhz();          // the GPU's clock now (the perf log: a hot chip is throt
 bool setWifi(bool on);         // turning it on also ends Airplane mode
 bool setAirplaneMode(bool on);
 bool setBluetooth(bool on);
+int tvResolution();              // 0 automatic, 1 1080p, 2 720p, 3 480p
+bool setTvResolution(int resolution);
 void setBrightness(float level); // 0..1
 // Settings > Storage: the console and the SD card, and every game on them.
 struct StorageTitle {

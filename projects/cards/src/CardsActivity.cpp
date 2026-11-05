@@ -28,11 +28,13 @@
 #include "themeshop/ThemeHttp.hpp"
 #include "third_party/qrcodegen.hpp"
 #include <switchu/smi_protocol.hpp>
+#include <switchu/time_budget.hpp>
 #include <set>
 #endif
 
 #include <algorithm>
 #include <cctype>
+#include <iterator>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -643,6 +645,8 @@ bool CardsActivity::onCreate() {
         m_settings.nroHash = l.nroHash;
         scanned = true;
     }
+    dropHidden(m_pages[kGames]);
+    dropHidden(m_pages[kHomebrew]);
     splitMedia();
     m_pages[kNintendo] = listSystem();
     applyNames();
@@ -688,10 +692,10 @@ bool CardsActivity::onCreate() {
     if (m_startSuspended || m_startRunning) m_introFor = 0.35f; // back from a game: quicker
 #endif
 
-    // Always the first card on the list (the sort is Title or My Order:
-    // never "last played" on the way in).
+    // Always the first card on the list, in the sort you chose (it was put back to Title here
+    // at every start, so Last Played never stuck).
     m_page = firstShownPage(); // the first page in your order (that isn't hidden)
-    sortGames(m_settings.sort == 3 ? 3 : 1, false);
+    sortGames(m_settings.sort, false);
     for (int& s : m_sels) s = 0;
     m_scroll = 0.f;
 #ifdef SWITCHU_MENU
@@ -714,6 +718,10 @@ bool CardsActivity::onCreate() {
                         g.launches = st.total_launches;
                     }
                 }
+        if (m_backTo && (m_settings.sort == 0 || m_settings.sort == 2)) { // sorted by them: in its new place, still chosen
+            sortGames(m_settings.sort, false);
+            selectById(m_backTo);
+        }
     }
 #endif
     m_pictureScale = std::max(1.f, app().gpu().scale()); // (before the workers read it)
@@ -855,6 +863,10 @@ void CardsActivity::onDestroy() {
     if (m_findJob.valid()) m_findJob.wait();
     stopAudioScan();
 #ifdef SWITCHU_MENU
+    if (!m_startedOk) {
+        std::error_code ec;
+        std::filesystem::remove(kCardsStarting, ec); // (it closed as it should)
+    }
     stopPairing();
     if (m_friendCodeJob.valid()) m_friendCodeJob.wait();
     if (m_storageJob.valid()) m_storageJob.wait();
@@ -1498,16 +1510,14 @@ void CardsActivity::forgetAllArt() {
 // ---------------------------------------------------------------- the lists
 
 void CardsActivity::selectById(std::uint64_t id) {
-    const int mine = m_settings.lastPage; // started from your own page: back there
-    if (mine >= kCustom1 && mine < kPageCount && !pageHidden(mine))
-        for (size_t i = 0; i < m_pages[mine].size(); ++i)
-            if (m_pages[mine][i].id == id) {
-                m_page = mine;
-                m_sels[mine] = static_cast<int>(i);
-                m_scroll = static_cast<float>(i);
-                return;
-            }
-    for (int p = 0; p < kPageCount; ++p)
+    // Back from something started on your own page: there. Else the page you're on (a card
+    // can be on your own page too), else wherever it is.
+    std::vector<int> pages;
+    const int mine = m_settings.lastPage;
+    if (id == m_backTo && mine >= kCustom1 && mine < kPageCount && !pageHidden(mine)) pages.push_back(mine);
+    pages.push_back(m_page);
+    for (int p = 0; p < kPageCount; ++p) pages.push_back(p);
+    for (int p : pages)
         for (size_t i = 0; i < m_pages[p].size(); ++i)
             if (m_pages[p][i].id == id) {
                 m_page = p;
@@ -1639,6 +1649,46 @@ void CardsActivity::openCustomPages() {
     if (pageSlots() < kPageCount) items.push_back(action("New page", [this]() { newCustomPage(std::string()); }));
     items.push_back(action("Done", [] {}));
     openMenu("Your own pages", std::move(items));
+}
+
+void CardsActivity::dropHidden(std::vector<Game>& list) const {
+    if (m_settings.hiddenCards.empty()) return;
+    list.erase(std::remove_if(list.begin(), list.end(),
+                              [this](const Game& g) { return m_settings.hiddenCards.count(idText(g.id)) > 0; }),
+               list.end());
+}
+
+void CardsActivity::hideCard(const Game& g) {
+    const std::uint64_t id = g.id;
+    m_settings.hiddenCards[idText(id)] = g.name;
+    for (int p = 0; p < kPageCount; ++p) {
+        auto& page = m_pages[p];
+        page.erase(std::remove_if(page.begin(), page.end(), [id](const Game& x) { return x.id == id; }), page.end());
+        m_sels[p] = std::clamp(m_sels[p], 0, std::max(0, static_cast<int>(page.size()) - 1));
+    }
+    m_scroll = static_cast<float>(sel());
+    saveLists(m_pages[kGames], homebrewToSave());
+    m_settings.save();
+    m_audio.play("toggle_off");
+    say(trf("{game} is hidden: Settings > Home brings it back.", {g.name}));
+    wantArt();
+}
+
+// Settings > Home > Hidden cards: A brings one back.
+void CardsActivity::openHiddenCards() {
+    std::vector<MenuItem> items;
+    for (const auto& card : m_settings.hiddenCards) {
+        const std::string key = card.first, name = card.second;
+        items.push_back(action(name, [this, key, name]() {
+            m_settings.hiddenCards.erase(key);
+            m_settings.save();
+            startListRefresh(false);
+            say(trf("{game} comes back in a moment.", {name}));
+        }));
+    }
+    if (items.empty()) items.push_back(info("Nothing hidden", nullptr));
+    items.push_back(action("Done", [] {}));
+    openMenu("Hidden cards", std::move(items));
 }
 
 // Plus > Add to a page: which of your own pages it's on.
@@ -1785,6 +1835,8 @@ void CardsActivity::reloadGames() {
 // The real lists, read on a thread, replace last time's. Where you are stays:
 // the first card stays first, a card further along stays chosen.
 void CardsActivity::takeLists(Lists lists) {
+    dropHidden(lists.games);
+    dropHidden(lists.homebrew);
     // What was there: what's new is said and chosen (Settings > Look for new software, or found by itself).
     std::vector<std::uint64_t> before = m_scanBefore;
     if (!m_scanAsked)
@@ -3513,6 +3565,8 @@ void CardsActivity::openOptions() {
     if (g.action.empty()) { // onto your own pages
         items.push_back(action("Add to a page", [this, g]() { openAddToPage(g); }));
         items.back().glyph = "dots";
+        items.push_back(action("Hide this card", [this, g]() { hideCard(g); })); // (it stays installed)
+        items.back().glyph = "moon";
     }
     if (g.action.empty() && m_page != kNintendo && m_page < kCustom1) // onto another page: ports with the games, ...
         for (int to : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
@@ -3872,6 +3926,10 @@ void CardsActivity::openTitlePicker(const Game& g, bool cover, const std::string
             own.h = h;
         }
         choices.insert(choices.begin(), std::move(own));
+        if (query.empty()) { // yours next (not in a search)
+            std::vector<TitleChoice> mine = myPictures(8);
+            choices.insert(choices.begin() + 1, std::make_move_iterator(mine.begin()), std::make_move_iterator(mine.end()));
+        }
         const size_t most = hero ? 12 : cover ? 16 : static_cast<size_t>(kPickCols * kPickRows);
         if (choices.size() > most) choices.resize(most);
         threadDone();
@@ -5582,6 +5640,10 @@ void CardsActivity::buildSettings() {
     MenuItem own = action("Your own pages", [this]() { openCustomPages(); });
     own.detail = "Up to three, with any games and apps on them";
     home.rows.push_back(std::move(own));
+    MenuItem hiddenCards = action("Hidden cards", [this]() { openHiddenCards(); });
+    hiddenCards.value = [this]() { return m_settings.hiddenCards.empty() ? std::string() : std::to_string(m_settings.hiddenCards.size()); };
+    hiddenCards.detail = "Cards hidden with +: nothing was deleted";
+    home.rows.push_back(std::move(hiddenCards));
     home.rows.push_back(action("Reset my order", [this]() {
         for (int p = 0; p < kCustom1; ++p) m_settings.order[p].clear(); // (your own pages keep what's on them)
         m_settings.save();
@@ -5937,6 +5999,14 @@ void CardsActivity::buildSettings() {
             if (setDarkTheme(!m_darkTheme)) m_darkTheme = !m_darkTheme;
             else say("That didn't change.");
         }, "Nintendo's screens: the keyboard, the eShop, the Album and the rest"));
+    static const char* const kTvResolutions[] = {"Automatic", "1080p", "720p", "480p"};
+    m_tvResolution = tvResolution();
+    console.rows.push_back(choice("TV resolution", [this]() { return std::string(kTvResolutions[m_tvResolution]); },
+        [this](int d) {
+            const int next = (m_tvResolution + d + 4) % 4;
+            if (setTvResolution(next)) m_tvResolution = next;
+            else say("That didn't change.");
+        }, "Takes effect after a restart"));
     static const char* const kHandheldSleep[] = {"1 minute", "3 minutes", "5 minutes", "10 minutes", "30 minutes", "Never"};
     static const char* const kTvSleep[] = {"1 hour", "2 hours", "3 hours", "6 hours", "12 hours", "Never"};
     console.rows.push_back(choice("Sleep in handheld", [this]() { return std::string(kHandheldSleep[m_console.handheldSleep]); },
@@ -7843,6 +7913,12 @@ void CardsActivity::onUpdate(float dt) {
     app().input().mergeRightStick();
     updateSpotify();
 #ifdef SWITCHU_MENU
+    switchu::timebudget::poll(); // the clock, once the time service has a session to spare
+    if (!m_startedOk && m_time > 3.f) {
+        m_startedOk = true;
+        std::error_code ec;
+        std::filesystem::remove(kCardsStarting, ec);
+    }
     if (m_reopenSec >= 0) { // back from Nintendo's screen: Settings as it was, at once
         const int sec = m_reopenSec;
         m_reopenSec = -1;

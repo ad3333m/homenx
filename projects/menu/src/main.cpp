@@ -347,7 +347,18 @@ int main(int argc, char* argv[]) {
         // NXToggle's Home screen choice: CardsNX's card row instead of HomeNX's.
         std::string homeStyle;
         std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), homeStyle);
-        if (homeStyle.rfind("cards", 0) == 0)
+        // CardsNX stopped 3 times in a row just after starting: HomeNX's HOME until the console
+        // restarts, not a black screen that flickers for ever. (Cleared once it has run a moment.)
+        bool useCards = homeStyle.rfind("cards", 0) == 0;
+        if (useCards) {
+            int starts = 0;
+            std::ifstream(cards::kCardsStarting) >> starts;
+            if (startMode == switchu::smi::MenuStartMode::StartupBoot) starts = 0;
+            useCards = starts < 3;
+            if (useCards) std::ofstream(cards::kCardsStarting) << starts + 1;
+            else DebugLog::log("[menu] CardsNX stopped %d times just after starting: HomeNX's HOME instead", starts);
+        }
+        if (useCards)
             app.setActivity(std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running,
                 startMode == switchu::smi::MenuStartMode::StartupBoot,
                 startMode == switchu::smi::MenuStartMode::AppletReturn));

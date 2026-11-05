@@ -67,8 +67,8 @@ SettingsScreen::Tab settings::tabs::DisplayTab::build(SettingsScreen& screen) {
         it.description = i18n.tr("settings.audio.tv_resolution_desc", "Adjust HDMI resolution. Auto uses recommended value.");
         it.options = {
             i18n.tr("common.auto", "Auto"),
-            i18n.tr("settings.audio.res_720p", "720p"),
-            i18n.tr("settings.audio.res_1080p", "1080p")
+            i18n.tr("settings.audio.res_1080p", "1080p"),
+            i18n.tr("settings.audio.res_720p", "720p")
         };
         SetSysTvSettings tv{};
         if (R_SUCCEEDED(setsysGetTvSettings(&tv)))

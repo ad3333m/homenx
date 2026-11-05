@@ -681,3 +681,10 @@ Play games for 500 hours in all	Juega 500 horas en total	Jogue 500 horas no tota
 Unstoppable	Imparable	Imparável	Неудержимый	Inarrêtable	Unaufhaltsam	Inarrestabile	止まらない	势不可挡
 Play games for 1,000 hours in all	Juega 1000 horas en total	Jogue 1.000 horas no total	Сыграйте 1000 часов всего	Jouez 1 000 heures au total	Spiele insgesamt 1.000 Stunden	Gioca 1000 ore in totale	合計1000時間遊ぶ	总共玩1000小时
 A controller	Un mando	Um controle	Контроллер	Une manette	Ein Controller	Un controller	コントローラー	手柄
+{game} is hidden: Settings > Home brings it back.	{game} está oculto: Ajustes > Inicio lo recupera.	{game} está oculto: Configurações > Início traz de volta.	{game} скрыта: вернуть можно в «Настройки > Главная».	{game} est masqué : Paramètres > Accueil le fait revenir.	{game} ist ausgeblendet: Einstellungen > Home holt es zurück.	{game} è nascosto: Impostazioni > Home lo riporta.	{game}を隠しました。設定 > ホームで戻せます。	{game}已隐藏：可在“设置 > 主页”恢复。
+{game} comes back in a moment.	{game} vuelve en un momento.	{game} volta em um instante.	{game} скоро вернётся.	{game} revient dans un instant.	{game} ist gleich wieder da.	{game} torna tra un momento.	{game}はすぐに戻ります。	{game}马上回来。
+Nothing hidden	Nada oculto	Nada oculto	Ничего не скрыто	Rien de masqué	Nichts ausgeblendet	Niente di nascosto	隠したものはありません	没有隐藏的内容
+Hidden cards	Tarjetas ocultas	Cards ocultos	Скрытые карточки	Cartes masquées	Ausgeblendete Karten	Schede nascoste	隠したカード	已隐藏的卡片
+Hide this card	Ocultar esta tarjeta	Ocultar este card	Скрыть карточку	Masquer cette carte	Diese Karte ausblenden	Nascondi questa scheda	このカードを隠す	隐藏此卡片
+Cards hidden with +: nothing was deleted	Tarjetas ocultas con +: no se borró nada	Cards ocultos com +: nada foi excluído	Карточки, скрытые через +: ничего не удалено	Cartes masquées avec + : rien n'a été supprimé	Mit + ausgeblendete Karten: Nichts wurde gelöscht	Schede nascoste con +: non è stato eliminato nulla	＋で隠したカード。何も削除されていません	用+隐藏的卡片：没有删除任何内容
+Takes effect after a restart	Se aplica al reiniciar	Vale depois de reiniciar	Вступит в силу после перезапуска	S'applique après un redémarrage	Gilt nach einem Neustart	Vale dopo il riavvio	再起動後に反映されます	重启后生效

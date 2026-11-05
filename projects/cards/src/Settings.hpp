@@ -2,6 +2,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <map>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -60,6 +61,7 @@ struct Settings {
     bool keepHomebrew = true;   // HOME leaves a homebrew app open to resume, as a game (off: HOME closes it)
     bool popups = true;         // the capsule at the top for the battery and controllers (and Ultrahand's in a game)
     std::string hbPath, hbHost; // the homebrew app left open and the game it runs as (HOME only)
+    std::map<std::string, std::string> hiddenCards; // cards hidden with + (their ids and names): still installed
     int sheetBack = -1, sheetBackRow = 0; // Settings' tab and row while one of Nintendo's screens is open (HOME only)
     std::vector<int> hiddenPages; // pages not shown (ZL / ZR skip them; one always stays)
     bool spotify = false;       // the music player shows Spotify, not HOME music (HOME only)
@@ -137,6 +139,7 @@ struct Settings {
             popups = j.value("popups", popups);
             hbPath = j.value("hbPath", hbPath);
             hbHost = j.value("hbHost", hbHost);
+            hiddenCards = j.value("hiddenCards", hiddenCards);
             sheetBack = j.value("sheetBack", sheetBack);
             sheetBackRow = j.value("sheetBackRow", sheetBackRow);
             hiddenPages = j.value("hiddenPages", hiddenPages);
@@ -166,7 +169,7 @@ struct Settings {
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"lockShuffle", lockShuffle}, {"lockPool", lockPool},
                             {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"popups", popups}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
+                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"popups", popups}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}, {"orderCustom1", order[4]}, {"orderCustom2", order[5]},
