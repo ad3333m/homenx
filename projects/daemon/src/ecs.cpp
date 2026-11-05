@@ -27,7 +27,11 @@ struct EcsServerOptions {
 
 using EcsServerManager = ::ams::sf::hipc::ServerManager<0, EcsServerOptions, 8>;
 
-constexpr size_t kAmsHeapSize = 2 * 1024 * 1024;
+// libstratosphere is built with AMS_INIT_USE_STANDARD_ALLOCATOR_FOR_MALLOC: its
+// init_malloc.o replaces malloc/free, so this region is the daemon's whole malloc
+// heap (newlib's allocator and the libnx heap are bypassed). 4 KiB aborts at boot.
+// Shrink only with the free/allocatable figures from daemon_mem.txt.
+constexpr size_t kAmsHeapSize = 0x200000;
 constexpr size_t kManagerThreadStackSize = 0x8000;
 constexpr s32 kManagerThreadPriority = 10;
 
@@ -81,6 +85,17 @@ Result ldrAtmosUnregisterExternalCode(uint64_t program_id) {
         smi::kLdrAtmosUnregisterExternalCode, program_id);
 }
 
+}
+
+void getMallocHeapStats(size_t* total, size_t* free, size_t* allocatable) {
+    *total = kAmsHeapSize;
+    *free = *allocatable = 0;
+    if (!g_allocatorReady.load())
+        return;
+    if (auto* alloc = ::ams::init::GetAllocator()) {
+        *free = alloc->GetTotalFreeSize();
+        *allocatable = alloc->GetAllocatableSize();
+    }
 }
 
 void initializeExternalContentAllocator() {

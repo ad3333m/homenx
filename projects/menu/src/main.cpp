@@ -54,14 +54,11 @@ extern "C" {
 
 #ifndef SWITCHU_HOMEBREW
 namespace {
+// Measured ([mem] in CardsNX's perf.log): the heap peaks around 115 MiB with
+// the picture cache full (its budget is a quarter of this heap) and Discord
+// open. 416 MiB left ~330 MiB of the applet pool reserved and never used.
+// 256 MiB keeps 2x headroom over that peak (picture budget 64 MiB).
 constexpr size_t kHeapLadder[] = {
-    416u * 1024u * 1024u,
-    400u * 1024u * 1024u,
-    384u * 1024u * 1024u,
-    368u * 1024u * 1024u,
-    352u * 1024u * 1024u,
-    320u * 1024u * 1024u,
-    288u * 1024u * 1024u,
     256u * 1024u * 1024u,
     kMenuAppletHeapSize,
 };

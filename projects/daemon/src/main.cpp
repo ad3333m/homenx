@@ -18,6 +18,9 @@
 #include "menu_launcher.hpp"
 #include "system_action_queue.hpp"
 #include <cstdio>
+#include <malloc.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <cstring>
 #include <cctype>
 #include <map>
@@ -63,7 +66,10 @@ extern "C" {
     u32 __nx_applet_type = AppletType_SystemApplet;
     u32 __nx_fs_num_sessions = 3;
 
-    size_t __nx_heap_size = 0x800000;
+    // malloc is libstratosphere's (g_amsHeap, ecs.cpp), so this heap only backs
+    // newlib internals: brk_used stayed at 4 KiB in daemon_mem.txt across game
+    // launches. 2 MiB is the smallest heap size step (was 8 MiB).
+    size_t __nx_heap_size = 0x200000;
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
 }
 
@@ -2448,6 +2454,35 @@ static void waitForMainWork() {
 static Thread g_eventThread = {};
 static std::atomic<bool> g_eventRunning{false};
 
+
+// sdmc:/config/SwitchU/daemon_mem.txt, rewritten (opened, closed) once a minute
+// while sdmc:/config/SwitchU/memdebug exists: daemon.log stays open, so it can't
+// be read while HOME runs. malloc heap (the AMS region, see ecs.cpp) free now /
+// lowest seen / largest block, newlib's sbrk use of the libnx heap, process total.
+static void writeDaemonMemReport() {
+    struct stat st;
+    if (stat("sdmc:/config/SwitchU/memdebug", &st) != 0) return;
+    static size_t minFree = SIZE_MAX;
+    size_t heapTotal = 0, heapFree = 0, heapBlock = 0;
+    daemon::getMallocHeapStats(&heapTotal, &heapFree, &heapBlock);
+    if (heapFree < minFree) minFree = heapFree;
+    extern char* fake_heap_start;
+    extern char* fake_heap_end;
+    const char* brk = static_cast<const char*>(sbrk(0)); // newlib's high-water mark inside the libnx heap
+    u64 used = 0, total = 0;
+    svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+    svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+    if (FILE* f = std::fopen("sdmc:/config/SwitchU/daemon_mem.txt", "a")) {
+        std::fprintf(f, "[%llu s] [mem] malloc=%luK free=%luK min_free=%luK block=%luK brk_used=%luK heap=%luK process=%lluK limit=%lluK\n",
+                     (unsigned long long)(armTicksToNs(armGetSystemTick()) / 1000000000ULL),
+                     (unsigned long)(heapTotal >> 10), (unsigned long)(heapFree >> 10),
+                     (unsigned long)(minFree >> 10), (unsigned long)(heapBlock >> 10),
+                     (unsigned long)((brk - fake_heap_start) >> 10), (unsigned long)((fake_heap_end - fake_heap_start) >> 10),
+                     (unsigned long long)(used >> 10), (unsigned long long)(total >> 10));
+        std::fclose(f);
+    }
+}
+
 static void eventManagerThreadFunc(void* arg) {
     (void)arg;
     switchu::FileLog::log("[event] thread alive");
@@ -2509,7 +2544,14 @@ static void eventManagerThreadFunc(void* arg) {
                 waiterForEvent(&recordEvent));
         }
 
-        if (waitRc == KERNELRESULT(TimedOut)) continue;
+        if (waitRc == KERNELRESULT(TimedOut)) {
+            static unsigned memTicks = 0;
+            if (++memTicks >= 60) { // once a minute: the daemon's memory, when asked for (tools/memwatch.py --daemon)
+                memTicks = 0;
+                writeDaemonMemReport();
+            }
+            continue;
+        }
         if (R_FAILED(waitRc)) continue;
 
         if (evIdx == 0) {

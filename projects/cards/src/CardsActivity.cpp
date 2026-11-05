@@ -10,6 +10,10 @@
 #include <switchu/find_controllers.hpp>
 #include <nxui/widgets/Widget.hpp>
 #include <switch.h>
+#include <malloc.h>
+#ifdef SWITCHU_MENU
+extern "C" size_t g_switchuHeapSize; // menu/main.cpp: the heap HOME was granted
+#endif
 #include "../../updater/src/Catalog.hpp"
 #include "homebrew/HomebrewStore.hpp"
 #include "widgets/BatteryDrawing.hpp"
@@ -530,8 +534,14 @@ bool CardsActivity::onCreate() {
 #endif
 
     // More room for pictures than HOME has, when this process has it.
+    // TotalMemorySize is the process's limit (~444 MiB as HOME), not its heap:
+    // the budget was a quarter of a limit the heap never had. Use the heap the
+    // menu was actually granted (main.cpp) when there is one.
     u64 total = 0;
     svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+#ifdef SWITCHU_MENU
+    if (g_switchuHeapSize) total = std::min<u64>(total, g_switchuHeapSize);
+#endif
     nxui::GpuDevice::setImageBudget(std::clamp<u64>(total / 4, 64ull << 20, 160ull << 20));
 
     m_settings.load();
@@ -7717,6 +7727,17 @@ void CardsActivity::onUpdate(float dt) {
                           m_perfFrames * 1000.f / m_perfWindow, m_perfWorst, m_perfSlow, m_perfVerySlow, chipTemperature(),
                           gpuMhz());
             perfLine(line);
+            { // [mem] heap actually in use (malloc), its high-water arena, and GPU picture memory: a leak shows as `inuse` climbing
+                const struct mallinfo mi = mallinfo();
+                u64 total = 0; // memory the process really holds: heap, code, stacks
+                svcGetInfo(&total, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+                auto& gpu = app().gpu();
+                std::snprintf(line, sizeof(line), "[mem] inuse=%uK arena=%uK free=%uK process=%luK gpu_images=%luK/%luK",
+                              unsigned(mi.uordblks >> 10), unsigned(mi.arena >> 10), unsigned(mi.fordblks >> 10),
+                              (unsigned long)(total >> 10), (unsigned long)(gpu.imageMemoryUsed() >> 10),
+                              (unsigned long)(gpu.imageMemoryBudget() >> 10));
+                perfLine(line);
+            }
             m_perfFrames = m_perfSlow = m_perfVerySlow = 0;
             m_perfWindow = m_perfWorst = 0.f;
         }
