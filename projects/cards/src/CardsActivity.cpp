@@ -649,7 +649,6 @@ bool CardsActivity::onCreate() {
     dropHidden(m_pages[kGames]);
     dropHidden(m_pages[kHomebrew]);
     splitMedia();
-    rebuildCustomPages();
     m_pages[kNintendo] = listSystem();
     applyNames();
     applyOrder(kHomebrew);
@@ -1769,7 +1768,6 @@ void CardsActivity::takeLists(Lists lists) {
     m_pages[kGames] = std::move(lists.games);
     m_pages[kHomebrew] = std::move(lists.homebrew);
     splitMedia();
-    rebuildCustomPages();
     applyNames();
     applyOrder(kHomebrew);
     sortGames(m_settings.sort, false);
@@ -1875,7 +1873,6 @@ void CardsActivity::moveToPage(const Game& g, int to) {
     m_pages[kGames] = std::move(games);
     m_pages[kHomebrew] = std::move(homebrew);
     splitMedia();
-    rebuildCustomPages();
     applyOrder(kHomebrew);
     sortGames(m_settings.sort, false);
     rebuildCustomPages();
@@ -1976,7 +1973,6 @@ void CardsActivity::openPageShow() {
             m_settings.save();
             if (pageHidden(m_page)) goToPage(firstShownPage(), 0);
         }));
-    }
     items.push_back(action("Done", [] {}));
     openMenu("Pages to show", std::move(items));
 }
@@ -5930,12 +5926,12 @@ void CardsActivity::buildSettings() {
         }, "Nintendo's screens: the keyboard, the eShop, the Album and the rest"));
     static const char* const kTvResolutions[] = {"Automatic", "1080p", "720p", "480p"};
     m_tvResolution = tvResolution();
-    console.rows.push_back(choice("TV resolution", [this]() { return std::string(kTvResolutions[m_tvResolution]); },
+    console.rows.push_back(choice("Console's TV output", [this]() { return std::string(kTvResolutions[m_tvResolution]); },
         [this](int d) {
             const int next = (m_tvResolution + d + 4) % 4;
             if (setTvResolution(next)) m_tvResolution = next;
             else say("That didn't change.");
-        }, "Takes effect after a restart"));
+        }, "For games too (HOME's own: Look > TV resolution). Takes effect after a restart"));
     static const char* const kHandheldSleep[] = {"1 minute", "3 minutes", "5 minutes", "10 minutes", "30 minutes", "Never"};
     static const char* const kTvSleep[] = {"1 hour", "2 hours", "3 hours", "6 hours", "12 hours", "Never"};
     console.rows.push_back(choice("Sleep in handheld", [this]() { return std::string(kHandheldSleep[m_console.handheldSleep]); },
