@@ -537,8 +537,10 @@ bool GpuDevice::uploadTexture(dk::Image& dst, const void* pixels, uint32_t size,
         const uint32_t stagingOffset = m_stagingPool.alloc(size, 256);
         if (stagingOffset == UINT32_MAX) {
             GpuDevice::logGpu( "[GpuDevice] upload batch staging budget exceeded (%u bytes)\n", size);
+            ++m_stagingOverflows;
             return false;
         }
+        if (m_stagingPool.used > m_stagingPeak) m_stagingPeak = m_stagingPool.used;
 
         std::memcpy(m_stagingPool.cpuAddr(stagingOffset), pixels, size);
         dk::ImageView view{dst};

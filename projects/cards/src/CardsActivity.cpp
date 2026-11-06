@@ -7732,10 +7732,15 @@ void CardsActivity::onUpdate(float dt) {
                 u64 total = 0; // memory the process really holds: heap, code, stacks
                 svcGetInfo(&total, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
                 auto& gpu = app().gpu();
-                std::snprintf(line, sizeof(line), "[mem] inuse=%uK arena=%uK free=%uK process=%luK gpu_images=%luK/%luK",
+                auto& ren = app().renderer();
+                // vtx: most vertices a frame used / the most it can (dropped past it);
+                // staging: most an upload batch took / the pool (refused past it).
+                std::snprintf(line, sizeof(line), "[mem] inuse=%uK arena=%uK free=%uK process=%luK gpu_images=%luK/%luK"
+                              " vtx=%u/%d drop=%u staging=%uK/%uK over=%u",
                               unsigned(mi.uordblks >> 10), unsigned(mi.arena >> 10), unsigned(mi.fordblks >> 10),
                               (unsigned long)(total >> 10), (unsigned long)(gpu.imageMemoryUsed() >> 10),
-                              (unsigned long)(gpu.imageMemoryBudget() >> 10));
+                              (unsigned long)(gpu.imageMemoryBudget() >> 10), ren.vertexPeak(), nxui::GpuDevice::MAX_VERTICES,
+                              ren.verticesDropped(), gpu.stagingPeak() >> 10, gpu.stagingSize() >> 10, gpu.stagingOverflows());
                 perfLine(line);
             }
             m_perfFrames = m_perfSlow = m_perfVerySlow = 0;
