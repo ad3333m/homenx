@@ -6037,7 +6037,6 @@ void CardsActivity::buildSettings() {
     };
     fold("Notifications", "Home");
     fold("Pictures", "Look");
-    fold("Storage", "Console");
     fold("About", "Updates");
     // His order (Settings > Home > Settings tab order); tabs new since go after.
     const auto& wanted = m_settings.sheetOrder;

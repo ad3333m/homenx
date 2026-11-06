@@ -34,7 +34,7 @@ same wallpaper rotation selection.
   have their own goals too. Settings > Home > Playtime milestones turns the
   milestones off; existing earned records are preserved. First-launch rewards are removed.
 - **Sorting:** the sort button in the top bar, or Settings > Home > Sort games.
-- **Storage:** Settings > Console shows console/microSD capacity and software
+- **Storage:** Settings > Storage shows console/microSD capacity and software
   locations. Select installed software, a destination, and confirm the move.
   Transfers use the console's NS application-management service, on a worker.
   Save data remains on the console. Running software must be closed first, and
