@@ -68,11 +68,24 @@ extern "C" {
     u32 __nx_applet_type = AppletType_SystemApplet;
     u32 __nx_fs_num_sessions = 3;
 
-    // malloc is libstratosphere's (g_amsHeap, ecs.cpp), so this heap only backs
-    // newlib internals: brk_used stayed at 4 KiB in daemon_mem.txt across game
-    // launches. 2 MiB is the smallest heap size step (was 8 MiB).
-    size_t __nx_heap_size = 0x200000;
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
+}
+
+// malloc is libstratosphere's (g_amsHeap, ecs.cpp), so newlib's sbrk heap only
+// backs newlib internals (stdio buffers): brk_used stayed at 4 KiB in
+// daemon_mem.txt over game and homebrew launches. The kernel heap comes in
+// 2 MiB steps (it was 8, then 2); a static 64 KiB, ~16x that, takes its place,
+// as in sysmodules.
+namespace {
+constexpr size_t kNewlibHeapSize = 0x10000;
+alignas(0x1000) char g_newlibHeap[kNewlibHeapSize];
+}
+
+extern "C" void __libnx_initheap(void) {
+    extern char* fake_heap_start;
+    extern char* fake_heap_end;
+    fake_heap_start = g_newlibHeap;
+    fake_heap_end = g_newlibHeap + sizeof(g_newlibHeap);
 }
 
 extern "C" void __appInit(void) {

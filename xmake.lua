@@ -489,7 +489,9 @@ target("switchu-daemon")
     add_syslinks("nx")
 
     if is_mode("release") then
-        add_cxflags("-O3", "-ffast-math", {force = true})
+        -- The daemon waits on events: -O3's unrolling and inlining only made
+        -- its code (resident RAM) bigger.
+        add_cxflags("-Os", {force = true})
     end
 
     set_values("switch.name",    "switchu-daemon")
