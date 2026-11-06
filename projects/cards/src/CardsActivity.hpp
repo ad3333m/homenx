@@ -182,7 +182,8 @@ private:
                            std::string detail = {});
     static MenuItem info(std::string label, std::function<std::string()> value);
 
-    std::vector<Game>& games() { return m_pages[m_page]; }
+    std::vector<Game>& pageGames(int page) { return m_gameCardPinned ? m_gameCardPages[page] : m_pages[page]; }
+    std::vector<Game>& games() { return pageGames(m_page); }
     int& sel() { return m_sels[m_page]; }
     const Game* current();
 
@@ -232,6 +233,32 @@ private:
     void applyOrder(int page);
     void saveOrder(int page);
     void reloadGames();
+    void invalidateGameCard(std::uint32_t error = 0);
+    void updateGameCard(float dt);
+    void drawGameCard(nxui::Renderer& renderer, float alpha);
+    void clearGameCardPresentation();
+    void refreshGameCardPresentation();
+    void openGameCardDisplay();
+    std::vector<Game> m_gameCardPages[Settings::kMaxPages];
+    std::uint64_t m_gameCardDetachedSel[Settings::kMaxPages]{};
+    bool m_gameCardPinned = false;
+    int m_gameCardEditDepth = 0;
+    struct LibraryEdit {
+        CardsActivity& owner;
+        explicit LibraryEdit(CardsActivity& activity) : owner(activity) {
+            owner.clearGameCardPresentation();
+            ++owner.m_gameCardEditDepth;
+        }
+        ~LibraryEdit() {
+            if (--owner.m_gameCardEditDepth == 0) owner.refreshGameCardPresentation();
+        }
+    };
+    GameCardState m_gameCard;
+    std::future<GameCardState> m_gameCardJob;
+    std::unique_ptr<nxui::Texture> m_gameCardIcon;
+    float m_gameCardIn = 0.f, m_gameCardCheckingFor = 0.f;
+    std::uint64_t m_gameCardGeneration = 0, m_gameCardJobGeneration = 0;
+    std::uint32_t m_gameCardMountError = 0;
 
     // Starting things.
     void play();

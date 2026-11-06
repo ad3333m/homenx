@@ -45,6 +45,9 @@ sdmc:/
 
 - Your games are big box-art cards on frosted glass, with play time. The pages are Games, Homebrew, Media and
   Nintendo. Either stick moves through them.
+- Inserted cartridge titles are marked separately from the running game, including multi-game cards.
+  Four display modes offer a title bar, temporary first-position placement, both, or icons only.
+  See [game-card detection and validation](docs/cards-game-card.md).
 - Art comes from SteamGridDB (add your own API key in Settings > Pictures) and GameTDB. Every game's pictures
   download on their own and stay on the SD card, so the cards don't wait on the internet.
 - **+** on a card lets you:

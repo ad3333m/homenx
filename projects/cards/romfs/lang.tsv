@@ -1,5 +1,15 @@
 # CardsNX's words: the English, then a column per language. Empty = English. tools/check_cards_lang.py checks it.
 en	es	pt	ru	fr	de	it	ja	zh
+Game card inserted: {game}	Tarjeta insertada: {game}	Cartão inserido: {game}	Картридж вставлен: {game}	Cartouche insérée : {game}	Spielkarte eingesteckt: {game}	Cartuccia inserita: {game}	挿入中のゲームカード: {game}	已插入游戏卡：{game}
+Game card inserted	Tarjeta insertada	Cartão inserido	Картридж вставлен	Cartouche insérée	Spielkarte eingesteckt	Cartuccia inserita	ゲームカード挿入中	已插入游戏卡
+No game card inserted	Ninguna tarjeta insertada	Nenhum cartão inserido	Картридж не вставлен	Aucune cartouche insérée	Keine Spielkarte eingesteckt	Nessuna cartuccia inserita	ゲームカード未挿入	未插入游戏卡
+Checking game card...	Comprobando tarjeta...	Verificando cartão...	Проверка картриджа...	Vérification de la cartouche...	Spielkarte wird geprüft...	Verifica cartuccia in corso...	ゲームカードを確認中...	正在检查游戏卡...
+Game card read error	Error al leer la tarjeta	Erro ao ler o cartão	Ошибка чтения картриджа	Erreur de lecture de la cartouche	Spielkarte konnte nicht gelesen werden	Errore di lettura della cartuccia	ゲームカードの読み取りエラー	游戏卡读取错误
+Icon only	Solo icono	Apenas ícone	Только значок	Icône uniquement	Nur Symbol	Solo icona	アイコンのみ	仅图标
+Game in first position	Juego en primera posición	Jogo na primeira posição	Игра на первом месте	Jeu en première position	Spiel an erster Stelle	Gioco in prima posizione	ゲームを先頭に表示	游戏置于首位
+Title bar	Barra del título	Barra do título	Панель названия	Barre du titre	Titelleiste	Barra del titolo	タイトルバー	标题栏
+First position and title	Primera posición y título	Primeira posição e título	Первое место и название	Première position et titre	Erste Stelle und Titel	Prima posizione e titolo	先頭表示とタイトル	首位和标题
+Selected	Seleccionada	Selecionada	Выбрано	Sélectionnée	Ausgewählt	Selezionata	選択中	已选择
 Games	Juegos	Jogos	Игры	Jeux	Spiele	Giochi	ゲーム	游戏
 Homebrew	Homebrew	Homebrew	Homebrew	Homebrew	Homebrew	Homebrew	自作ソフト	自制软件
 Media	Multimedia	Mídia	Медиа	Médias	Medien	Media	メディア	媒体
