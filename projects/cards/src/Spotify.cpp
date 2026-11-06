@@ -2,6 +2,8 @@
 #include "Spotify.hpp"
 #include "Library.hpp"
 #include "Settings.hpp"
+#include "spotify/SwitchVolume.hpp"
+#include "spotify/player_ipc_protocol.h"
 
 #include <curl/curl.h>
 #include <mbedtls/sha256.h>
@@ -18,6 +20,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -30,10 +33,108 @@ namespace {
 
 constexpr const char* kFile = "sdmc:/config/CardsNX/spotify.json";
 constexpr const char* kRedirect = "https://homenx.pages.dev/spotify/";
-constexpr const char* kScopes = "user-read-playback-state user-modify-playback-state user-read-currently-playing";
+constexpr const char* kScopes = "user-read-playback-state user-modify-playback-state user-read-currently-playing "
+                                "playlist-read-private playlist-read-collaborative user-library-read "
+                                "user-read-recently-played user-top-read user-follow-read";
 // A Client ID built in (its owner adds up to 25 people in Spotify's dashboard); else each person's own.
 constexpr const char* kBuiltInClientId = "";
 constexpr int kPort = 8955; // this console's sign-in page
+
+// The console's Spotify player (a background program), through its IPC service
+// (stable C ABI 1.x). Atmosphere defers GetService while a service is absent,
+// so it's only asked for once the player's readiness file names its process.
+namespace player {
+constexpr u64 kProgram = 0x4200000000535754;
+constexpr const char* kReady = "sdmc:/config/SpotifyPlayer/background-ready.log";
+enum : u32 { GetStatus = 2, PlayPause = 10, Play = 11, Next = 13, Previous = 14, SetVolume = 15, SetShuffle = 17, SetRepeat = 18 };
+enum : u32 { StateReady = 4, PlaybackStopped = 0, PlaybackBuffering = 1, PlaybackPlaying = 2 };
+enum : u32 { FlagShuffle = 1u << 2, FlagRepeatOne = 1u << 3, FlagRepeatAll = 1u << 4, FlagHasTrack = 1u << 6 };
+struct Status {
+    u32 structSize, abiVersion;
+    u64 sequence, monotonicMs;
+    u32 serviceState, playbackState, flags, positionMs, durationMs, volumePermille, queueIndex, queueCount, lastResult, reserved;
+    char title[64], artist[48], album[40];
+};
+static_assert(sizeof(Status) == 216);
+
+Service g_service;
+u64 g_pid = 0;
+
+void close() {
+    serviceClose(&g_service);
+    g_pid = 0;
+}
+
+bool connect() {
+    u64 pid = 0;
+    if (R_FAILED(pmdmntInitialize())) return false;
+    const Result rc = pmdmntGetProcessId(&pid, kProgram);
+    pmdmntExit();
+    if (R_FAILED(rc) || pid == 0) {
+        close();
+        return false;
+    }
+    if (serviceIsActive(&g_service) && g_pid == pid) return true;
+    close();
+    unsigned long long marker = 0;
+    unsigned result = 1;
+    if (FILE* f = std::fopen(kReady, "r")) {
+        char line[96] = {};
+        while (std::fgets(line, sizeof(line), f)) std::sscanf(line, "pass-v043 %llX 0x%X", &marker, &result);
+        std::fclose(f);
+    }
+    if (marker != pid || result != 0 || R_FAILED(smGetService(&g_service, PLAYER_IPC_SERVICE_NAME))) return false;
+    g_pid = pid;
+    return true;
+}
+
+// Starts it (a sysmodule that isn't started at boot), then waits for its IPC.
+bool start() {
+    if (connect()) return true;
+    u64 pid = 0;
+    bool running = false;
+    if (R_SUCCEEDED(pmdmntInitialize())) {
+        running = R_SUCCEEDED(pmdmntGetProcessId(&pid, kProgram)) && pid != 0;
+        pmdmntExit();
+    }
+    if (!running) {
+        if (R_FAILED(pmshellInitialize())) return false;
+        NcmProgramLocation where{};
+        where.program_id = kProgram;
+        where.storageID = NcmStorageId_None;
+        const Result rc = pmshellLaunchProgram(0, &where, &pid);
+        pmshellExit();
+        if (R_FAILED(rc)) return false;
+    }
+    for (int i = 0; i < 120; ++i) { // up to 30 s: its IPC answers after its self-test
+        if (connect()) return true;
+        svcSleepThread(250'000'000LL);
+    }
+    return false;
+}
+
+bool status(Status& out) {
+    std::memset(&out, 0, sizeof(out));
+    if (!connect()) return false;
+    if (R_SUCCEEDED(serviceDispatchOut(&g_service, GetStatus, out)) && out.structSize == sizeof(Status)) return true;
+    close();
+    return false;
+}
+
+bool send(u32 command) {
+    if (!connect()) return false;
+    if (R_SUCCEEDED(serviceDispatch(&g_service, command))) return true;
+    close();
+    return false;
+}
+
+bool send(u32 command, u32 value) {
+    if (!connect()) return false;
+    if (R_SUCCEEDED(serviceDispatchIn(&g_service, command, value))) return true;
+    close();
+    return false;
+}
+} // namespace player
 
 size_t toString(char* p, size_t size, size_t n, void* out) {
     static_cast<std::string*>(out)->append(p, size * n);
@@ -180,6 +281,7 @@ void Spotify::load() {
             m_refresh = j.value("refresh", std::string());
             m_access = j.value("access", std::string());
             m_expires = j.value("expires", 0LL);
+            m_scope = j.value("scope", std::string());
         }
     } catch (...) {
     }
@@ -188,13 +290,21 @@ void Spotify::load() {
 
 void Spotify::save() {
     writeLater(kFile, nlohmann::json{{"clientId", m_clientId}, {"refresh", m_refresh}, {"access", m_access},
-                                     {"expires", m_expires}}.dump(2));
+                                     {"expires", m_expires}, {"scope", m_scope}}.dump(2));
 }
 
 bool Spotify::signedIn() const {
     std::lock_guard<std::mutex> lk(m_mu);
     return !m_refresh.empty();
 }
+
+bool Spotify::canBrowse() const {
+    std::lock_guard<std::mutex> lk(m_mu);
+    return !m_refresh.empty() && m_scope.find("playlist-read-private") != std::string::npos
+           && m_scope.find("user-library-read") != std::string::npos;
+}
+
+long Spotify::get(const std::string& path, std::string& out) { return api("GET", path, out); }
 
 std::string Spotify::clientId() const {
     std::lock_guard<std::mutex> lk(m_mu);
@@ -207,6 +317,7 @@ void Spotify::setClientId(const std::string& id) {
     m_clientId = id;
     m_refresh.clear(); // a sign-in belongs to the app it was made with
     m_access.clear();
+    m_scope.clear();
     m_expires = 0;
     save();
 }
@@ -215,6 +326,7 @@ void Spotify::signOut() {
     std::lock_guard<std::mutex> lk(m_mu);
     m_refresh.clear();
     m_access.clear();
+    m_scope.clear();
     m_expires = 0;
     m_now = Now{};
     save();
@@ -416,6 +528,7 @@ void Spotify::exchange() {
             m_access = j.value("access_token", std::string());
             m_refresh = j.value("refresh_token", std::string());
             m_expires = nowSeconds() + j.value("expires_in", 3600) - 60;
+            m_scope = j.value("scope", std::string());
             m_login = Login::Done;
             m_pollAt = 0;
             save();
@@ -448,6 +561,7 @@ bool Spotify::refresh() {
         if (status == 200 && j.contains("access_token")) {
             m_access = j.value("access_token", std::string());
             if (j.contains("refresh_token")) m_refresh = j.value("refresh_token", m_refresh);
+            if (j.contains("scope")) m_scope = j.value("scope", m_scope);
             m_expires = nowSeconds() + j.value("expires_in", 3600) - 60;
             save();
             return true;
@@ -462,7 +576,7 @@ bool Spotify::refresh() {
     return false;
 }
 
-long Spotify::api(const char* method, const std::string& path, std::string& out) {
+long Spotify::api(const char* method, const std::string& path, std::string& out, const std::string& body) {
     for (int attempt = 0; attempt < 2; ++attempt) {
         std::string access;
         bool stale = false;
@@ -471,13 +585,20 @@ long Spotify::api(const char* method, const std::string& path, std::string& out)
             access = m_access;
             stale = access.empty() || nowSeconds() >= m_expires;
         }
-        if (stale && !refresh()) return 0;
+        if (stale) { // (another thread may refresh it meanwhile)
+            std::lock_guard<std::mutex> once(m_refreshMu);
+            {
+                std::lock_guard<std::mutex> lk(m_mu);
+                stale = m_access.empty() || nowSeconds() >= m_expires;
+            }
+            if (stale && !refresh()) return 0;
+        }
         {
             std::lock_guard<std::mutex> lk(m_mu);
             access = m_access;
         }
-        const long status = request(method, "https://api.spotify.com/v1" + path, "",
-                                    {"Authorization: Bearer " + access, "Content-Type:"}, out);
+        const long status = request(method, "https://api.spotify.com/v1" + path, body,
+                                    {"Authorization: Bearer " + access, body.empty() ? "Content-Type:" : "Content-Type: application/json"}, out);
         if (status != 401) return status;
         std::lock_guard<std::mutex> lk(m_mu);
         m_expires = 0; // refreshed on the next try
@@ -486,6 +607,34 @@ long Spotify::api(const char* method, const std::string& path, std::string& out)
 }
 
 void Spotify::poll() {
+    player::Status s;
+    if (player::status(s) && s.serviceState == player::StateReady && (s.flags & player::FlagHasTrack)
+        && s.playbackState != player::PlaybackStopped) { // this console plays: its own player, no Web API
+        Now n;
+        n.at = armGetSystemTick();
+        n.active = true;
+        n.playing = s.playbackState == player::PlaybackPlaying || s.playbackState == player::PlaybackBuffering;
+        n.shuffle = (s.flags & player::FlagShuffle) != 0;
+        n.repeat = (s.flags & player::FlagRepeatOne) ? 2 : (s.flags & player::FlagRepeatAll) ? 1 : 0;
+        n.progressMs = static_cast<int>(s.positionMs);
+        n.durationMs = static_cast<int>(s.durationMs);
+        // One volume, the console's (its buttons'): the player itself stays at full.
+        if (s.volumePermille != 1000) player::send(player::SetVolume, 1000u);
+        const int console = switchvolume::get();
+        n.volume = console >= 0 ? console : static_cast<int>(s.volumePermille / 10);
+        auto field = [](const char* p, size_t n) { return std::string(p, std::find(p, p + n, '\0')); };
+        n.track = field(s.title, sizeof(s.title));
+        n.artist = field(s.artist, sizeof(s.artist));
+        n.device = "This Switch";
+        std::lock_guard<std::mutex> lk(m_mu);
+        m_viaPlayer = true;
+        m_now = n;
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(m_mu);
+        m_viaPlayer = false;
+    }
     std::string out;
     const long status = api("GET", "/me/player?additional_types=episode", out);
     Now n;
@@ -549,13 +698,54 @@ void Spotify::poll() {
 }
 
 void Spotify::doCommand(Cmd c, int value) {
-    bool playing = false, shuffle = false;
+    bool playing = false, shuffle = false, viaPlayer = false, elsewhere = false;
     int repeat = 0;
     {
         std::lock_guard<std::mutex> lk(m_mu);
         playing = m_now.playing; // (already flipped by command())
         shuffle = m_now.shuffle;
         repeat = m_now.repeat;
+        viaPlayer = m_viaPlayer;
+        elsewhere = !m_viaPlayer && m_now.active && m_now.playing;
+    }
+    if (c == Cmd::PlayHere) { // the Spotify player resumes its own last session; what played elsewhere is paused
+        if (!player::send(player::Play)) {
+            // Not running yet: start it, give it time to sign in, then play.
+            bool played = false;
+            if (player::start()) {
+                for (int i = 0; i < 80 && !played; ++i) { // up to 20 s
+                    player::Status s;
+                    if (player::status(s) && s.serviceState == player::StateReady) played = player::send(player::Play);
+                    if (!played) svcSleepThread(250'000'000LL);
+                }
+            }
+            if (!played) {
+                std::lock_guard<std::mutex> lk(m_mu);
+                m_error = "Spotify didn't start on this Switch.";
+                return;
+            }
+        }
+        std::string out;
+        if (elsewhere) api("PUT", "/me/player/pause", out);
+        std::lock_guard<std::mutex> lk(m_mu);
+        m_pollAt = armGetSystemTick() + armNsToTicks(400'000'000ULL);
+        return;
+    }
+    if (viaPlayer) {
+        bool ok = false;
+        switch (c) {
+            case Cmd::PlayPause: ok = player::send(player::PlayPause); break;
+            case Cmd::Next: ok = player::send(player::Next); break;
+            case Cmd::Previous: ok = player::send(player::Previous); break;
+            case Cmd::Shuffle: ok = player::send(player::SetShuffle, shuffle ? 1u : 0u); break;
+            case Cmd::Repeat: ok = player::send(player::SetRepeat, repeat == 2 ? 1u : repeat == 1 ? 2u : 0u); break; // its One = 1, All = 2
+            case Cmd::Volume: ok = switchvolume::set(std::clamp(value, 0, 100)); break; // the console's
+            default: break;
+        }
+        std::lock_guard<std::mutex> lk(m_mu);
+        if (!ok) m_error = "Spotify didn't answer.";
+        m_pollAt = armGetSystemTick() + armNsToTicks(400'000'000ULL);
+        return;
     }
     std::string out;
     long status = 0;
@@ -568,6 +758,7 @@ void Spotify::doCommand(Cmd c, int value) {
             status = api("PUT", std::string("/me/player/repeat?state=") + (repeat == 2 ? "track" : repeat == 1 ? "context" : "off"), out);
             break;
         case Cmd::Volume: status = api("PUT", "/me/player/volume?volume_percent=" + std::to_string(value), out); break;
+        case Cmd::PlayHere: break; // (handled above)
     }
     std::lock_guard<std::mutex> lk(m_mu);
     if (status == 403) m_error = "Spotify Premium is needed for the buttons (Spotify's rule).";

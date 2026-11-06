@@ -1549,6 +1549,17 @@ struct NifmSystem {
 };
 } // namespace
 
+namespace {
+// Why a console call failed (brightness, a restart to Hekate): one line each in
+// sdmc:/config/CardsNX/power.log.
+void consoleLog(const char* what, Result rc) {
+    if (FILE* f = std::fopen("sdmc:/config/CardsNX/power.log", "a")) {
+        std::fprintf(f, "%s: 0x%X\n", what, rc);
+        std::fclose(f);
+    }
+}
+} // namespace
+
 QuickStatus readQuickStatus() {
     QuickStatus q;
     if (R_SUCCEEDED(setsysInitialize())) {
@@ -1565,11 +1576,18 @@ QuickStatus readQuickStatus() {
             if (R_SUCCEEDED(serviceDispatchOut(&nifm.general, 17, wireless))) q.airplane = (wireless & 1) == 0;
         }
     }
-    if (R_SUCCEEDED(lblInitialize())) {
+    static bool logged = false; // (read every few seconds: the first failure only)
+    Result lrc = lblInitialize();
+    if (R_SUCCEEDED(lrc)) {
         float level = 0.f;
-        if (R_SUCCEEDED(lblGetCurrentBrightnessSetting(&level))) q.brightness = std::clamp(level, 0.f, 1.f);
+        lrc = lblGetCurrentBrightnessSetting(&level);
+        if (R_SUCCEEDED(lrc)) q.brightness = std::clamp(level, 0.f, 1.f);
+        else if (!logged) consoleLog("brightness: lblGetCurrentBrightnessSetting", lrc);
         lblExit();
+    } else if (!logged) {
+        consoleLog("brightness: lblInitialize", lrc);
     }
+    if (R_FAILED(lrc)) logged = true;
     u32 charge = 0;
     if (R_SUCCEEDED(psmGetBatteryChargePercentage(&charge))) q.battery = static_cast<int>(charge);
     PsmChargerType charger = PsmChargerType_Unconnected;
@@ -1981,10 +1999,12 @@ bool setWifi(bool on) {
 }
 
 void setBrightness(float level) {
-    if (R_SUCCEEDED(lblInitialize())) {
-        lblSetCurrentBrightnessSetting(std::clamp(level, 0.05f, 1.f));
+    Result rc = lblInitialize();
+    if (R_SUCCEEDED(rc)) {
+        rc = lblSetCurrentBrightnessSetting(std::clamp(level, 0.05f, 1.f));
         lblExit();
     }
+    if (R_FAILED(rc)) consoleLog("brightness: set", rc);
 }
 
 std::vector<User> listUsers() {
@@ -2077,6 +2097,15 @@ bool power(Power what, std::string& error) {
                     rc = spsmShutdown(true);
                     spsmExit();
                 }
+                if (R_FAILED(rc)) { // spsm can refuse an app (0x1159): bpc restarts as well
+                    consoleLog("hekate: spsmShutdown", rc);
+                    rc = bpcInitialize();
+                    if (R_SUCCEEDED(rc)) {
+                        rc = bpcRebootSystem();
+                        bpcExit();
+                    }
+                    if (R_FAILED(rc)) consoleLog("hekate: bpcRebootSystem", rc);
+                }
                 error = "The restart didn't start.";
                 return R_SUCCEEDED(rc);
             }
@@ -2120,6 +2149,7 @@ bool power(Power what, std::string& error) {
                 serviceClose(&bpcAms);
             }
             if (R_FAILED(rc)) {
+                consoleLog("hekate: bpc:ams payload", rc);
                 error = "Atmosphere didn't take the Hekate payload.";
                 return false;
             }
