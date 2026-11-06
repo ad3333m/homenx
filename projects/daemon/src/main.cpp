@@ -15,6 +15,7 @@
 #include "thread_stack.hpp"
 #include "app_manager.hpp"
 #include "ecs.hpp"
+#include "hbl_override.hpp"
 #include "library_applet_runner.hpp"
 #include "menu_launcher.hpp"
 #include "system_action_queue.hpp"
@@ -1421,7 +1422,10 @@ static bool albumRunsHbl() {
         if (k.rfind("override_key", 0) == 0) keys[k.substr(std::strlen("override_key"))] = v;
     }
     std::fclose(f);
-    if (programs.empty()) return true;
+    // Slot 0 stays Atmosphère's default, the Album, unless the file names its
+    // own program there (program_id / program_id_0): other slots, HomeNX's own
+    // among them (hbl_override.hpp), don't replace it.
+    if (!programs.count("") && !programs.count("_0")) programs[""] = "010000000000100d";
     for (const auto& [suffix, program] : programs)
         if (program == "010000000000100d" || program == "0x010000000000100d") {
             const auto key = keys.find(suffix);
@@ -1473,6 +1477,7 @@ static void releaseHomebrewHost() {
     if (g_homebrewHostTitleId == 0) return;
     const Result rc = daemon::unregisterExternalContent(g_homebrewHostTitleId);
     switchu::FileLog::log("[homebrew] released host 0x%016lX rc=0x%X", g_homebrewHostTitleId, rc);
+    daemon::hbl_override::release("homebrew closed");
     g_homebrewHostTitleId = 0;
 }
 
@@ -2001,6 +2006,8 @@ static bool handleAction(daemon::SystemAction& action) {
                 if (R_SUCCEEDED(rc)) {
                     g_homebrewHostTitleId = host;
                     g_homebrewLaunchedAt = armGetSystemTick();
+                    // Before the launch: the loader reads it as the process starts.
+                    daemon::hbl_override::set(host);
                     rc = daemon::app::launch(host, action.uid);
                 }
                 if (R_SUCCEEDED(rc)) {
@@ -2830,6 +2837,9 @@ int main(int argc, char* argv[]) {
 
     appletLoadAndApplyIdlePolicySettings();
     clearAutoAppletFlag();
+    // A homebrew that rebooted the console (Prelude) never closed: its game
+    // would stay hbl for Atmosphère (hbl_override.hpp).
+    daemon::hbl_override::clearAtBoot();
 
     rebuildAppCatalog("boot");
 
