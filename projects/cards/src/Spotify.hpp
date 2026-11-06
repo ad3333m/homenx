@@ -33,7 +33,7 @@ public:
         std::uint64_t at = 0; // the tick it was read at (the song moves on from there)
     };
     enum class Login { Idle, Waiting, Exchanging, Done, Failed };
-    enum class Cmd { PlayPause, Next, Previous, Shuffle, Repeat, Volume };
+    enum class Cmd { PlayPause, Next, Previous, Shuffle, Repeat, Volume, PlayHere }; // PlayHere: onto this console's Spotify player (the Spotify player)
 
     ~Spotify() { stop(); }
     void start(); // its thread (once the network is up)
@@ -41,6 +41,9 @@ public:
     bool started() const { return m_thread.joinable(); }
 
     bool signedIn() const;
+    bool canBrowse() const; // signed in with the rights the Spotify panel reads (playlists, Liked Songs...)
+    // The Web API from another thread (the Spotify panel): GET a path under /v1.
+    long get(const std::string& path, std::string& out);
     std::string clientId() const;
     void setClientId(const std::string& id);
     void signOut();
@@ -65,7 +68,7 @@ private:
     void serveOnce();
     void exchange();
     bool refresh();
-    long api(const char* method, const std::string& path, std::string& out);
+    long api(const char* method, const std::string& path, std::string& out, const std::string& body = "");
     void poll();
     void doCommand(Cmd c, int value);
 
@@ -73,9 +76,12 @@ private:
     std::condition_variable m_cv;
     std::thread m_thread;
     bool m_quit = false, m_watching = false;
+    bool m_viaPlayer = false; // what's shown is the console's own Spotify player (its IPC, not the Web API)
     std::deque<std::pair<Cmd, int>> m_cmds;
 
     std::string m_clientId, m_access, m_refresh;
+    std::string m_scope;     // the rights the sign-in gave
+    std::mutex m_refreshMu;  // one refresh at a time (Spotify may hand a new refresh token)
     long long m_expires = 0; // seconds since 1970
     Now m_now;
     std::string m_error;

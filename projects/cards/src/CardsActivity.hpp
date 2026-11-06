@@ -17,6 +17,10 @@
 #include "settings/TextEntryScreen.hpp"
 #include "social/DiscordService.hpp"
 #include "widgets/DiscordPanel.hpp"
+#include "widgets/SpotifyPanel.hpp"
+#include "spotify/SpotifyPlayer.hpp"
+#include "spotify/SpotifyBrowser.hpp"
+#include "spotify/SwitchVolume.hpp"
 #include "widgets/SocialScreen.hpp"
 #include "settings/ControllerTestScreen.hpp"
 #include <switchu/lock_password.hpp>
@@ -89,7 +93,7 @@ private:
     void drawNotificationCard(nxui::Renderer& renderer);
     void notifyCard(std::string title, std::string message, std::string glyph = "news");
     // The top bar's buttons, left to right.
-    enum Top { kTopMenu, kTopDiscord, kTopSort, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
+    enum Top { kTopMenu, kTopDiscord, kTopSpotify, kTopSort, kTopUser, kTopPlayers, kTopBell, kTopMusic, kTopPower, kTopGear,
                kTopCount };
     struct Art {
         std::unique_ptr<nxui::Texture> card, bg, icon;
@@ -239,6 +243,7 @@ private:
     void openNro(const std::string& path);
     void openNintendo(const Game& g);
     void openDiscord();
+    void openSpotify(); // HomeNX's Spotify panel (the Spotify player plays the music)
     void openBrowser();
     std::string findNro(const char* nameHas);
     // The launch: the card grows to fill the screen, the rest falls away, then
@@ -315,6 +320,7 @@ private:
     // what plays on a phone, computer or speaker, read every few seconds while
     // the Music screen or Quick Settings shows it, and their buttons.
     bool spotifyOn() const;
+    bool spotifyPanelOn() const; // Settings > Sound > Spotify (off unless turned on)
     bool spotifySignedIn() const;
     bool homeMusic() const { return m_settings.music && !spotifyOn(); } // HOME's own songs play
     void spotifyDo(Spotify::Cmd c, int value = 0);
@@ -334,6 +340,8 @@ private:
 #ifdef SWITCHU_MENU
     Spotify m_spotify;
     bool m_spWatch = false;
+    int m_spConsoleVolume = -1;      // the console's volume, read every so often (its buttons change it)
+    std::uint64_t m_spConsoleVolumeAt = 0;
 #endif
     // + > Title picture: the game's pictures to choose from, in a grid.
     bool m_pickOpen = false;
@@ -833,6 +841,13 @@ private:
     void ensureHxFonts();
     DiscordService m_discord;
     std::shared_ptr<DiscordPanel> m_discordPanel;
+    SpotifyPlayer m_player;                  // Spotify's background player, while the panel is open
+    // What the panel shows: Spotify's Web API (the Music panel's sign-in), and the player's pages.
+    SpotifyBrowser m_spotifyBrowser{m_player, [this](const std::string& path, std::string& out) {
+                                        return m_spotify.get(path, out);
+                                    }};
+    std::shared_ptr<SpotifyPanel> m_spotifyPanel;
+    nxui::Font m_spText, m_spSmall;            // its words: Inter, like Spotify's own type
     std::shared_ptr<TextEntryScreen> m_textEntry;
     std::shared_ptr<SocialScreen> m_social;   // Friends, your profile, Mii Maker (HomeNX's, not Nintendo's)
     nxui::Font m_socFont, m_socSmall;         // CardsNX's typeface at the sizes HomeNX's screens are laid out for

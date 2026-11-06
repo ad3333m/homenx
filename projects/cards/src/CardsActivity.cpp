@@ -59,10 +59,16 @@ constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 
 constexpr float kCardMidY = 291.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
 const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
 constexpr float kPanelRadius = 35.f;
-// The top bar: menu, Discord and sort on the left; the pill (you,
-// the time, battery, free space, Nextendo) ends at kPillRight; then the bell,
-// music, power and settings.
-constexpr float kMenuX = 134.f, kDiscordX = 219.f, kSortX = 304.f, kPillRight = 872.f;
+// The top bar: menu, Discord (and Spotify, when it's turned on) and sort on
+// the left; the pill (you, the time, battery, free space, Nextendo) ends at
+// kPillRight; then the bell, music, power and settings.
+constexpr float kPillRight = 872.f;
+struct LeftCircles {
+    float menu, discord, spotify, sort;
+};
+// With Spotify's circle the four sit closer to the edge, so they clear the pill.
+constexpr LeftCircles kLeftCircles{134.f, 219.f, 0.f, 304.f}, kLeftCirclesSpotify{76.f, 158.f, 240.f, 322.f};
+const LeftCircles& leftCircles(bool spotify) { return spotify ? kLeftCirclesSpotify : kLeftCircles; }
 constexpr float kBellX = 908.f, kMusicX = 976.f, kPowerX = 1061.f, kGearX = 1146.f;
 // Settings: sections on the left, rows on the right.
 const nxui::Rect kSheet{120.f, 52.f, 1040.f, 616.f};
@@ -592,7 +598,7 @@ bool CardsActivity::onCreate() {
         offScreenCore();
         std::vector<IconPixels> out;
         for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
-                                 "power", "music", "news", "discord", "arrows", "wifi", "airplane",
+                                 "power", "music", "news", "discord", "spotify", "arrows", "wifi", "airplane",
                                  "sun", "speaker", "prev", "next", "pause", "repeat", "shuffle", "playlist",
                                  "moon", "restart", "hekate", "download", "trash", "pad", "nextendo", "bluetooth", "trophy"}) {
             std::ifstream in(std::string(kAssets) + "icons/" + name + ".png", std::ios::binary | std::ios::ate);
@@ -894,6 +900,7 @@ nxui::Widget* CardsActivity::focusRoot() {
 #ifdef SWITCHU_MENU
     if (m_textEntry && m_textEntry->isActive()) return m_textEntry.get();
     if (m_discordPanel && m_discordPanel->isActive()) return m_discordPanel.get();
+    if (m_spotifyPanel && m_spotifyPanel->isActive()) return m_spotifyPanel.get();
     if (m_social && m_social->isActive()) return m_social.get();
     if (m_padTest && m_padTest->isActive()) return m_padTest.get();
 #endif
@@ -2370,6 +2377,68 @@ void CardsActivity::ensureHxFonts() {
 }
 #endif
 
+// HomeNX's Spotify panel: the console's Spotify player plays the music; the
+// panel only shows it and sends the buttons, so closing it keeps it playing.
+void CardsActivity::openSpotify() {
+#ifdef SWITCHU_MENU
+    if (!spotifyPanelOn()) return;
+    ensureHxFonts();
+    m_spotify.start(); // (reads its sign-in: the panel browses with it)
+    SpotifyBrowser::setTranslate([](const std::string& english) { return tr(english); }); // CardsNX's language
+    if (!m_spotifyPanel) {
+        m_spotifyPanel = std::make_shared<SpotifyPanel>();
+        const std::string inter = std::string(kAssets) + "fonts/Inter-500.ttf";
+        const bool ok = m_spText.load(app().gpu(), app().renderer(), inter, 24)
+                        && m_spSmall.load(app().gpu(), app().renderer(), inter, 18);
+        m_spotifyPanel->setFont(ok ? &m_spText : &m_hxFont);
+        m_spotifyPanel->setSmallFont(ok ? &m_spSmall : &m_hxSmall);
+        m_spotifyPanel->setBoldFont(&m_fPlay);   // Inter 700
+        m_spotifyPanel->setTitleFont(&m_fTitle);
+        m_spotifyPanel->setGpu(&app().gpu(), &app().renderer());
+        m_spotifyPanel->setService(&m_player);
+        m_spotifyPanel->setBrowser(&m_spotifyBrowser);
+        m_spotifyPanel->setLogoPath(std::string(kAssets) + "icons/spotify.png");
+        m_spotifyPanel->setIconDir(std::string(kAssets) + "icons/");
+        m_spotifyPanel->setBig(m_settings.spotifyBig); // (Discord's size unless you chose +)
+        SpotifyPanel::Callbacks cb;
+        cb.onClosed = [this]() { m_audio.play("hide_modal"); };
+        cb.onNavigate = [this]() { m_audio.play("navigation"); };
+        cb.onActivate = [this]() { m_audio.play("activation"); };
+        cb.canBrowse = [this]() { return m_spotify.canBrowse(); };
+        cb.onSizeChanged = [this](bool big) {
+            m_settings.spotifyBig = big;
+            m_settings.save();
+        };
+        cb.onSignIn = [this]() { // its QR code is HOME's: the panel steps aside
+            m_spotifyPanel->hide();
+            signInSpotify();
+        };
+        cb.onSignOut = [this]() {
+            m_spotify.signOut();
+            m_spotifyBrowser.reset();
+            m_sp = Spotify::Now{};
+            say("Signed out of Spotify");
+        };
+        cb.onSwitchAccount = [this]() { // signed out, then its QR code for the other account
+            m_spotifyPanel->hide();
+            m_spotify.signOut();
+            m_spotifyBrowser.reset();
+            m_sp = Spotify::Now{};
+            signInSpotify();
+        };
+        cb.onAskText = [this](const std::string& initial, std::function<void(const std::string&)> done) {
+            enterText("Search", "What do you want to play?", initial, 120, std::move(done), m_spotifyPanel.get());
+        };
+        m_spotifyPanel->setCallbacks(std::move(cb));
+        rootBox().addChild(m_spotifyPanel);
+    }
+    if (m_spotifyPanel->isActive()) return;
+    m_audio.play("show_modal");
+    m_spotifyPanel->show();
+    focusManager().setFocus(m_spotifyPanel.get());
+#endif
+}
+
 void CardsActivity::openDiscord() {
 #ifdef SWITCHU_MENU
     ensureHxFonts();
@@ -2758,6 +2827,10 @@ bool CardsActivity::closeEverything() {
     }
     if (m_discordPanel && m_discordPanel->isOpen()) {
         m_discordPanel->hide();
+        any = true;
+    }
+    if (m_spotifyPanel && m_spotifyPanel->isOpen()) {
+        m_spotifyPanel->hide();
         any = true;
     }
     if (m_social && m_social->isOpen()) {
@@ -4282,8 +4355,15 @@ std::vector<CardsActivity::MenuItem> CardsActivity::powerItems() {
     items.push_back(action("Restart", [this]() { leave(-1, 0.4f, [this]() { m_launcher.reboot(); }); }));
     items.push_back(action("Shut down", [this]() { leave(-1, 0.4f, [this]() { m_launcher.shutdown(); }); }));
     items.push_back(action("Reboot to Hekate", [this]() {
-        // Atmosphere sends hbl's reboots to its payload (not HOME's): CardsNX
-        // (the .nro) does it, asked by a file, before it shows anything.
+        // HOME first: it hands Atmosphere the payload (bpc:ams) and, only once
+        // that's taken, asks am for the restart, which Atmosphere sends to the
+        // payload. Nothing restarts when the payload isn't taken.
+        if (AppletLauncher::canRebootToPayload() && !AppletLauncher::hekatePayload().empty()) {
+            m_settings.save();
+            if (m_launcher.rebootToHekate()) return;
+        }
+        // Else as before: Atmosphere sends hbl's reboots to its payload, so
+        // CardsNX (the .nro) does it, asked by a file, before it shows anything.
         std::error_code ec;
         const char* cards = "sdmc:/switch/CardsNX/CardsNX.nro";
         if (std::filesystem::exists(cards, ec) && AppletLauncher::canRebootToPayload()
@@ -4357,6 +4437,8 @@ void CardsActivity::openDots() {
     m_dotsTiles.push_back({"News", "news", nxui::Color(0.95f, 0.25f, 0.25f, 1.f), [this]() { openNews(); }});
 #endif
     m_dotsTiles.push_back({"Discord", "discord", nxui::Color(0.35f, 0.40f, 0.95f, 1.f), [this]() { openDiscord(); }});
+    if (spotifyPanelOn())
+        m_dotsTiles.push_back({"Spotify", "spotify", nxui::Color(0.18f, 0.80f, 0.44f, 1.f), [this]() { openSpotify(); }});
     m_dotsTiles.push_back({"Users", "friends", nxui::Color(1.f, 0.6f, 0.2f, 1.f), [this]() { openUsers(); }});
     m_dotsTiles.push_back({"Pages", "copy", nxui::Color(0.36f, 0.68f, 1.f, 1.f), [this]() { openPagePicker(); }});
     m_dotsTiles.push_back({"Music", "music", nxui::Color(0.95f, 0.35f, 0.6f, 1.f), [this]() { openMusic(); }});
@@ -4448,7 +4530,8 @@ void CardsActivity::drawDots(nxui::Renderer& r) {
     r.drawRoundedRectOutline(p, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 28.f, 1.5f);
     r.drawGradientRect({p.x + 2.f, p.y + 2.f, p.width - 4.f, 70.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
                        nxui::Color(1.f, 1.f, 1.f, 0.f));
-    r.drawTriangle({kMenuX - 10.f, kDotsY + 1.f}, {kMenuX + 10.f, kDotsY + 1.f}, {kMenuX, kDotsY - 9.f},
+    const float menuX = leftCircles(spotifyPanelOn()).menu;
+    r.drawTriangle({menuX - 10.f, kDotsY + 1.f}, {menuX + 10.f, kDotsY + 1.f}, {menuX, kDotsY - 9.f},
                    nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a)); // pointing at the button
     if (s < 0.999f) r.pushClipRect(p);
     textMid(r, m_fPill, "Pages", full.x + kDotsPad + 4.f, full.y + kDotsPad + 12.f - 10.f * (1.f - a), kMuted.withAlpha(a), 0.9f);
@@ -4879,7 +4962,7 @@ void CardsActivity::updateMusic() {
     if (zone == 0) {
         if (left && m_musicCol > 0) --m_musicCol;
         else if (right && m_musicCol < 4) ++m_musicCol;
-        else if (right && songs > 0) m_musicZone = 2;
+        else if (right && (songs > 0 || spotifyOn())) m_musicZone = 2;
         else if (down) m_musicZone = 1;
         if (in.isDown(B::A)) musicControl(m_musicCol);
     } else if (zone == 1) {
@@ -4890,6 +4973,12 @@ void CardsActivity::updateMusic() {
             m_settings.musicVolume = std::clamp(m_settings.musicVolume + (right ? 5 : -5), 0, 100);
             m_audio.setMusic(homeMusic(), m_settings.musicVolume);
             m_settings.save();
+        }
+    } else if (spotifyOn()) { // one row: Play on this Switch
+        if (left) m_musicZone = 0;
+        if (in.isDown(B::A)) {
+            spotifyDo(Spotify::Cmd::PlayHere);
+            m_audio.play("activation");
         }
     } else {
         if (up && m_musicRow > 0) --m_musicRow;
@@ -4989,8 +5078,20 @@ void CardsActivity::drawReturn(nxui::Renderer& r) {
     drawCover(r, m_returnTex.get(), at, kCardRadius * e, kWhite.withAlpha(1.f - easeIn(t)));
 }
 
+bool CardsActivity::spotifyPanelOn() const {
+#ifdef SWITCHU_MENU
+    return m_settings.spotifyEnabled;
+#else
+    return false;
+#endif
+}
+
 bool CardsActivity::spotifyOn() const {
-    return false; // Spotify was taken out (2026-10-31): HOME music only
+#ifdef SWITCHU_MENU
+    return m_settings.spotifyEnabled && m_settings.spotify;
+#else
+    return false;
+#endif
 }
 
 bool CardsActivity::spotifySignedIn() const {
@@ -5032,6 +5133,14 @@ void CardsActivity::updateSpotify() {
     if (!m_spWatch) return;
     const int dragged = m_sp.volume;
     m_sp = m_spotify.now();
+    if (m_sp.device == "This Switch") { // Spotify on this console: its volume is the console's, live
+        const std::uint64_t now = armGetSystemTick();
+        if (now >= m_spConsoleVolumeAt) {
+            m_spConsoleVolumeAt = now + armNsToTicks(400'000'000ULL);
+            m_spConsoleVolume = switchvolume::get();
+        }
+        if (m_spConsoleVolume >= 0) m_sp.volume = m_spConsoleVolume;
+    }
     if (m_musicVolDrag) m_sp.volume = dragged;
     std::vector<std::uint8_t> px;
     int w = 0, h = 0;
@@ -5253,9 +5362,16 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     textMid(r, m_fPill, spot ? "Spotify" : "Playlist", kMusicListX + 30.f, 106.f + dy, kMuted.withAlpha(a), 0.9f);
     const int songs = spot ? 0 : static_cast<int>(titles.size());
     if (spot) { // where it plays, instead of the songs
-        const std::string where = m_sp.device.empty() ? std::string("No device playing") : trf("Playing on {device}", {m_sp.device});
+        const std::string where = m_sp.device.empty() ? std::string("No device playing") : (m_sp.device == "This Switch" ? tr("Playing on this Switch")
+                                                                                       : trf("Playing on {device}", {m_sp.device}));
         textMid(r, m_fBody, fit(m_fBody, where, kMusicListW - 10.f, 0.9f), kMusicListX + 10.f, 152.f + dy, kWhite.withAlpha(a), 0.9f);
         textMid(r, m_fBody, "The buttons need Spotify Premium", kMusicListX + 10.f, 184.f + dy, kMuted.withAlpha(0.8f * a), 0.85f);
+        const nxui::Rect here{kMusicListX, 214.f + dy, kMusicListW, kMusicRowH - 6.f};
+        const bool chosen = m_musicZone == 2;
+        r.drawRoundedRect(here, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.12f : 0.06f) * a), 14.f);
+        if (chosen) r.drawRoundedRectOutline(here, accent(ring * a), 14.f, 2.f);
+        textMid(r, m_fPill, fit(m_fPill, tr("Play on this Switch"), here.width - 24.f, 0.9f), here.x + 12.f,
+                here.y + here.height * 0.5f, kWhite.withAlpha(a), 0.9f);
     }
     const float want = std::clamp(m_musicRow * kMusicRowH - (kMusicListBottom - kMusicListTop) * 0.5f + kMusicRowH * 0.5f, 0.f,
                                   std::max(0.f, songs * kMusicRowH - (kMusicListBottom - kMusicListTop)));
@@ -5652,6 +5768,38 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(lockTab));
 
     Section sound{"Sound", "music", {}};
+#ifdef SWITCHU_MENU
+    // Spotify, off unless you turn it on: it needs Spotify Premium and its
+    // player installed on this console.
+    sound.rows.push_back(toggle("Spotify", [this]() { return m_settings.spotifyEnabled; }, [this, save]() {
+        m_settings.spotifyEnabled = !m_settings.spotifyEnabled;
+        if (!m_settings.spotifyEnabled && m_spotifyPanel && m_spotifyPanel->isOpen()) m_spotifyPanel->hide();
+        if (m_topSel == kTopSpotify) m_topSel = kTopDiscord;
+        m_audio.setMusic(homeMusic(), m_settings.musicVolume);
+        save();
+    }, "Its panel beside Discord's and the music player: needs Spotify Premium and its player installed on this console"));
+    if (m_settings.spotifyEnabled) {
+    m_spotify.start(); // (reads its sign-in)
+    sound.rows.push_back(choice("Music player", [this]() { return std::string(m_settings.spotify ? "Spotify" : "HOME music"); },
+        [this, save](int) {
+            m_settings.spotify = !m_settings.spotify;
+            m_audio.setMusic(homeMusic(), m_settings.musicVolume);
+            save();
+        }, "Spotify: what plays on your phone, computer or speaker, with its buttons"));
+    MenuItem account = action("Spotify", [this]() {
+        if (!m_spotify.signedIn()) {
+            signInSpotify();
+            return;
+        }
+        m_spotify.signOut();
+        m_sp = Spotify::Now{};
+        say("Signed out of Spotify");
+    });
+    account.value = [this]() { return std::string(m_spotify.signedIn() ? "Signed in (A signs out)" : "Sign in"); };
+    account.detail = "One QR code: scan it with your phone on the same Wi-Fi";
+    sound.rows.push_back(std::move(account));
+    }
+#endif
     sound.rows.push_back(toggle("Music", [this]() { return m_settings.music; }, [this, save]() {
         m_settings.music = !m_settings.music;
         m_audio.setMusic(homeMusic(), m_settings.musicVolume);
@@ -7179,6 +7327,9 @@ void CardsActivity::activateTop(int index) {
     switch (index) {
         case kTopMenu: openDots(); break;
         case kTopDiscord: openDiscord(); break;
+#ifdef SWITCHU_MENU
+        case kTopSpotify: openSpotify(); break;
+#endif
         case kTopSort:
             if (m_page == kGames) {
                 int at = 0;
@@ -7553,9 +7704,11 @@ bool CardsActivity::handleTouch() {
     }
     if (y < 95.f) { // the top bar
         int hit = -1;
-        if (inCircle(kMenuX, kTopY, 40.f)) hit = kTopMenu;
-        else if (inCircle(kDiscordX, kTopY, 40.f)) hit = kTopDiscord;
-        else if (inCircle(kSortX, kTopY, 40.f)) hit = kTopSort;
+        const LeftCircles& lc = leftCircles(spotifyPanelOn());
+        if (inCircle(lc.menu, kTopY, 40.f)) hit = kTopMenu;
+        else if (inCircle(lc.discord, kTopY, 40.f)) hit = kTopDiscord;
+        else if (spotifyPanelOn() && inCircle(lc.spotify, kTopY, 40.f)) hit = kTopSpotify;
+        else if (inCircle(lc.sort, kTopY, 40.f)) hit = kTopSort;
         else if (m_userHit.contains(x, y)) hit = kTopUser;
         else if (m_settings.players && m_playersHit.contains(x, y)) hit = kTopPlayers;
         else if (inCircle(kBellX, kTopY, 32.f)) hit = kTopBell;
@@ -8321,6 +8474,10 @@ void CardsActivity::onUpdate(float dt) {
         m_discordPanel->handleTouch(app().input());
         return;
     }
+    if (m_spotifyPanel && m_spotifyPanel->isActive()) {
+        m_spotifyPanel->handleTouch(app().input());
+        return;
+    }
     if (m_social && m_social->isActive()) {
         m_social->handleTouch(app().input());
         return;
@@ -8477,10 +8634,14 @@ void CardsActivity::onUpdate(float dt) {
             select(sel() + move);
         } else if (m_zone == Zone::Top) {
             int next = m_topSel;
+            auto hidden = [this](int i) {
+                if (i == kTopSpotify && !spotifyPanelOn()) return true;
+                return i == kTopPlayers && !m_settings.players;
+            };
             do next += move;
-            while (next == kTopPlayers && !m_settings.players);
+            while (next >= 0 && next < kTopCount && hidden(next));
             next = std::clamp(next, 0, kTopCount - 1);
-            if (next == kTopPlayers && !m_settings.players) next = m_topSel;
+            if (hidden(next)) next = m_topSel;
             if (next != m_topSel) m_audio.play("navigation");
             m_topSel = next;
         } else {
@@ -8701,13 +8862,16 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
         r.drawRoundedRect(b, kRed.withAlpha(a), b.height * 0.5f);
         textMid(r, m_fBadge, n, b.x + (b.width - measured(m_fBadge, n).x) * 0.5f, b.y + b.height * 0.5f, kWhite.withAlpha(a));
     };
-    glassCircle(r, kMenuX, y, kCircle, top && m_topSel == kTopMenu, "dots", 34.f, a, pressedOf(kTopMenu));
-    glassCircle(r, kDiscordX, y, kCircle, top && m_topSel == kTopDiscord, "discord", 40.f, a, pressedOf(kTopDiscord));
+    const LeftCircles& lc = leftCircles(spotifyPanelOn());
+    glassCircle(r, lc.menu, y, kCircle, top && m_topSel == kTopMenu, "dots", 34.f, a, pressedOf(kTopMenu));
+    glassCircle(r, lc.discord, y, kCircle, top && m_topSel == kTopDiscord, "discord", 40.f, a, pressedOf(kTopDiscord));
 #ifdef SWITCHU_MENU
     const int dms = m_discord.started() ? m_discord.unreadDms() : 0;
-    if (dms > 0) badge(kDiscordX + 14.f, y - 40.f, dms);
+    if (dms > 0) badge(lc.discord + 14.f, y - 40.f, dms);
+    if (spotifyPanelOn())
+        glassCircle(r, lc.spotify, y, kCircle, top && m_topSel == kTopSpotify, "spotify", 40.f, a, pressedOf(kTopSpotify));
 #endif
-    glassCircle(r, kSortX, y, kCircle, top && m_topSel == kTopSort, "sort", 34.f, a, pressedOf(kTopSort));
+    glassCircle(r, lc.sort, y, kCircle, top && m_topSel == kTopSort, "sort", 34.f, a, pressedOf(kTopSort));
 
     // The pill: you (and whether you're online), the time, battery, free space, Nextendo.
     const float face = 34.f, gap = 16.f;

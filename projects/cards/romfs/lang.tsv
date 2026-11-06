@@ -579,6 +579,53 @@ Play 15 different games	Juega a 15 juegos distintos	Jogue 15 jogos diferentes	С
 Marathon	Maratón	Maratona	Марафон	Marathon	Marathon	Maratona	マラソン	马拉松
 Lifer	De por vida	Para a vida toda	На всю жизнь	À vie	Lebenslang	Per la vita	生涯ゲーマー	终身玩家
 Locked	Bloqueado	Bloqueado	Не получено	Verrouillé	Gesperrt	Bloccato	未達成	未解锁
+Music player	Reproductor de música	Player de música	Музыкальный плеер	Lecteur de musique	Musikplayer	Lettore musicale	音楽プレーヤー	音乐播放器
+Spotify: what plays on your phone, computer or speaker, with its buttons	Spotify: lo que suena en tu teléfono, ordenador o altavoz, con sus botones	Spotify: o que toca no celular, computador ou caixa de som, com os botões	Spotify: то, что играет на телефоне, компьютере или колонке, с кнопками	Spotify : ce qui joue sur votre téléphone, ordinateur ou enceinte, avec ses boutons	Spotify: was auf Handy, Computer oder Lautsprecher läuft, mit Tasten	Spotify: ciò che suona su telefono, computer o altoparlante, con i suoi pulsanti	Spotify: スマホやパソコン、スピーカーで再生中の曲をボタンで操作	Spotify：手机、电脑或音箱上正在播放的内容，可用按钮控制
+Signed out of Spotify	Sesión de Spotify cerrada	Saiu do Spotify	Выход из Spotify выполнен	Déconnecté de Spotify	Von Spotify abgemeldet	Disconnesso da Spotify	Spotifyからサインアウトしました	已退出Spotify
+Signed in (A signs out)	Sesión iniciada (A la cierra)	Conectado (A para sair)	Вход выполнен (A — выйти)	Connecté (A pour se déconnecter)	Angemeldet (A meldet ab)	Accesso eseguito (A per uscire)	サインイン中（Aでサインアウト）	已登录（按A退出）
+Sign in	Iniciar sesión	Entrar	Войти	Se connecter	Anmelden	Accedi	サインイン	登录
+One QR code: scan it with your phone on the same Wi-Fi	Un código QR: escanéalo con tu teléfono en la misma red Wi-Fi	Um código QR: escaneie com o celular na mesma rede Wi-Fi	Один QR-код: отсканируйте его телефоном в той же сети Wi-Fi	Un code QR : scannez-le avec votre téléphone sur le même Wi-Fi	Ein QR-Code: Scanne ihn mit dem Handy im selben WLAN	Un codice QR: scansionalo con il telefono sulla stessa rete Wi-Fi	QRコードを同じWi-Fiにつないだスマホで読み取ります	一个二维码：用连接同一Wi-Fi的手机扫描
+Play on this Switch	Reproducir en esta Switch	Tocar neste Switch	Играть на этой Switch	Écouter sur cette Switch	Auf dieser Switch abspielen	Riproduci su questa Switch	このSwitchで再生	在这台Switch上播放
+What do you want to play?				Que souhaitez-vous écouter ?				
+Search				Rechercher				
+Albums				Albums				
+Artist				Artiste				
+Artists				Artistes				
+Songs				Titres				
+Playlists				Playlists				
+A: sign in with a QR code on your phone				A : connexion avec un QR code sur ton téléphone				
+Connecting...				Connexion...				
+Connect your Spotify account				Connecte ton compte Spotify				
+Liked Songs				Titres likés				
+Loading...				Chargement...				
+No results				Aucun résultat				
+Nothing playing				Rien en lecture				
+Nothing to play here				Rien à lire ici				
+{n} song				{n} titre				
+{n} songs				{n} titres				
+Pick this Switch in Spotify on your phone				Choisis cette Switch dans Spotify sur ton téléphone				
+Podcast				Podcast				
+Recently played				Récemment écoutés				
+Sign in to Spotify again				Reconnecte-toi à Spotify				
+Song				Titre				
+Spotify can't be reached				Spotify est injoignable				
+Spotify couldn't start (X: try again)				Spotify n'a pas pu démarrer (X pour réessayer)				
+Spotify didn't answer				Spotify n'a pas répondu				
+Spotify isn't ready				Spotify n'est pas prêt				
+Spotify isn't running (X starts it)				Spotify n'est pas lancé (X pour le lancer)				
+Spotify isn't signed in on this Switch				Spotify n'est pas connecté sur cette Switch				
+Spotify's player on this Switch needs an update				Le lecteur Spotify de la Switch doit être mis à jour				
+Starting Spotify...				Lancement de Spotify...				
+This can't be played here				Impossible de lire ce titre ici				
+X to try again				X pour réessayer				
+Your albums				Tes albums				
+Your Library				Bibliothèque				
+Your playlists				Tes playlists				
+Your top artists				Tes artistes préférés				
+
++ Bigger				+ Agrandir				
+- Smaller   B Back   X Reload   Y Play/Pause   L/R Volume				- Réduire   B Retour   X Recharger   Y Lecture/Pause   L/R Volume				
+Its panel beside Discord's and the music player: needs Spotify Premium and its player installed on this console				Son panneau à côté de Discord et le lecteur de musique : il faut Spotify Premium et son lecteur installé sur cette console				
 New page	Página nueva	Nova página	Новая страница	Nouvelle page	Neue Seite	Nuova pagina	新しいページ	新建页面
 Friend code	Código de amigo	Código de amigo	Код друга	Code ami	Freundescode	Codice amico	フレンドコード	好友代码
 Reading...	Leyendo...	Lendo...	Чтение...	Lecture...	Wird gelesen ...	Lettura...	読み込み中...	正在读取...
@@ -712,3 +759,7 @@ Console's TV output	Salida de TV de la consola	Saída de TV do console	Выво�
 For games too (HOME's own: Look > TV resolution). Takes effect after a restart	También para los juegos (la de HOME: Aspecto > Resolución en la TV). Se aplica al reiniciar	Também para os jogos (a do HOME: Aparência > Resolução na TV). Vale depois de reiniciar	И для игр (для HOME: Вид > Разрешение на ТВ). Вступит в силу после перезапуска	Aussi pour les jeux (celle de HOME : Apparence > Résolution sur la TV). S'applique après un redémarrage	Auch für Spiele (für HOME: Aussehen > TV-Auflösung). Gilt nach einem Neustart	Anche per i giochi (quella di HOME: Aspetto > Risoluzione sulla TV). Vale dopo il riavvio	ゲームにも適用（HOMEは「見た目 > テレビ解像度」）。再起動後に反映されます	也适用于游戏（HOME的设置：外观 > 电视分辨率）。重启后生效
 ZL and ZR go through Games, Homebrew, Media and Nintendo. + on a game shows its achievements.	ZL y ZR recorren Juegos, Homebrew, Multimedia y Nintendo. + en un juego muestra sus logros.	ZL e ZR passam por Jogos, Homebrew, Mídia e Nintendo. + em um jogo mostra as conquistas dele.	ZL и ZR переключают Игры, Homebrew, Медиа и Nintendo. + на игре показывает её достижения.	ZL et ZR passent par Jeux, Homebrew, Médias et Nintendo. + sur un jeu affiche ses succès.	ZL und ZR wechseln zwischen Spiele, Homebrew, Medien und Nintendo. + auf einem Spiel zeigt seine Erfolge.	ZL e ZR passano per Giochi, Homebrew, Media e Nintendo. + su un gioco mostra i suoi obiettivi.	ZLとZRでゲーム、Homebrew、メディア、Nintendoを切り替えます。ゲームで＋を押すと実績を見られます。	ZL和ZR可切换游戏、Homebrew、媒体和Nintendo。在游戏上按+可查看其成就。
 + on a game shows them	+ en un juego los muestra	+ em um jogo mostra	Их показывает + на игре	+ sur un jeu les affiche	+ auf einem Spiel zeigt sie	+ su un gioco li mostra	ゲームで＋を押すと見られます	在游戏上按+可查看
+Playing on this Switch				Lecture sur cette Switch				
+Signed in as	Conectado como	Conectado como	Вы вошли как	Connecté en tant que	Angemeldet als	Accesso eseguito come	サインイン中のアカウント	已登录为
+Sign out	Cerrar sesión	Sair	Выйти	Se déconnecter	Abmelden	Esci	サインアウト	退出登录
+Switch account	Cambiar de cuenta	Trocar de conta	Сменить аккаунт	Changer de compte	Konto wechseln	Cambia account	アカウントを切り替え	切换账号
