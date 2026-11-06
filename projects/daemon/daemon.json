@@ -3,7 +3,7 @@
     "program_id": "0x0100000000001000",
     "program_id_range_min": "0x0100000000001000",
     "program_id_range_max": "0x0100000000001000",
-    "main_thread_stack_size": "0x00100000",
+    "main_thread_stack_size": "0x00020000",
     "main_thread_priority": 40,
     "default_cpu_id": 3,
     "is_retail": true,

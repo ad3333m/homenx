@@ -30,8 +30,9 @@ using EcsServerManager = ::ams::sf::hipc::ServerManager<0, EcsServerOptions, 8>;
 // libstratosphere is built with AMS_INIT_USE_STANDARD_ALLOCATOR_FOR_MALLOC: its
 // init_malloc.o replaces malloc/free, so this region is the daemon's whole malloc
 // heap (newlib's allocator and the libnx heap are bypassed). 4 KiB aborts at boot.
-// Shrink only with the free/allocatable figures from daemon_mem.txt.
-constexpr size_t kAmsHeapSize = 0x200000;
+// daemon_mem.txt, sampled every second over game launches and homebrew: lowest
+// free 1636 of 2048 KiB, so ~412 KiB at the peak. 1.5 MiB keeps ~3.7x of that.
+constexpr size_t kAmsHeapSize = 0x180000;
 constexpr size_t kManagerThreadStackSize = 0x8000;
 constexpr s32 kManagerThreadPriority = 10;
 

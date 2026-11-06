@@ -2455,17 +2455,44 @@ static Thread g_eventThread = {};
 static std::atomic<bool> g_eventRunning{false};
 
 
+static std::atomic<uintptr_t> g_mainStackProbe{0}; // an address on the main thread's stack (main())
+static size_t g_mallocMinFree = SIZE_MAX;            // lowest malloc free seen, sampled every event-loop pass
+
+static void sampleMallocLow() {
+    size_t total = 0, free = 0, block = 0;
+    daemon::getMallocHeapStats(&total, &free, &block);
+    if (free < g_mallocMinFree) g_mallocMinFree = free;
+}
+
+// Deepest the main thread's stack has gone: the kernel hands it out zeroed and it
+// grows down, so everything below the first non-zero word was never touched.
+static size_t mainStackUsed(size_t* size) {
+    *size = 0;
+    const uintptr_t probe = g_mainStackProbe.load();
+    MemoryInfo mi{};
+    u32 pi = 0;
+    if (!probe || R_FAILED(svcQueryMemory(&mi, &pi, probe))) return 0;
+    *size = mi.size;
+    const u64* p = reinterpret_cast<const u64*>(mi.addr);
+    const u64* end = reinterpret_cast<const u64*>(mi.addr + mi.size);
+    while (p < end && *p == 0) ++p;
+    return reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(p);
+}
+
 // sdmc:/config/SwitchU/daemon_mem.txt, rewritten (opened, closed) once a minute
 // while sdmc:/config/SwitchU/memdebug exists: daemon.log stays open, so it can't
 // be read while HOME runs. malloc heap (the AMS region, see ecs.cpp) free now /
-// lowest seen / largest block, newlib's sbrk use of the libnx heap, process total.
+// lowest seen / largest block, newlib's sbrk use of the libnx heap, main stack
+// depth, process total.
 static void writeDaemonMemReport() {
     struct stat st;
     if (stat("sdmc:/config/SwitchU/memdebug", &st) != 0) return;
-    static size_t minFree = SIZE_MAX;
     size_t heapTotal = 0, heapFree = 0, heapBlock = 0;
     daemon::getMallocHeapStats(&heapTotal, &heapFree, &heapBlock);
-    if (heapFree < minFree) minFree = heapFree;
+    if (heapFree < g_mallocMinFree) g_mallocMinFree = heapFree;
+    const size_t minFree = g_mallocMinFree;
+    size_t stackSize = 0;
+    const size_t stackUsed = mainStackUsed(&stackSize);
     extern char* fake_heap_start;
     extern char* fake_heap_end;
     const char* brk = static_cast<const char*>(sbrk(0)); // newlib's high-water mark inside the libnx heap
@@ -2473,11 +2500,12 @@ static void writeDaemonMemReport() {
     svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
     svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
     if (FILE* f = std::fopen("sdmc:/config/SwitchU/daemon_mem.txt", "a")) {
-        std::fprintf(f, "[%llu s] [mem] malloc=%luK free=%luK min_free=%luK block=%luK brk_used=%luK heap=%luK process=%lluK limit=%lluK\n",
+        std::fprintf(f, "[%llu s] [mem] malloc=%luK free=%luK min_free=%luK block=%luK brk_used=%luK heap=%luK main_stack=%luK/%luK process=%lluK limit=%lluK\n",
                      (unsigned long long)(armTicksToNs(armGetSystemTick()) / 1000000000ULL),
                      (unsigned long)(heapTotal >> 10), (unsigned long)(heapFree >> 10),
                      (unsigned long)(minFree >> 10), (unsigned long)(heapBlock >> 10),
                      (unsigned long)((brk - fake_heap_start) >> 10), (unsigned long)((fake_heap_end - fake_heap_start) >> 10),
+                     (unsigned long)(stackUsed >> 10), (unsigned long)(stackSize >> 10),
                      (unsigned long long)(used >> 10), (unsigned long long)(total >> 10));
         std::fclose(f);
     }
@@ -2524,6 +2552,7 @@ static void eventManagerThreadFunc(void* arg) {
     }
 
     while (g_eventRunning.load()) {
+        sampleMallocLow();
         s32 evIdx = -1;
         Result waitRc;
         if (hasGcEvent && hasPsmEvent) {
@@ -2745,6 +2774,8 @@ static void stopControlCacheWorker() {
 }
 
 int main(int argc, char* argv[]) {
+    int stackProbe = 0;
+    g_mainStackProbe.store(reinterpret_cast<uintptr_t>(&stackProbe));
     switchu::FileLog::log("[daemon] main() entry");
 
     ueventCreate(&g_mainWakeEvent, true);
