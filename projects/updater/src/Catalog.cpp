@@ -287,8 +287,11 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done, const std::atom
         for (const auto& r : rj)
             if (!r.value("private", false)) own[squash(r.value("name", std::string()))] = r.value("full_name", std::string());
 
-    // The HB App Store: by .nro path, then by title.
-    std::map<std::string, nlohmann::json> byPath, byTitle;
+    // The HB App Store: by .nro path, then by title. Several packages can name
+    // the same .nro (RetroArch and its SNES9x 2010 core both say
+    // /switch/retroarch_switch.nro), so a path maps to all of them.
+    std::map<std::string, std::vector<nlohmann::json>> byPath;
+    std::map<std::string, nlohmann::json> byTitle;
     const std::string store = getText("https://switch.cdn.fortheusers.org/repo.json", status);
     {
         auto sj = nlohmann::json::parse(store, nullptr, false);
@@ -296,7 +299,7 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done, const std::atom
             for (auto& p : sj.value("packages", nlohmann::json::array())) {
                 std::string bin = p.value("binary", std::string());
                 std::transform(bin.begin(), bin.end(), bin.begin(), [](unsigned char c) { return std::tolower(c); });
-                if (!bin.empty()) byPath[bin] = p;
+                if (!bin.empty()) byPath[bin].push_back(p);
                 byTitle[squash(p.value("title", std::string()))] = p;
             }
     }
@@ -317,8 +320,15 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done, const std::atom
             std::string rel = app.path.substr(std::strlen("sdmc:"));
             std::transform(rel.begin(), rel.end(), rel.begin(), [](unsigned char c) { return std::tolower(c); });
             const nlohmann::json* p = nullptr;
-            if (auto it = byPath.find(rel); it != byPath.end()) p = &it->second;
-            else if (auto t = byTitle.find(key); t != byTitle.end()) p = &t->second;
+            // A path shared by several packages is theirs only if the title is
+            // ours; otherwise it would install another package over this app.
+            if (auto it = byPath.find(rel); it != byPath.end()) {
+                for (const nlohmann::json& c : it->second)
+                    if (squash(c.value("title", std::string())) == key) p = &c;
+                if (!p && it->second.size() == 1) p = &it->second.front();
+            }
+            if (!p)
+                if (auto t = byTitle.find(key); t != byTitle.end()) p = &t->second;
             if (p) {
                 app.latest = p->value("version", std::string());
                 app.downloadUrl = "https://switch.cdn.fortheusers.org/zips/" + p->value("name", std::string()) + ".zip";
@@ -327,6 +337,9 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done, const std::atom
                 if (!bin.empty() && bin[0] == '/') bin.erase(0, 1);
                 app.zipEntry = bin;
                 app.source = "HB App Store";
+                // A version without a digit ("beta") can't be compared: not offered.
+                if (std::none_of(app.latest.begin(), app.latest.end(), [](unsigned char c) { return std::isdigit(c); }))
+                    app.latest = app.version;
             }
         }
         ++done;
