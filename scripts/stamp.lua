@@ -4,9 +4,14 @@
 -- they are regenerated when the submodule moves to another commit instead of
 -- on every build. A stamp file holds the revision they were produced from.
 
+-- The submodule commit recorded in the superproject (HEAD:<path>). Asking the
+-- submodule itself ("git -C dir rev-parse HEAD") breaks in a worktree, whose
+-- submodules have no .git/modules: git walks up and returns the superproject's
+-- own HEAD, so the stamp changes at every commit and the artefact is rebuilt.
 function revision(dir)
     return try { function ()
-        return os.iorunv("git", {"-C", dir, "rev-parse", "HEAD"}):trim()
+        local rel = path.relative(dir, os.projectdir()):gsub("\\", "/")
+        return os.iorunv("git", {"-C", os.projectdir(), "rev-parse", "HEAD:" .. rel}):trim()
     end }
 end
 

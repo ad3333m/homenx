@@ -168,6 +168,11 @@ public:
         ~EssentialScope() { --s_essential; }
     };
     uint64_t imageMemoryUsed() const { return m_imageMemUsed; }
+    // Measured, for the [mem] line: most staging memory one upload batch
+    // took, and batch uploads refused because it was full.
+    uint32_t stagingPeak() const { return m_stagingPeak; }
+    uint32_t stagingSize() const { return m_stagingPool.size; }
+    uint32_t stagingOverflows() const { return m_stagingOverflows; }
     uint64_t imageMemoryBudget() const { return s_imageBudget; }
     // An app with more memory than HOME (CardsNX) can allow more pictures.
     static void setImageBudget(uint64_t bytes) { s_imageBudget = bytes; }
@@ -212,6 +217,9 @@ public:
     bool offscreenReady() const { return false; }
     uint64_t imageMemoryUsed() const { return 0; }
     uint64_t imageMemoryBudget() const { return UINT64_MAX; }
+    uint32_t stagingPeak() const { return 0; }
+    uint32_t stagingSize() const { return 0; }
+    uint32_t stagingOverflows() const { return 0; }
     uint64_t imageMemoryAvailable() const { return UINT64_MAX; }
     struct EssentialScope {}; // no budget here
 #endif
@@ -238,6 +246,8 @@ private:
     GpuPool m_codePool;
     GpuPool m_dataPool;
     GpuPool m_imagePool;
+    uint32_t m_stagingPeak = 0;
+    uint32_t m_stagingOverflows = 0;
     GpuPool m_stagingPool;
 
     dk::Image  m_fbImages[NUM_FB];

@@ -157,6 +157,10 @@ public:
 
     // Debug
     uint32_t vertexCount() const { return m_vtxCount; }
+    // Most vertices one frame used (GpuDevice::MAX_VERTICES per frame), and
+    // vertices dropped because a frame ran out: for the [mem] line.
+    uint32_t vertexPeak() const { return m_vtxPeak; }
+    uint32_t verticesDropped() const { return m_vtxDropped; }
     void setBoxWireframeEnabled(bool enabled) { m_boxWireframeEnabled = enabled; }
     bool boxWireframeEnabled() const { return m_boxWireframeEnabled; }
 
@@ -218,6 +222,8 @@ private:
     Vertex2D*  m_vtxBase   = nullptr;
     uint32_t   m_vtxCount  = 0;
     uint32_t   m_vtxBatchStart = 0;
+    uint32_t   m_vtxPeak = 0;
+    uint32_t   m_vtxDropped = 0;
     int        m_curTexSlot = -1;
     bool       m_texturing  = false;
 

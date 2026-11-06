@@ -249,6 +249,20 @@ bool AppConfig::save() const {
     j["folderStyle"] = std::clamp(folderStyle, 0, switchu::folders::kFolderStyleCount - 1);
     j["folderShowCover"] = folderShowCover;
 
+    // Keys this build doesn't know (from a newer or another branch's HomeNX)
+    // stay as the file had them: only this build's own keys are written over.
+    try {
+        std::ifstream current(kConfigPath);
+        if (current.is_open()) {
+            nlohmann::json previous = nlohmann::json::parse(current, nullptr, false);
+            if (previous.is_object()) {
+                previous.update(j);
+                j = std::move(previous);
+            }
+        }
+    } catch (...) {
+    }
+
     // Written beside the real file and swapped in, never over it. Truncating
     // the live config and then dying mid-write is how a crash used to reset
     // every setting to its default: load() found a half-written file, failed to

@@ -103,11 +103,17 @@ struct Settings {
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
 
+    // The file as it was read: save() writes its own keys over it, so a key
+    // this build doesn't know (one from a newer or another branch's CardsNX,
+    // say spotifyEnabled) survives instead of going back to its default there.
+    nlohmann::json loaded = nlohmann::json::object();
+
     void load() {
         try {
             std::ifstream in(kPath);
             if (!in) return;
             const auto j = nlohmann::json::parse(in);
+            if (j.is_object()) loaded = j;
             music = j.value("music", music);
             musicVolume = j.value("musicVolume", musicVolume);
             shuffle = j.value("shuffle", shuffle);
@@ -198,7 +204,9 @@ struct Settings {
         j["notificationCards"] = notificationCards;
         j["lastPage"] = lastPage;
         j["lockGameBanner"] = lockGameBanner;
-        writeLater(kPath, j.dump(2));
+        nlohmann::json out = loaded;
+        out.update(j); // this build's keys win; the others stay as they were
+        writeLater(kPath, out.dump(2));
     }
 };
 

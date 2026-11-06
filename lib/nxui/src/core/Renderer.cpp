@@ -367,6 +367,7 @@ void Renderer::beginFrame() {
 
 void Renderer::endFrame() {
     flush();
+    if (m_vtxCount > m_vtxPeak) m_vtxPeak = m_vtxCount;
 }
 
 void Renderer::updateProjection() {
@@ -683,6 +684,7 @@ void Renderer::applyWave(float time, float amplitude, float frequency) {
 void Renderer::addVertex(float x, float y, float u, float v, const Color& c) {
     if (m_vtxCount >= GpuDevice::MAX_VERTICES) {
         std::printf("[Renderer] WARN: vertex buffer full (%u)\n", m_vtxCount);
+        ++m_vtxDropped;
         return;
     }
     auto& vtx  = m_vtxBase[m_vtxCount++];

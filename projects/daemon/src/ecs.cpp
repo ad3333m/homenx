@@ -27,8 +27,17 @@ struct EcsServerOptions {
 
 using EcsServerManager = ::ams::sf::hipc::ServerManager<0, EcsServerOptions, 8>;
 
-constexpr size_t kAmsHeapSize = 2 * 1024 * 1024;
-constexpr size_t kManagerThreadStackSize = 0x8000;
+// libstratosphere is built with AMS_INIT_USE_STANDARD_ALLOCATOR_FOR_MALLOC: its
+// init_malloc.o replaces malloc/free, so this region is the daemon's whole malloc
+// heap (newlib's allocator and the libnx heap are bypassed). 4 KiB aborts at boot.
+// daemon_mem.txt, sampled every second over game launches and homebrew: lowest
+// free 1636 of 2048 KiB, so ~412 KiB at the peak, 144 KiB of it the stacks of
+// the event, control-cache and achievements threads (libnx takes them from
+// malloc). Those went down by 80 KiB, so ~332 KiB: 1.25 MiB keeps ~3.8x.
+constexpr size_t kAmsHeapSize = 0x140000;
+// daemon_mem.txt ecs_stack: 3 KiB deep over game and homebrew launches (every
+// ldr request for HOME's and hbl's exefs runs here). 16 KiB keeps ~5x.
+constexpr size_t kManagerThreadStackSize = 0x4000;
 constexpr s32 kManagerThreadPriority = 10;
 
 alignas(::ams::os::MemoryPageSize) uint8_t g_amsHeap[kAmsHeapSize] = {};
@@ -81,6 +90,21 @@ Result ldrAtmosUnregisterExternalCode(uint64_t program_id) {
         smi::kLdrAtmosUnregisterExternalCode, program_id);
 }
 
+}
+
+void getMallocHeapStats(size_t* total, size_t* free, size_t* allocatable) {
+    *total = kAmsHeapSize;
+    *free = *allocatable = 0;
+    if (!g_allocatorReady.load())
+        return;
+    if (auto* alloc = ::ams::init::GetAllocator()) {
+        *free = alloc->GetTotalFreeSize();
+        *allocatable = alloc->GetAllocatableSize();
+    }
+}
+
+const Thread* managerThread() {
+    return g_runtimeReady.load() ? g_managerThread.thread_impl : nullptr;
 }
 
 void initializeExternalContentAllocator() {

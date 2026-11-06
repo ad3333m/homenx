@@ -739,6 +739,14 @@ void AudioManager::update(float dt) {
             const auto next = static_cast<size_t>(nextIndexInOrder(m_current));
             if (next < m_tracks.size() && !m_tracks[next])
                 m_tracks[next] = Mix_LoadMUS(m_trackInfos[next].path.c_str());
+            // Only this song and the next stay open: every song already played kept its decoder,
+            // seek index and an SD file handle for as long as HOME ran.
+            for (size_t i = 0; i < m_tracks.size(); ++i) {
+                if (static_cast<int>(i) == m_current || i == next || !m_tracks[i])
+                    continue;
+                Mix_FreeMusic(m_tracks[i]);
+                m_tracks[i] = nullptr;
+            }
         }
     }
 }

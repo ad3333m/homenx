@@ -579,6 +579,9 @@ void DiscordService::openChannel(Snowflake channelId) {
     const Snowflake guildId = ch ? ch->guildId : 0;
     // A server channel only sends live messages once it's subscribed to.
     if (guildId && m_gateway) m_gateway->Subscribe(guildId, channelId);
+    // Only the 8 channels used last stay in memory (100 messages each): every channel
+    // opened kept all its messages, and every new one sent there, for as long as HOME ran.
+    m_store->TrimCaches(channelId);
     ChannelMessages& cm = m_store->Messages(channelId);
     if (cm.loaded || cm.loading) return;
     cm.loading = true;

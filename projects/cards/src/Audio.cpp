@@ -280,7 +280,7 @@ void Audio::stop() {
     Mix_HaltChannel(-1);
     if (m_current) Mix_FreeMusic(m_current);
     m_current = nullptr;
-    m_trackData.clear();
+    std::vector<unsigned char>().swap(m_trackData); // clear() would keep the whole song's bytes allocated
     for (auto& [name, c] : m_chunks) Mix_FreeChunk(c);
     m_chunks.clear();
     Mix_CloseAudio();
@@ -293,7 +293,13 @@ void Audio::setMusic(bool on, int volume) {
     if (!m_open) return;
     Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
     if (!on) {
+        Mix_HookMusicFinished(nullptr); // halting isn't "it ended"
         Mix_HaltMusic();
+        Mix_HookMusicFinished(onTrackEnded);
+        // Music off: let go of the song (it is held whole in memory, up to ~9 MB) until music is on again.
+        if (m_current) Mix_FreeMusic(m_current);
+        m_current = nullptr;
+        std::vector<unsigned char>().swap(m_trackData);
         m_isPlaying = false;
         m_playing = m_wantTrack = -1;
         g_trackEnded = false;

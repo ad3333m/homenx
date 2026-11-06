@@ -12,12 +12,17 @@
 #include <switchu/lock_screen_policy.hpp>
 #include <switchu/lock_screen_preferences.hpp>
 #include "achievements_watch.hpp"
+#include "thread_stack.hpp"
 #include "app_manager.hpp"
 #include "ecs.hpp"
+#include "hbl_override.hpp"
 #include "library_applet_runner.hpp"
 #include "menu_launcher.hpp"
 #include "system_action_queue.hpp"
 #include <cstdio>
+#include <malloc.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <cstring>
 #include <cctype>
 #include <map>
@@ -63,8 +68,24 @@ extern "C" {
     u32 __nx_applet_type = AppletType_SystemApplet;
     u32 __nx_fs_num_sessions = 3;
 
-    size_t __nx_heap_size = 0x800000;
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
+}
+
+// malloc is libstratosphere's (g_amsHeap, ecs.cpp), so newlib's sbrk heap only
+// backs newlib internals (stdio buffers): brk_used stayed at 4 KiB in
+// daemon_mem.txt over game and homebrew launches. The kernel heap comes in
+// 2 MiB steps (it was 8, then 2); a static 64 KiB, ~16x that, takes its place,
+// as in sysmodules.
+namespace {
+constexpr size_t kNewlibHeapSize = 0x10000;
+alignas(0x1000) char g_newlibHeap[kNewlibHeapSize];
+}
+
+extern "C" void __libnx_initheap(void) {
+    extern char* fake_heap_start;
+    extern char* fake_heap_end;
+    fake_heap_start = g_newlibHeap;
+    fake_heap_end = g_newlibHeap + sizeof(g_newlibHeap);
 }
 
 extern "C" void __appInit(void) {
@@ -1414,7 +1435,10 @@ static bool albumRunsHbl() {
         if (k.rfind("override_key", 0) == 0) keys[k.substr(std::strlen("override_key"))] = v;
     }
     std::fclose(f);
-    if (programs.empty()) return true;
+    // Slot 0 stays Atmosphère's default, the Album, unless the file names its
+    // own program there (program_id / program_id_0): other slots, HomeNX's own
+    // among them (hbl_override.hpp), don't replace it.
+    if (!programs.count("") && !programs.count("_0")) programs[""] = "010000000000100d";
     for (const auto& [suffix, program] : programs)
         if (program == "010000000000100d" || program == "0x010000000000100d") {
             const auto key = keys.find(suffix);
@@ -1466,6 +1490,7 @@ static void releaseHomebrewHost() {
     if (g_homebrewHostTitleId == 0) return;
     const Result rc = daemon::unregisterExternalContent(g_homebrewHostTitleId);
     switchu::FileLog::log("[homebrew] released host 0x%016lX rc=0x%X", g_homebrewHostTitleId, rc);
+    daemon::hbl_override::release("homebrew closed");
     g_homebrewHostTitleId = 0;
 }
 
@@ -1994,6 +2019,8 @@ static bool handleAction(daemon::SystemAction& action) {
                 if (R_SUCCEEDED(rc)) {
                     g_homebrewHostTitleId = host;
                     g_homebrewLaunchedAt = armGetSystemTick();
+                    // Before the launch: the loader reads it as the process starts.
+                    daemon::hbl_override::set(host);
                     rc = daemon::app::launch(host, action.uid);
                 }
                 if (R_SUCCEEDED(rc)) {
@@ -2448,6 +2475,98 @@ static void waitForMainWork() {
 static Thread g_eventThread = {};
 static std::atomic<bool> g_eventRunning{false};
 
+
+static std::atomic<uintptr_t> g_mainStackProbe{0}; // an address on the main thread's stack (main())
+static size_t g_mallocMinFree = SIZE_MAX;            // lowest malloc free seen, sampled every event-loop pass
+
+static void sampleMallocLow() {
+    size_t total = 0, free = 0, block = 0;
+    daemon::getMallocHeapStats(&total, &free, &block);
+    if (free < g_mallocMinFree) g_mallocMinFree = free;
+}
+
+// Deepest the main thread's stack has gone: the kernel hands it out zeroed and it
+// grows down, so everything below the first non-zero word was never touched.
+static size_t mainStackUsed(size_t* size) {
+    *size = 0;
+    const uintptr_t probe = g_mainStackProbe.load();
+    MemoryInfo mi{};
+    u32 pi = 0;
+    if (!probe || R_FAILED(svcQueryMemory(&mi, &pi, probe))) return 0;
+    *size = mi.size;
+    const u64* p = reinterpret_cast<const u64*>(mi.addr);
+    const u64* end = reinterpret_cast<const u64*>(mi.addr + mi.size);
+    while (p < end && *p == 0) ++p;
+    return reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(p);
+}
+
+// Same measure for a libnx thread, on its stack mirror (the original mapping is
+// unreadable once libnx maps it). Stacks threadCreate takes from malloc are
+// cleared before the thread starts (thread_stack.hpp), else old heap data reads
+// as a full stack.
+static size_t threadStackUsed(const Thread* t) {
+    if (!t->stack_mirror || !t->stack_sz) return 0;
+    const volatile u64* p = static_cast<const volatile u64*>(t->stack_mirror);
+    const volatile u64* end = p + t->stack_sz / sizeof(u64);
+    while (p < end && *p == 0) ++p;
+    return reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(p);
+}
+
+static Thread g_controlCacheThread = {};
+
+// "event=used/total" etc. for each thread that is running.
+static void formatThreadStacks(char* out, size_t outSize) {
+    struct Entry { const char* name; const Thread* t; };
+    const Entry entries[] = {
+        {"ecs_stack", switchu::daemon::managerThread()},
+        {"event_stack", &g_eventThread},
+        {"cache_stack", &g_controlCacheThread},
+        {"ach_stack", &switchu::daemon::achievements_watch::detail::g_thread},
+    };
+    size_t n = 0;
+    out[0] = '\0';
+    for (const auto& e : entries) {
+        if (!e.t || !e.t->stack_mirror || n >= outSize) continue;
+        n += std::snprintf(out + n, outSize - n, " %s=%luK/%luK", e.name,
+                           (unsigned long)(threadStackUsed(e.t) >> 10),
+                           (unsigned long)(e.t->stack_sz >> 10));
+    }
+}
+
+// sdmc:/config/SwitchU/daemon_mem.txt, rewritten (opened, closed) once a minute
+// while sdmc:/config/SwitchU/memdebug exists: daemon.log stays open, so it can't
+// be read while HOME runs. malloc heap (the AMS region, see ecs.cpp) free now /
+// lowest seen / largest block, newlib's sbrk use of the libnx heap, main stack
+// depth, the other threads' stack depths, process total.
+static void writeDaemonMemReport() {
+    struct stat st;
+    if (stat("sdmc:/config/SwitchU/memdebug", &st) != 0) return;
+    char stacks[160];
+    formatThreadStacks(stacks, sizeof(stacks));
+    size_t heapTotal = 0, heapFree = 0, heapBlock = 0;
+    daemon::getMallocHeapStats(&heapTotal, &heapFree, &heapBlock);
+    if (heapFree < g_mallocMinFree) g_mallocMinFree = heapFree;
+    const size_t minFree = g_mallocMinFree;
+    size_t stackSize = 0;
+    const size_t stackUsed = mainStackUsed(&stackSize);
+    extern char* fake_heap_start;
+    extern char* fake_heap_end;
+    const char* brk = static_cast<const char*>(sbrk(0)); // newlib's high-water mark inside the libnx heap
+    u64 used = 0, total = 0;
+    svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+    svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+    if (FILE* f = std::fopen("sdmc:/config/SwitchU/daemon_mem.txt", "a")) {
+        std::fprintf(f, "[%llu s] [mem] malloc=%luK free=%luK min_free=%luK block=%luK brk_used=%luK heap=%luK main_stack=%luK/%luK%s process=%lluK limit=%lluK\n",
+                     (unsigned long long)(armTicksToNs(armGetSystemTick()) / 1000000000ULL),
+                     (unsigned long)(heapTotal >> 10), (unsigned long)(heapFree >> 10),
+                     (unsigned long)(minFree >> 10), (unsigned long)(heapBlock >> 10),
+                     (unsigned long)((brk - fake_heap_start) >> 10), (unsigned long)((fake_heap_end - fake_heap_start) >> 10),
+                     (unsigned long)(stackUsed >> 10), (unsigned long)(stackSize >> 10), stacks,
+                     (unsigned long long)(used >> 10), (unsigned long long)(total >> 10));
+        std::fclose(f);
+    }
+}
+
 static void eventManagerThreadFunc(void* arg) {
     (void)arg;
     switchu::FileLog::log("[event] thread alive");
@@ -2489,6 +2608,7 @@ static void eventManagerThreadFunc(void* arg) {
     }
 
     while (g_eventRunning.load()) {
+        sampleMallocLow();
         s32 evIdx = -1;
         Result waitRc;
         if (hasGcEvent && hasPsmEvent) {
@@ -2509,7 +2629,14 @@ static void eventManagerThreadFunc(void* arg) {
                 waiterForEvent(&recordEvent));
         }
 
-        if (waitRc == KERNELRESULT(TimedOut)) continue;
+        if (waitRc == KERNELRESULT(TimedOut)) {
+            static unsigned memTicks = 0;
+            if (++memTicks >= 60) { // once a minute: the daemon's memory, when asked for (tools/memwatch.py --daemon)
+                memTicks = 0;
+                writeDaemonMemReport();
+            }
+            continue;
+        }
         if (R_FAILED(waitRc)) continue;
 
         if (evIdx == 0) {
@@ -2553,10 +2680,12 @@ static Result startEventManager() {
         switchu::FileLog::log("[event] threadCreate FAIL: 0x%X", rc);
         return rc;
     }
+    switchu::daemon::clearThreadStack(&g_eventThread);
     rc = threadStart(&g_eventThread);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[event] threadStart FAIL: 0x%X", rc);
         threadClose(&g_eventThread);
+        g_eventThread = {}; // the mem report reads stack_mirror
         return rc;
     }
     switchu::FileLog::log("[event] thread started");
@@ -2567,10 +2696,10 @@ static void stopEventManager() {
     g_eventRunning.store(false);
     threadWaitForExit(&g_eventThread);
     threadClose(&g_eventThread);
+    g_eventThread = {}; // the mem report reads stack_mirror
     switchu::FileLog::log("[event] thread stopped");
 }
 
-static Thread g_controlCacheThread = {};
 static std::atomic<bool> g_controlCacheRunning{false};
 static bool g_controlCacheStarted = false;
 
@@ -2672,17 +2801,21 @@ static void controlCacheThreadFunc(void* arg) {
 
 static Result startControlCacheWorker() {
     g_controlCacheRunning.store(true);
+    // daemon_mem.txt cache_stack: 3 KiB deep (control data and icons are on the
+    // heap). 16 KiB, taken from malloc, keeps ~5x.
     Result rc = threadCreate(&g_controlCacheThread, controlCacheThreadFunc, nullptr,
-                             nullptr, 0x10000, 0x2D, -2);
+                             nullptr, 0x4000, 0x2D, -2);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[control-cache] threadCreate FAIL: 0x%X", rc);
         return rc;
     }
 
+    switchu::daemon::clearThreadStack(&g_controlCacheThread);
     rc = threadStart(&g_controlCacheThread);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[control-cache] threadStart FAIL: 0x%X", rc);
         threadClose(&g_controlCacheThread);
+        g_controlCacheThread = {}; // the mem report reads stack_mirror
         return rc;
     }
 
@@ -2698,11 +2831,14 @@ static void stopControlCacheWorker() {
     ueventSignal(&g_controlCacheWakeEvent);
     threadWaitForExit(&g_controlCacheThread);
     threadClose(&g_controlCacheThread);
+    g_controlCacheThread = {}; // the mem report reads stack_mirror
     g_controlCacheStarted = false;
     switchu::FileLog::log("[control-cache] thread stopped");
 }
 
 int main(int argc, char* argv[]) {
+    int stackProbe = 0;
+    g_mainStackProbe.store(reinterpret_cast<uintptr_t>(&stackProbe));
     switchu::FileLog::log("[daemon] main() entry");
 
     ueventCreate(&g_mainWakeEvent, true);
@@ -2714,6 +2850,9 @@ int main(int argc, char* argv[]) {
 
     appletLoadAndApplyIdlePolicySettings();
     clearAutoAppletFlag();
+    // A homebrew that rebooted the console (Prelude) never closed: its game
+    // would stay hbl for Atmosphère (hbl_override.hpp).
+    daemon::hbl_override::clearAtBoot();
 
     rebuildAppCatalog("boot");
 
