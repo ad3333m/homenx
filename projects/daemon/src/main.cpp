@@ -2479,14 +2479,48 @@ static size_t mainStackUsed(size_t* size) {
     return reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(p);
 }
 
+// Same measure for a libnx thread, on its stack mirror (the original mapping is
+// unreadable once libnx maps it). Stacks threadCreate takes from malloc may hold
+// old data, which only overstates the depth.
+static size_t threadStackUsed(const Thread* t) {
+    if (!t->stack_mirror || !t->stack_sz) return 0;
+    const volatile u64* p = static_cast<const volatile u64*>(t->stack_mirror);
+    const volatile u64* end = p + t->stack_sz / sizeof(u64);
+    while (p < end && *p == 0) ++p;
+    return reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(p);
+}
+
+static Thread g_controlCacheThread = {};
+
+// "event=used/total" etc. for each thread that is running.
+static void formatThreadStacks(char* out, size_t outSize) {
+    struct Entry { const char* name; const Thread* t; };
+    const Entry entries[] = {
+        {"ecs_stack", switchu::daemon::managerThread()},
+        {"event_stack", &g_eventThread},
+        {"cache_stack", &g_controlCacheThread},
+        {"ach_stack", &switchu::daemon::achievements_watch::detail::g_thread},
+    };
+    size_t n = 0;
+    out[0] = '\0';
+    for (const auto& e : entries) {
+        if (!e.t || !e.t->stack_mirror || n >= outSize) continue;
+        n += std::snprintf(out + n, outSize - n, " %s=%luK/%luK", e.name,
+                           (unsigned long)(threadStackUsed(e.t) >> 10),
+                           (unsigned long)(e.t->stack_sz >> 10));
+    }
+}
+
 // sdmc:/config/SwitchU/daemon_mem.txt, rewritten (opened, closed) once a minute
 // while sdmc:/config/SwitchU/memdebug exists: daemon.log stays open, so it can't
 // be read while HOME runs. malloc heap (the AMS region, see ecs.cpp) free now /
 // lowest seen / largest block, newlib's sbrk use of the libnx heap, main stack
-// depth, process total.
+// depth, the other threads' stack depths, process total.
 static void writeDaemonMemReport() {
     struct stat st;
     if (stat("sdmc:/config/SwitchU/memdebug", &st) != 0) return;
+    char stacks[160];
+    formatThreadStacks(stacks, sizeof(stacks));
     size_t heapTotal = 0, heapFree = 0, heapBlock = 0;
     daemon::getMallocHeapStats(&heapTotal, &heapFree, &heapBlock);
     if (heapFree < g_mallocMinFree) g_mallocMinFree = heapFree;
@@ -2500,12 +2534,12 @@ static void writeDaemonMemReport() {
     svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
     svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
     if (FILE* f = std::fopen("sdmc:/config/SwitchU/daemon_mem.txt", "a")) {
-        std::fprintf(f, "[%llu s] [mem] malloc=%luK free=%luK min_free=%luK block=%luK brk_used=%luK heap=%luK main_stack=%luK/%luK process=%lluK limit=%lluK\n",
+        std::fprintf(f, "[%llu s] [mem] malloc=%luK free=%luK min_free=%luK block=%luK brk_used=%luK heap=%luK main_stack=%luK/%luK%s process=%lluK limit=%lluK\n",
                      (unsigned long long)(armTicksToNs(armGetSystemTick()) / 1000000000ULL),
                      (unsigned long)(heapTotal >> 10), (unsigned long)(heapFree >> 10),
                      (unsigned long)(minFree >> 10), (unsigned long)(heapBlock >> 10),
                      (unsigned long)((brk - fake_heap_start) >> 10), (unsigned long)((fake_heap_end - fake_heap_start) >> 10),
-                     (unsigned long)(stackUsed >> 10), (unsigned long)(stackSize >> 10),
+                     (unsigned long)(stackUsed >> 10), (unsigned long)(stackSize >> 10), stacks,
                      (unsigned long long)(used >> 10), (unsigned long long)(total >> 10));
         std::fclose(f);
     }
@@ -2628,6 +2662,7 @@ static Result startEventManager() {
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[event] threadStart FAIL: 0x%X", rc);
         threadClose(&g_eventThread);
+        g_eventThread = {}; // the mem report reads stack_mirror
         return rc;
     }
     switchu::FileLog::log("[event] thread started");
@@ -2638,10 +2673,10 @@ static void stopEventManager() {
     g_eventRunning.store(false);
     threadWaitForExit(&g_eventThread);
     threadClose(&g_eventThread);
+    g_eventThread = {}; // the mem report reads stack_mirror
     switchu::FileLog::log("[event] thread stopped");
 }
 
-static Thread g_controlCacheThread = {};
 static std::atomic<bool> g_controlCacheRunning{false};
 static bool g_controlCacheStarted = false;
 
@@ -2754,6 +2789,7 @@ static Result startControlCacheWorker() {
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[control-cache] threadStart FAIL: 0x%X", rc);
         threadClose(&g_controlCacheThread);
+        g_controlCacheThread = {}; // the mem report reads stack_mirror
         return rc;
     }
 
@@ -2769,6 +2805,7 @@ static void stopControlCacheWorker() {
     ueventSignal(&g_controlCacheWakeEvent);
     threadWaitForExit(&g_controlCacheThread);
     threadClose(&g_controlCacheThread);
+    g_controlCacheThread = {}; // the mem report reads stack_mirror
     g_controlCacheStarted = false;
     switchu::FileLog::log("[control-cache] thread stopped");
 }

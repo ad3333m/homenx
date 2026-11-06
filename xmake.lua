@@ -163,7 +163,7 @@ target("atmosphere-stratosphere")
             cprint("${color.build.target}cached${clear} libstratosphere")
             return
         end
-        os.execv("make", {"-C", "lib/Atmosphere-libs/libstratosphere", "nx_release"})
+        os.execv("make", {"-j" .. os.cpuinfo().ncpu, "-C", "lib/Atmosphere-libs/libstratosphere", "nx_release"})
         stamp.write("libstratosphere", revision)
     end)
 target_end()

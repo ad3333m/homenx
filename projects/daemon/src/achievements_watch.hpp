@@ -377,9 +377,14 @@ inline void threadFunc(void*) {
 inline void start() {
     ueventCreate(&detail::g_wake, false);
     detail::g_running = true;
-    if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x10000, 0x3B, -2))
-        && R_SUCCEEDED(threadStart(&detail::g_thread)))
-        detail::g_started = true;
+    if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x10000, 0x3B, -2))) {
+        if (R_SUCCEEDED(threadStart(&detail::g_thread))) {
+            detail::g_started = true;
+        } else {
+            threadClose(&detail::g_thread); // else its 64 KiB stack stays taken from malloc
+            detail::g_thread = {};
+        }
+    }
     switchu::FileLog::log("[achievements] watch %s", detail::g_started ? "started" : "didn't start");
 }
 
@@ -389,6 +394,7 @@ inline void stop() {
     ueventSignal(&detail::g_wake);
     threadWaitForExit(&detail::g_thread);
     threadClose(&detail::g_thread);
+    detail::g_thread = {}; // the daemon's mem report reads stack_mirror
     detail::g_started = false;
 }
 

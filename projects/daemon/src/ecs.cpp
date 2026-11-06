@@ -99,6 +99,10 @@ void getMallocHeapStats(size_t* total, size_t* free, size_t* allocatable) {
     }
 }
 
+const Thread* managerThread() {
+    return g_runtimeReady.load() ? g_managerThread.thread_impl : nullptr;
+}
+
 void initializeExternalContentAllocator() {
     bool expected = false;
     if (g_allocatorReady.compare_exchange_strong(expected, true)) {

@@ -9,5 +9,7 @@ void initializeExternalContentAllocator();
 void getMallocHeapStats(size_t* total, size_t* free, size_t* allocatable);
 Result registerExternalContent(uint64_t program_id, const char* exefs_path);
 Result unregisterExternalContent(uint64_t program_id);
+// libnx thread under the stratosphere manager thread, or nullptr before it runs
+const Thread* managerThread();
 
 }

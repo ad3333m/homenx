@@ -64,7 +64,9 @@ constexpr size_t kHeapLadder[] = {
 };
 }
 
-extern "C" size_t g_switchuHeapSize = 0;
+extern "C" {
+size_t g_switchuHeapSize = 0; // read by CardsActivity.cpp
+}
 
 extern "C" void __libnx_initheap(void) {
     extern char* fake_heap_start;
