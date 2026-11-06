@@ -76,6 +76,8 @@ struct GameCardState {
         return false;
     }
 };
+enum class GameCardMarker { None, Required, Inserted };
+GameCardMarker gameCardMarker(const Game& game, const GameCardState& state);
 GameCardState readGameCard(std::uint64_t knownTitle = 0, const std::vector<Game>& knownGames = {});
 // The .nro apps in sdmc:/switch (and one folder below), Sphaira, Discord
 // (SwitchCord) and the Homebrew Manager first.

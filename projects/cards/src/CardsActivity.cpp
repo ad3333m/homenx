@@ -114,7 +114,8 @@ const Accent kAccents[] = {
 };
 constexpr int kAccentCount = sizeof(kAccents) / sizeof(kAccents[0]);
 const char* const kGlassNames[] = {"Clear", "Frosted", "Dark"};
-const char* const kGameCardDisplayNames[] = {"Icon only", "Game in first position", "Title bar", "First position and title"};
+const char* const kGameCardDisplayNames[] = {"Nothing", "Game in first position", "Title bar", "First position and title"};
+const char* const kGameCardIconNames[] = {"Nothing", "Inserted game card only", "Inserted and required game cards"};
 const char* const kLaunchNames[] = {"Card jump", "Splash screen", "Card zoom", "Card flip", "Dive in", "Off"};
 // Each style's length against the zoom's (callers give the zoom's seconds).
 constexpr float kLaunchPace[] = {0.85f, 1.1f, 1.f, 0.95f, 0.8f, 0.15f};
@@ -4451,6 +4452,20 @@ void CardsActivity::openGameCardDisplay() {
     m_menuSel = std::clamp(m_settings.gameCardDisplay, 0, 3);
 }
 
+void CardsActivity::openGameCardIcons() {
+    std::vector<MenuItem> items;
+    for (int mode = 0; mode < 3; ++mode) {
+        MenuItem item = action(kGameCardIconNames[mode], [this, mode]() {
+            m_settings.gameCardIcons = mode;
+            m_settings.save();
+        });
+        item.value = [this, mode]() { return m_settings.gameCardIcons == mode ? tr("Selected") : std::string{}; };
+        items.push_back(std::move(item));
+    }
+    openMenu("Game card icons", std::move(items));
+    m_menuSel = std::clamp(m_settings.gameCardIcons, 0, 2);
+}
+
 std::vector<CardsActivity::MenuItem> CardsActivity::powerItems() {
     std::vector<MenuItem> items;
 #ifdef SWITCHU_MENU
@@ -5720,6 +5735,9 @@ void CardsActivity::buildSettings() {
     MenuItem cartridge = action("Game card inserted", [this]() { openGameCardDisplay(); });
     cartridge.value = [this]() { return std::string(kGameCardDisplayNames[std::clamp(m_settings.gameCardDisplay, 0, 3)]); };
     look.rows.push_back(std::move(cartridge));
+    MenuItem cartridgeIcons = action("Game card icons", [this]() { openGameCardIcons(); });
+    cartridgeIcons.value = [this]() { return std::string(kGameCardIconNames[std::clamp(m_settings.gameCardIcons, 0, 2)]); };
+    look.rows.push_back(std::move(cartridgeIcons));
     MenuItem wall = action("Background", [this]() { openWallpapers(); });
     wall.value = [this]() {
         return m_settings.wallpaper.empty() ? std::string("Each game's art") : std::filesystem::path(m_settings.wallpaper).filename().string();
@@ -9236,8 +9254,11 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             r.popClipRect();
         }
 
-        if (m_gameCard.status == GameCardStatus::Ready && m_gameCard.contains(g.id)) {
-            icon(r, "gamecard", card.x + card.width - 26.f, card.y + 28.f, 28.f, kWhite.withAlpha(alpha));
+        const auto cartridge = gameCardMarker(g, m_gameCard);
+        if ((cartridge == GameCardMarker::Inserted && m_settings.showInsertedGameCardIcon()) ||
+            (cartridge == GameCardMarker::Required && m_settings.showRequiredGameCardIcon())) {
+            icon(r, cartridge == GameCardMarker::Inserted ? "gamecard" : "gamecard-required",
+                 card.x + card.width - 26.f, card.y + 28.f, 28.f, kWhite.withAlpha(alpha));
         }
 
         if (isRunning(g.id)) { // open now: a pill at the bottom of its card

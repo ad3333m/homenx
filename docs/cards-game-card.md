@@ -1,11 +1,26 @@
 # CardsNX: Inserted Game Card
 
 CardsNX can show a small status row above the cards, with the inserted game's system
-name and icon. Its existing library card has a generic cartridge icon.
+name and icon. Its existing library card can show a generic cartridge icon.
 This is separate from "Open now": inserted software is not necessarily running.
 
-Settings > Appearance > Game card inserted selects Icon only, Game in first
-position, Title bar (default), or First position and title. Pinning is temporary,
+Library cards use a 28-pixel cartridge badge: the colored icon identifies a title
+confirmed on the inserted cartridge; a grayscale icon with a dashed outline means
+the system identifies it as cartridge software but it is not currently confirmed
+as inserted. Installed-only software, homebrew and system actions have no badge.
+Installed updates alone do not turn cartridge software into an installed-only game.
+Unknown flags are not treated as evidence that a cartridge is required. Only titles
+already known to Nintendo services can be marked; this does not enumerate MIG games.
+
+Settings > Appearance > Game card inserted selects Nothing (default for a missing
+setting), Game in first position, Title bar, or First position and title. Saved
+choices are preserved. The separate Game card icons modal offers Nothing (default),
+Inserted game card only, or Inserted and required game cards. It persists as
+`gameCardIcons` (0..2); the older boolean toggle is ignored, so upgrading from the
+test build also starts with no badges until a mode is chosen. Badge visibility
+does not change pinning or the title bar. Both icons use centered, native 96-pixel textures with
+transparent padding and subdued outer edges, displayed at 28 pixels without the
+loader's nearest-neighbor downscale. Pinning is temporary,
 bypasses category membership while respecting explicitly hidden cards, removes
 duplicates and preserves other titles' order and the selected title while it
 remains available. The bar follows the current Glass style.
@@ -19,7 +34,8 @@ See `cards-game-card-display.md` for persistence and presentation details.
 - Preserves an existing selected title while it remains available. Empty pages or
    removal of an injected-only title use a bounded fallback selection. An explicit
    software scan retains its existing behavior.
-- Previously used cartridge games remain in the library without the inserted marker.
+- Previously used cartridge games remain in the library with the required-cartridge
+   badge when their NS flags identify them as cartridge software.
 - The status row is independent of library pages, filters, and artwork downloads.
 - This change applies to CardsNX, both standalone and as the default HOME layout.
 
@@ -49,6 +65,10 @@ read can recover the display.
 services and real libnx declarations. It covers title changes, historical entries,
 record ordering and batching, absence, conflicting flags, removal during reads,
 metadata failures, missing icons, resource cleanup, and recovery.
+Badge tests cover installed-only games, installed cartridge updates, stale inserted
+flags, multi-title membership, checking/error states and excluded non-game entries.
+Settings tests cover all twelve combinations of icon mode and presentation mode,
+persistence, absent settings, the previous test-build toggle and invalid values.
 
 The test is included in `tests/run_cards_personalization.sh`. It needs a host C++20
 compiler, libnx headers, zlib, and the runner's existing JSON dependency. Use LF
@@ -66,6 +86,9 @@ The tester confirmed an earlier development package on a physical Switch:
 Pikmin 1+2 is recognized as two cartridge titles, with working presentation,
 translations and ordering. On 2026-11-06, the tester also reported that the
 test package integrated with upstream `8756d38` worked correctly on the Switch.
+The tester subsequently confirmed the required-cartridge badge and corrected icon
+edges, then reported that the final three-level icon modal package was fully
+working on the Switch. Its graphics are unchanged from the confirmed correction.
 These are user-reported hardware results, not automated UI tests. Individual
 console checklist results were not separately reported. Three-title cartridges
 are covered by mocked reader tests; physical three-title testing and exhaustive
@@ -73,7 +96,7 @@ testing of all translation languages have not been reported.
 
 ## Console Checks After Building
 
-1. With no game running, verify the empty slot shows "No game card inserted".
+1. Enable Title bar. With no game running, verify the empty slot shows "No game card inserted".
 2. Insert game A: check its name, icon, and marker on its existing card.
 3. Change A to B and back to A, with no game running. Confirm only the currently
    recognized titles are marked, and library order and selection remain stable.
@@ -83,6 +106,16 @@ testing of all translation languages have not been reported.
 6. Sleep and wake without changing the cartridge; verify the status refreshes.
 7. Insert a multi-game cartridge: verify all its titles are marked, shown in the
    title bar, and pinned in reading order only when the selected mode enables it.
+8. With no cartridge inserted, verify known cartridge titles show the grayscale
+   dashed badge and installed-only games show no cartridge badge. Insert and remove
+   a cartridge with no game running: its titles should change between colored and
+   grayscale badges. Check a cartridge title with an installed update as well.
+9. Open Game card icons in all four presentation modes. Nothing hides both badges;
+   Inserted game card only shows colored badges for confirmed inserted titles;
+   Inserted and required game cards adds the gray badges for absent cartridges.
+   Pinning and the title bar must not change. Restart to check persistence.
+10. With no saved icon mode, including an older boolean-toggle configuration,
+    verify no badges. Existing saved presentation modes must not be reset.
 
 Do not change or remove a cartridge while its game is running to provoke errors.
 If a normal read fails, record the displayed result code and whether removing and

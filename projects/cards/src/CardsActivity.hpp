@@ -239,6 +239,7 @@ private:
     void clearGameCardPresentation();
     void refreshGameCardPresentation();
     void openGameCardDisplay();
+    void openGameCardIcons();
     std::vector<Game> m_gameCardPages[Settings::kMaxPages];
     std::uint64_t m_gameCardDetachedSel[Settings::kMaxPages]{};
     bool m_gameCardPinned = false;

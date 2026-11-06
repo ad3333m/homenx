@@ -8,6 +8,16 @@
 
 namespace cards {
 
+GameCardMarker gameCardMarker(const Game& game, const GameCardState& state) {
+    if (!game.id || game.homebrew || !game.path.empty() || !game.action.empty())
+        return GameCardMarker::None;
+    if (state.status == GameCardStatus::Ready && state.contains(game.id))
+        return GameCardMarker::Inserted;
+    if (game.flags & switchu::ns::AppViewFlag_IsGameCard)
+        return GameCardMarker::Required;
+    return GameCardMarker::None;
+}
+
 GameCardState readGameCard(std::uint64_t knownTitle, const std::vector<Game>& knownGames) {
     GameCardState state;
     FsDeviceOperator device{};
