@@ -12,6 +12,7 @@
 #include <switchu/lock_screen_policy.hpp>
 #include <switchu/lock_screen_preferences.hpp>
 #include "achievements_watch.hpp"
+#include "thread_stack.hpp"
 #include "app_manager.hpp"
 #include "ecs.hpp"
 #include "library_applet_runner.hpp"
@@ -2480,8 +2481,9 @@ static size_t mainStackUsed(size_t* size) {
 }
 
 // Same measure for a libnx thread, on its stack mirror (the original mapping is
-// unreadable once libnx maps it). Stacks threadCreate takes from malloc may hold
-// old data, which only overstates the depth.
+// unreadable once libnx maps it). Stacks threadCreate takes from malloc are
+// cleared before the thread starts (thread_stack.hpp), else old heap data reads
+// as a full stack.
 static size_t threadStackUsed(const Thread* t) {
     if (!t->stack_mirror || !t->stack_sz) return 0;
     const volatile u64* p = static_cast<const volatile u64*>(t->stack_mirror);
@@ -2658,6 +2660,7 @@ static Result startEventManager() {
         switchu::FileLog::log("[event] threadCreate FAIL: 0x%X", rc);
         return rc;
     }
+    switchu::daemon::clearThreadStack(&g_eventThread);
     rc = threadStart(&g_eventThread);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[event] threadStart FAIL: 0x%X", rc);
@@ -2785,6 +2788,7 @@ static Result startControlCacheWorker() {
         return rc;
     }
 
+    switchu::daemon::clearThreadStack(&g_controlCacheThread);
     rc = threadStart(&g_controlCacheThread);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[control-cache] threadStart FAIL: 0x%X", rc);

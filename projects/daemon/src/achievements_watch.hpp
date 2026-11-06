@@ -12,6 +12,7 @@
 #include <switchu/control_cache.hpp>
 #include <switchu/dmnt_cheat.hpp>
 #include <switchu/file_log.hpp>
+#include "thread_stack.hpp"
 
 #include <atomic>
 #include <cmath>
@@ -378,6 +379,7 @@ inline void start() {
     ueventCreate(&detail::g_wake, false);
     detail::g_running = true;
     if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x10000, 0x3B, -2))) {
+        clearThreadStack(&detail::g_thread); // so daemon_mem.txt can measure its depth
         if (R_SUCCEEDED(threadStart(&detail::g_thread))) {
             detail::g_started = true;
         } else {
