@@ -2781,8 +2781,10 @@ static void controlCacheThreadFunc(void* arg) {
 
 static Result startControlCacheWorker() {
     g_controlCacheRunning.store(true);
+    // daemon_mem.txt cache_stack: 3 KiB deep (control data and icons are on the
+    // heap). 16 KiB, taken from malloc, keeps ~5x.
     Result rc = threadCreate(&g_controlCacheThread, controlCacheThreadFunc, nullptr,
-                             nullptr, 0x10000, 0x2D, -2);
+                             nullptr, 0x4000, 0x2D, -2);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[control-cache] threadCreate FAIL: 0x%X", rc);
         return rc;

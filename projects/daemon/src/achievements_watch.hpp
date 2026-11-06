@@ -375,15 +375,17 @@ inline void threadFunc(void*) {
 }
 } // namespace detail
 
+// Stack: daemon_mem.txt ach_stack read 4 KiB deep in a game without a pack;
+// a pack (load, dmnt reads every second) wasn't measured, hence 32 KiB, ~8x.
 inline void start() {
     ueventCreate(&detail::g_wake, false);
     detail::g_running = true;
-    if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x10000, 0x3B, -2))) {
+    if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x8000, 0x3B, -2))) {
         clearThreadStack(&detail::g_thread); // so daemon_mem.txt can measure its depth
         if (R_SUCCEEDED(threadStart(&detail::g_thread))) {
             detail::g_started = true;
         } else {
-            threadClose(&detail::g_thread); // else its 64 KiB stack stays taken from malloc
+            threadClose(&detail::g_thread); // else its stack stays taken from malloc
             detail::g_thread = {};
         }
     }
