@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 # Apply the build number to the environment table
-export HOMENX_BUILD=183
+export HOMENX_BUILD=189
 
 # Resolve the repository from this script's location.
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

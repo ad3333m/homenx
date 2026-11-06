@@ -105,6 +105,7 @@ public:
 #ifdef SWITCHU_MENU
     void setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn = false);
     void setBootStart(bool boot) { m_bootStart = boot; } // the console just started (the lock screen shows)
+    void setWakeStart(bool wake) { m_wakeStart = wake; }
 #endif
 
     bool onCreate() override;
@@ -447,6 +448,8 @@ private:
     void handleLockScreenAutoSleep();
     static bool lockScreenOn();
     bool m_bootStart = false;
+    bool m_wakeStart = false;
+    unsigned m_wakePresentedFrames = 0;
     void createThemeShop();
     void createGameOptions();
     void createFolderOptions();

@@ -751,7 +751,10 @@ bool CardsActivity::onCreate() {
     m_retryIn = 1.2f; // the shelf is covered by degrees, starting right away
     m_intro = m_settings.motion ? 0.f : 1.f; // the cards rise in (the game's picture lets go first: see onUpdate)
 #ifdef SWITCHU_MENU
-    if (m_atBoot && m_settings.lockScreen) lock();
+    if (switchu::lock_screen::startLocked(m_atBoot, m_wakeStart, m_settings.lockScreen)) {
+        lock();
+        if (m_wakeStart) m_lockIn = 1.f; // the first wake frame must fully cover HOME
+    }
     if (m_settings.sheetBack >= 0) { // Nintendo's screen was opened in Settings: back there, not on the cards
         if (m_fromApplet) {
             m_reopenSec = m_settings.sheetBack;
@@ -3063,6 +3066,12 @@ void CardsActivity::chooseWallpaper(const std::string& path, bool lockScreen) {
 
 // The lock screen (Settings > Lock screen): the time and date over its picture (or HOME frosted).
 void CardsActivity::lock(bool shuffle) {
+    // Drop banners queued just before sleep as well as new rail/wake events.
+    m_notices.erase(std::remove_if(m_notices.begin(), m_notices.end(), [](const Notice& notice) {
+        return notice.glyph == "pad";
+    }), m_notices.end());
+    if (m_notice.glyph == "pad") m_notice = {};
+    m_controllerCheckIn = 0.f;
     if (!m_lockFonts) {
         m_lockFonts = true;
         const std::string fonts = std::string(kAssets) + "fonts/";
@@ -3216,7 +3225,13 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
     const float out = m_unlockT < 0.f ? 0.f : easeInOut(std::min(1.f, m_unlockT));
     const float a = in * (1.f - out), lift = -110.f * out;
     const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
-    if (m_lockTex && m_lockTex->valid()) { // its own picture, sharp; a little shade keeps the clock readable
+    const auto playing = m_art.find(m_lockGameId);
+    if (m_lockGameId && m_settings.lockGameBanner && playing != m_art.end()
+        && playing->second.bg && playing->second.bg->valid()) {
+        // Exactly the hero texture used behind this game's selected HOME card.
+        drawCover(r, playing->second.bg.get(), screen, 0.f, kWhite.withAlpha(a));
+        r.drawGradientRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.18f * a), nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
+    } else if (m_lockTex && m_lockTex->valid()) { // custom wallpaper when no game's hero is ready
         drawCover(r, m_lockTex.get(), screen, 0.f, kWhite.withAlpha(a));
         r.drawGradientRect(screen, nxui::Color(0.f, 0.f, 0.f, 0.18f * a), nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
     } else {
@@ -3227,29 +3242,25 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
     textMid(r, m_fLock, m_clock, 640.f - measured(m_fLock, m_clock).x * 0.5f, 268.f + rise + lift, kWhite.withAlpha(a));
     textMid(r, m_fLockDate, m_date, 640.f - measured(m_fLockDate, m_date).x * 0.5f, 350.f + rise + lift, kMuted.withAlpha(a));
     if (m_lockGameId && m_settings.lockGameBanner) {
-        const nxui::Rect banner{48.f, 122.f + lift, 420.f, 110.f};
-        const auto it = m_art.find(m_lockGameId);
-        if (it != m_art.end() && it->second.bg && it->second.bg->valid())
-            drawCover(r, it->second.bg.get(), banner, 20.f, kWhite.withAlpha(a));
-        else r.drawRoundedRect(banner, nxui::Color(0.08f, 0.10f, 0.15f, 0.9f * a), 20.f);
-        r.drawRoundedRect(banner, nxui::Color(0.f, 0.f, 0.f, 0.45f * a), 20.f);
-        textMid(r, m_fBody, "Playing now", banner.x + 20.f, banner.y + 28.f, kMuted.withAlpha(a));
-        textMid(r, m_fLabel, fit(m_fLabel, m_lockGameName, banner.width - 40.f), banner.x + 20.f,
-                banner.y + 65.f, kWhite.withAlpha(a));
+        const std::string title = fit(m_fLabel, m_lockGameName, 700.f);
+        const float titleWidth = measured(m_fLabel, title).x;
+        const float titleY = 400.f + rise + lift;
+        // A restrained centered caption beneath the date, clear of the clock.
+        r.drawRoundedRect({640.f - titleWidth * 0.5f - 22.f, titleY - 23.f,
+                           titleWidth + 44.f, 46.f}, nxui::Color(0.f, 0.f, 0.f, 0.24f * a), 23.f);
+        textMid(r, m_fLabel, title, 640.f - titleWidth * 0.5f, titleY,
+                kWhite.withAlpha(0.94f * a));
     }
-    // The battery, top right: filled as far as it's charged (red when low), a bolt while charging.
+    // Battery silhouette and exact charge, including low/charging states.
+    const int charge = m_battery.empty() ? -1 : std::atoi(m_battery.c_str());
     const float bx = 1280.f - 48.f - measured(m_fPill, m_battery).x;
+    // Lay out right-to-left from the measured percentage, leaving room for
+    // the battery terminal and a separate charging bolt at every charge level.
+    const float batteryX = bx - 12.f - 47.f;
+    switchu::battery_drawing::drawBattery(r, {batteryX, 32.f + lift, 42.f, 22.f}, charge, m_charging, a);
     textMid(r, m_fPill, m_battery, bx, 44.f + lift, kWhite.withAlpha(0.9f * a));
-    const int pct = std::clamp(std::atoi(m_battery.c_str()), 0, 100);
-    const nxui::Rect cell{bx - 50.f, 35.f + lift, 36.f, 18.f};
-    r.drawRoundedRectOutline(cell, kWhite.withAlpha(0.9f * a), 4.f, 2.f);
-    r.drawRoundedRect({cell.x + cell.width + 1.f, cell.y + 5.f, 3.f, 8.f}, kWhite.withAlpha(0.9f * a), 1.5f);
-    const float fill = (cell.width - 6.f) * static_cast<float>(pct) / 100.f;
-    if (fill > 0.5f)
-        r.drawRoundedRect({cell.x + 3.f, cell.y + 3.f, fill, cell.height - 6.f},
-                          (m_charging ? kGreen : pct <= 15 ? kRed : kWhite).withAlpha(0.9f * a), 2.f);
     if (m_charging)
-        switchu::battery_drawing::drawLightningBolt(r, {cell.x - 26.f, 33.f + lift, 22.f, 22.f}, kGreen.withAlpha(a),
+        switchu::battery_drawing::drawLightningBolt(r, {batteryX - 30.f, 33.f + lift, 22.f, 22.f}, kGreen.withAlpha(a),
                                                     nxui::Color(0.f, 0.f, 0.f, 0.f), 0.f);
 #ifdef SWITCHU_MENU
     if (m_pwSet || m_pwSetup) { // the password's dots (arrows while making it)
@@ -4951,7 +4962,11 @@ bool CardsActivity::musicTouch() {
 // The game's last picture straight away (not a black screen while HOME starts); it then
 // shrinks into its card while the cards come in, the way Nintendo's HOME does it.
 bool CardsActivity::presentInitialFrame(nxui::Renderer& ren) {
-    if (!m_startSuspended || m_fromApplet) return false; // (the game's picture: only coming back from the game)
+    if (m_wakeStart) {
+        ren.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.03f, 0.04f, 0.07f, 1.f));
+        return true;
+    }
+    if (!m_startSuspended || m_fromApplet) return false;
     std::vector<std::uint8_t> px(1280u * 720u * 4u);
     bool ok = false;
     if (R_FAILED(appletGetLastApplicationCaptureImageEx(px.data(), px.size(), &ok)) || !ok) return false;
@@ -5631,9 +5646,9 @@ void CardsActivity::buildSettings() {
             switchu::lockpicture::setRotation(m_lockRotate);
         },
         "Rotates your selected pictures, avoiding the previous one"));
-    lockTab.rows.push_back(toggle("Playing game banner", [this]() { return m_settings.lockGameBanner; },
+    lockTab.rows.push_back(toggle("Playing game background", [this]() { return m_settings.lockGameBanner; },
         [this, save]() { m_settings.lockGameBanner = !m_settings.lockGameBanner; save(); },
-        "Show the open game's hero art and name above the unlock prompt"));
+        "Use the open game's HOME background and show its title"));
     m_sheet.push_back(std::move(lockTab));
 
     Section sound{"Sound", "music", {}};
@@ -9607,8 +9622,6 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     const float a = easeOut(m_sheetIn);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
     const nxui::Rect sheet = scaled(kSheet, 0.95f + 0.05f * a);
-    r.drawRoundedRect({sheet.x - 4.f, sheet.y + 12.f, sheet.width + 8.f, sheet.height + 6.f}, nxui::Color(0.f, 0.f, 0.f, 0.28f * a),
-                      38.f); // its shadow
     frost(r, sheet, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
     r.drawRoundedRectOutline(sheet, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
     r.drawGradientRect({sheet.x + 2.f, sheet.y + 2.f, sheet.width - 4.f, 80.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
@@ -9837,6 +9850,7 @@ void CardsActivity::addToCustomPage(const Game& game) {
 }
 
 void CardsActivity::notifyCard(std::string title, std::string message, std::string glyph) {
+    if (glyph == "pad" && (m_locked || m_asleep)) return;
     if (glyph != "discord") {
         const std::string kind = glyph == "trophy" ? "achievement" : glyph == "pad" ? "controller" : "system";
         std::lock_guard<std::mutex> guard(m_mu);
@@ -9872,17 +9886,19 @@ void CardsActivity::updateNotices(float dt) {
     if (m_controllerCheckIn > 0.f) return;
     m_controllerCheckIn = 1.f;
     int controllers = 0;
-    for (int id = 0; id < 8; ++id) if (hidGetNpadStyleSet(static_cast<HidNpadIdType>(id))) ++controllers;
-    if (hidGetNpadStyleSet(HidNpadIdType_Handheld)) ++controllers;
-    if (m_lastControllerCount >= 0 && controllers != m_lastControllerCount)
-        notifyCard(controllers > m_lastControllerCount ? "Controller connected" : "Controller disconnected",
+    for (int id = 0; id < 8; ++id)
+        if (hidGetNpadStyleSet(static_cast<HidNpadIdType>(id)) & ~HidNpadStyleTag_NpadHandheld) ++controllers;
+    // Handheld is the Joy-Cons on the rails, not a wireless connection event.
+    const int change = m_controllerNotices.observe(controllers, m_locked, m_asleep);
+    if (change)
+        notifyCard(change > 0 ? "Controller connected" : "Controller disconnected",
                    trf("{n} connected", {std::to_string(controllers)}), "pad");
-    m_lastControllerCount = controllers;
 }
 
 void CardsActivity::drawNotificationCard(nxui::Renderer& r) {
     const bool transferring = m_storageJob.valid();
     const Notice display = transferring ? Notice{"Moving software", trf("{game}: please wait until the transfer finishes.", {m_storageGame}), "copy"} : m_notice;
+    if (display.glyph == "pad" && (m_locked || m_asleep)) return;
     if (display.title.empty() || (!m_settings.notificationCards && !transferring) || m_leaving) return;
     const float a = transferring ? 1.f : std::min(1.f, m_noticeAge / 0.22f) * std::min(1.f, (5.f - m_noticeAge) / 0.3f);
     const float entrance = m_settings.motion ? 1.f - easeOut(a) : 0.f;
@@ -10037,3 +10053,12 @@ void CardsActivity::updateStorage() {
 }
 
 } // namespace cards
+
+void cards::CardsActivity::onAfterPresent(nxui::Renderer&) {
+#ifdef SWITCHU_MENU
+    if (m_wakeStart && m_wakePresentedFrames < 3 && ++m_wakePresentedFrames == 3) {
+        app().gpu().waitIdle();
+        switchu::menu::smi_cmd::sendSimple(switchu::smi::SystemMessage::LockFramePresented);
+    }
+#endif
+}

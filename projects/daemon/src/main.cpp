@@ -9,6 +9,8 @@
 #include <switchu/file_log.hpp>
 #include <switchu/sd_commit.hpp>
 #include <switchu/time_budget.hpp>
+#include <switchu/lock_screen_policy.hpp>
+#include <switchu/lock_screen_preferences.hpp>
 #include "achievements_watch.hpp"
 #include "app_manager.hpp"
 #include "ecs.hpp"
@@ -41,6 +43,20 @@ static bool g_nssuReady = false;
 static bool g_avmReady = false;
 static bool g_psmReady = false;
 static bool g_lblReady = false;
+static bool g_viReady = false;
+static bool g_wakeCovered = false;
+static uint64_t g_wakeCoverDeadline = 0;
+
+static void revealWakeDisplay() {
+    if (!g_viReady || !g_wakeCovered) return;
+    const Result rc = viSetContentVisibility(true);
+    switchu::FileLog::log("[wake-cover] reveal rc=0x%X", rc);
+    if (R_SUCCEEDED(rc)) {
+        g_wakeCovered = false;
+        g_wakeCoverDeadline = 0;
+    }
+}
+
 static bool g_hidReady = false;
 
 extern "C" {
@@ -133,6 +149,9 @@ extern "C" void __appInit(void) {
     if (R_FAILED(rc))
         svcOutputDebugString("[SwitchU-daemon] psmInitialize FAIL", 36);
 
+    rc = viInitialize(ViServiceType_Manager);
+    g_viReady = R_SUCCEEDED(rc);
+    if (g_viReady) viSetContentVisibility(true); // recover any previous daemon exit
     rc = lblInitialize();
     g_lblReady = R_SUCCEEDED(rc);
     if (R_FAILED(rc))
@@ -173,6 +192,8 @@ extern "C" void __appExit(void) {
     switchu::FileLog::close();
 
     if (g_hidReady) hidExit();
+    revealWakeDisplay();
+    if (g_viReady) viExit();
     if (g_lblReady) lblExit();
     if (g_psmReady) psmExit();
     if (g_avmReady) avmExit();
@@ -251,6 +272,8 @@ static smi::OperationOutcome g_lastOperationFailure{};
 static bool g_foregroundAppletActive = false;
 static bool g_pendingForegroundAppletHome = false;
 static bool g_pendingHomeMenuLaunch = false;
+static bool g_systemHasForeground = false; // confirmed by AE messages 1/2
+static smi::MenuStartMode g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
 // HomeNX: a game started in the background while the menu closes; it gets the
 // screen as soon as the menu has exited.
 static bool g_launchForegroundPending = false;
@@ -876,8 +899,9 @@ static Result launchPendingHomeMenu() {
     std::error_code closeEc;
     std::string frontend;
     std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), frontend);
-    if (frontend.rfind("cards", 0) != 0
-        || std::filesystem::exists("sdmc:/config/SwitchU/homebrew_close_on_home", closeEc))
+    const auto mode = g_pendingHomeMenuMode;
+    if (mode != smi::MenuStartMode::WakeUp && (frontend.rfind("cards", 0) != 0
+        || std::filesystem::exists("sdmc:/config/SwitchU/homebrew_close_on_home", closeEc)))
         closeHomebrewApp("home");
 
     const char* source = g_pendingHomeMenuSource ? g_pendingHomeMenuSource : "home";
@@ -885,19 +909,27 @@ static Result launchPendingHomeMenu() {
     g_homePressTick = startedAt;
     g_homeForegroundTick = armGetSystemTick();
     g_pendingHomeMenuLaunch = false;
+    g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
     g_pendingHomeMenuSource = nullptr;
     g_pendingHomeMenuStartedAt = 0;
 
     const auto status = buildSystemStatus();
     switchu::FileLog::log(
-        "[%s] HOME foreground acquired; launching MainMenu status.running=%d suspended=0x%016lX",
-        source, status.app_running ? 1 : 0, status.suspended_app_id);
+        "[%s] HOME foreground acquired; launching menu mode=%u status.running=%d suspended=0x%016lX",
+        source, static_cast<u32>(mode), status.app_running ? 1 : 0, status.suspended_app_id);
     const uint64_t launchStartedAt = armGetSystemTick();
-    const Result rc = daemon::menu_la::launch(smi::MenuStartMode::MainMenu, status);
+    const Result rc = daemon::menu_la::launch(mode, status);
+    if (R_FAILED(rc) && mode == smi::MenuStartMode::WakeUp) {
+        g_pendingHomeMenuLaunch = true;
+        g_pendingHomeMenuMode = mode;
+        g_pendingHomeMenuSource = "wake-lock-retry";
+        g_pendingHomeMenuStartedAt = armGetSystemTick();
+        appletRequestToGetForeground();
+    }
     const uint64_t launchDoneAt = armGetSystemTick();
     switchu::FileLog::log(
-        "[%s] HOME MainMenu launch rc=0x%X foreground_wait=%lums launch=%lums total=%lums",
-        source, rc,
+        "[%s] HOME menu mode=%u launch rc=0x%X foreground_wait=%lums launch=%lums total=%lums",
+        source, static_cast<u32>(mode), rc,
         static_cast<unsigned long>(armTicksToNs(launchStartedAt - startedAt) / 1'000'000ULL),
         static_cast<unsigned long>(armTicksToNs(launchDoneAt - launchStartedAt) / 1'000'000ULL),
         static_cast<unsigned long>(armTicksToNs(launchDoneAt - startedAt) / 1'000'000ULL));
@@ -962,14 +994,30 @@ static void requestPowerStateChange(const char* source, bool reboot) {
 static void startSleepSequence(const char* source) {
     switchu::FileLog::logCommit("[power] sleep requested source=%s menuActive=%d",
                                 source, daemon::menu_la::isActive() ? 1 : 0);
+    // Do not acquire/lock foreground or create a menu while AM is entering
+    // sleep. Defer an absent menu's locked launch until the Wakeup event.
+    if (g_viReady && lock_screen::enabled() && daemon::app::isRunning()
+        && !daemon::menu_la::isActive()) {
+        const Result coverRc = viSetContentVisibility(false);
+        switchu::FileLog::log("[wake-cover] cover before sleep rc=0x%X", coverRc);
+        g_wakeCovered = R_SUCCEEDED(coverRc);
+        g_wakeCoverDeadline = 0; // the recovery timer starts on wake
+    }
     pushNotification(smi::MenuMessage::SleepSequence);
-    // Preserve the final state even if the sleep ends in a forced power loss.
     switchu::commitSdCard("sleep");
-    // The handoff is cooperative: give the menu a couple of frames to stop
-    // presenting and pause its audio instead of relying on the sleep landing
-    // a frame later.
     svcSleepThread(50'000'000ULL);
-    appletStartSleepSequence(true);
+    if (lock_screen::enabled() && daemon::app::isRunning()) {
+        // Discard AM's cached game transition image. This changes no foreground
+        // ownership and does not hide the display or require a later unblank.
+        const Result captureRc = appletInvalidateTransitionLayer();
+        switchu::FileLog::log("[power] clear game transition before sleep rc=0x%X", captureRc);
+    }
+    const Result rc = appletStartSleepSequence(true);
+    switchu::FileLog::log("[power] StartSleepSequence rc=0x%X", rc);
+    if (R_FAILED(rc)) {
+        revealWakeDisplay();
+        pushNotification(smi::MenuMessage::WakeUp);
+    }
 }
 
 static void startPowerSequence(const char* source, smi::SystemMessage action) {
@@ -1061,6 +1109,7 @@ static void openMenuFromHome(const char* source) {
         // Creating an AllForeground library applet before AE confirms message 1
         // races qlaunch's own foreground transition and can crash the daemon.
         g_pendingHomeMenuLaunch = true;
+        g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
         g_pendingHomeMenuSource = source;
         g_pendingHomeMenuStartedAt = homeStartedAt;
         switchu::FileLog::log("[%s] HOME waiting for ChangeIntoForeground", source);
@@ -1204,6 +1253,7 @@ static bool handleAppletMessages() {
     switch (msg) {
         case 1:
         switchu::FileLog::log("[ae] -> ChangeIntoForeground");
+        g_systemHasForeground = true;
         launchPendingHomeMenu();
         break;
 
@@ -1212,6 +1262,7 @@ static bool handleAppletMessages() {
         // taking over. The menu no longer stays alive in a hidden suspended
         // state, so there is no extra holder to clean up here.
         switchu::FileLog::log("[ae] -> ChangeIntoBackground");
+        g_systemHasForeground = false;
         break;
 
         case 20:
@@ -1222,9 +1273,7 @@ static bool handleAppletMessages() {
         case 29:
         case 32:
         switchu::FileLog::log("[ae] -> Sleep (msg=%u)", msg);
-        // The application keeps its IApplicationAccessor across system sleep,
-        // but must reacquire the foreground after wake. Keep our session state
-        // in sync so the Wakeup path is allowed to call app::resume().
+        // Keep the application accessor; reacquire its screen only after wake.
         daemon::app::onHomeSuspend();
         // The console is going under on its own (idle plan or power button):
         // the menu needs the same handoff as a menu-initiated sleep.
@@ -1232,13 +1281,37 @@ static bool handleAppletMessages() {
         break;
 
         case 26:
+        {
         switchu::FileLog::log("[ae] -> Wakeup");
+        if (g_wakeCovered) g_wakeCoverDeadline = armGetSystemTick() + armNsToTicks(8'000'000'000ULL);
+        if (lock_screen::enabled()) {
+            const Result captureRc = appletInvalidateTransitionLayer();
+            switchu::FileLog::log("[wake-lock] clear transition image rc=0x%X", captureRc);
+        }
         g_batteryRefreshPending.store(true);
+        const auto target = lock_screen::wakeTarget(lock_screen::enabled(),
+            daemon::menu_la::isActive(), daemon::app::isRunning());
+        if (target == lock_screen::WakeTarget::LockedMenu) {
+            // The menu exits when a game starts. Wake therefore needs a fresh
+            // menu with an explicit lock intent, not an automatic app::resume().
+            daemon::app::onHomeSuspend();
+            g_launchForegroundPending = false;
+            g_pendingHomeMenuLaunch = true;
+            g_pendingHomeMenuMode = smi::MenuStartMode::WakeUp;
+            g_pendingHomeMenuSource = "wake-lock";
+            g_pendingHomeMenuStartedAt = armGetSystemTick();
+            const Result rc = appletRequestToGetForeground();
+            switchu::FileLog::log("[ae] wake lock waiting for ChangeIntoForeground rc=0x%X", rc);
+            // Some wake sequences deliver foreground confirmation before
+            // Wakeup. Already-confirmed ownership will not emit another change.
+            if (R_SUCCEEDED(rc) && g_systemHasForeground) launchPendingHomeMenu();
+            break;
+        }
         // Deliver wake before requesting the menu foreground, so it can put
         // the lock screen up before its first visible frame.
         if (daemon::menu_la::isActive())
             pushNotification(smi::MenuMessage::WakeUp);
-        if (daemon::app::isRunning() && !daemon::menu_la::isActive()) {
+        if (target == lock_screen::WakeTarget::Application) {
             Result rc = daemon::app::resume();
             if (R_FAILED(rc)) {
                 switchu::FileLog::log("[ae] wake resume FAIL: 0x%X", rc);
@@ -1253,6 +1326,7 @@ static bool handleAppletMessages() {
             daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
         }
         break;
+        }
     }
     return true;
 }
@@ -1866,6 +1940,10 @@ static bool handleMenuCommand() {
         return true;
     }
 
+    case smi::SystemMessage::LockFramePresented:
+        if (g_wakeCoverDeadline) revealWakeDisplay();
+        break;
+
     case smi::SystemMessage::MenuReady:
         switchu::FileLog::log("[smi] menu ready");
         g_lastOperationFailure = {};
@@ -1883,6 +1961,7 @@ static bool handleMenuCommand() {
     case smi::SystemMessage::MenuClosing:
         switchu::FileLog::log("[smi] menu closing");
         break;
+
 
     }
 
@@ -2075,7 +2154,7 @@ static bool handleAction(daemon::SystemAction& action) {
 }
 
 static bool consumeOneAction() {
-    if (g_actionQueue.empty() || daemon::menu_la::hasHolder() ||
+    if (g_pendingHomeMenuLaunch || g_actionQueue.empty() || daemon::menu_la::hasHolder() ||
         g_foregroundAppletActive)
         return false;
 
@@ -2093,6 +2172,8 @@ static void drainMenuCommands() {
 }
 
 static void mainLoop() {
+    if (g_wakeCovered && g_wakeCoverDeadline && armGetSystemTick() >= g_wakeCoverDeadline)
+        revealWakeDisplay();
     for (int i = 0; i < 16 && handleGeneralChannel(); ++i) {}
     for (int i = 0; i < 16 && handleAppletMessages(); ++i) {}
     takeLaunchRequests();
@@ -2219,8 +2300,19 @@ static void mainLoop() {
     // ChangeIntoForeground that finishes it never comes, open HOME anyway.
     if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0
         && armTicksToNs(armGetSystemTick() - g_pendingHomeMenuStartedAt) > 2'000'000'000ULL) {
-        switchu::FileLog::logCommit("[home] no ChangeIntoForeground 2 s after HOME; opening HOME anyway");
-        launchPendingHomeMenu();
+        if (g_pendingHomeMenuMode == smi::MenuStartMode::WakeUp) {
+            // Do not create an AllForeground applet until AE confirms ownership.
+            if (g_systemHasForeground) {
+                launchPendingHomeMenu();
+            } else {
+                const Result rc = appletRequestToGetForeground();
+                g_pendingHomeMenuStartedAt = armGetSystemTick();
+                switchu::FileLog::log("[wake-lock] retry foreground request rc=0x%X", rc);
+            }
+        } else {
+            switchu::FileLog::logCommit("[home] no ChangeIntoForeground 2 s after HOME; opening HOME anyway");
+            launchPendingHomeMenu();
+        }
         didWork = true;
     }
     if (menuExitExpected()) {
@@ -2257,14 +2349,18 @@ static void mainLoop() {
         const bool homebrewDiedEarly = g_homebrewHostTitleId != 0 &&
             armTicksToNs(armGetSystemTick() - g_homebrewLaunchedAt) < 2'500'000'000ULL;
         releaseHomebrewHost();
-        if (g_pendingHomeMenuLaunch) {
+        const bool wakeLockPending = g_pendingHomeMenuLaunch && g_pendingHomeMenuMode == smi::MenuStartMode::WakeUp;
+        if (g_pendingHomeMenuLaunch && !wakeLockPending) {
             switchu::FileLog::log("[main] clearing pending HOME foreground handoff: app exited");
             g_pendingHomeMenuLaunch = false;
+            g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
             g_pendingHomeMenuSource = nullptr;
             g_pendingHomeMenuStartedAt = 0;
         }
         if (daemon::menu_la::isActive()) {
             pushNotification(smi::MenuMessage::ApplicationExited);
+        } else if (wakeLockPending) {
+            switchu::FileLog::log("[wake-lock] app exited; retaining lock-screen foreground handoff");
         } else if (homebrewDiedEarly) {
             fallBackToAlbum("exited early");
         } else {
@@ -2273,7 +2369,7 @@ static void mainLoop() {
         didWork = true;
     }
 
-    if (!didWork && g_menuRelaunchCooldown <= 0 && g_actionQueue.empty() &&
+    if (!didWork && !g_pendingHomeMenuLaunch && g_menuRelaunchCooldown <= 0 && g_actionQueue.empty() &&
         !daemon::app::isRunning() && !daemon::menu_la::hasHolder() &&
         !g_foregroundAppletActive) {
         switchu::FileLog::log("[main] no app/menu active; relaunching menu");

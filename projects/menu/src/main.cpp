@@ -339,6 +339,7 @@ int main(int argc, char* argv[]) {
             activity->setStartupStatus(sysStatus,
                 startMode == switchu::smi::MenuStartMode::AppletReturn);
             activity->setBootStart(startMode == switchu::smi::MenuStartMode::StartupBoot);
+            activity->setWakeStart(startMode == switchu::smi::MenuStartMode::WakeUp);
             activity->setTutorialStartupFade(fromTutorial);
             return activity;
         };
@@ -358,11 +359,14 @@ int main(int argc, char* argv[]) {
             if (useCards) std::ofstream(cards::kCardsStarting) << starts + 1;
             else DebugLog::log("[menu] CardsNX stopped %d times just after starting: HomeNX's HOME instead", starts);
         }
-        if (useCards)
-            app.setActivity(std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running,
+        if (useCards) {
+            auto activity = std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running,
                 startMode == switchu::smi::MenuStartMode::StartupBoot,
-                startMode == switchu::smi::MenuStartMode::AppletReturn));
-        else if (startupConfig.tutorialCompleted)
+                startMode == switchu::smi::MenuStartMode::AppletReturn);
+            activity->setWakeStart(startMode == switchu::smi::MenuStartMode::WakeUp);
+            app.setActivity(std::move(activity));
+        }
+        else if (startupConfig.tutorialCompleted || startMode == switchu::smi::MenuStartMode::WakeUp)
             app.setActivity(makeMenuActivity(false));
         else
             app.setActivity(std::make_unique<TutorialActivity>(makeMenuActivity));

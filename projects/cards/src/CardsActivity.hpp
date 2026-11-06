@@ -3,6 +3,7 @@
 #include "Library.hpp"
 #include "Mtp.hpp"
 #include "Settings.hpp"
+#include <switchu/lock_screen_policy.hpp>
 #include "Spotify.hpp"
 
 #include <nxui/Activity.hpp>
@@ -53,6 +54,7 @@ public:
     // the console just booted).
     explicit CardsActivity(std::uint64_t suspendedId = 0, bool appRunning = false, bool atBoot = true,
                            bool fromApplet = false);
+    void setWakeStart(bool wake) { m_wakeStart = wake; }
     bool onCreate() override;
 #ifdef SWITCHU_MENU
     bool presentInitialFrame(nxui::Renderer& ren) override;
@@ -60,6 +62,7 @@ public:
     void onDestroy() override;
     void onUpdate(float dt) override;
     void onRender(nxui::Renderer&) override {}
+    void onAfterPresent(nxui::Renderer&) override;
     nxui::Widget* focusRoot() override; // HomeNX's screens when one is open; else it reads the buttons itself
 
 private:
@@ -673,7 +676,11 @@ private:
     std::deque<Notice> m_notices;
     Notice m_notice;
     float m_noticeAge = 0.f;
-    int m_lastBatteryNotice = 101, m_lastControllerCount = -1;
+    int m_lastBatteryNotice = 101;
+    switchu::lock_screen::ControllerNoticeGate m_controllerNotices;
+    bool m_wakeStart = false;
+    unsigned m_wakePresentedFrames = 0;
+    bool m_asleep = false;
     float m_controllerCheckIn = 0.f;
     void updateNotices(float dt);
     std::future<std::uint32_t> m_storageJob;
@@ -816,7 +823,6 @@ private:
     void resumeOpen(int index);
     void askCloseFirst(std::uint64_t open, const std::string& title, std::uint64_t next);
     void syncHomebrewFlag(); // Settings > Home > Keep homebrew open, for the daemon
-    bool m_asleep = false;
     void pumpDaemon();
     std::uint64_t hostTitleId() const;
     AccountUid launchUid() const;
