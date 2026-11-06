@@ -1,4 +1,5 @@
 #include "CardsActivity.hpp"
+#include "GameCardPresentation.hpp"
 
 #include "social/NotificationLog.hpp"
 
@@ -56,7 +57,7 @@ constexpr float kTopY = 47.f, kCircle = 77.f;
 // Cards are the shape of a Switch case cover without its red band (352x499),
 // so its whole picture fits them exactly.
 constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 14.f;
-constexpr float kCardMidY = 291.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
+constexpr float kCardMidY = 309.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
 const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
 constexpr float kPanelRadius = 35.f;
 // The top bar: menu, Discord and sort on the left; the pill (you,
@@ -113,6 +114,8 @@ const Accent kAccents[] = {
 };
 constexpr int kAccentCount = sizeof(kAccents) / sizeof(kAccents[0]);
 const char* const kGlassNames[] = {"Clear", "Frosted", "Dark"};
+const char* const kGameCardDisplayNames[] = {"Nothing", "Game in first position", "Title bar", "First position and title"};
+const char* const kGameCardIconNames[] = {"Nothing", "Inserted game card only", "Inserted and required game cards"};
 const char* const kLaunchNames[] = {"Card jump", "Splash screen", "Card zoom", "Card flip", "Dive in", "Off"};
 // Each style's length against the zoom's (callers give the zoom's seconds).
 constexpr float kLaunchPace[] = {0.85f, 1.1f, 1.f, 0.95f, 0.8f, 0.15f};
@@ -838,6 +841,7 @@ void CardsActivity::onDestroy() {
     if (m_browserJob.valid()) m_browserJob.wait();
     if (m_getJob.valid()) m_getJob.wait();
     if (m_listJob.valid()) m_listJob.wait();
+    if (m_gameCardJob.valid()) m_gameCardJob.wait();
     if (m_factsJob.valid()) m_factsJob.wait();
     if (m_sdTestJob.valid()) m_sdTestJob.wait(); // (it stops early: m_jobsStop)
     if (m_changesJob.valid()) m_changesJob.wait();
@@ -1522,8 +1526,8 @@ void CardsActivity::selectById(std::uint64_t id) {
     pages.push_back(m_page);
     for (int p = 0; p < pageCount(); ++p) pages.push_back(p);
     for (int p : pages)
-        for (size_t i = 0; i < m_pages[p].size(); ++i)
-            if (m_pages[p][i].id == id) {
+        for (size_t i = 0; i < pageGames(p).size(); ++i)
+            if (pageGames(p)[i].id == id) {
                 m_page = p;
                 m_sels[p] = static_cast<int>(i);
                 m_scroll = static_cast<float>(i);
@@ -1571,7 +1575,9 @@ void CardsActivity::dropHidden(std::vector<Game>& list) const {
                list.end());
 }
 
-void CardsActivity::hideCard(const Game& g) {
+void CardsActivity::hideCard(const Game& source) {
+    const Game g = source;
+    LibraryEdit edit(*this);
     const std::uint64_t id = g.id;
     m_settings.hiddenCards[idText(id)] = g.name;
     for (int p = 0; p < pageCount(); ++p) {
@@ -1664,6 +1670,7 @@ void CardsActivity::requeueArt() {
 }
 
 void CardsActivity::sortGames(int sort, bool keepChoice) {
+    LibraryEdit edit(*this);
     auto& page = m_pages[kGames];
     const std::uint64_t keep = page.empty() ? 0 : page[(size_t)std::clamp(m_sels[kGames], 0, (int)page.size() - 1)].id;
     m_settings.sort = std::clamp(sort, 0, 3);
@@ -1688,6 +1695,7 @@ void CardsActivity::sortGames(int sort, bool keepChoice) {
 // My order (Plus > Move): the saved ids first, in their order; the rest after
 // (games by title, the rest as they were).
 void CardsActivity::applyOrder(int page) {
+    LibraryEdit edit(*this);
     const auto& saved = m_settings.order[page];
     auto& list = m_pages[page];
     std::unordered_map<std::string, int> at;
@@ -1704,6 +1712,7 @@ void CardsActivity::applyOrder(int page) {
 }
 
 void CardsActivity::saveOrder(int page) {
+    LibraryEdit edit(*this);
     auto& saved = page >= kPageCount ? m_settings.customPages[page - kPageCount].titles : m_settings.order[page];
     saved.clear();
     for (const Game& g : m_pages[page]) saved.push_back(idText(g.id));
@@ -1718,9 +1727,141 @@ void CardsActivity::reloadGames() {
     m_gamesChangedIn = 3.f;
 }
 
+void CardsActivity::invalidateGameCard(std::uint32_t error) {
+    clearGameCardPresentation();
+    ++m_gameCardGeneration;
+    m_gameCard = GameCardState{};
+    m_gameCardMountError = error;
+    if (error) {
+        m_gameCard.status = GameCardStatus::Error;
+        m_gameCard.error = error;
+    }
+    m_gameCardIn = 0.f;
+    m_gameCardCheckingFor = 0.f;
+}
+
+void CardsActivity::clearGameCardPresentation() {
+    if (!m_gameCardPinned) return;
+    const int previous = sel();
+    for (int page = 0; page < pageCount(); ++page) {
+        const auto& view = m_gameCardPages[page];
+        const int index = std::clamp(m_sels[page], 0, std::max(0, static_cast<int>(view.size()) - 1));
+        const std::uint64_t id = view.empty() ? 0 : view[static_cast<size_t>(index)].id;
+        const auto& source = m_pages[page];
+        m_gameCardDetachedSel[page] = std::none_of(source.begin(), source.end(), [id](const Game& game) {
+            return game.id == id;
+        }) ? id : 0;
+        m_sels[page] = gameCardSelection(source, id, index);
+    }
+    m_gameCardPinned = false;
+    m_scroll += static_cast<float>(sel() - previous);
+}
+
+void CardsActivity::refreshGameCardPresentation() {
+    if (m_gameCardEditDepth || m_moving || m_leaving) return;
+    clearGameCardPresentation();
+    if (!m_settings.pinGameCard() || m_gameCard.status != GameCardStatus::Ready) {
+        for (auto& id : m_gameCardDetachedSel) id = 0;
+        return;
+    }
+    std::vector<Game> inserted = m_gameCard.games;
+    dropHidden(inserted);
+    for (Game& title : inserted) {
+        const auto currentFlags = title.flags;
+        for (int page = 0; page < pageCount(); ++page)
+            for (const Game& game : m_pages[page])
+                if (game.id == title.id) title = game;
+        title.flags = currentFlags;
+    }
+    const int previous = sel();
+    for (int page = 0; page < pageCount(); ++page) {
+        const auto& source = m_pages[page];
+        const int index = std::clamp(m_sels[page], 0, std::max(0, static_cast<int>(source.size()) - 1));
+        const std::uint64_t id = m_gameCardDetachedSel[page] ? m_gameCardDetachedSel[page]
+                                : source.empty() ? 0 : source[static_cast<size_t>(index)].id;
+        m_gameCardPages[page] = presentGameCards(source, inserted);
+        m_sels[page] = gameCardSelection(m_gameCardPages[page], id, index);
+        m_gameCardDetachedSel[page] = 0;
+    }
+    m_gameCardPinned = true;
+    m_scroll += static_cast<float>(sel() - previous);
+    requeueArt();
+}
+
+void CardsActivity::updateGameCard(float dt) {
+    if (m_leaving) return;
+    if (m_gameCard.status == GameCardStatus::Checking) m_gameCardCheckingFor += dt;
+    if (m_gameCardJob.valid() && m_gameCardJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        GameCardState next = m_gameCardJob.get();
+        if (m_gameCardJobGeneration == m_gameCardGeneration) {
+            LibraryEdit edit(*this);
+            if (next.status == GameCardStatus::Ready) {
+                m_gameCardMountError = 0;
+                m_gameCardCheckingFor = 0.f;
+                if (next.game.name.empty()) next.game.name = m_gameCard.game.name;
+                if (!next.icon.empty()) {
+                    auto texture = std::make_unique<nxui::Texture>();
+                    if (texture->loadFromMemory(app().gpu(), app().renderer(), next.icon.data(), next.icon.size(), 64))
+                        m_gameCardIcon = std::move(texture);
+                    else m_gameCardIcon.reset();
+                } else if (next.game.id != m_gameCard.game.id) m_gameCardIcon.reset();
+                for (auto& page : m_pages)
+                    for (Game& game : page) {
+                        game.flags &= ~switchu::ns::AppViewFlag_IsGameCardInserted;
+                        for (const Game& title : next.games)
+                            if (game.id == title.id) game.flags = title.flags;
+                    }
+            } else {
+                m_gameCardIcon.reset();
+                if (next.status == GameCardStatus::Absent) {
+                    m_gameCardMountError = 0;
+                    m_gameCardCheckingFor = 0.f;
+                    for (auto& page : m_pages)
+                        for (Game& game : page) game.flags &= ~switchu::ns::AppViewFlag_IsGameCardInserted;
+                } else if (next.status == GameCardStatus::Checking && m_gameCardMountError) {
+                    next.status = GameCardStatus::Error;
+                    next.error = m_gameCardMountError;
+                } else if (next.status == GameCardStatus::Checking && m_gameCardCheckingFor >= 10.f) {
+                    next.status = GameCardStatus::Error;
+                }
+            }
+            const bool changed = next.status != m_gameCard.status || next.error != m_gameCard.error ||
+                next.games.size() != m_gameCard.games.size() ||
+                !std::equal(next.games.begin(), next.games.end(), m_gameCard.games.begin(),
+                            [](const Game& first, const Game& second) { return first.id == second.id; });
+            next.icon.clear();
+            m_gameCard = std::move(next);
+            if (changed) {
+                char line[160];
+                std::snprintf(line, sizeof(line), "game card: status=%d title=%016llX result=0x%X",
+                              static_cast<int>(m_gameCard.status), static_cast<unsigned long long>(m_gameCard.game.id),
+                              m_gameCard.error);
+                perfLine(line);
+                for (const Game& title : m_gameCard.games) {
+                    std::snprintf(line, sizeof(line), "game card title: %016llX",
+                                  static_cast<unsigned long long>(title.id));
+                    perfLine(line);
+                }
+            }
+        }
+    }
+    if ((m_gameCardIn -= dt) <= 0.f && !m_gameCardJob.valid()) {
+        m_gameCardIn = m_gameCard.status == GameCardStatus::Checking ? 0.5f : 2.f;
+        const std::uint64_t known = m_gameCard.status == GameCardStatus::Ready && m_gameCardIcon
+                                      ? m_gameCard.game.id : 0;
+        const auto knownGames = m_gameCard.status == GameCardStatus::Ready ? m_gameCard.games : std::vector<Game>{};
+        m_gameCardJobGeneration = m_gameCardGeneration;
+        m_gameCardJob = std::async(std::launch::async, [known, knownGames]() {
+            offScreenCore();
+            return readGameCard(known, knownGames);
+        });
+    }
+}
+
 // The real lists, read on a thread, replace last time's. Where you are stays:
 // the first card stays first, a card further along stays chosen.
 void CardsActivity::takeLists(Lists lists) {
+    LibraryEdit edit(*this);
     dropHidden(lists.games);
     dropHidden(lists.homebrew);
     // What was there: what's new is said and chosen (Settings > Look for new software, or found by itself).
@@ -1738,7 +1879,7 @@ void CardsActivity::takeLists(Lists lists) {
     }
     auto chosen = [this](int p) -> std::uint64_t {
         const auto& page = m_pages[p];
-        return m_sels[p] > 0 && m_sels[p] < static_cast<int>(page.size()) ? page[(size_t)m_sels[p]].id : 0;
+        return m_sels[p] >= 0 && m_sels[p] < static_cast<int>(page.size()) ? page[(size_t)m_sels[p]].id : 0;
     };
     const std::uint64_t keep[2] = {chosen(kGames), chosen(kHomebrew)};
     if (lists.titles != m_settings.titles) m_settings.picturesAt = 0; // new software: its pictures next
@@ -1790,7 +1931,7 @@ void CardsActivity::takeLists(Lists lists) {
             const Game& g = m_pages[p][i];
             if (!g.action.empty() || std::find(before.begin(), before.end(), g.id) != before.end()) continue;
             if (++count <= 3) found += (found.empty() ? "" : ", ") + g.name + " (" + pageName(p) + ")";
-            if (count == 1 && p == m_page && !before.empty()) m_sels[p] = static_cast<int>(i); // the cards go to it
+            if (m_scanAsked && count == 1 && p == m_page && !before.empty()) m_sels[p] = static_cast<int>(i);
         }
     if (m_scanAsked || (count > 0 && !before.empty()))
         say(count == 0 ? "Nothing new: everything installed is on HOME."
@@ -1800,6 +1941,7 @@ void CardsActivity::takeLists(Lists lists) {
 }
 
 void CardsActivity::splitMedia() {
+    LibraryEdit edit(*this);
     auto& games = m_pages[kGames];
     auto& homebrew = m_pages[kHomebrew];
     std::vector<Game> media;
@@ -1856,7 +1998,9 @@ void CardsActivity::splitMedia() {
 
 // + > Move to Games / Homebrew / Media: anything onto any of the three (a port
 // with the games, a game with the media apps). Kept by .nro path or title ID.
-void CardsActivity::moveToPage(const Game& g, int to) {
+void CardsActivity::moveToPage(const Game& source, int to) {
+    const Game g = source;
+    LibraryEdit edit(*this);
     const std::string key = g.path.empty() ? idText(g.id) : g.path;
     for (auto* list : {&m_settings.mediaIn, &m_settings.mediaOut, &m_settings.gamesIn, &m_settings.gamesOut})
         list->erase(std::remove(list->begin(), list->end(), key), list->end());
@@ -2675,13 +2819,18 @@ void CardsActivity::pumpDaemon() {
                 m_launcher.setSuspendedTitleId(n.app_id);
                 break;
             case M::AppRecordsChanged:
-            case M::GameCardMountFailure:
+                m_gameCardIn = 0.f;
                 reloadGames();
+                break;
+            case M::GameCardMountFailure:
+                invalidateGameCard(n.payload);
                 break;
             case M::AppViewFlagsUpdate:
                 for (auto& page : m_pages)
                     for (Game& g : page)
                         if (g.id == n.app_id) g.flags = n.payload;
+                if ((n.payload & switchu::ns::AppViewFlag_IsGameCardInserted) || m_gameCard.contains(n.app_id))
+                    invalidateGameCard();
                 break;
             case M::BatteryStatusChanged:
                 m_battery = std::to_string(switchu::smi::batteryPayloadPercentage(n.payload)) + "%";
@@ -2698,6 +2847,7 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::WakeUp:
                 m_asleep = false;
+                invalidateGameCard();
                 app().setSleeping(false);
                 if (m_settings.lockScreen && m_locked) {
                     // Slept while locked: the lock screen is quiet (it paused
@@ -2827,6 +2977,7 @@ void CardsActivity::wantPanelIcon(const Game& g) {
 
 // + > Rename: shown under that name everywhere (its real one still finds its pictures).
 void CardsActivity::applyNames() {
+    LibraryEdit edit(*this);
     for (auto& page : m_pages)
         for (Game& g : page) {
             if (!g.original.empty()) {
@@ -3545,6 +3696,7 @@ void CardsActivity::openOptions() {
                         say(trf("Couldn't delete {game}.", {name}));
                         return;
                     }
+                    LibraryEdit edit(*this);
                     for (int p = 0; p < pageCount(); ++p) {
                         auto& page = m_pages[p];
                         page.erase(std::remove_if(page.begin(), page.end(), [id](const Game& x) { return x.id == id; }), page.end());
@@ -4247,7 +4399,15 @@ void CardsActivity::drawOptions(nxui::Renderer& r) {
 }
 
 void CardsActivity::startMove() {
+    const Game* selected = current();
+    const std::uint64_t id = selected ? selected->id : 0;
+    clearGameCardPresentation();
+    if (!current() || current()->id != id) {
+        refreshGameCardPresentation();
+        return;
+    }
     if (games().size() < 2) {
+        refreshGameCardPresentation();
         say("There's nothing to move it past.");
         return;
     }
@@ -4266,6 +4426,7 @@ void CardsActivity::finishMove(bool keep) {
         sel() = m_moveBeforeSel;
         m_scroll = static_cast<float>(sel());
         m_audio.play("hide_modal");
+        refreshGameCardPresentation();
         return;
     }
     m_moveBefore.clear();
@@ -4273,6 +4434,36 @@ void CardsActivity::finishMove(bool keep) {
     if (m_page == kGames) m_settings.sort = 3; // the order shown is yours now
     m_settings.save();
     m_audio.play("toggle_on");
+    refreshGameCardPresentation();
+}
+
+void CardsActivity::openGameCardDisplay() {
+    std::vector<MenuItem> items;
+    for (int mode = 0; mode < 4; ++mode) {
+        MenuItem item = action(kGameCardDisplayNames[mode], [this, mode]() {
+            LibraryEdit edit(*this);
+            m_settings.gameCardDisplay = mode;
+            m_settings.save();
+        });
+        item.value = [this, mode]() { return m_settings.gameCardDisplay == mode ? tr("Selected") : std::string{}; };
+        items.push_back(std::move(item));
+    }
+    openMenu("Game card inserted", std::move(items));
+    m_menuSel = std::clamp(m_settings.gameCardDisplay, 0, 3);
+}
+
+void CardsActivity::openGameCardIcons() {
+    std::vector<MenuItem> items;
+    for (int mode = 0; mode < 3; ++mode) {
+        MenuItem item = action(kGameCardIconNames[mode], [this, mode]() {
+            m_settings.gameCardIcons = mode;
+            m_settings.save();
+        });
+        item.value = [this, mode]() { return m_settings.gameCardIcons == mode ? tr("Selected") : std::string{}; };
+        items.push_back(std::move(item));
+    }
+    openMenu("Game card icons", std::move(items));
+    m_menuSel = std::clamp(m_settings.gameCardIcons, 0, 2);
 }
 
 std::vector<CardsActivity::MenuItem> CardsActivity::powerItems() {
@@ -5541,6 +5732,12 @@ void CardsActivity::buildSettings() {
         }, "When a game starts"));
     look.rows.push_back(choice("Glass", [this]() { return std::string(kGlassNames[std::clamp(m_settings.glass, 0, 2)]); },
         [this, save](int d) { m_settings.glass = (m_settings.glass + d + 3) % 3; save(); }, "Buttons, the bar and the panel"));
+    MenuItem cartridge = action("Game card inserted", [this]() { openGameCardDisplay(); });
+    cartridge.value = [this]() { return std::string(kGameCardDisplayNames[std::clamp(m_settings.gameCardDisplay, 0, 3)]); };
+    look.rows.push_back(std::move(cartridge));
+    MenuItem cartridgeIcons = action("Game card icons", [this]() { openGameCardIcons(); });
+    cartridgeIcons.value = [this]() { return std::string(kGameCardIconNames[std::clamp(m_settings.gameCardIcons, 0, 2)]); };
+    look.rows.push_back(std::move(cartridgeIcons));
     MenuItem wall = action("Background", [this]() { openWallpapers(); });
     wall.value = [this]() {
         return m_settings.wallpaper.empty() ? std::string("Each game's art") : std::filesystem::path(m_settings.wallpaper).filename().string();
@@ -7879,6 +8076,7 @@ void CardsActivity::onUpdate(float dt) {
     }
     // The real lists arrived (not while a card is being moved or launched).
     perfMark("scrolling");
+    updateGameCard(dt);
     if (m_gamesChangedIn > 0.f && (m_gamesChangedIn -= dt) <= 0.f) {
         if (m_listJob.valid()) m_gamesChangedIn = 1.f; // after the one that's reading
         else startListRefresh(true);
@@ -8090,6 +8288,7 @@ void CardsActivity::onUpdate(float dt) {
         });
     }
     if (m_statsJob.valid() && m_statsJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        LibraryEdit edit(*this);
         const std::vector<PlayStat> stats = m_statsJob.get();
         const std::uint64_t chosen = !games().empty() && sel() < static_cast<int>(games().size()) ? games()[(size_t)sel()].id : 0;
         for (auto& page : m_pages)
@@ -8157,6 +8356,7 @@ void CardsActivity::onUpdate(float dt) {
     if (m_deleteJob.valid() && m_deleteJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const std::uint32_t rc = m_deleteJob.get();
         if (R_SUCCEEDED(rc)) {
+            LibraryEdit edit(*this);
             switchu::control_cache::remove(m_deleteId);
             const std::uint64_t id = m_deleteId;
             for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)}) {
@@ -8576,6 +8776,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     const int leaveStyle = launchStyle();
     const float ui = m_leaving && leaveStyle != kNoAnimation && leaveStyle != kFade ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
     drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
+    drawGameCard(r, easeOut(m_intro * 2.2f) * ui);
     drawStep("draw: the panel");
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
     drawStep("draw: the messages");
@@ -8612,6 +8813,45 @@ void CardsActivity::draw(nxui::Renderer& r) {
 }
 
 // ---------------------------------------------------------------- drawing
+
+void CardsActivity::drawGameCard(nxui::Renderer& r, float alpha) {
+    if (!m_settings.showGameCardTitle()) return;
+    std::string label;
+    nxui::Color tone = kMuted;
+    switch (m_gameCard.status) {
+        case GameCardStatus::Ready: {
+            std::string names;
+            for (const Game& title : m_gameCard.games) {
+                if (!names.empty()) names += " + ";
+                names += title.name;
+            }
+            label = trf("Game card inserted: {game}", {names});
+            tone = kWhite;
+            break;
+        }
+        case GameCardStatus::Absent: label = "No game card inserted"; break;
+        case GameCardStatus::Checking: label = "Checking game card..."; break;
+        case GameCardStatus::Error:
+            label = "Game card read error";
+            if (m_gameCard.error) {
+                char code[24];
+                std::snprintf(code, sizeof(code), " (0x%X)", m_gameCard.error);
+                label = tr(label) + code;
+            }
+            tone = kRed;
+            break;
+    }
+    const nxui::Rect strip{186.f, 88.f, 907.f, 28.f};
+    frost(r, strip, 8.f, glassTint(alpha));
+    r.drawGradientRect({strip.x + 2.f, strip.y + 2.f, strip.width - 4.f, 10.f},
+        nxui::Color(1.f, 1.f, 1.f, 0.07f * alpha), nxui::Color(1.f, 1.f, 1.f, 0.f));
+    r.drawRoundedRectOutline(strip, kGlassEdge.withAlpha(kGlassEdge.a * alpha), 8.f, 1.5f);
+    if (m_gameCard.status == GameCardStatus::Ready && m_gameCardIcon)
+        r.drawTextureRounded(m_gameCardIcon.get(), {strip.x + 6.f, strip.y + 2.f, 24.f, 24.f}, 4.f, kWhite.withAlpha(alpha));
+    else icon(r, "gamecard", strip.x + 18.f, strip.y + 14.f, 24.f, tone.withAlpha(alpha));
+    const float scale = std::min(1.f, (strip.width - 50.f) / std::max(1.f, measured(m_fBody, label).x));
+    textMid(r, m_fBody, label, strip.x + 38.f, strip.y + 14.f, tone.withAlpha(alpha), scale);
+}
 
 void CardsActivity::icon(nxui::Renderer& r, const char* name, float cx, float cy, float size, const nxui::Color& tint) {
     auto it = m_icons.find(name);
@@ -9012,6 +9252,13 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
                 r.drawTriangle({x + w, card.y}, {x + w - 90.f, card.y + card.height}, {x - 90.f, card.y + card.height}, c);
             }
             r.popClipRect();
+        }
+
+        const auto cartridge = gameCardMarker(g, m_gameCard);
+        if ((cartridge == GameCardMarker::Inserted && m_settings.showInsertedGameCardIcon()) ||
+            (cartridge == GameCardMarker::Required && m_settings.showRequiredGameCardIcon())) {
+            icon(r, cartridge == GameCardMarker::Inserted ? "gamecard" : "gamecard-required",
+                 card.x + card.width - 26.f, card.y + 28.f, 28.f, kWhite.withAlpha(alpha));
         }
 
         if (isRunning(g.id)) { // open now: a pill at the bottom of its card
@@ -9751,6 +9998,7 @@ std::string CardsActivity::pageName(int page) const {
 }
 
 void CardsActivity::rebuildCustomPages() {
+    LibraryEdit edit(*this);
     // Collections reference the installed library. They never duplicate files
     // or remove a title from its original page.
     std::map<std::string, Game> library;
