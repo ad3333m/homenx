@@ -156,7 +156,11 @@ std::string percentEncode(const std::string& s) {
     return out;
 }
 
+std::string nameKey(const std::string& name);
+
 // The game on SteamGridDB, found once per name (pictures ask several times).
+// The one named as asked (case, accents, punctuation aside), else its first
+// hit: the first alone was another game's for some titles.
 // 0: no answer (asked again later), -1: no such game.
 long long steamGridDbGame(const std::string& name, const std::string& key) {
     static std::mutex foundMu;
@@ -172,8 +176,15 @@ long long steamGridDbGame(const std::string& name, const std::string& key) {
     long long gameId = -1;
     try {
         const auto j = nlohmann::json::parse(body);
-        if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
+        if (j.contains("data") && j["data"].is_array() && !j["data"].empty()) {
             gameId = j["data"][0].value("id", -1LL);
+            const std::string want = nameKey(name);
+            for (const auto& g : j["data"])
+                if (g.is_object() && g.value("id", -1LL) > 0 && nameKey(g.value("name", std::string())) == want) {
+                    gameId = g.value("id", -1LL);
+                    break;
+                }
+        }
     } catch (...) {
     }
     std::lock_guard<std::mutex> lk(foundMu);
