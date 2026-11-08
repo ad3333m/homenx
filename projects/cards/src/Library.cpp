@@ -452,7 +452,11 @@ bool playStatistics(std::uint64_t id, AccountUidLike user, PlayStatistics& out) 
     PdmPlayStatistics st{};
     out.perUser = accountUidIsValid(&uid) && R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationIdAndUserAccountId(id, uid, false, &st));
     if (!out.perUser && R_FAILED(pdmqryQueryPlayStatisticsByApplicationId(id, false, &st))) return false;
-    out.last = st.last_timestamp_user;
+    // A POSIX time is far above 1e8; a smaller value is the old format (minutes since 1999)
+    // that FriendStore.cpp's posixOf also guards against.
+    out.last = st.last_timestamp_user != 0 && st.last_timestamp_user < 100'000'000ULL
+                   ? pdmPlayTimestampToPosix(static_cast<u32>(st.last_timestamp_user))
+                   : st.last_timestamp_user;
     out.seconds = st.playtime / 1000000000ULL;
     out.launches = st.total_launches;
     return true;

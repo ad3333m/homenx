@@ -984,6 +984,12 @@ void CardsActivity::setUser(AccountUidLike uid) {
     m_settings.user = buf;
     m_settings.save();
     loadAvatar();
+    // Dates, play times and launches are the profile's: ask them again for every game
+    // (known=false below), the old profile's must not stay on the cards or in the sort.
+    for (auto& page : m_pages)
+        for (Game& g : page)
+            if (g.path.empty() && g.action.empty()) g.lastPlayed = g.playSeconds = g.launches = 0;
+    m_statsAsked = false;
 }
 
 // ---------------------------------------------------------------- the workers
@@ -8053,7 +8059,7 @@ void CardsActivity::onUpdate(float dt) {
     // Play times and last played, as the console has them now. Well after
     // HOME has settled: the queries for every game are one IPC each, and the
     // first seconds after a game are busy enough already.
-    if (!m_statsAsked && m_time > 6.f && !m_leaving) {
+    if (!m_statsAsked && !m_statsJob.valid() && m_time > 6.f && !m_leaving) { // (not while the last ask is still out)
         m_statsAsked = true;
         // At the console's start every game's; back from a game, that one's (the
         // rest are as saved: pdm takes one slow call per game).
