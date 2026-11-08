@@ -80,7 +80,7 @@ std::string ErrorText(const Http::Response& r) {
         yyjson_val* root = J::Root(doc);
         std::string msg = J::S(root, "message");
         if (J::Get(root, "captcha_key"))
-            return "Discord requires an interactive CAPTCHA. HomeNX can't complete it; use QR sign-in or try later.";
+            return "Discord is asking for a CAPTCHA, which HomeNX can't solve. Use \"Add a user session token\" instead.";
         if (!msg.empty()) return msg;
     }
     if (r.status == 401) return "This account's token is no longer valid.";
