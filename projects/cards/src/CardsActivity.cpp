@@ -714,8 +714,12 @@ bool CardsActivity::onCreate() {
                     PlayStatistics st;
                     if (playStatistics(g.id, m_user, st)) {
                         g.lastPlayed = st.last;
-                        g.playSeconds = st.seconds;
-                        g.launches = st.launches;
+                        // (play time and launches come from the event log, read by the stats
+                        // job a few seconds on, off the screen's thread: the statistics call's differ)
+                        if (!st.perUser) {
+                            g.playSeconds = st.seconds;
+                            g.launches = st.launches;
+                        }
                     }
                 }
         if (m_backTo && (m_settings.sort == 0 || m_settings.sort == 2)) { // sorted by them: in its new place, still chosen
@@ -8085,6 +8089,10 @@ void CardsActivity::onUpdate(float dt) {
             // fallback when the profile's own statistics can't be had.
             std::map<std::uint64_t, std::uint64_t> last;
             bool lastAsked = false;
+            // Play time and launches as NX Activity Log counts them, from the play-event log
+            // (one pass for all the games; the statistics call's play time differs).
+            std::map<std::uint64_t, PlayTotal> totals;
+            const bool haveTotals = playTotals(who, totals);
             for (const std::uint64_t id : ids) {
                 PlayStatistics st;
                 if (!playStatistics(id, who, st)) continue;
@@ -8098,6 +8106,11 @@ void CardsActivity::onUpdate(float dt) {
                 s.last = !st.perUser && it != last.end() ? it->second : st.last;
                 s.seconds = st.seconds;
                 s.launches = st.launches;
+                if (haveTotals && st.perUser) {
+                    const auto t = totals.find(id);
+                    s.seconds = t != totals.end() ? t->second.seconds : 0;
+                    s.launches = t != totals.end() ? t->second.launches : 0;
+                }
                 out.push_back(s);
             }
             threadDone();

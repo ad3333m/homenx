@@ -462,6 +462,84 @@ bool playStatistics(std::uint64_t id, AccountUidLike user, PlayStatistics& out) 
     return true;
 }
 
+bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out) {
+    out.clear();
+    AccountUid want{};
+    want.uid[0] = user.uid[0];
+    want.uid[1] = user.uid[1];
+    if (!accountUidIsValid(&want)) return false;
+    // NX Activity Log's reading: a session is a launch up to the exit (or the next launch, if
+    // it crashed); it is the profile's if one of its account events is; its play time is the
+    // sum of in-focus to out-of-focus (steady clock); it only counts once it has ended. The log
+    // is read in small chunks as it comes (no list of events kept), within a time and size cap.
+    constexpr s32 kChunk = 2048;
+    constexpr std::uint64_t kMaxEvents = 1000000, kMaxNs = 20'000'000'000ULL;
+    std::vector<PdmPlayEvent> events(kChunk);
+    const std::uint64_t t0 = armGetSystemTick();
+    bool open = false, mine = false, saw = false, focused = false;
+    std::uint64_t title = 0, focusAt = 0, played = 0, offset = 0;
+    auto close = [&]() {
+        if (open && mine && saw) {
+            PlayTotal& t = out[title];
+            t.seconds += played;
+            ++t.launches;
+        }
+        open = false;
+    };
+    for (;;) {
+        if (offset >= kMaxEvents || armTicksToNs(armGetSystemTick() - t0) > kMaxNs) { out.clear(); return false; }
+        s32 n = 0;
+        if (R_FAILED(pdmqryQueryPlayEvent(static_cast<s32>(offset), events.data(), kChunk, &n))) {
+            if (offset == 0) return false;
+            break;
+        }
+        if (n <= 0) break;
+        offset += static_cast<std::uint64_t>(n);
+        for (s32 i = 0; i < n; ++i) {
+            const PdmPlayEvent& e = events[(size_t)i];
+            if (e.play_event_type == PdmPlayEventType_Account) {
+                if (e.event_data.account.type > 1) continue;
+                if (!open) continue;
+                saw = true;
+                // (the words are the wrong way round in the log, as NX Activity Log joins them)
+                const std::uint64_t u0 = (std::uint64_t{e.event_data.account.uid[0]} << 32) | e.event_data.account.uid[1];
+                const std::uint64_t u1 = (std::uint64_t{e.event_data.account.uid[2]} << 32) | e.event_data.account.uid[3];
+                if (u0 == want.uid[0] && u1 == want.uid[1]) mine = true;
+            } else if (e.play_event_type == PdmPlayEventType_Applet) {
+                if (e.event_data.applet.log_policy != PdmPlayLogPolicy_All) continue;
+                const std::uint64_t id = (std::uint64_t{e.event_data.applet.program_id[0]} << 32) | e.event_data.applet.program_id[1];
+                if (id == 0) continue;
+                switch (e.event_data.applet.event_type) {
+                    case PdmAppletEventType_Launch:
+                        close(); // (a launch with no exit before it: the one before crashed)
+                        open = true;
+                        mine = saw = focused = false;
+                        title = id;
+                        played = 0;
+                        break;
+                    case PdmAppletEventType_Exit:
+                    case PdmAppletEventType_Exit5:
+                    case PdmAppletEventType_Exit6:
+                        if (open) { saw = true; close(); }
+                        break;
+                    case PdmAppletEventType_InFocus:
+                        if (open) { saw = true; focused = true; focusAt = e.timestamp_steady; }
+                        break;
+                    case PdmAppletEventType_OutOfFocus:
+                    case PdmAppletEventType_OutOfFocus4:
+                        if (open) {
+                            saw = true;
+                            if (focused && e.timestamp_steady > focusAt) played += e.timestamp_steady - focusAt;
+                            focused = false;
+                        }
+                        break;
+                }
+            }
+        }
+    }
+    return true; // (a session still open at the end isn't counted, as there)
+}
+
 std::vector<Game> listHomebrew() {
     std::vector<Game> apps;
     for (HomebrewApp& hb : scanHomebrew("sdmc:/switch/CardsNX/CardsNX.nro", false)) {
