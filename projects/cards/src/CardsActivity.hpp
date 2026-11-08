@@ -345,6 +345,7 @@ private:
     float m_pickIn = 0.f;
     std::future<bool> m_pickSave;
     std::uint64_t m_pickSaveId = 0;
+    bool m_pickSaveTooBig = false; // the save failed on a picture HOME can't open
     bool m_pickCover = false, m_pickSaveCover = false; // the card's picture (not the title's)
     bool m_pickHero = false, m_pickSaveHero = false;   // the background's
     float m_pictureScale = 1.f; // 1.5 at 1080p: cards and icons are kept that much bigger

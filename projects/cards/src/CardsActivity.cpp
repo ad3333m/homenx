@@ -3888,10 +3888,12 @@ void CardsActivity::pickChoice(int index) {
     m_pickSaveId = g.id;
     m_pickSaveCover = cover;
     m_pickSaveHero = hero;
-    m_pickSave = std::async(std::launch::async, [g, c, cover, hero]() {
+    m_pickSaveTooBig = false;
+    bool* tooBig = &m_pickSaveTooBig; // (read once the save is done)
+    m_pickSave = std::async(std::launch::async, [g, c, cover, hero, tooBig]() {
         offScreenCore();
         const TitleChoice* pick = c.own ? nullptr : &c;
-        const bool ok = hero ? chooseHeroArt(g, pick) : cover ? chooseCoverArt(g, pick) : chooseTitleArt(g, pick);
+        const bool ok = hero ? chooseHeroArt(g, pick, tooBig) : cover ? chooseCoverArt(g, pick, tooBig) : chooseTitleArt(g, pick);
         threadDone();
         return ok;
     });
@@ -8204,7 +8206,7 @@ void CardsActivity::onUpdate(float dt) {
             wantArt();
             m_audio.play("toggle_on");
         } else {
-            say("That picture didn't download. Check the internet connection.");
+            say(m_pickSaveTooBig ? "That picture couldn't be read." : "That picture didn't download. Check the internet connection.");
         }
     }
     // A Media app arrived (or didn't): its card becomes the app's.
