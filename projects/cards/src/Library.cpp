@@ -142,6 +142,13 @@ bool isPicture(const std::string& body) {
                                 || body.compare(1, 3, "PNG") == 0);
 }
 
+// A picture decodePicture will open (not over 4096 px a side or 4 MP).
+bool opensHere(const std::string& body) {
+    int w = 0, h = 0, ch = 0;
+    return stbi_info_from_memory(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()), &w, &h, &ch)
+        && w > 0 && h > 0 && w <= 4096 && h <= 4096 && static_cast<long long>(w) * h <= 4LL * 1024 * 1024;
+}
+
 std::string percentEncode(const std::string& s) {
     std::string out;
     for (unsigned char c : s) {
@@ -156,7 +163,11 @@ std::string percentEncode(const std::string& s) {
     return out;
 }
 
+std::string nameKey(const std::string& name);
+
 // The game on SteamGridDB, found once per name (pictures ask several times).
+// The one named as asked (case, accents, punctuation aside), else its first
+// hit: the first alone was another game's for some titles.
 // 0: no answer (asked again later), -1: no such game.
 long long steamGridDbGame(const std::string& name, const std::string& key) {
     static std::mutex foundMu;
@@ -172,8 +183,17 @@ long long steamGridDbGame(const std::string& name, const std::string& key) {
     long long gameId = -1;
     try {
         const auto j = nlohmann::json::parse(body);
-        if (j.contains("data") && j["data"].is_array() && !j["data"].empty())
+        if (j.contains("data") && j["data"].is_array() && !j["data"].empty()) {
             gameId = j["data"][0].value("id", -1LL);
+            const std::string want = nameKey(name);
+            if (!want.empty()) { // (a name with no Latin letters or digits matches nothing: the first stays)
+                for (const auto& g : j["data"])
+                    if (g.is_object() && g.value("id", -1LL) > 0 && nameKey(g.value("name", std::string())) == want) {
+                        gameId = g.value("id", -1LL);
+                        break;
+                    }
+            }
+        }
     } catch (...) {
     }
     std::lock_guard<std::mutex> lk(foundMu);
@@ -702,14 +722,20 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
     }
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     if (game.homebrew && !game.fullCard) { // apps have no box art: their icon makes the card (unless one was chosen)
-        if (boxArt && std::filesystem::exists(base + ".coverme")) return readFile(base + ".coverme");
+        if (boxArt && std::filesystem::exists(base + ".coverme")) {
+            const auto mine = readFile(base + ".coverme");
+            if (opensHere(std::string(mine.begin(), mine.end()))) return mine; // (one saved that can't open: ignored)
+        }
         kind = ArtKind::Icon;
         return gameIcon(game);
     }
     const std::string grid = base + ".grid", box = base + ".box", banner = base + ".card";
     kind = ArtKind::Grid;
     // Chosen by hand (+ > Card picture): kept for good.
-    if (boxArt && std::filesystem::exists(base + ".coverme")) return readFile(base + ".coverme");
+    if (boxArt && std::filesystem::exists(base + ".coverme")) {
+        const auto mine = readFile(base + ".coverme");
+        if (opensHere(std::string(mine.begin(), mine.end()))) return mine;
+    }
     // The covers Adam picked on SteamGridDB (2026-10-26), by name: downloaded once,
     // saved under their link's number (a changed pick is downloaded again).
     static const std::pair<const char*, const char*> kCovers[] = {
@@ -768,7 +794,10 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
     if (!game.action.empty()) return readFile(systemIconPath(game.action));
     kind = ArtKind::Banner;
     const std::string chosen = std::string(kCacheDir) + "/" + hexId(game.id) + ".bgme"; // chosen by hand (+ > Background)
-    if (std::filesystem::exists(chosen)) return readFile(chosen);
+    if (std::filesystem::exists(chosen)) {
+        const auto mine = readFile(chosen);
+        if (opensHere(std::string(mine.begin(), mine.end()))) return mine; // (one saved that can't open: the usual one)
+    }
     kind = ArtKind::Icon;
     if (game.homebrew) return gameIcon(game); // drawn huge and soft: its colours
     kind = ArtKind::Banner;
@@ -1196,9 +1225,10 @@ std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, s
     if (key.empty()) return out;
     std::set<std::string> seen;
     std::string body;
+    // (the sizes backgroundArt asks first: a 3840x1240 one is over what decodePicture opens)
     for (const long long gameId : pickerGames(game, key, query))
         for (const auto& [url, thumb] : steamGridDbAssets(gameId, key, "heroes",
-                 "types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
+                 "dimensions=1920x620,1600x650&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
             if (out.size() >= max || url.empty() || thumb.empty() || !seen.insert(url).second) continue;
             if (get(thumb, body) != 200 || !isPicture(body)) continue; // (the small copy: a hero itself is huge)
             int w = 0, h = 0;
@@ -1247,15 +1277,25 @@ std::vector<TitleChoice> myPictures(size_t max) {
     return out;
 }
 
-// The chosen picture's bytes: yours from the SD card, else downloaded.
-static bool chosenBytes(const TitleChoice& choice, std::string& data) {
-    if (choice.file.empty()) return get(choice.url, data) == 200 && isPicture(data);
-    const std::vector<std::uint8_t> bytes = readFile(choice.file);
-    data.assign(bytes.begin(), bytes.end());
-    return isPicture(data);
+// The chosen picture's bytes: yours from the SD card, else downloaded. Only one
+// HOME can open: a 3840x1240 hero shows small in the picker, but saved it never
+// loaded, and the card kept the previous game's background.
+static bool chosenBytes(const TitleChoice& choice, std::string& data, bool* tooBig) {
+    if (choice.file.empty()) {
+        if (get(choice.url, data) != 200 || !isPicture(data)) return false;
+    } else {
+        const std::vector<std::uint8_t> bytes = readFile(choice.file);
+        data.assign(bytes.begin(), bytes.end());
+        if (!isPicture(data)) return false;
+    }
+    int w = 0, h = 0;
+    stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(data.data()), static_cast<int>(data.size()), w, h);
+    stbi_image_free(px);
+    if (!px && tooBig) *tooBig = true;
+    return px != nullptr;
 }
 
-bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
+bool chooseHeroArt(const Game& game, const TitleChoice* choice, bool* tooBig) {
     forgetShown(game.id);
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bgme";
     std::error_code ec;
@@ -1264,12 +1304,12 @@ bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
         return true;
     }
     std::string data;
-    if (!chosenBytes(*choice, data)) return false;
+    if (!chosenBytes(*choice, data, tooBig)) return false;
     writeFile(path, data);
     return true;
 }
 
-bool chooseCoverArt(const Game& game, const TitleChoice* choice) {
+bool chooseCoverArt(const Game& game, const TitleChoice* choice, bool* tooBig) {
     forgetShown(game.id);
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".coverme";
     if (!choice) {
@@ -1278,7 +1318,7 @@ bool chooseCoverArt(const Game& game, const TitleChoice* choice) {
         return true;
     }
     std::string data;
-    if (!chosenBytes(*choice, data)) return false;
+    if (!chosenBytes(*choice, data, tooBig)) return false;
     writeFile(path, data);
     return true;
 }
