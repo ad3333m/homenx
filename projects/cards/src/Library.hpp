@@ -224,6 +224,7 @@ std::string sdCardTest(std::atomic<int>& progress, const std::atomic<bool>& stop
 int gpuMhz();          // the GPU's clock now (the perf log: a hot chip is throttled), 0 not known
 bool setWifi(bool on);         // turning it on also ends Airplane mode
 bool setAirplaneMode(bool on);
+bool readAirplaneMode(bool& airplane); // false = nifm didn't answer
 bool setBluetooth(bool on);
 int tvResolution();              // 0 automatic, 1 1080p, 2 720p, 3 480p
 bool setTvResolution(int resolution);
