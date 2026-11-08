@@ -8077,6 +8077,7 @@ void CardsActivity::onUpdate(float dt) {
             for (const Game& g : m_pages[p])
                 if (g.path.empty() && g.action.empty() && (every || g.id == lastGame)) ids.push_back(g.id);
         const AccountUidLike who = m_user;
+        m_statsUser = who;
         m_statsJob = std::async(std::launch::async, [ids, who]() {
             offScreenCore();
             std::vector<PlayStat> out;
@@ -8105,43 +8106,49 @@ void CardsActivity::onUpdate(float dt) {
     }
     if (m_statsJob.valid() && m_statsJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const std::vector<PlayStat> stats = m_statsJob.get();
-        const std::uint64_t chosen = !games().empty() && sel() < static_cast<int>(games().size()) ? games()[(size_t)sel()].id : 0;
-        for (auto& page : m_pages)
-            for (Game& g : page)
-                for (const PlayStat& s : stats)
-                    if (s.id == g.id && g.path.empty()) {
-                        g.lastPlayed = s.last;
-                        g.playSeconds = s.seconds;
-                        g.launches = s.launches;
-                    }
-        if (m_settings.sort == 0 || m_settings.sort == 2) { // sorted by them: in the new order, the same one chosen
-            sortGames(m_settings.sort, false);
-            if (chosen) selectById(chosen);
+        // Asked for a profile that's been left since: not its values (they'd make the next
+        // ask think the dates are known, and ask only one game). Ask again for this one.
+        if (m_statsUser.uid[0] != m_user.uid[0] || m_statsUser.uid[1] != m_user.uid[1]) {
+            m_statsAsked = false;
+        } else {
+            const std::uint64_t chosen = !games().empty() && sel() < static_cast<int>(games().size()) ? games()[(size_t)sel()].id : 0;
+            for (auto& page : m_pages)
+                for (Game& g : page)
+                    for (const PlayStat& s : stats)
+                        if (s.id == g.id && g.path.empty()) {
+                            g.lastPlayed = s.last;
+                            g.playSeconds = s.seconds;
+                            g.launches = s.launches;
+                        }
+            if (m_settings.sort == 0 || m_settings.sort == 2) { // sorted by them: in the new order, the same one chosen
+                sortGames(m_settings.sort, false);
+                if (chosen) selectById(chosen);
+            }
+            // Achievements: what these stats reach, and what the daemon kept during a game. Only
+            // games count: a media app's time (YouTube...) isn't play, for the daemon either.
+            std::map<std::uint64_t, std::string> names;
+            for (const auto& page : m_pages)
+                for (const Game& g : page)
+                    if (g.path.empty() && g.action.empty()) names[g.id] = g.name;
+            std::set<std::uint64_t> gameIds, media;
+            for (const Game& g : m_pages[kGames])
+                if (g.path.empty() && g.action.empty() && !g.homebrew) gameIds.insert(g.id);
+            for (const Game& g : m_pages[kMedia])
+                if (g.path.empty() && g.action.empty()) media.insert(g.id);
+            std::vector<PlayStat> played;
+            for (const PlayStat& s : stats)
+                if (gameIds.count(s.id)) played.push_back(s);
+            const auto installed = static_cast<std::uint32_t>(gameIds.size());
+            const bool every = m_statsEvery;
+            const long long seenAt = m_settings.achSeenAt;
+            m_achJob = std::async(std::launch::async, [played, names, every, seenAt, installed, media]() {
+                offScreenCore();
+                switchu::achievements::saveSkipped(media);
+                Achieved got = collectAchievements(played, names, every, seenAt, installed);
+                threadDone();
+                return got;
+            });
         }
-        // Achievements: what these stats reach, and what the daemon kept during a game. Only
-        // games count: a media app's time (YouTube...) isn't play, for the daemon either.
-        std::map<std::uint64_t, std::string> names;
-        for (const auto& page : m_pages)
-            for (const Game& g : page)
-                if (g.path.empty() && g.action.empty()) names[g.id] = g.name;
-        std::set<std::uint64_t> gameIds, media;
-        for (const Game& g : m_pages[kGames])
-            if (g.path.empty() && g.action.empty() && !g.homebrew) gameIds.insert(g.id);
-        for (const Game& g : m_pages[kMedia])
-            if (g.path.empty() && g.action.empty()) media.insert(g.id);
-        std::vector<PlayStat> played;
-        for (const PlayStat& s : stats)
-            if (gameIds.count(s.id)) played.push_back(s);
-        const auto installed = static_cast<std::uint32_t>(gameIds.size());
-        const bool every = m_statsEvery;
-        const long long seenAt = m_settings.achSeenAt;
-        m_achJob = std::async(std::launch::async, [played, names, every, seenAt, installed, media]() {
-            offScreenCore();
-            switchu::achievements::saveSkipped(media);
-            Achieved got = collectAchievements(played, names, every, seenAt, installed);
-            threadDone();
-            return got;
-        });
     }
     if (m_achJob.valid() && m_achJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const Achieved got = m_achJob.get();
