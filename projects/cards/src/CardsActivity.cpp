@@ -711,11 +711,11 @@ bool CardsActivity::onCreate() {
         for (auto& page : m_pages)
             for (Game& g : page)
                 if (m_backTo && g.id == m_backTo && g.path.empty() && g.action.empty()) {
-                    PdmPlayStatistics st{};
-                    if (R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationId(g.id, false, &st))) {
-                        g.lastPlayed = st.last_timestamp_user;
-                        g.playSeconds = st.playtime / 1000000000ULL;
-                        g.launches = st.total_launches;
+                    PlayStatistics st;
+                    if (playStatistics(g.id, m_user, st)) {
+                        g.lastPlayed = st.last;
+                        g.playSeconds = st.seconds;
+                        g.launches = st.launches;
                     }
                 }
         if (m_backTo && (m_settings.sort == 0 || m_settings.sort == 2)) { // sorted by them: in its new place, still chosen
@@ -8070,19 +8070,27 @@ void CardsActivity::onUpdate(float dt) {
         for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
             for (const Game& g : m_pages[p])
                 if (g.path.empty() && g.action.empty() && (every || g.id == lastGame)) ids.push_back(g.id);
-        m_statsJob = std::async(std::launch::async, [ids]() {
+        const AccountUidLike who = m_user;
+        m_statsJob = std::async(std::launch::async, [ids, who]() {
             offScreenCore();
             std::vector<PlayStat> out;
-            const auto last = lastPlayTimes(ids);
+            // The console-wide last-played times count every profile's play: only the
+            // fallback when the profile's own statistics can't be had.
+            std::map<std::uint64_t, std::uint64_t> last;
+            bool lastAsked = false;
             for (const std::uint64_t id : ids) {
-                PdmPlayStatistics st{};
-                if (R_FAILED(pdmqryQueryPlayStatisticsByApplicationId(id, false, &st))) continue;
+                PlayStatistics st;
+                if (!playStatistics(id, who, st)) continue;
+                if (!st.perUser && !lastAsked) {
+                    last = lastPlayTimes(ids);
+                    lastAsked = true;
+                }
                 PlayStat s;
                 s.id = id;
                 const auto it = last.find(id);
-                s.last = it != last.end() ? it->second : st.last_timestamp_user;
-                s.seconds = st.playtime / 1000000000ULL;
-                s.launches = st.total_launches;
+                s.last = !st.perUser && it != last.end() ? it->second : st.last;
+                s.seconds = st.seconds;
+                s.launches = st.launches;
                 out.push_back(s);
             }
             threadDone();

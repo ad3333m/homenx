@@ -445,6 +445,19 @@ std::map<std::uint64_t, std::uint64_t> lastPlayTimes(const std::vector<std::uint
     return out;
 }
 
+bool playStatistics(std::uint64_t id, AccountUidLike user, PlayStatistics& out) {
+    AccountUid uid{};
+    uid.uid[0] = user.uid[0];
+    uid.uid[1] = user.uid[1];
+    PdmPlayStatistics st{};
+    out.perUser = accountUidIsValid(&uid) && R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationIdAndUserAccountId(id, uid, false, &st));
+    if (!out.perUser && R_FAILED(pdmqryQueryPlayStatisticsByApplicationId(id, false, &st))) return false;
+    out.last = st.last_timestamp_user;
+    out.seconds = st.playtime / 1000000000ULL;
+    out.launches = st.total_launches;
+    return true;
+}
+
 std::vector<Game> listHomebrew() {
     std::vector<Game> apps;
     for (HomebrewApp& hb : scanHomebrew("sdmc:/switch/CardsNX/CardsNX.nro", false)) {
