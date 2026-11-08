@@ -1196,9 +1196,10 @@ std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, s
     if (key.empty()) return out;
     std::set<std::string> seen;
     std::string body;
+    // (the sizes backgroundArt asks first: a 3840x1240 one is over what decodePicture opens)
     for (const long long gameId : pickerGames(game, key, query))
         for (const auto& [url, thumb] : steamGridDbAssets(gameId, key, "heroes",
-                 "types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
+                 "dimensions=1920x620,1600x650&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false", 20, nullptr)) {
             if (out.size() >= max || url.empty() || thumb.empty() || !seen.insert(url).second) continue;
             if (get(thumb, body) != 200 || !isPicture(body)) continue; // (the small copy: a hero itself is huge)
             int w = 0, h = 0;
@@ -1247,12 +1248,21 @@ std::vector<TitleChoice> myPictures(size_t max) {
     return out;
 }
 
-// The chosen picture's bytes: yours from the SD card, else downloaded.
+// The chosen picture's bytes: yours from the SD card, else downloaded. Only one
+// HOME can open: a 3840x1240 hero shows small in the picker, but saved it never
+// loaded, and the card kept the previous game's background.
 static bool chosenBytes(const TitleChoice& choice, std::string& data) {
-    if (choice.file.empty()) return get(choice.url, data) == 200 && isPicture(data);
-    const std::vector<std::uint8_t> bytes = readFile(choice.file);
-    data.assign(bytes.begin(), bytes.end());
-    return isPicture(data);
+    if (choice.file.empty()) {
+        if (get(choice.url, data) != 200 || !isPicture(data)) return false;
+    } else {
+        const std::vector<std::uint8_t> bytes = readFile(choice.file);
+        data.assign(bytes.begin(), bytes.end());
+        if (!isPicture(data)) return false;
+    }
+    int w = 0, h = 0;
+    stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(data.data()), static_cast<int>(data.size()), w, h);
+    stbi_image_free(px);
+    return px != nullptr;
 }
 
 bool chooseHeroArt(const Game& game, const TitleChoice* choice) {
