@@ -130,6 +130,7 @@ private:
     void startMiiJob(JobKind kind, std::function<void(Job&)> work);
     void ensureFaces();
     const nxui::Texture* face(const std::string& url) const;
+    void releasePictures();
     void drawMii(nxui::Renderer& ren, const MiiEntry* mii, const nxui::Rect& r, float a);
     void drawMiis(nxui::Renderer& ren, const nxui::Rect& r, float a);
     // HomeNX's own Mii Maker: one Mii's looks, feature by feature.
