@@ -106,6 +106,7 @@ public:
     void setStartupStatus(const switchu::smi::SystemStatus& status, bool fastReturn = false);
     void setBootStart(bool boot) { m_bootStart = boot; } // the console just started (the lock screen shows)
     void setWakeStart(bool wake) { m_wakeStart = wake; }
+    void setCardsFallbackNotice(bool on) { m_cardsFallbackNotice = on; } // CardsNX kept stopping: tell the user
 #endif
 
     bool onCreate() override;
@@ -449,6 +450,7 @@ private:
     static bool lockScreenOn();
     bool m_bootStart = false;
     bool m_wakeStart = false;
+    bool m_cardsFallbackNotice = false;
     unsigned m_wakePresentedFrames = 0;
     void createThemeShop();
     void createGameOptions();
