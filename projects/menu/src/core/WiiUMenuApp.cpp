@@ -5884,6 +5884,7 @@ void WiiUMenuApp::enterSystemSleep() {
     // Discord's socket and heartbeats kept the console busy all night: it
     // stops now and connects again at wake (if it was on).
     m_discord.sleep();
+    if (bluetooth::IsDiscovering()) bluetooth::StopDiscovery(); // (Settings isn't updated while asleep)
 
     // Stop presenting. A loop that keeps submitting frames never lets the
     // console settle into its low-power sleep state.
