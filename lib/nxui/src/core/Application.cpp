@@ -217,6 +217,7 @@ void Application::dispatchInput() {
 
 void Application::run() {
     uint64_t prevTick = armGetSystemTick();
+    uint64_t presentTick = prevTick; // the last drawn turn's start (paces the skipped ones)
 
     while (m_running) {
         uint64_t nowTick = armGetSystemTick();
@@ -271,10 +272,20 @@ void Application::run() {
                 // is clamped above that) and under the screens' 250 ms "stuck"
                 // watchdog.
                 if (!shouldPresent(dt)) {
+                    // Paced on the last drawn turn: the n-th turn after it
+                    // ends n x 16.7 ms after its start. (A flat sleep after the
+                    // update ran ~90 turns a second: a drawn turn after skipped
+                    // ones doesn't wait for a framebuffer, so the calm tier drew
+                    // 30 frames instead of 20.)
                     setPhase("idle (frame not drawn)");
-                    svcSleepThread(16'000'000ULL);
+                    const std::uint64_t target = presentTick
+                        + armNsToTicks(16'666'667ULL * static_cast<std::uint64_t>(m_turnsSincePresent));
+                    const std::uint64_t now = armGetSystemTick();
+                    svcSleepThread(target > now + armNsToTicks(1'000'000ULL)
+                                   ? static_cast<s64>(armTicksToNs(target - now)) : 1'000'000LL);
                     continue;
                 }
+                presentTick = nowTick;
                 setPhase("waiting for the GPU (frame)");
                 m_gpu.beginFrame();
                 setPhase("starting the frame");
