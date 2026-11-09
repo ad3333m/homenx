@@ -63,6 +63,10 @@ public:
     void onUpdate(float dt) override;
     void onRender(nxui::Renderer&) override {}
     void onAfterPresent(nxui::Renderer&) override;
+    // Render tiers (nxui::Application): every frame while something moves on
+    // its own; the decorations (pulses, drifts) stand still in deep idle.
+    bool wantsFullRate() const override;
+    bool supportsDeepIdle() const override;
     nxui::Widget* focusRoot() override; // HomeNX's screens when one is open; else it reads the buttons itself
 
 private:
@@ -559,6 +563,12 @@ private:
 
     // Motion: everything eases on m_time.
     float m_time = 0.f;
+    // The decorations' clock (focus ring's pulse, the background's drift, the
+    // music's little meter, the players' dot...): stops in deep idle, so they
+    // stand still and pick up where they were, without a jump.
+    float m_decoTime = 0.f;
+    float m_pictureInAt = -1000.f; // a picture arrived (it fades in): drawn at full rate a moment
+    void pictureArrived();
     float m_intro = 0.f;          // 0 -> 1 as it opens
     float m_introFor = 1.1f;      // seconds (back from a game: quicker)
     float m_retryIn = 5.f;        // pictures that didn't come are asked again
@@ -794,6 +804,7 @@ private:
     // process was stopped (the system paused HOME), not CardsNX.
     void watchdog();
     float m_perfWindow = 0.f, m_perfWorst = 0.f;
+    std::uint64_t m_perfShownAt = 0; // app().presentedFrames() at the window's start
     bool m_perfFirstCard = false;
     std::atomic<bool> m_boxArt{true};
     std::atomic<bool> m_titleArt{true}; // Settings > Look > Title pictures
