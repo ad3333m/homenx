@@ -4,6 +4,7 @@
 #include <switch.h>
 #include <switchu/control_cache.hpp>
 #include <switchu/hekate_rtc.hpp>
+#include <switchu/lock_picture.hpp>
 #include <switchu/ns_ext.hpp>
 #include <switchu/time_budget.hpp>
 #include <switchu/tls_roots.hpp>
@@ -115,7 +116,7 @@ std::vector<std::uint8_t> readFile(const std::string& path) {
     std::ifstream in(path, std::ios::binary | std::ios::ate);
     if (!in) return {};
     const auto length = in.tellg();
-    if (length <= 0 || length > (16 << 20)) return {};
+    if (length <= 0 || length > (32 << 20)) return {};
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
     in.seekg(0);
     if (!in.read(reinterpret_cast<char*>(bytes.data()), length)) return {};
@@ -832,11 +833,13 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
     return gameIcon(game);
 }
 
-unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h) {
+unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h, bool yours) {
     int ch = 0;
     if (!data || size <= 0 || !stbi_info_from_memory(data, size, &w, &h, &ch)) return nullptr;
-    if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || static_cast<long long>(w) * h > 4LL * 1024 * 1024) return nullptr;
-    const bool big = static_cast<long long>(w) * h >= 2LL * 1024 * 1024;
+    const long long pixels = static_cast<long long>(w) * h;
+    const int side = yours ? 8192 : 4096;
+    if (w <= 0 || h <= 0 || w > side || h > side || pixels > (yours ? 36LL : 9LL) * 1024 * 1024) return nullptr;
+    const bool big = pixels >= 2LL * 1024 * 1024;
     static std::mutex mu;
     static std::condition_variable cv;
     static int bigNow = 0;
@@ -845,7 +848,13 @@ unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h
         cv.wait(lk, [] { return bigNow < 1; });
         ++bigNow;
     }
-    unsigned char* px = stbi_load_from_memory(data, size, &w, &h, &ch, 4);
+    bool fits = true;
+    if (pixels > 9LL * 1024 * 1024) { // a huge one: only with room left for the rest of HOME
+        void* room = std::malloc(static_cast<size_t>(pixels) * 7 + (48u << 20)); // (up to 7 bytes a pixel while decoding)
+        fits = room != nullptr;
+        std::free(room);
+    }
+    unsigned char* px = fits ? stbi_load_from_memory(data, size, &w, &h, &ch, 4) : nullptr;
     if (big) {
         {
             std::lock_guard<std::mutex> lk(mu);
@@ -854,6 +863,90 @@ unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h
         cv.notify_one();
     }
     return px;
+}
+
+static_assert(sizeof(CapsAlbumFileId) == sizeof(AlbumShot::id));
+
+// The files (both Albums under emuMMC, and Extra's), then what the Album service knows:
+// that's all of console memory, and the only way to a video's picture.
+std::vector<AlbumShot> listAlbum() {
+    std::map<std::string, AlbumShot, std::greater<>> all; // (the newest first)
+    for (const std::string& file : switchu::lockpicture::newestScreenshots(100000, true)) {
+        const std::filesystem::path p(file);
+        const std::string key = p.filename().string().substr(0, 16); // YYYYMMDDhhmmssNN-...
+        AlbumShot& shot = all[key];
+        shot.key = key;
+        shot.path = file;
+        shot.video = p.extension() == ".mp4";
+    }
+    if (R_SUCCEEDED(capsaInitialize())) {
+        const u8 kinds = CapsAlbumFileContentsFlag_ScreenShot | CapsAlbumFileContentsFlag_Movie;
+        for (const CapsAlbumStorage storage : {CapsAlbumStorage_Nand, CapsAlbumStorage_Sd}) {
+            u64 count = 0, got = 0;
+            if (R_FAILED(capsaGetAlbumFileCountEx0(storage, kinds, &count)) || count == 0) continue;
+            std::vector<CapsAlbumEntry> entries(count);
+            if (R_FAILED(capsaGetAlbumFileListEx0(storage, kinds, &got, entries.data(), count))) continue;
+            for (u64 i = 0; i < std::min(got, count); ++i) {
+                const CapsAlbumFileId& id = entries[i].file_id;
+                const CapsAlbumFileDateTime& t = id.datetime;
+                char key[32];
+                std::snprintf(key, sizeof(key), "%04u%02u%02u%02u%02u%02u%02u", t.year, t.month, t.day, t.hour, t.minute,
+                              t.second, t.id);
+                AlbumShot& shot = all[key];
+                shot.key = key;
+                std::memcpy(shot.id.data(), &id, sizeof(id));
+                shot.inService = true;
+                shot.bytes = entries[i].size;
+                shot.video = id.content == CapsAlbumFileContents_Movie || id.content == CapsAlbumFileContents_ExtraMovie;
+            }
+        }
+        capsaExit();
+    }
+    std::vector<AlbumShot> out;
+    out.reserve(all.size());
+    for (auto& entry : all) {
+        AlbumShot& shot = entry.second;
+        const std::string& k = shot.key;
+        if (k.size() >= 12)
+            shot.label = k.substr(6, 2) + "/" + k.substr(4, 2) + "/" + k.substr(0, 4) + " " + k.substr(8, 2) + ":" + k.substr(10, 2);
+        out.push_back(std::move(shot));
+    }
+    return out;
+}
+
+std::vector<std::uint8_t> albumBytes(const AlbumShot& shot, bool thumbnail) {
+    if (!shot.inService || R_FAILED(capsaInitialize())) return {};
+    CapsAlbumFileId id;
+    std::memcpy(&id, shot.id.data(), sizeof(id));
+    std::vector<std::uint8_t> out(thumbnail ? 0x50000 : std::max<std::uint64_t>(shot.bytes, 0x80000));
+    u64 size = 0;
+    const Result rc = thumbnail ? capsaLoadAlbumFileThumbnail(&id, &size, out.data(), out.size())
+                                : capsaLoadAlbumFile(&id, &size, out.data(), out.size());
+    capsaExit();
+    out.resize(R_SUCCEEDED(rc) && size <= out.size() ? size : 0);
+    return out;
+}
+
+std::string albumPictureFile(const AlbumShot& shot) {
+    if (!shot.path.empty()) return shot.path;
+    const std::vector<std::uint8_t> jpeg = albumBytes(shot, false);
+    if (jpeg.empty()) return {};
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/CardsNX/backgrounds", ec);
+    const std::string path = "sdmc:/config/CardsNX/backgrounds/" + shot.key + ".jpg";
+    writeFile(path, std::string(jpeg.begin(), jpeg.end()));
+    return path;
+}
+
+bool deleteAlbumShot(const AlbumShot& shot) {
+    if (shot.inService && R_SUCCEEDED(capsaInitialize())) { // (it keeps its own list: told first)
+        CapsAlbumFileId id;
+        std::memcpy(&id, shot.id.data(), sizeof(id));
+        const Result rc = capsaDeleteAlbumFile(&id);
+        capsaExit();
+        if (R_SUCCEEDED(rc)) return true;
+    }
+    return !shot.path.empty() && std::remove(shot.path.c_str()) == 0;
 }
 
 // Automatic time is the time service's (IStaticService 100). Changing it, and the
@@ -1330,8 +1423,7 @@ bool chooseTitleArt(const Game& game, const TitleChoice* choice) {
     return true;
 }
 
-void scaleDown(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
-    if (w <= maxW || w <= 0 || h <= 0) return;
+std::vector<std::uint8_t> scaledDown(const std::uint8_t* rgba, int& w, int& h, int maxW) {
     const int nw = maxW, nh = std::max(1, static_cast<int>(static_cast<long long>(h) * maxW / w));
     std::vector<std::uint8_t> out(static_cast<size_t>(nw) * nh * 4);
     for (int y = 0; y < nh; ++y) {
@@ -1349,9 +1441,14 @@ void scaleDown(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
             for (int c = 0; c < 4; ++c) o[c] = static_cast<std::uint8_t>(sum[c] / n);
         }
     }
-    rgba.swap(out);
     w = nw;
     h = nh;
+    return out;
+}
+
+void scaleDown(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW) {
+    if (w <= maxW || w <= 0 || h <= 0) return;
+    rgba = scaledDown(rgba.data(), w, h, maxW);
 }
 
 void forgetPicture(std::uint64_t id, bool background) {

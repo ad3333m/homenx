@@ -72,7 +72,7 @@ constexpr float kSecX = 142.f, kSecW = 236.f, kSecH = 54.f, kSheetTop = 146.f;
 float secH(size_t count) {
     return std::min(kSecH, (kSheet.y + kSheet.height - 18.f - kSheetTop) / static_cast<float>(std::max<size_t>(1, count)));
 }
-constexpr float kRowsX = 400.f, kRowsW = 736.f, kRowH = 72.f, kRowsBottom = 612.f;
+constexpr float kRowsX = 400.f, kRowsW = 736.f, kRowH = 72.f, kHeadH = 44.f, kRowsBottom = 612.f;
 // News: the list on the left, the article on the right.
 constexpr float kNewsListW = 300.f, kNewsRowH = 72.f, kNewsTextX = 482.f, kNewsTextW = 640.f;
 
@@ -878,7 +878,6 @@ void CardsActivity::onDestroy() {
     if (m_lockJob.valid()) m_lockJob.wait();
     if (m_storageJob.valid()) m_storageJob.wait();
     if (m_storageReadJob.valid()) m_storageReadJob.wait();
-    if (m_wallSelectionJob.valid()) m_wallSelectionJob.wait();
     if (m_statsJob.valid()) m_statsJob.wait();
     if (m_achJob.valid()) m_achJob.wait();
     if (m_searchJob.valid()) m_searchJob.wait();
@@ -2911,19 +2910,47 @@ void CardsActivity::loadWallpaper() {
     });
 }
 
-// A picture from the SD card, decoded and halved until it's at most maxW wide.
-CardsActivity::Pixels CardsActivity::readPicture(const std::string& path, int maxW) {
+// A picture of the user's, decoded and at most maxW wide. (Never copied at full size first: a
+// 4K picture or a phone's photo is a lot of memory once already.)
+CardsActivity::Pixels CardsActivity::pictureFrom(const std::vector<std::uint8_t>& data, int maxW) {
     Pixels px;
-    std::ifstream in(path, std::ios::binary);
-    const std::vector<std::uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    int w = 0, h = 0, ch = 0;
-    if (stbi_uc* p = data.empty() ? nullptr : decodePicture(data.data(), static_cast<int>(data.size()), w, h)) {
-        px.rgba.assign(p, p + static_cast<size_t>(w) * h * 4);
-        stbi_image_free(p);
-        scaleDown(px.rgba, w, h, maxW);
-        px.w = w;
-        px.h = h;
+    int w = 0, h = 0;
+    const std::unique_ptr<stbi_uc, void (*)(void*)> p(
+        data.empty() ? nullptr : decodePicture(data.data(), static_cast<int>(data.size()), w, h, true), stbi_image_free);
+    if (!p) return px;
+    if (w > maxW) px.rgba = scaledDown(p.get(), w, h, maxW);
+    else px.rgba.assign(p.get(), p.get() + static_cast<size_t>(w) * h * 4);
+    px.w = w;
+    px.h = h;
+    return px;
+}
+
+// One from the SD card. (Out of memory: no picture, not a crash when its thread is asked.)
+CardsActivity::Pixels CardsActivity::readPicture(const std::string& path, int maxW) {
+    try {
+        std::ifstream in(path, std::ios::binary | std::ios::ate);
+        const std::streamoff size = in ? static_cast<std::streamoff>(in.tellg()) : 0;
+        if (size <= 0 || size > (64 << 20)) return {};
+        std::vector<std::uint8_t> data(static_cast<size_t>(size));
+        in.seekg(0);
+        if (!in.read(reinterpret_cast<char*>(data.data()), size)) return {};
+        return pictureFrom(data, maxW);
+    } catch (const std::bad_alloc&) {
+        return {};
     }
+}
+
+// A thing in the Album. Small ones come from Nintendo's thumbnails (far quicker, and all a video has
+// without a player); the whole picture from its file, or the Album service for console memory's.
+CardsActivity::Pixels CardsActivity::albumPixels(const AlbumShot& shot, int maxW) {
+    Pixels px;
+    const bool small = maxW <= 320;
+    try {
+        if (shot.inService && (small || shot.video || shot.path.empty()))
+            px = pictureFrom(albumBytes(shot, small || shot.video), maxW);
+    } catch (const std::bad_alloc&) {
+    }
+    if (px.rgba.empty() && !shot.video && !shot.path.empty()) px = readPicture(shot.path, maxW);
     return px;
 }
 
@@ -2943,117 +2970,97 @@ void CardsActivity::loadLockPicture() {
     });
 }
 
-// The pictures to choose: his own (sdmc:/config/CardsNX/backgrounds) and the
-// newest screenshots in the Album (its folders are the date: newest first).
-void CardsActivity::openWallpapers(bool lockScreen) {
-    if (m_pickJob.valid()) m_pickJob.wait();
-    m_pickWall = lockScreen ? 2 : 1;
-    if (lockScreen) m_lockPlaylist = switchu::lockpicture::playlist();
-    m_pickCover = false;
-    m_pickQuery.clear();
-    m_pickChoices.clear();
-    m_pickTex.clear();
-    m_pickSel = 0;
-    const std::string current = lockScreen ? switchu::lockpicture::get() : m_settings.wallpaper;
-    m_pickJob = std::async(std::launch::async, [current]() {
-        offScreenCore();
-        std::vector<std::string> own;
-        std::error_code ec;
-        std::filesystem::create_directories("sdmc:/config/CardsNX/backgrounds", ec);
-        for (const auto& e : std::filesystem::directory_iterator("sdmc:/config/CardsNX/backgrounds", ec)) {
+namespace {
+constexpr int kGalleryPage = 12; // the grids: pictures a page
+
+// The user's own pictures, by name.
+std::vector<std::string> ownPictures() {
+    std::vector<std::string> own;
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/CardsNX/backgrounds", ec);
+    for (const char* dir : {"sdmc:/config/CardsNX/backgrounds", "sdmc:/switch/SwitchU/lockscreen"})
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
             const std::string ext = lower(e.path().extension().string());
             if (e.is_regular_file(ec) && (ext == ".jpg" || ext == ".jpeg" || ext == ".png")) own.push_back(e.path().string());
         }
-        std::sort(own.begin(), own.end());
-        if (own.size() > 8) own.resize(8);
-        std::vector<TitleChoice> out;
-        out.emplace_back().own = true; // first: none of its own
-        auto add = [&](const std::string& path, std::string label) {
-            Pixels px = readPicture(path, 320);
-            if (px.rgba.empty()) return;
-            TitleChoice c;
-            c.file = path;
-            c.label = std::move(label);
-            c.before = path == current;
+    std::sort(own.begin(), own.end());
+    return own;
+}
+} // namespace
+
+void CardsActivity::openWallpapers(bool lockScreen) { openGallery(lockScreen ? 2 : 1); }
+
+// A page of a grid: the pictures from `from`, shrunk. One that can't be read keeps its tile (it can still be deleted).
+std::vector<TitleChoice> CardsActivity::galleryPage(const std::vector<AlbumShot>& all, size_t from, const std::string& current) {
+    std::vector<TitleChoice> out;
+    for (size_t i = from; i < all.size() && i < from + kGalleryPage; ++i) {
+        const AlbumShot& shot = all[i];
+        TitleChoice c;
+        c.own = shot.key.empty(); // ("no picture": the grid's first)
+        c.file = shot.path;
+        c.label = shot.label;
+        c.video = shot.video;
+        c.before = !c.own && !current.empty() && shot.path == current;
+        if (!c.own) {
+            Pixels px = albumPixels(shot, 320);
             c.rgba = std::move(px.rgba);
             c.w = px.w;
             c.h = px.h;
-            out.push_back(std::move(c));
-        };
-        for (const std::string& path : own) add(path, std::filesystem::path(path).stem().string());
-        for (const std::string& path : switchu::lockpicture::newestScreenshots(11 - own.size())) {
-            const std::string n = std::filesystem::path(path).filename().string(); // YYYYMMDDhhmmss...
-            add(path, n.size() >= 12 ? trf("Screenshot {day}/{month} {time}",
-                                           {n.substr(6, 2), n.substr(4, 2), n.substr(8, 2) + ":" + n.substr(10, 2)})
-                                     : tr("Screenshot"));
         }
-        threadDone();
-        return out;
-    });
-    if (!m_pickOpen) {
-        m_pickIn = m_settings.motion ? 0.f : 1.f;
-        m_audio.play("show_modal");
-    }
-    m_pickOpen = true;
-}
-
-namespace {
-constexpr int kGalleryPage = 12; // the Album's grid: screenshots a page
-} // namespace
-
-// The Album's grid, a page at a time: the screenshots from `from`, shrunk.
-std::vector<TitleChoice> CardsActivity::galleryPage(const std::vector<std::string>& all, size_t from) {
-    std::vector<TitleChoice> out;
-    for (size_t i = from; i < all.size() && i < from + kGalleryPage; ++i) {
-        Pixels px = readPicture(all[i], 320);
-        if (px.rgba.empty()) continue;
-        const std::string n = std::filesystem::path(all[i]).filename().string(); // YYYYMMDDhhmmss...
-        TitleChoice c;
-        c.file = all[i];
-        c.label = n.size() >= 12 ? n.substr(6, 2) + "/" + n.substr(4, 2) + "/" + n.substr(0, 4) + " " + n.substr(8, 2) + ":"
-                                       + n.substr(10, 2)
-                                 : std::string();
-        c.rgba = std::move(px.rgba);
-        c.w = px.w;
-        c.h = px.h;
         out.push_back(std::move(c));
     }
     return out;
 }
 
-// L / R (or past the grid's last row) for the next page of the Album.
-void CardsActivity::showGalleryPage(int page) {
+// L / R (or past the grid's first or last row) for another page. False: there's no other.
+bool CardsActivity::showGalleryPage(int page) {
     const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
     page = std::clamp(page, 0, std::max(0, (n - 1) / kGalleryPage));
-    if (page == m_galleryPage || m_pickJob.valid()) return;
+    if (page == m_galleryPage || m_pickJob.valid()) return false;
+    if (m_galleryPage >= 0) m_audio.play("tab_transition"); // (below 0: the same page again, after a delete)
     m_galleryPage = page;
     auto all = m_galleryAll;
-    m_pickJob = std::async(std::launch::async, [all, page]() {
+    m_pickJob = std::async(std::launch::async, [all, page, current = m_galleryCurrent]() {
         offScreenCore();
-        auto out = galleryPage(*all, static_cast<size_t>(page) * kGalleryPage);
+        auto out = galleryPage(*all, static_cast<size_t>(page) * kGalleryPage, current);
         threadDone();
         return out;
     });
-    m_audio.play("tab_transition");
+    return true;
 }
 
-void CardsActivity::openGallery() {
+// Every picture and video, in pages. To use as a picture: the user's own first, then the Album's with a file.
+void CardsActivity::openGallery(int mode) {
     if (m_pickJob.valid()) m_pickJob.wait();
-    m_pickWall = 3;
+    m_pickWall = mode;
+    if (mode == 4) m_lockPlaylist = switchu::lockpicture::playlist();
     m_pickCover = false;
     m_pickQuery.clear();
     m_pickChoices.clear();
     m_pickTex.clear();
-    m_pickSel = 0;
-    m_galleryView = false;
+    m_pickSel = mode < 3 ? 1 : 0; // (the first found: "no picture" is first)
+    m_galleryView = m_galleryAsk = m_galleryStale = false;
     m_galleryTex.reset();
-    auto all = std::make_shared<std::vector<std::string>>();
+    m_galleryCurrent = mode == 1 ? m_settings.wallpaper : mode == 2 ? switchu::lockpicture::get() : std::string();
+    auto all = std::make_shared<std::vector<AlbumShot>>();
     m_galleryAll = all;
     m_galleryPage = 0;
-    m_pickJob = std::async(std::launch::async, [all]() {
+    m_pickJob = std::async(std::launch::async, [all, mode, current = m_galleryCurrent]() {
         offScreenCore();
-        *all = switchu::lockpicture::newestScreenshots(100000); // all of them (they were 300, 12 shown)
-        auto out = galleryPage(*all, 0);
+        *all = listAlbum();
+        if (mode != 3) {
+            std::vector<AlbumShot> pictures;
+            if (mode != 4) pictures.emplace_back(); // (no key: no picture of its own)
+            for (const std::string& path : ownPictures()) {
+                AlbumShot& own = pictures.emplace_back();
+                own.key = own.label = std::filesystem::path(path).stem().string();
+                own.path = path;
+            }
+            for (AlbumShot& shot : *all)
+                if (!shot.video && !shot.path.empty()) pictures.push_back(std::move(shot));
+            *all = std::move(pictures);
+        }
+        auto out = galleryPage(*all, 0, current);
         threadDone();
         return out;
     });
@@ -3064,13 +3071,50 @@ void CardsActivity::openGallery() {
     m_pickOpen = true;
 }
 
+void CardsActivity::saveShuffle() {
+    switchu::lockpicture::savePlaylist(m_lockPlaylist);
+    m_lockRotate = !m_lockPlaylist.empty();
+    switchu::lockpicture::setRotation(m_lockRotate);
+}
+
+void CardsActivity::deleteGalleryShot() {
+    if (!m_galleryAll || m_galleryAt < 0 || m_galleryAt >= static_cast<int>(m_galleryAll->size())) return;
+    if (!deleteAlbumShot((*m_galleryAll)[(size_t)m_galleryAt])) {
+        say("That didn't delete.");
+        return;
+    }
+    auto rest = std::make_shared<std::vector<AlbumShot>>(*m_galleryAll); // (a page being read has the old list)
+    rest->erase(rest->begin() + m_galleryAt);
+    m_galleryAll = rest;
+    m_galleryStale = true;
+    m_audio.play("toggle_off");
+    if (m_galleryView) {
+        if (rest->empty()) m_galleryView = false;
+        else {
+            m_galleryAt = std::min(m_galleryAt, static_cast<int>(rest->size()) - 1);
+            loadGalleryPicture();
+        }
+    }
+}
+
+void CardsActivity::drawGalleryAsk(nxui::Renderer& r) {
+    if (!m_galleryAsk || !m_pickOpen) return;
+    const nxui::Rect box{390.f, 270.f, 500.f, 180.f};
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f));
+    frost(r, box, 28.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.92f));
+    r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.16f), 28.f, 1.5f);
+    const std::string question = "Delete this for good?", hint = "A Delete    B Keep";
+    textMid(r, m_fTitle, question, 640.f - measured(m_fTitle, question).x * 0.5f, 335.f, kWhite);
+    textMid(r, m_fBody, hint, 640.f - measured(m_fBody, hint).x * 0.5f, 395.f, kMuted);
+}
+
 void CardsActivity::loadGalleryPicture() {
     if (!m_galleryAll || m_galleryAt < 0 || m_galleryAt >= static_cast<int>(m_galleryAll->size())) return;
     if (m_galleryJob.valid()) m_galleryJob.wait();
-    const std::string path = (*m_galleryAll)[(size_t)m_galleryAt];
-    m_galleryJob = std::async(std::launch::async, [path]() {
+    const AlbumShot shot = (*m_galleryAll)[(size_t)m_galleryAt];
+    m_galleryJob = std::async(std::launch::async, [shot]() {
         offScreenCore();
-        return readPicture(path, 1280);
+        return albumPixels(shot, 1280);
     });
 }
 
@@ -3116,14 +3160,15 @@ void CardsActivity::lock(bool shuffle) {
     m_lockGameId = 0;
     m_lockGameName.clear();
     const auto running = runningId();
-    if (running && m_settings.lockGameBanner) {
+    if (running && (m_settings.lockGameBanner || m_settings.lockGameTitle)) {
         const auto last = std::strtoull(m_settings.lastGame.c_str(), nullptr, 16);
         for (int p = 0; p < kPageCount; ++p) for (const Game& g : m_pages[p]) {
             if ((g.id == running || (!g.path.empty() && g.id == last)) && g.action.empty()) {
                 m_lockGameId = g.id;
                 m_lockGameName = g.name;
                 auto& art = m_art[g.id];
-                if (!art.bg && !art.bgAsked) {
+                if (m_settings.lockGameTitle) wantPanelIcon(g); // its title picture
+                if (m_settings.lockGameBanner && !art.bg && !art.bgAsked) {
                     art.bgAsked = true;
                     std::lock_guard<std::mutex> guard(m_mu);
                     m_jobs.push_back({g, kBackground, m_artGen});
@@ -3274,15 +3319,28 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
     const float rise = 18.f * (1.f - in);
     textMid(r, m_fLock, m_clock, 640.f - measured(m_fLock, m_clock).x * 0.5f, 268.f + rise + lift, kWhite.withAlpha(a));
     textMid(r, m_fLockDate, m_date, 640.f - measured(m_fLockDate, m_date).x * 0.5f, 350.f + rise + lift, kMuted.withAlpha(a));
-    if (m_lockGameId && m_settings.lockGameBanner) {
-        const std::string title = fit(m_fLabel, m_lockGameName, 700.f);
-        const float titleWidth = measured(m_fLabel, title).x;
-        const float titleY = 400.f + rise + lift;
-        // A restrained centered caption beneath the date, clear of the clock.
-        r.drawRoundedRect({640.f - titleWidth * 0.5f - 22.f, titleY - 23.f,
-                           titleWidth + 44.f, 46.f}, nxui::Color(0.f, 0.f, 0.f, 0.24f * a), 23.f);
-        textMid(r, m_fLabel, title, 640.f - titleWidth * 0.5f, titleY,
-                kWhite.withAlpha(0.94f * a));
+    if (m_lockGameId && m_settings.lockGameTitle) {
+        // Over the clock: its title picture, or (none) its icon.
+        const nxui::Texture* pic = playing != m_art.end() && playing->second.icon && playing->second.icon->valid()
+                                       ? playing->second.icon.get()
+                                       : nullptr;
+        const bool logo = pic && playing->second.iconKind == ArtKind::Title;
+        if (pic) {
+            const float tw = static_cast<float>(pic->width()), th = static_cast<float>(pic->height());
+            const float s = std::min((logo ? 300.f : 96.f) / tw, (logo ? 120.f : 96.f) / th);
+            const nxui::Rect box{640.f - tw * s * 0.5f, 200.f - th * s + rise + lift, tw * s, th * s};
+            if (logo) r.drawTexture(pic, box, kWhite.withAlpha(a));
+            else r.drawTextureRounded(pic, box, 18.f, kWhite.withAlpha(a));
+        }
+        if (!logo) { // A restrained centered caption beneath the date, clear of the clock.
+            const std::string title = fit(m_fLabel, m_lockGameName, 700.f);
+            const float titleWidth = measured(m_fLabel, title).x;
+            const float titleY = 400.f + rise + lift;
+            r.drawRoundedRect({640.f - titleWidth * 0.5f - 22.f, titleY - 23.f,
+                               titleWidth + 44.f, 46.f}, nxui::Color(0.f, 0.f, 0.f, 0.24f * a), 23.f);
+            textMid(r, m_fLabel, title, 640.f - titleWidth * 0.5f, titleY,
+                    kWhite.withAlpha(0.94f * a));
+        }
     }
     // Battery silhouette and exact charge, including low/charging states.
     const int charge = m_battery.empty() ? -1 : std::atoi(m_battery.c_str());
@@ -3887,14 +3945,27 @@ void CardsActivity::askText(const std::string& title, const std::string& guide, 
 void CardsActivity::pickChoice(int index) {
     if (index < 0 || index >= static_cast<int>(m_pickChoices.size()) || m_pickSave.valid()) return;
     if (m_pickWall == 3) { // the Album: that one, full screen
-        const std::string file = m_pickChoices[(size_t)index].file;
-        m_galleryAt = 0;
-        if (m_galleryAll)
-            for (size_t i = 0; i < m_galleryAll->size(); ++i)
-                if ((*m_galleryAll)[i] == file) m_galleryAt = static_cast<int>(i);
+        m_galleryAt = m_galleryPage * kGalleryPage + index;
         m_galleryView = true;
         loadGalleryPicture();
         m_audio.play("activation");
+        return;
+    }
+    if (m_pickWall == 4) { // one to shuffle, or not any more
+        const std::string& file = m_pickChoices[(size_t)index].file;
+        auto& list = m_lockPlaylist;
+        const auto at = std::find(list.begin(), list.end(), file);
+        if (at != list.end()) {
+            list.erase(at);
+            m_audio.play("toggle_off");
+        } else if (list.size() >= 256) {
+            say("Choose up to 256 wallpapers.");
+            return;
+        } else {
+            list.push_back(file);
+            m_audio.play("toggle_on");
+        }
+        saveShuffle();
         return;
     }
     if (m_pickWall) { // a background, or the lock screen's picture
@@ -3936,7 +4007,23 @@ void CardsActivity::pickChoice(int index) {
 void CardsActivity::updatePicker() {
     auto& in = app().input();
     using B = nxui::Button;
-    if (m_galleryView) { // a screenshot full screen: left / right, or use it
+    if (m_galleryAsk) { // "Delete this?"
+        if (in.isDown(B::A)) {
+            m_galleryAsk = false;
+            deleteGalleryShot();
+        } else if (in.isDown(B::B) || in.isDown(B::Minus)) {
+            m_galleryAsk = false;
+            m_audio.play("hide_modal");
+        }
+        return;
+    }
+    if (m_galleryStale && !m_pickJob.valid()) { // one was deleted: its page again
+        m_galleryStale = false;
+        const int page = m_galleryPage;
+        m_galleryPage = -1;
+        showGalleryPage(page);
+    }
+    if (m_galleryView) { // one full screen: left / right, use it, or delete it
         const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
         int at = m_galleryAt;
         if (in.isDown(B::DLeft) || in.isDown(B::LStickL) || in.isDown(B::L)) at -= 1;
@@ -3947,8 +4034,15 @@ void CardsActivity::updatePicker() {
             loadGalleryPicture();
             m_audio.play("navigation");
         }
-        if (n > 0 && (in.isDown(B::Y) || in.isDown(B::X))) {
-            const std::string path = (*m_galleryAll)[(size_t)m_galleryAt];
+        if (n > 0 && in.isDown(B::Minus)) {
+            m_galleryAsk = true;
+            m_audio.play("show_modal");
+        } else if (n > 0 && (in.isDown(B::Y) || in.isDown(B::X)) && !(*m_galleryAll)[(size_t)m_galleryAt].video) {
+            const std::string path = albumPictureFile((*m_galleryAll)[(size_t)m_galleryAt]);
+            if (path.empty()) {
+                say("That picture couldn't be copied.");
+                return;
+            }
             const bool lockScreen = in.isDown(B::X);
             m_galleryView = false;
             m_pickOpen = false;
@@ -3970,15 +4064,28 @@ void CardsActivity::updatePicker() {
         searchPicker();
         return;
     }
-    if (in.isDown(B::X) && m_pickWall == 2 && !m_pickJob.valid() && m_pickSel >= 0 && m_pickSel < static_cast<int>(m_pickChoices.size())) {
-        const auto& choice = m_pickChoices[static_cast<size_t>(m_pickSel)];
-        if (!choice.own && !choice.file.empty()) {
-            auto& selected = m_lockPlaylist;
-            auto at = std::find(selected.begin(), selected.end(), choice.file);
-            if (at == selected.end()) selected.push_back(choice.file); else selected.erase(at);
-            switchu::lockpicture::savePlaylist(selected);
-            m_audio.play("toggle_on");
-        }
+    if (in.isDown(B::X) && m_pickWall == 2 && !m_pickJob.valid()) { // several, to shuffle
+        openGallery(4);
+        m_audio.play("activation");
+        return;
+    }
+    if (in.isDown(B::Y) && m_pickWall == 4 && !m_pickJob.valid() && m_galleryAll) { // all of them, or none
+        auto& list = m_lockPlaylist;
+        const bool none = list.size() >= std::min<size_t>(256, m_galleryAll->size());
+        list.clear();
+        if (!none)
+            for (const AlbumShot& shot : *m_galleryAll) {
+                if (list.size() >= 256) break;
+                list.push_back(shot.path);
+            }
+        saveShuffle();
+        m_audio.play(none ? "toggle_off" : "toggle_on");
+        return;
+    }
+    if (in.isDown(B::Minus) && m_pickWall == 3 && !m_pickJob.valid() && m_pickSel < static_cast<int>(m_pickChoices.size())) {
+        m_galleryAt = m_galleryPage * kGalleryPage + m_pickSel;
+        m_galleryAsk = true;
+        m_audio.play("show_modal");
         return;
     }
     if (in.isDown(B::X) && m_pickWall == 1 && m_pickChoices.size() > 1) { // Shuffle
@@ -3989,14 +4096,14 @@ void CardsActivity::updatePicker() {
     if (n == 0) return;
     int s = m_pickSel;
     const int cols = pickCols(pickKind());
-    if (m_pickWall == 3) { // the Album: its pages (L / R, or past the first or last row)
+    if (m_pickWall) { // the grids' pages (L / R, or past the first or last row)
         const bool down = in.isDown(B::DDown) || in.isDown(B::LStickD), up = in.isDown(B::DUp) || in.isDown(B::LStickU);
         if (in.isDown(B::R) || in.isDown(B::ZR) || (down && s + cols >= n)) {
-            showGalleryPage(m_galleryPage + 1);
+            if (showGalleryPage(m_galleryPage + 1) && down) m_pickSel = s % cols; // the top row
             return;
         }
         if (in.isDown(B::L) || in.isDown(B::ZL) || (up && s - cols < 0)) {
-            showGalleryPage(m_galleryPage - 1);
+            if (showGalleryPage(m_galleryPage - 1) && up) m_pickSel = s % cols + kGalleryPage - cols; // the bottom row
             return;
         }
     }
@@ -4015,6 +4122,12 @@ void CardsActivity::updatePicker() {
 bool CardsActivity::pickerTouch() {
     auto& in = app().input();
     if (!in.touchUp()) return in.isTouching();
+    if (m_galleryAsk) return true;
+    if (m_galleryView) { // a tap: back to the grid
+        m_galleryView = false;
+        m_audio.play("hide_modal");
+        return true;
+    }
     const float x = in.touchX(), y = in.touchY();
     for (int i = 0; i < static_cast<int>(m_pickChoices.size()); ++i)
         if (pickTile(i, 0.f, pickKind()).contains(x, y)) {
@@ -4042,15 +4155,18 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
             c.rgba.clear();
             c.rgba.shrink_to_fit();
         }
-        m_pickSel = m_pickChoices.size() > 1 && m_pickWall != 3 ? 1 : 0; // the first found (its own icon is first)
+        // The first found (its own icon is first); in the grids with pages, where it was.
+        m_pickSel = m_pickWall ? std::clamp(m_pickSel, 0, std::max(0, static_cast<int>(m_pickChoices.size()) - 1))
+                               : m_pickChoices.size() > 1 ? 1 : 0;
     }
     if (m_galleryJob.valid() && m_galleryJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         Pixels px = m_galleryJob.get();
         auto tex = std::make_unique<nxui::Texture>();
         if (!px.rgba.empty() && tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h))
             m_galleryTex = std::move(tex);
+        else m_galleryTex.reset();
     }
-    if (m_galleryView) { // one screenshot, the whole screen
+    if (m_galleryView) { // one, the whole screen
         r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 1.f));
         if (m_galleryTex && m_galleryTex->valid()) {
             const float tw = static_cast<float>(m_galleryTex->width()), th = static_cast<float>(m_galleryTex->height());
@@ -4060,7 +4176,15 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
         r.drawGradientRect({0.f, 620.f, 1280.f, 100.f}, nxui::Color(0.f, 0.f, 0.f, 0.f), nxui::Color(0.f, 0.f, 0.f, 0.7f));
         const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
         const std::string where = trf("{n} of {total}", {std::to_string(m_galleryAt + 1), std::to_string(n)});
-        const std::string hint = "Left / Right more    Y Use as background    X Use on the lock screen    B Back";
+        const bool video = n > 0 && (*m_galleryAll)[(size_t)std::clamp(m_galleryAt, 0, n - 1)].video;
+        const std::string hint = video ? "Left / Right more    - Delete    B Back"
+                                       : "Left / Right more    Y Background    X Lock screen    - Delete    B Back";
+        if (video) { // (its picture: there's no player here)
+            r.drawRoundedRect({640.f - 44.f, 360.f - 44.f, 88.f, 88.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f), 44.f);
+            icon(r, "play", 640.f, 360.f, 44.f, kWhite);
+            const std::string note = "Videos can't play here";
+            textMid(r, m_fBody, note, 640.f - measured(m_fBody, note).x * 0.5f, 430.f, kWhite);
+        }
         textMid(r, m_fBody, where, 40.f, 684.f, kMuted);
         textMid(r, m_fBody, hint, 1240.f - measured(m_fBody, hint).x, 684.f, kWhite.withAlpha(0.9f));
         return;
@@ -4073,18 +4197,22 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
     r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
     const float dy = card.y - kPickCard.y;
     icon(r, "tag", kPickCard.x + 46.f, kPickCard.y + 46.f + dy, 26.f, kWhite.withAlpha(a));
-    const std::string title = m_pickWall == 3 ? "Album" : m_pickWall == 2 ? "Lock screen picture" : m_pickWall == 1 ? "Background"
+    const std::string title = m_pickWall == 4 ? "Pictures to shuffle" : m_pickWall == 3 ? "Album" : m_pickWall == 2 ? "Lock screen picture" : m_pickWall == 1 ? "Background"
                             : m_pickHero     ? "Background picture"
                             : m_pickCover    ? "Card picture" : "Title picture";
     textMid(r, m_fTitle, title, kPickCard.x + 72.f, kPickCard.y + 46.f + dy, kWhite.withAlpha(a));
     const float nameX = kPickCard.x + 92.f + measured(m_fTitle, title).x;
-    const std::string hint = m_pickWall == 3 ? "A View    L R More    B Back" : m_pickWall == 2 ? "A Use it    X Select for shuffle    B Done" : m_pickWall ? "A Use it    X Shuffle    B Back" : "A Use it    Y Search    B Back";
+    const std::string hint = m_pickWall == 4 ? "A Select    Y All    L R More    B Done"
+                           : m_pickWall == 3 ? "A View    - Delete    L R More    B Back"
+                           : m_pickWall == 2 ? "A Use it    X Choose several    L R More    B Back"
+                           : m_pickWall      ? "A Use it    X Shuffle    L R More    B Back"
+                                             : "A Use it    Y Search    B Back";
     const float hintW = measured(m_fBody, hint).x;
     const int shots = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
-    const std::string what = m_pickWall == 3 ? trf("{count} screenshots, page {n} of {pages}",
-                                                   {std::to_string(shots), std::to_string(m_galleryPage + 1),
-                                                    std::to_string(std::max(1, (shots + kGalleryPage - 1) / kGalleryPage))})
-                           : m_pickWall ? "Yours (config/CardsNX/backgrounds) and your newest screenshots"
+    const std::string page = std::to_string(m_galleryPage + 1), pages = std::to_string(std::max(1, (shots + kGalleryPage - 1) / kGalleryPage));
+    const std::string what = m_pickWall == 4 ? trf("{n} selected, page {p} of {pages}", {std::to_string(m_lockPlaylist.size()), page, pages})
+                           : m_pickWall == 3 ? trf("{count} pictures and videos, page {n} of {pages}", {std::to_string(shots), page, pages})
+                           : m_pickWall ? trf("config/CardsNX/backgrounds and your screenshots, page {n} of {pages}", {page, pages})
                            : m_pickQuery.empty() ? m_pickGame.name
                            : m_pickQuery[0] == '#' ? m_pickLabel : trf("Results for \"{words}\"", {m_pickQuery});
     textMid(r, m_fBody, fit(m_fBody, what, kPickCard.x + kPickCard.width - 60.f - hintW - nameX), nameX,
@@ -4100,11 +4228,8 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
         const float ta = a * easeOut((m_pickIn - 0.02f * static_cast<float>(i)) / 0.7f);
         nxui::Rect tile = pickTile(i, dy, pickKind());
         const bool chosen = i == m_pickSel;
-        if (m_pickWall == 2 && !c.own) {
-            const auto& selected = m_lockPlaylist;
-            if (std::find(selected.begin(), selected.end(), c.file) != selected.end())
-                r.drawRoundedRect({tile.x - 4.f, tile.y - 4.f, tile.width + 8.f, tile.height + 8.f}, accent(0.8f * ta), 21.f);
-        }
+        const bool ticked = m_pickWall == 4 && std::find(m_lockPlaylist.begin(), m_lockPlaylist.end(), c.file) != m_lockPlaylist.end();
+        if (ticked) r.drawRoundedRect({tile.x - 4.f, tile.y - 4.f, tile.width + 8.f, tile.height + 8.f}, accent(0.8f * ta), 21.f);
         if (chosen) tile = scaled(tile, 1.04f);
         r.drawRoundedRect(tile, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.15f : 0.06f) * ta), 18.f);
         r.drawRoundedRectOutline(tile, chosen ? accent(ring * ta) : nxui::Color(1.f, 1.f, 1.f, 0.10f * ta), 18.f,
@@ -4126,12 +4251,21 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
             icon(r, m_pickWall == 2 ? "moon" : "home", box.x + box.width * 0.5f, box.y + box.height * 0.5f, 44.f,
                  kWhite.withAlpha(0.8f * ta));
         }
+        if (c.video) { // marked as a video
+            r.drawRoundedRect({box.x + box.width * 0.5f - 24.f, box.y + box.height * 0.5f - 24.f, 48.f, 48.f},
+                              nxui::Color(0.f, 0.f, 0.f, 0.55f * ta), 24.f);
+            icon(r, "play", box.x + box.width * 0.5f, box.y + box.height * 0.5f, 24.f, kWhite.withAlpha(ta));
+        }
+        if (ticked) { // chosen for the shuffle
+            r.drawRoundedRect({tile.x + tile.width - 44.f, tile.y + 10.f, 34.f, 34.f}, accent(ta), 17.f);
+            icon(r, "shuffle", tile.x + tile.width - 27.f, tile.y + 27.f, 20.f, kWhite.withAlpha(ta));
+        }
         if (label)
             textMid(r, m_fBody, label, tile.x + (tile.width - measured(m_fBody, label).x * 0.8f) * 0.5f,
                     tile.y + tile.height - 15.f, kMuted.withAlpha(ta), 0.8f);
     }
-    if (m_pickChoices.size() <= (m_pickWall == 3 ? 0u : 1u)) {
-        const std::string none = m_pickWall == 3 ? "No screenshots yet: press the Capture button."
+    if (m_pickChoices.size() <= (m_pickWall >= 3 ? 0u : 1u)) {
+        const std::string none = m_pickWall == 3 ? "No pictures or videos yet: press the Capture button."
                                  : m_pickWall ? "Put pictures in sdmc:/config/CardsNX/backgrounds, or take a screenshot."
                                  : m_key.empty() ? "Pictures to choose come from SteamGridDB: add a key in Settings > Look."
                                  : m_pickQuery.empty() ? "SteamGridDB has no pictures for this game. Y to search another name."
@@ -5352,22 +5486,7 @@ void CardsActivity::openUsers() {
         items.push_back(std::move(row));
     }
 #ifdef SWITCHU_MENU
-    // Your friend code, to give to others (Nintendo gives one to a linked Nintendo Account).
-    if (!m_friendCodeJob.valid()) {
-        AccountUid me{};
-        me.uid[0] = m_user.uid[0];
-        me.uid[1] = m_user.uid[1];
-        m_friendCodeJob = std::async(std::launch::async, [me]() {
-            offScreenCore();
-            std::string code = loadFriendCode(me);
-            threadDone();
-            return code;
-        });
-    }
-    items.push_back(info("Friend code", [this]() {
-        if (m_friendCodeJob.valid()) return tr("Reading...");
-        return m_friendCode.empty() ? tr("Needs a Nintendo Account") : m_friendCode;
-    }));
+    items.push_back(friendCodeRow());
     items.push_back(action("Add a friend", [this]() {
         openSocial();
         if (m_social) m_social->showAddFriend();
@@ -5574,28 +5693,14 @@ void CardsActivity::buildSettings() {
         }, "When a game starts"));
     look.rows.push_back(choice("Glass", [this]() { return std::string(kGlassNames[std::clamp(m_settings.glass, 0, 2)]); },
         [this, save](int d) { m_settings.glass = (m_settings.glass + d + 3) % 3; save(); }, "Buttons, the bar and the panel"));
+    look.rows.push_back(toggle("Animations", [this]() { return m_settings.motion; },
+        [this, save]() { m_settings.motion = !m_settings.motion; save(); }));
     MenuItem wall = action("Background", [this]() { openWallpapers(); });
     wall.value = [this]() {
         return m_settings.wallpaper.empty() ? std::string("Each game's art") : std::filesystem::path(m_settings.wallpaper).filename().string();
     };
     wall.detail = "One picture behind everything: yours (sdmc:/config/CardsNX/backgrounds) or a screenshot";
     look.rows.push_back(std::move(wall));
-#ifdef SWITCHU_MENU
-    { // Read when HOME starts (HomeNX's main.cpp): 1920x1080 when docked.
-        std::string want;
-        std::getline(std::ifstream("sdmc:/config/SwitchU/resolution.txt"), want);
-        m_tv1080 = want.rfind("1080", 0) == 0;
-    }
-    look.rows.push_back(choice("TV resolution", [this]() { return std::string(m_tv1080 ? "1080p" : "720p"); },
-        [this](int) {
-            m_tv1080 = !m_tv1080;
-            std::error_code ec;
-            if (m_tv1080) std::ofstream("sdmc:/config/SwitchU/resolution.txt") << "1080";
-            else std::filesystem::remove("sdmc:/config/SwitchU/resolution.txt", ec);
-            say(m_tv1080 ? "1080p on the TV from the next time HOME opens (handheld stays 720p)."
-                         : "720p from the next time HOME opens.");
-        }, "Sharper on a TV; 720p is lighter for the console"));
-#endif
     look.rows.push_back(slider("Background softness", [this]() { return m_settings.haze * 100 / 80; },
         [this, save](int v) { m_settings.haze = v * 80 / 100; save(); }, "A haze over the game's art"));
     look.rows.push_back(toggle("Moving background", [this]() { return m_settings.bgMotion; },
@@ -5613,8 +5718,22 @@ void CardsActivity::buildSettings() {
         "Red, and a warning, when the Switch gets hot"));
     look.rows.push_back(toggle("Nextendo players", [this]() { return m_settings.players; },
         [this, save]() { m_settings.players = !m_settings.players; save(); }, "Green dots on games played online now"));
-    look.rows.push_back(toggle("Animations", [this]() { return m_settings.motion; },
-        [this, save]() { m_settings.motion = !m_settings.motion; save(); }));
+#ifdef SWITCHU_MENU
+    { // Read when HOME starts (HomeNX's main.cpp): 1920x1080 when docked.
+        std::string want;
+        std::getline(std::ifstream("sdmc:/config/SwitchU/resolution.txt"), want);
+        m_tv1080 = want.rfind("1080", 0) == 0;
+    }
+    look.rows.push_back(choice("TV resolution", [this]() { return std::string(m_tv1080 ? "1080p" : "720p"); },
+        [this](int) {
+            m_tv1080 = !m_tv1080;
+            std::error_code ec;
+            if (m_tv1080) std::ofstream("sdmc:/config/SwitchU/resolution.txt") << "1080";
+            else std::filesystem::remove("sdmc:/config/SwitchU/resolution.txt", ec);
+            say(m_tv1080 ? "1080p on the TV from the next time HOME opens (handheld stays 720p)."
+                         : "720p from the next time HOME opens.");
+        }, "Sharper on a TV; 720p is lighter for the console"));
+#endif
     m_sheet.push_back(std::move(look));
 
     // The lock screen: its own tab (HomeNX's lock screen shares the password and the picture).
@@ -5667,7 +5786,7 @@ void CardsActivity::buildSettings() {
     };
     lockPicture.detail = "One of yours or a screenshot, sharp behind the clock";
     lockTab.rows.push_back(std::move(lockPicture));
-    MenuItem pool = action("Choose wallpapers to shuffle", [this]() { openWallpaperSelection(); });
+    MenuItem pool = action("Choose wallpapers to shuffle", [this]() { openGallery(4); });
     m_lockPlaylist = switchu::lockpicture::playlist();
     m_lockRotate = switchu::lockpicture::rotationEnabled();
     pool.value = [this]() { return trf("{n} selected", {std::to_string(m_lockPlaylist.size())}); };
@@ -5679,9 +5798,12 @@ void CardsActivity::buildSettings() {
             switchu::lockpicture::setRotation(m_lockRotate);
         },
         "Rotates your selected pictures, avoiding the previous one"));
+    lockTab.rows.push_back(toggle("Show the playing game", [this]() { return m_settings.lockGameTitle; },
+        [this, save]() { m_settings.lockGameTitle = !m_settings.lockGameTitle; save(); },
+        "Its title picture and name, on the lock screen"));
     lockTab.rows.push_back(toggle("Playing game background", [this]() { return m_settings.lockGameBanner; },
         [this, save]() { m_settings.lockGameBanner = !m_settings.lockGameBanner; save(); },
-        "Use the open game's HOME background and show its title"));
+        "Behind the clock: the open game's HOME background"));
     m_sheet.push_back(std::move(lockTab));
 
     Section sound{"Sound", "music", {}};
@@ -5768,6 +5890,14 @@ void CardsActivity::buildSettings() {
     static const char* const kNetRows[] = {"", "Ping", "Download", "Upload", "Signal", "Connection to the internet", "NAT type"};
     for (int row : {5, 4, 1, 2, 3, 6})
         net.rows.push_back(info(kNetRows[row], [this, row]() { return netTestText(row); }));
+#ifdef SWITCHU_MENU
+    net.rows.push_back(friendCodeRow());
+    net.rows.push_back(action("Add a friend", [this]() {
+        m_sheetOpen = false;
+        openSocial();
+        if (m_social) m_social->showAddFriend();
+    }));
+#endif
     m_sheet.push_back(std::move(net));
 
     Section pads{"Bluetooth", "bluetooth", {}};
@@ -5887,17 +6017,25 @@ void CardsActivity::buildSettings() {
     console.rows.push_back(toggle("Set the time automatically", [this]() { return m_autoClock; }, [this]() {
         if (R_SUCCEEDED(switchu::menu::smi_cmd::setInternetTimeSync(!m_autoClock))) m_autoClock = !m_autoClock;
         else say("That didn't change.");
-    }, "From the internet. Off: Date, Hour and Minute below"));
+    }, "From the internet. Changing the time below turns this off"));
     auto shiftClock = [this](long long by) {
-        if (m_autoClock) {
-            say("Turn off Set the time automatically first.");
-            return;
+        if (m_autoClock) { // changing it by hand is turning that off
+            if (R_FAILED(switchu::menu::smi_cmd::setInternetTimeSync(false))) {
+                say("The clock didn't change.");
+                return;
+            }
+            m_autoClock = false;
         }
+        u64 clock = 0; // (time() still counts from the old clock, if it's just been set)
+        if (R_FAILED(timeGetCurrentTime(TimeType_UserSystemClock, &clock))) clock = static_cast<u64>(std::time(nullptr));
         TimeCalendarTime t{};
         TimeCalendarAdditionalInfo info{};
-        if (R_SUCCEEDED(timeToCalendarTimeWithMyRule(static_cast<u64>(static_cast<long long>(std::time(nullptr)) + by), &t, &info))) {
+        if (R_SUCCEEDED(timeToCalendarTimeWithMyRule(static_cast<u64>(static_cast<long long>(clock) + by), &t, &info))) {
             const switchu::smi::ManualDateTimeArgs when{t.year, t.month, t.day, t.hour, t.minute};
-            if (R_SUCCEEDED(switchu::menu::smi_cmd::setManualDateTime(when))) return;
+            if (R_SUCCEEDED(switchu::menu::smi_cmd::setManualDateTime(when))) {
+                __libnx_init_time(); // HOME's clock and these rows count from this: they show the new time now
+                return;
+            }
         }
         say("The clock didn't change.");
     };
@@ -6073,19 +6211,52 @@ void CardsActivity::buildSettings() {
 #endif
     m_sheet.push_back(std::move(about));
     // Fewer tabs: these go at the end of another's rows.
-    auto fold = [this](const char* from, const char* into) {
+    auto heading = [](const char* name) {
+        MenuItem row;
+        row.kind = MenuItem::Header;
+        row.label = name;
+        return row;
+    };
+    auto fold = [this, &heading](const char* from, const char* into) {
         const auto named = [this](const char* name) {
             return std::find_if(m_sheet.begin(), m_sheet.end(), [name](const Section& s) { return s.name == name; });
         };
         const auto source = named(from);
         const auto target = named(into);
         if (source == m_sheet.end() || target == m_sheet.end()) return;
+        target->rows.push_back(heading(from));
         for (MenuItem& row : source->rows) target->rows.push_back(std::move(row));
         m_sheet.erase(source);
     };
     fold("Notifications", "Home");
     fold("Pictures", "Look");
     fold("About", "Updates");
+    // Groups inside the tabs, so a long list reads easily: the rows that start each one
+    // (two for a group whose first row only HOME or only the homebrew version has).
+    static const std::pair<const char*, const char*> kGroups[] = {
+        {"Page order", "Pages"}, {"Ask who's playing", "Software"}, {"Look for new software", "Software"},
+        {"Highlight colour", "Style"}, {"Background", "Wallpaper"}, {"Clock", "Top bar"}, {"TV resolution", "TV"},
+        {"Password", "Security"}, {"Picture", "Wallpaper"}, {"Show the playing game", "Playing game"},
+        {"Music", "Background music"}, {"Sounds", "Menu sounds"},
+        {"Wi-Fi", "Connection"}, {"Friend code", "Friends"},
+        {"Headphones and speakers", "Audio devices"}, {"Pair a controller", "Controllers"}, {"Find controllers", "Controllers"},
+        {"Connect to a computer", "Tools"}, {"Language", "Language and time"}, {"Theme", "Screen and sleep"},
+    };
+    for (Section& section : m_sheet) {
+        std::string last;
+        for (size_t i = 0; i < section.rows.size(); ++i) {
+            if (section.rows[i].kind == MenuItem::Header) {
+                last = section.rows[i].label;
+                continue;
+            }
+            const auto group = std::find_if(std::begin(kGroups), std::end(kGroups),
+                                            [&](const auto& g) { return section.rows[i].label == g.first; });
+            if (group == std::end(kGroups) || last == group->second) continue;
+            last = group->second;
+            section.rows.insert(section.rows.begin() + static_cast<std::ptrdiff_t>(i), heading(group->second));
+            ++i;
+        }
+    }
     // His order (Settings > Home > Settings tab order); tabs new since go after.
     const auto& wanted = m_settings.sheetOrder;
     auto rank = [&wanted](const Section& sec) {
@@ -7351,12 +7522,20 @@ void CardsActivity::listInput(std::vector<MenuItem>& items, int& sel, const std:
     }
 }
 
+float CardsActivity::sheetRowY(const std::vector<MenuItem>& rows, size_t index) {
+    float y = 0.f;
+    for (size_t i = 0; i < index && i < rows.size(); ++i) y += rows[i].kind == MenuItem::Header ? kHeadH : kRowH;
+    return y;
+}
+
 bool CardsActivity::updateSheet(float) {
     auto& in = app().input();
     using B = nxui::Button;
     if (m_sheet.empty()) return false;
     const int sections = static_cast<int>(m_sheet.size());
     auto rows = [this]() -> std::vector<MenuItem>& { return m_sheet[(size_t)m_sheetSec].rows; };
+    while (m_sheetRow + 1 < static_cast<int>(rows().size()) && rows()[(size_t)m_sheetRow].kind == MenuItem::Header)
+        ++m_sheetRow; // (a heading can't be chosen: the row under it)
     auto goSection = [&](int s) {
         s = (s + sections) % sections;
         if (s == m_sheetSec) return;
@@ -7392,14 +7571,15 @@ bool CardsActivity::updateSheet(float) {
         return true;
     }
     const int n = static_cast<int>(rows().size());
-    if (up && m_sheetRow > 0) {
-        --m_sheetRow;
+    auto stepRow = [&](int by) { // (past the headings)
+        int to = m_sheetRow + by;
+        while (to >= 0 && to < n && rows()[(size_t)to].kind == MenuItem::Header) to += by;
+        if (to < 0 || to >= n) return;
+        m_sheetRow = to;
         m_audio.play("navigation");
-    }
-    if (down && m_sheetRow < n - 1) {
-        ++m_sheetRow;
-        m_audio.play("navigation");
-    }
+    };
+    if (up) stepRow(-1);
+    if (down) stepRow(1);
     if (left || right || in.isDown(B::A)) takeFacts(true); // (a row changes what the console has: that first)
     MenuItem& item = rows()[(size_t)std::clamp(m_sheetRow, 0, n - 1)];
     const bool steps = item.kind == MenuItem::Choice || item.kind == MenuItem::Slider;
@@ -7496,11 +7676,12 @@ bool CardsActivity::handleTouch() {
             return true;
         }
         auto& rows = m_sheet[(size_t)m_sheetSec].rows;
-        const int r = static_cast<int>((y - kSheetTop + m_sheetScroll) / kRowH);
-        if (y < kSheetTop || y > kRowsBottom || r < 0 || r >= static_cast<int>(rows.size())) return true;
+        int r = 0;
+        while (r < static_cast<int>(rows.size()) && y - kSheetTop + m_sheetScroll >= sheetRowY(rows, (size_t)r + 1)) ++r;
+        if (y < kSheetTop || y > kRowsBottom || r >= static_cast<int>(rows.size()) || rows[(size_t)r].kind == MenuItem::Header) return true;
         m_sheetOnRows = true;
         m_sheetRow = r;
-        const nxui::Rect row{kRowsX, kSheetTop + kRowH * static_cast<float>(r) - m_sheetScroll, kRowsW, kRowH - 8.f};
+        const nxui::Rect row{kRowsX, kSheetTop + sheetRowY(rows, (size_t)r) - m_sheetScroll, kRowsW, kRowH - 8.f};
         if (tapRow(rows[(size_t)r], row, row.x + row.width - 18.f - 220.f, 220.f) && rows[(size_t)r].run) {
             m_audio.play("activation");
             auto run = rows[(size_t)r].run;
@@ -8642,6 +8823,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawDots(r);
     drawOptions(r);
     drawPicker(r);
+    drawGalleryAsk(r);
     drawLog(r);
     drawMusic(r);
     drawPower(r);
@@ -9707,24 +9889,36 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     // Rows (scrolled to keep the chosen one in view; they slide in on a new section).
     auto& rows = m_sheet[(size_t)m_sheetSec].rows;
     const float visible = kRowsBottom - kSheetTop;
-    const float want = std::clamp(kRowH * static_cast<float>(m_sheetRow) - visible * 0.5f + kRowH * 0.5f, 0.f,
-                                  std::max(0.f, kRowH * static_cast<float>(rows.size()) - visible));
+    const float want = std::clamp(sheetRowY(rows, (size_t)m_sheetRow) - visible * 0.5f + kRowH * 0.5f, 0.f,
+                                  std::max(0.f, sheetRowY(rows, rows.size()) - visible));
     m_sheetScroll += (want - m_sheetScroll) * (m_settings.motion ? 0.25f : 1.f);
     const float ra = a * easeOut(m_sheetRowsIn), slide = 24.f * (1.f - easeOut(m_sheetRowsIn));
     r.pushClipRect({kRowsX - 8.f, kSheetTop + dy - 4.f, kRowsW + 16.f, visible + 8.f});
-    // One grouped list: a glass block behind the rows, hairlines between them.
-    if (!rows.empty()) {
-        const nxui::Rect group{kRowsX + slide, kSheetTop - m_sheetScroll + dy, kRowsW,
-                               kRowH * static_cast<float>(rows.size()) - 8.f};
+    // Grouped lists: a glass block behind each group's rows, its heading over it, hairlines between them.
+    for (size_t i = 0; i < rows.size();) {
+        if (rows[i].kind == MenuItem::Header) {
+            ++i;
+            continue;
+        }
+        size_t end = i;
+        while (end < rows.size() && rows[end].kind != MenuItem::Header) ++end;
+        const float top = sheetRowY(rows, i);
+        const nxui::Rect group{kRowsX + slide, kSheetTop + top - m_sheetScroll + dy, kRowsW, sheetRowY(rows, end) - top - 8.f};
         r.drawRoundedRect(group, nxui::Color(1.f, 1.f, 1.f, 0.05f * ra), 18.f);
         r.drawRoundedRectOutline(group, nxui::Color(1.f, 1.f, 1.f, 0.07f * ra), 18.f, 1.f);
+        i = end;
     }
     for (size_t i = 0; i < rows.size(); ++i) {
-        const nxui::Rect row{kRowsX + slide, kSheetTop + kRowH * static_cast<float>(i) - m_sheetScroll + dy, kRowsW, kRowH - 8.f};
+        const bool isHeading = rows[i].kind == MenuItem::Header;
+        const nxui::Rect row{kRowsX + slide, kSheetTop + sheetRowY(rows, i) - m_sheetScroll + dy, kRowsW, (isHeading ? kHeadH : kRowH) - 8.f};
         if (row.y > kRowsBottom + dy || row.y + row.height < kSheetTop + dy) continue;
+        if (isHeading) {
+            textMid(r, m_fBody, rows[i].label, row.x + 18.f, row.y + row.height * 0.5f + 8.f, kMuted.withAlpha(ra), 0.9f);
+            continue;
+        }
         const int at = static_cast<int>(i);
         const bool chosen = m_sheetOnRows && at == m_sheetRow;
-        if (i + 1 < rows.size() && !chosen && !(m_sheetOnRows && at + 1 == m_sheetRow))
+        if (i + 1 < rows.size() && rows[i + 1].kind != MenuItem::Header && !chosen && !(m_sheetOnRows && at + 1 == m_sheetRow))
             r.drawRect({row.x + 18.f, row.y + row.height + 3.5f, row.width - 36.f, 1.f}, nxui::Color(1.f, 1.f, 1.f, 0.08f * ra));
         drawRow(r, rows[i], row, chosen, ra, true);
     }
@@ -9741,54 +9935,26 @@ void CardsActivity::openPagePicker() {
     openMenu("Pages", std::move(items));
 }
 
-void CardsActivity::openWallpaperSelection() {
-    if (m_wallSelectionJob.valid()) return;
-    m_lockPlaylist = switchu::lockpicture::playlist();
-    const auto selected = m_lockPlaylist;
-    m_wallSelectionJob = std::async(std::launch::async, [selected]() {
-        offScreenCore();
-        std::vector<std::string> files = selected;
-        std::error_code ec;
-        for (const char* dir : {"sdmc:/config/CardsNX/backgrounds", "sdmc:/switch/SwitchU/lockscreen"})
-            for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-                const auto extension = lower(entry.path().extension().string());
-                if (entry.is_regular_file(ec) && (extension == ".png" || extension == ".jpg" || extension == ".jpeg"))
-                    files.push_back(entry.path().string());
-            }
-        const auto screenshots = switchu::lockpicture::newestScreenshots(100);
-        files.insert(files.end(), screenshots.begin(), screenshots.end());
-        std::sort(files.begin(), files.end());
-        files.erase(std::unique(files.begin(), files.end()), files.end());
-        threadDone();
-        return files;
-    });
-    openMenu("Lock-screen wallpapers", {info("Reading your pictures...", nullptr)});
-}
-
-void CardsActivity::showWallpaperSelection() {
-    std::vector<MenuItem> items;
-    for (const auto& path : m_wallSelectionFiles) {
-        auto selected = [this, path]() { return std::find(m_lockPlaylist.begin(), m_lockPlaylist.end(), path) != m_lockPlaylist.end(); };
-        auto row = toggle(std::filesystem::path(path).filename().string(), selected, [this, path]() {
-            auto at = std::find(m_lockPlaylist.begin(), m_lockPlaylist.end(), path);
-            if (at == m_lockPlaylist.end()) {
-                if (m_lockPlaylist.size() >= 256) { say("Choose up to 256 wallpapers."); return; }
-                m_lockPlaylist.push_back(path);
-            } else m_lockPlaylist.erase(at);
-            switchu::lockpicture::savePlaylist(m_lockPlaylist);
-        }, path);
-        items.push_back(std::move(row));
+#ifdef SWITCHU_MENU
+// The user's friend code, to give to others (Nintendo gives one to a linked Nintendo Account).
+CardsActivity::MenuItem CardsActivity::friendCodeRow() {
+    if (!m_friendCodeJob.valid()) {
+        AccountUid me{};
+        me.uid[0] = m_user.uid[0];
+        me.uid[1] = m_user.uid[1];
+        m_friendCodeJob = std::async(std::launch::async, [me]() {
+            offScreenCore();
+            std::string code = loadFriendCode(me);
+            threadDone();
+            return code;
+        });
     }
-    if (items.empty()) items.push_back(info("Add pictures to config/CardsNX/backgrounds or switch/SwitchU/lockscreen", nullptr));
-    items.push_back(action("Done", [this]() {
-        if (!m_lockPlaylist.empty()) {
-            switchu::lockpicture::setRotation(true);
-            m_lockRotate = true;
-        }
-        say(trf("{n} wallpapers selected. The picture changes each time you lock.", {std::to_string(m_lockPlaylist.size())}));
-    }));
-    openMenu("Select lock-screen wallpapers", std::move(items));
+    return info("Friend code", [this]() {
+        if (m_friendCodeJob.valid()) return tr("Reading...");
+        return m_friendCode.empty() ? tr("Needs a Nintendo Account") : m_friendCode;
+    });
 }
+#endif
 
 std::string CardsActivity::pageName(int page) const {
     if (page >= 0 && page < kPageCount) return tr(kPageNames[page]);
@@ -10076,10 +10242,6 @@ void CardsActivity::moveSoftware(const Game& game, bool toSd) {
 }
 
 void CardsActivity::updateStorage() {
-    if (m_wallSelectionJob.valid() && m_wallSelectionJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        m_wallSelectionFiles = m_wallSelectionJob.get();
-        if (!m_menu.empty() && m_menuTitle == "Lock-screen wallpapers") showWallpaperSelection();
-    }
     if (m_storageReadJob.valid() && m_storageReadJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         auto snapshot = m_storageReadJob.get();
         m_storageSummary = std::move(snapshot.summary);

@@ -78,11 +78,8 @@ private:
     void openStorage();
     void readStorage(bool withTitles = false);
     bool m_storageWantTitles = false;
-    void openWallpaperSelection();
-    void showWallpaperSelection();
-    std::vector<std::string> m_lockPlaylist, m_wallSelectionFiles;
+    std::vector<std::string> m_lockPlaylist;
     bool m_lockRotate = false, m_milestonesOn = true; // (files: read when Settings opens, not every frame)
-    std::future<std::vector<std::string>> m_wallSelectionJob;
     void moveSoftware(const Game& game, bool toSd);
     bool softwareBusy(std::uint64_t id) const;
     void updateStorage();
@@ -154,7 +151,7 @@ private:
     void requeueArt();
     // A row in a popup or in Settings.
     struct MenuItem {
-        enum Kind { Action, Toggle, Choice, Slider, Info };
+        enum Kind { Action, Toggle, Choice, Slider, Info, Header }; // Header: a heading over a group of Settings' rows
         Kind kind = Action;
         std::string label, detail;              // detail: a line under it (Settings)
         std::function<void()> run;              // Action
@@ -172,6 +169,8 @@ private:
         const char* icon;
         std::vector<MenuItem> rows;
     };
+
+    static float sheetRowY(const std::vector<MenuItem>& rows, size_t index); // how far down a row of Settings starts
 
     static MenuItem action(std::string label, std::function<void()> run, bool danger = false);
     static MenuItem toggle(std::string label, std::function<bool()> get, std::function<void()> flip,
@@ -268,7 +267,9 @@ private:
     std::future<Pixels> m_wallJob;
     void loadWallpaper();
     void openWallpapers(bool lockScreen = false); // lockScreen: the lock screen's picture instead
+    static Pixels pictureFrom(const std::vector<std::uint8_t>& data, int maxW);
     static Pixels readPicture(const std::string& path, int maxW);
+    static Pixels albumPixels(const AlbumShot& shot, int maxW);
     // Settings > Look > Lock screen picture: drawn sharp behind the clock
     // (shared with HomeNX's look: switchu/lock_picture.hpp).
     void loadLockPicture();
@@ -381,21 +382,27 @@ private:
     void drawIntro(nxui::Renderer& r);
     std::vector<std::uint64_t> m_scanBefore; // what HOME showed before it
     std::string m_pickQuery; // the Search's text ("" = the game's own name)
-    int m_pickWall = 0;      // 1 Background, 2 the lock screen's picture (else the game's pictures)
+    int m_pickWall = 0;      // 1 Background, 2 the lock screen's picture, 3 the Album, 4 several to shuffle (else the game's pictures)
     std::string m_pickLabel; // the Search's game it shows (its query is "#id")
     std::future<std::vector<std::pair<long long, std::string>>> m_searchJob; // the Search's games
     std::string m_searchFor;
     int pickKind() const { return m_pickWall || m_pickHero ? 2 : m_pickCover ? 1 : 0; }
     void chooseWallpaper(const std::string& path, bool lockScreen);
-    // The Album (m_pickWall 3): the newest screenshots, then one full screen.
-    void openGallery();
+    // The picture grids, a page at a time (mode: m_pickWall). The Album's opens one full screen.
+    void openGallery(int mode = 3);
     void loadGalleryPicture();
+    void deleteGalleryShot();
+    void saveShuffle();
+    void drawGalleryAsk(nxui::Renderer& r);
     bool m_galleryView = false;
+    bool m_galleryAsk = false;   // "Delete this?" is up
+    bool m_galleryStale = false; // one was deleted: the grid's page is read again
     int m_galleryAt = 0;
     int m_galleryPage = 0; // the grid's page (12 a page)
-    void showGalleryPage(int page);
-    static std::vector<TitleChoice> galleryPage(const std::vector<std::string>& all, size_t from);
-    std::shared_ptr<std::vector<std::string>> m_galleryAll; // every screenshot, newest first
+    std::string m_galleryCurrent; // the picture in use (marked on its tile)
+    bool showGalleryPage(int page);
+    static std::vector<TitleChoice> galleryPage(const std::vector<AlbumShot>& all, size_t from, const std::string& current);
+    std::shared_ptr<std::vector<AlbumShot>> m_galleryAll; // all of them, newest first
     std::unique_ptr<nxui::Texture> m_galleryTex;
     std::future<Pixels> m_galleryJob;
     void openTitlePicker(const Game& g, bool cover = false, const std::string& query = {}, bool hero = false);
@@ -842,6 +849,7 @@ private:
     bool m_discordTokenEntryPending = false; // Discord's panel asked for the token keyboard
     void openSocial();
     void syncPopupsFlag();
+    MenuItem friendCodeRow();
     std::future<std::string> m_friendCodeJob; // the user's friend code, for their popup
     std::string m_friendCode;
     std::shared_ptr<ControllerTestScreen> m_padTest; // Settings > Controllers: HomeNX's test screen

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <initializer_list>
@@ -128,7 +129,20 @@ struct ArtworkReadStats {
     unsigned failures = 0;
 };
 ArtworkReadStats takeArtworkReadStats(); // calling worker's reads only
-unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h);
+// yours: a picture of the user's own, not art: much bigger ones are let through.
+unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h, bool yours = false);
+// One thing in the Album: a picture or a video, on the SD card, in console memory, or known to both.
+struct AlbumShot {
+    std::string key, label;              // key: YYYYMMDDhhmmssNN (a picture of the user's: its name; none: "no picture")
+    std::string path;                    // its file (none: only the Album service can read it)
+    std::array<std::uint8_t, 0x18> id{}; // its CapsAlbumFileId
+    bool inService = false, video = false;
+    std::uint64_t bytes = 0;
+};
+std::vector<AlbumShot> listAlbum();                                          // all of it, newest first
+std::vector<std::uint8_t> albumBytes(const AlbumShot& shot, bool thumbnail); // the whole JPEG, or its thumbnail
+std::string albumPictureFile(const AlbumShot& shot);                         // a file to use (console memory: copied to the SD card)
+bool deleteAlbumShot(const AlbumShot& shot);
 // The console's clock: automatic (from the internet), or set by hand (HOME only).
 bool autoClock();
 bool darkTheme();
@@ -164,6 +178,7 @@ struct TitleChoice {
     std::string url, file;          // the picture online, or on the SD card (the one before)
     std::vector<std::uint8_t> rgba; // a small copy to show, decoded
     int w = 0, h = 0;
+    bool video = false;             // the Album's: a video (marked; its picture is the thumbnail)
     bool clear = false, before = false, own = false; // own: its own icon (the chooser adds it)
     std::string label;              // under it (the pictures chooser's)
 };
@@ -190,6 +205,7 @@ bool chooseHeroArt(const Game& game, const TitleChoice* choice);
 void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
 // Scales it to maxW wide exactly (averaging), when it's wider: backgrounds at the screen's size.
 void scaleDown(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
+std::vector<std::uint8_t> scaledDown(const std::uint8_t* rgba, int& w, int& h, int maxW); // a smaller copy (w > maxW)
 // SteamGridDB swaps a picture taken down (DMCA) for a flat notice: one mostly
 // of a single colour. Those are passed over for the next picture it has.
 bool removedNotice(const std::uint8_t* rgba, int w, int h);

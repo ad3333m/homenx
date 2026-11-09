@@ -106,10 +106,10 @@ inline std::vector<std::string> albumFolders() {
 }
 
 // The newest screenshots in every Album, newest first (its folders are the date:
-// year, month, day; the files start with the time).
-inline std::vector<std::string> newestScreenshots(size_t count) {
+// year, month, day; the files start with the time). With videos: those too.
+inline std::vector<std::string> newestScreenshots(size_t count, bool videos = false) {
     using Named = std::map<std::string, std::vector<std::string>, std::greater<>>;
-    auto inside = [](const std::vector<std::string>& dirs, bool pictures) { // by name, the newest first
+    auto inside = [videos](const std::vector<std::string>& dirs, bool pictures) { // by name, the newest first
         Named out;
         std::error_code ec;
         for (const std::string& dir : dirs)
@@ -117,7 +117,7 @@ inline std::vector<std::string> newestScreenshots(size_t count) {
                 if (pictures) {
                     std::string ext = e.path().extension().string();
                     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
-                    if (!e.is_regular_file(ec) || ext != ".jpg") continue;
+                    if (!e.is_regular_file(ec) || (ext != ".jpg" && !(videos && ext == ".mp4"))) continue;
                 } else if (!e.is_directory(ec)) {
                     continue;
                 }
@@ -125,8 +125,16 @@ inline std::vector<std::string> newestScreenshots(size_t count) {
             }
         return out;
     };
+    // Album/Extra/<software>/year/month/day: what some software keeps apart.
+    std::vector<std::string> roots = albumFolders();
+    {
+        std::error_code ec;
+        for (const std::string& album : albumFolders())
+            for (const auto& e : std::filesystem::directory_iterator(album + "/Extra", ec))
+                if (e.is_directory(ec)) roots.push_back(e.path().string());
+    }
     std::vector<std::string> shots;
-    for (const auto& year : inside(albumFolders(), false))
+    for (const auto& year : inside(roots, false))
         for (const auto& month : inside(year.second, false))
             for (const auto& day : inside(month.second, false))
                 for (const auto& shot : inside(day.second, true))

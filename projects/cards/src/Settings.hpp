@@ -31,7 +31,8 @@ struct Settings {
     static constexpr int kMaxPages = kBuiltinPages + kMaxCustomPages;
     std::vector<CustomPage> customPages;
     bool notificationCards = true;
-    bool lockGameBanner = true;
+    bool lockGameBanner = true; // the playing game's background behind the lock screen's clock
+    bool lockGameTitle = true;  // its title picture (or name) on the lock screen
     bool music = true;
     int musicVolume = 60;     // 0..100
     bool shuffle = false;
@@ -136,6 +137,7 @@ struct Settings {
             notificationCards = j.value("notificationCards", notificationCards);
             lastPage = j.value("lastPage", lastPage);
             lockGameBanner = j.value("lockGameBanner", lockGameBanner);
+            lockGameTitle = j.value("lockGameTitle", lockGameTitle);
             sort = j.value("sortOrder", sort);
             haze = j.value("haze", haze);
             boxArt = j.value("boxArt", boxArt);
@@ -198,6 +200,7 @@ struct Settings {
         j["notificationCards"] = notificationCards;
         j["lastPage"] = lastPage;
         j["lockGameBanner"] = lockGameBanner;
+        j["lockGameTitle"] = lockGameTitle;
         writeLater(kPath, j.dump(2));
     }
 };
