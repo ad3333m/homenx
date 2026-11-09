@@ -211,6 +211,7 @@ extern "C" void __appExit(void) {
 }
 
 static std::atomic<bool> g_running{true};
+static bool g_bootTimeSynced = false;
 static std::atomic<bool> g_powerSequenceStarted{false};
 static UEvent g_mainWakeEvent{};
 static UEvent g_controlCacheWakeEvent{};
@@ -2348,19 +2349,6 @@ static void mainLoop() {
 
     didWork |= consumeOneAction();
 
-    { // Achievements: the game in front (not homebrew in a borrowed game); a new session at each launch and exit.
-        namespace aw = switchu::daemon::achievements_watch;
-        static bool wasRunning = false;
-        const bool running = daemon::app::isRunning();
-        if (running != wasRunning) {
-            wasRunning = running;
-            aw::g_sessions.fetch_add(1);
-        }
-        aw::g_title.store(running && daemon::app::hasForeground() && g_homebrewHostTitleId == 0
-                              ? daemon::app::suspendedTitleId()
-                              : 0);
-    }
-
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
         g_launchForegroundPending = false;
@@ -2396,6 +2384,21 @@ static void mainLoop() {
         daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
     }
 
+    // (Last, so an exit or a foreground change seen in this pass is published
+    // now: the next pass can be seconds away.)
+    { // Achievements: the game in front (not homebrew in a borrowed game); a new session at each launch and exit.
+        namespace aw = switchu::daemon::achievements_watch;
+        static bool wasRunning = false;
+        const bool running = daemon::app::isRunning();
+        if (running != wasRunning) {
+            wasRunning = running;
+            aw::g_sessions.fetch_add(1);
+        }
+        aw::g_title.store(running && daemon::app::hasForeground() && g_homebrewHostTitleId == 0
+                              ? daemon::app::suspendedTitleId()
+                              : 0);
+    }
+
     wakeControlCacheIfUndeferred();
 }
 
@@ -2410,6 +2413,59 @@ static bool mainLoopNeedsFastTick() {
         || g_controlCacheRefreshPending.load()
         || g_menuRelaunchCooldown > 0
         || !g_actionQueue.empty();
+}
+
+// How long the main loop may sleep when no event comes. Everything it reacts
+// to arrives on the waiters of waitForMainWork() (applet messages, the general
+// channel, menu commands and state, the application's state, and g_mainWakeEvent
+// from the event and control-cache threads); what is only time-driven is listed
+// here, each with its deadline. Anything not proven to be signalled is covered
+// by the long fallback instead of an infinite wait.
+static u64 mainLoopTimeoutNs() {
+    // Tick-counted work (view polls, menu relaunch cooldown, queued actions,
+    // catalogue and control-cache coalescing) keeps the 10 ms tick.
+    if (mainLoopNeedsFastTick())
+        return 10'000'000ULL;
+
+    u64 timeout = 5'000'000'000ULL;
+    const uint64_t now = armGetSystemTick();
+    auto until = [&](uint64_t deadlineTick) {
+        // A deadline already behind us was handled by this pass unless what it
+        // does failed (it then stays armed): retry at the old 1 s cadence.
+        const u64 ns = deadlineTick > now ? armTicksToNs(deadlineTick - now) + 1'000'000ULL
+                                          : 1'000'000'000ULL;
+        if (ns < timeout)
+            timeout = ns;
+    };
+    auto atMost = [&](u64 ns) {
+        if (ns < timeout)
+            timeout = ns;
+    };
+
+    // Wake cover: shown again 8 s after wake at the latest.
+    if (g_wakeCovered && g_wakeCoverDeadline)
+        until(g_wakeCoverDeadline);
+    // HOME waiting for ChangeIntoForeground: opened anyway (or retried) after 2 s.
+    if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0)
+        until(g_pendingHomeMenuStartedAt + armNsToTicks(2'000'000'000ULL));
+    // A menu that should be closing: closed by the watchdog after 5 s.
+    if (g_menuExitExpectedAt != 0)
+        until(g_menuExitExpectedAt + armNsToTicks(5'000'000'000ULL));
+    // Control-cache refresh held back while a game is in front (no fast tick then).
+    if (g_controlCacheRefreshPending.load()) {
+        const uint64_t holdStart = g_controlCacheHoldStartTick.load();
+        if (holdStart != 0)
+            until(holdStart + armNsToTicks(kControlCacheCoalesceNs));
+    }
+    // syncBootTime() retries every 2 s until the time service answers.
+    if (!g_bootTimeSynced)
+        atMost(2'000'000'000ULL);
+    // Homebrew running as an application (CardsNX over a game) can ask AM to
+    // start another title; nothing proves AM signals us for that, and
+    // takeLaunchRequests() only polls: keep the old 1 s cadence meanwhile.
+    if (g_homebrewHostTitleId != 0)
+        atMost(1'000'000'000ULL);
+    return timeout;
 }
 
 static void waitForMainWork() {
@@ -2436,9 +2492,7 @@ static void waitForMainWork() {
     }
 
     s32 signalledIndex = -1;
-    const u64 timeout = mainLoopNeedsFastTick()
-        ? 10'000'000ULL
-        : 1'000'000'000ULL;
+    const u64 timeout = mainLoopTimeoutNs();
     static Result s_lastWaitFailure = 0;
     static uint32_t s_waitFailureRepeatCount = 0;
     const Result rc = waitObjects(&signalledIndex, waiters, waiterCount, timeout);
@@ -2759,7 +2813,7 @@ int main(int argc, char* argv[]) {
     switchu::daemon::achievements_watch::start();
 
     while (g_running.load()) {
-        switchu::timebudget::syncBootTime(); // until it has worked once
+        g_bootTimeSynced = switchu::timebudget::syncBootTime(); // until it has worked once
         mainLoop();
         waitForMainWork();
     }
