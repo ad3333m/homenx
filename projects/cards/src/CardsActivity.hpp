@@ -769,6 +769,11 @@ private:
     std::map<std::uint64_t, int> m_playersIn;
     bool m_playersFresh = false;
     bool m_quit = false;
+    // The console sleeps (set under m_mu, then m_cv told): the workers stop
+    // reading the bar's state and asking Nextendo, and only wait for jobs.
+    std::atomic<bool> m_workersAsleep{false};
+    unsigned m_wakeGen = 0;                 // (under m_mu) +1 at each wake: the bar is read again at once
+    std::atomic<bool> m_wantPlayers{true};  // Nextendo's counts are shown (Settings > players)
     std::string m_key;        // SteamGridDB
     std::atomic<bool> m_netUp{false};    // worker 0 starts the network
     std::atomic<bool> m_netReady{false}; // ...the other workers wait for that first

@@ -1009,7 +1009,17 @@ void CardsActivity::worker(int index) {
     std::uint64_t countsAt = armTicksToNs(armGetSystemTick()) / 1000000ULL + 8000, statusAt = 0, logAt = 0, freeAt = 0, tempAt = 0;
     std::string lastFree;
     int lastTemp = -1;
+    unsigned wakeGen = 0;
     for (;;) {
+        bool asleep = false;
+        {
+            std::lock_guard<std::mutex> lk(m_mu);
+            asleep = m_workersAsleep.load();
+            if (m_wakeGen != wakeGen) { // just woke up: the clock and battery at once
+                wakeGen = m_wakeGen;
+                statusAt = 0;
+            }
+        }
         // The bar's numbers, once a second: the time, battery, network, the SD
         // card's free space (that one waited on the card on the screen's thread).
         const std::uint64_t now = armTicksToNs(armGetSystemTick()) / 1000000ULL;
@@ -1029,7 +1039,7 @@ void CardsActivity::worker(int index) {
                 std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << out;
             }
         }
-        if (index == 1 && now >= statusAt) {
+        if (index == 1 && !asleep && now >= statusAt) {
             statusAt = now + 1000;
             Status s;
             TimeCalendarTime t{};
@@ -1091,8 +1101,11 @@ void CardsActivity::worker(int index) {
         bool haveJob = false;
         {
             std::unique_lock<std::mutex> lk(m_mu);
-            m_cv.wait_for(lk, std::chrono::milliseconds(index == 1 ? 500 : 1000),
-                          [this]() { return m_quit || !m_jobs.empty(); });
+            if (asleep) // nothing to show: no timeout, the wake (or a job) tells us
+                m_cv.wait(lk, [this]() { return m_quit || !m_jobs.empty() || !m_workersAsleep.load(); });
+            else
+                m_cv.wait_for(lk, std::chrono::milliseconds(index == 1 ? 500 : 1000),
+                              [this]() { return m_quit || !m_jobs.empty() || m_workersAsleep.load(); });
             if (m_quit) break;
             if (!m_jobs.empty()) {
                 job = std::move(m_jobs.front());
@@ -1101,8 +1114,8 @@ void CardsActivity::worker(int index) {
                 key = m_key; // (Settings > Pictures can change it: copied under the lock)
             }
         }
-        if (!haveJob) { // pictures first; Nextendo's players every minute
-            if (index == 0 && m_netUp && now >= countsAt) {
+        if (!haveJob) { // pictures first; Nextendo's players every 3 minutes, when they're shown and awake
+            if (index == 0 && m_netUp && !asleep && m_wantPlayers.load() && now >= countsAt) {
                 countsAt = now + 180000; // (a connection each time: every 3 minutes is plenty)
                 std::map<std::uint64_t, int> counts;
                 if (nextendoOnline(counts)) {
@@ -2689,6 +2702,11 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::SleepSequence: // stop drawing (a loop that keeps drawing never lets it sleep)
                 m_asleep = true;
+                {
+                    std::lock_guard<std::mutex> lk(m_mu);
+                    m_workersAsleep = true;
+                }
+                m_cv.notify_all();
                 m_audio.pause();
                 m_discord.sleep(); // (its socket woke the console all night; back at WakeUp)
                 if (m_settings.lockScreen) { // drawn into the last frames, so waking shows it at once
@@ -2699,6 +2717,12 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::WakeUp:
                 m_asleep = false;
+                {
+                    std::lock_guard<std::mutex> lk(m_mu);
+                    m_workersAsleep = false;
+                    ++m_wakeGen;
+                }
+                m_cv.notify_all();
                 app().setSleeping(false);
                 m_discord.wake();
                 if (m_settings.lockScreen && m_locked) {
@@ -7745,6 +7769,7 @@ void CardsActivity::onUpdate(float dt) {
     // A slow frame no longer jumps everything ahead (it looked like stutter):
     // things move a little slower for a moment instead.
     dt = std::min(dt, 1.f / 30.f);
+    m_wantPlayers.store(m_settings.players, std::memory_order_relaxed); // (read by worker 0)
 #ifdef SWITCHU_MENU
     std::uint64_t t = armGetSystemTick();
     pumpDaemon();
