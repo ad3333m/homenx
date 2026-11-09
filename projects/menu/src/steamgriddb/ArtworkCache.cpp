@@ -2,6 +2,7 @@
 
 #include "core/DebugLog.hpp"
 
+#include <nxui/core/ImageDecode.hpp>
 #include <nxui/third_party/stb/stb_image.h>
 
 #include <algorithm>
@@ -140,6 +141,15 @@ DecodedImage decode(const std::string& source, int outputWidth, int outputHeight
 
     const auto loadStarted = std::chrono::steady_clock::now();
     int width = 0, height = 0, channels = 0;
+    // Size first: stb_image decodes at full size before the scaling below, and a
+    // 3840x1240 hero is 19 MB at once. Over 3840x2160 is refused, and big ones
+    // decode one at a time (ImageDecode.hpp).
+    if (!stbi_info(source.c_str(), &width, &height, &channels) ||
+        !nxui::image::sizeAllowed(width, height, source.c_str())) {
+        DebugLog::log("[steamgriddb-ui] image refused path=%s source=%dx%d", source.c_str(), width, height);
+        return out;
+    }
+    nxui::image::BigDecode one(width, height); // until scaled below
     stbi_uc* raw = stbi_load(source.c_str(), &width, &height, &channels, 4);
     if (!raw || width <= 0 || height <= 0) {
         if (raw) stbi_image_free(raw);
