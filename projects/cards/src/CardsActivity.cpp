@@ -939,8 +939,9 @@ bool CardsActivity::wantsFullRate() const {
 // Deep idle (only drawn on request, the decorations still) is not for what
 // changes by itself without saying so: a countdown, a scan, a transfer.
 bool CardsActivity::supportsDeepIdle() const {
-    if (m_btScanning || m_storageJob.valid()) return false;
+    if (m_btScanning || m_storageJob.valid() || m_sdTestJob.valid() || m_mtp.on()) return false;
 #ifdef SWITCHU_MENU
+    if (m_update.load() == static_cast<int>(Update::Installing)) return false; // HomeNX's update: its bar
     if (m_pairing) return false;
 #endif
     return true;
@@ -2702,6 +2703,7 @@ void CardsActivity::pumpDaemon() {
         if (size >= static_cast<s64>(sizeof(n))) appletStorageRead(&st, 0, &n, sizeof(n));
         appletStorageClose(&st);
         if (n.magic != switchu::smi::kNotifyMagic) continue;
+        app().requestRedraw(); // the battery, a title's state... shown even in deep idle
         using M = switchu::smi::MenuMessage;
         switch (n.msg) {
             case M::HomeRequest:

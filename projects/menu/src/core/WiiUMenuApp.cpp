@@ -906,6 +906,8 @@ void WiiUMenuApp::applyMotionPaused() {
         m_cursor->setMotionPaused(frozen);
     if (m_pointerCursor)
         m_pointerCursor->setMotionPaused(frozen);
+    if (m_battery)
+        m_battery->setMotionPaused(frozen);
     if (m_grid) {
         for (auto& icon : m_grid->allIcons()) {
             if (icon)
@@ -4515,6 +4517,7 @@ void WiiUMenuApp::applyFolderCoversToIcons() {
 
 std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
     auto icon = std::make_shared<GlossyIcon>();
+    icon->setMotionPaused(m_leaveMotionFrozen || m_idleMotionFrozen); // made while frozen: frozen too
     icon->setEntryKind(entry.kind);
     icon->setFolderPreviewCount(entry.folderPreviewCount);
     icon->setFolderVisualSeed(entry.folderId);
