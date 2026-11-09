@@ -300,10 +300,13 @@ static bool shouldDeferViewPolling() {
 
 // The control-cache worker holds its queue while a game owns the foreground
 // and sleeps meanwhile: wake it the moment that ends.
+// (Also whenever work is queued and nothing defers it: the worker may have seen
+// a deferral that began and ended within one pass, with no edge here.)
+static bool controlCacheQueueEmpty();
 static void wakeControlCacheIfUndeferred() {
     static bool s_deferred = false;
     const bool deferred = shouldDeferViewPolling();
-    if (s_deferred && !deferred)
+    if (!deferred && (s_deferred || !controlCacheQueueEmpty()))
         ueventSignal(&g_controlCacheWakeEvent);
     s_deferred = deferred;
 }
@@ -2464,6 +2467,12 @@ static u64 mainLoopTimeoutNs() {
     // start another title; nothing proves AM signals us for that, and
     // takeLaunchRequests() only polls: keep the old 1 s cadence meanwhile.
     if (g_homebrewHostTitleId != 0)
+        atMost(1'000'000'000ULL);
+    // Nothing on screen (the menu exited by itself, or a relaunch failed): the
+    // "relaunching menu" fallback at the end of mainLoop() runs on the next
+    // pass, which no event brings. Keep the old 1 s cadence for it.
+    if (!g_pendingHomeMenuLaunch && !daemon::app::isRunning() &&
+        !daemon::menu_la::hasHolder() && !g_foregroundAppletActive)
         atMost(1'000'000'000ULL);
     return timeout;
 }

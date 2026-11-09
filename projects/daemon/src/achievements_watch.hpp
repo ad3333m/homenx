@@ -251,7 +251,7 @@ struct Live {
     switchu::packs::Bases bases;
     std::string build;          // this version's build id (upper hex)
     std::uint64_t retryAt = 0;  // (ticks) attaching didn't work: again then
-    std::uint64_t recheckAt = 0; // (ticks) attached: check the process again then
+    std::uint64_t processId = 0; // the process attached to
     bool readFailed = false;    // a memory read failed in the last check
 };
 
@@ -268,9 +268,8 @@ inline void loadPack(Live& l, std::uint64_t title) {
                           static_cast<unsigned long long>(title), l.pack.list.size(), l.done.size());
 }
 
-// (Again when a read fails, and every 10 s anyway: a collection's games are programs of one
-// application, its ID + 1, + 2..., and starting one swaps the process. Its reads fail
-// meanwhile, which is how a swap shows; the 10 s check is for one dmnt reattached by itself.)
+// (Again when a read fails or the process changes: a collection's games are programs of one
+// application, its ID + 1, + 2..., and starting one swaps the process.)
 inline bool attach(Live& l) {
     namespace dm = switchu::dmnt;
     if (!dm::open()) return false;
@@ -278,6 +277,7 @@ inline bool attach(Live& l) {
     dm::Metadata m{};
     if (!dm::metadata(m) || (m.program_id & ~0x1FFFULL) != (l.title & ~0x1FFFULL)) return false;
     l.bases = {m.main_nso.base, m.heap.base, m.alias.base};
+    l.processId = m.process_id;
     char hex[17] = {};
     for (int i = 0; i < 8; ++i) std::snprintf(hex + i * 2, 3, "%02X", m.main_nso_build_id[i]);
     if (l.build != hex) {
@@ -364,13 +364,17 @@ inline void threadFunc(void*) {
         if (!t) continue; // (HOME or nothing in front: the time isn't play)
         if (t != live.title) loadPack(live, t);
         if (live.pack.valid()) {
-            const bool recheck = live.attached
-                ? live.readFailed || now >= live.recheckAt
-                : now >= live.retryAt;
+            // Attached: one metadata call tells whether it's still the same process
+            // (dmnt can attach to a swapped-in program by itself); the full attach
+            // (open, has/force-open, metadata) only when it isn't or a read failed.
+            bool recheck = !live.attached && now >= live.retryAt;
+            if (live.attached) {
+                switchu::dmnt::Metadata m{};
+                recheck = live.readFailed || !switchu::dmnt::metadata(m) || m.process_id != live.processId;
+            }
             if (recheck) {
                 live.attached = attach(live);
-                if (live.attached) live.recheckAt = now + armNsToTicks(10'000'000'000ULL);
-                else live.retryAt = now + armNsToTicks(15'000'000'000ULL);
+                if (!live.attached) live.retryAt = now + armNsToTicks(15'000'000'000ULL);
             }
             if (live.attached) checkPack(live);
         }
