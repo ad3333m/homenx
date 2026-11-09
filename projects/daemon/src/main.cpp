@@ -2523,6 +2523,8 @@ static void waitForMainWork() {
 
 static Thread g_eventThread = {};
 static std::atomic<bool> g_eventRunning{false};
+// Signalled by stopEventManager(): the thread waits on its events alone.
+static UEvent g_eventStopEvent{};
 
 static void eventManagerThreadFunc(void* arg) {
     (void)arg;
@@ -2564,38 +2566,37 @@ static void eventManagerThreadFunc(void* arg) {
         switchu::FileLog::log("[event] PSM unavailable; battery events disabled");
     }
 
+    // Waiter order: record update, game-card mount failure (if any), PSM (if
+    // any), stop. Nothing here is time-driven: sleep until one of them fires.
+    Waiter waiters[4]{};
+    s32 waiterCount = 0;
+    const s32 recordIdx = waiterCount;
+    waiters[waiterCount++] = waiterForEvent(&recordEvent);
+    const s32 gcIdx = hasGcEvent ? waiterCount : -1;
+    if (hasGcEvent)
+        waiters[waiterCount++] = waiterForEvent(&gcMountFailEvent);
+    const s32 psmIdx = hasPsmEvent ? waiterCount : -1;
+    if (hasPsmEvent)
+        waiters[waiterCount++] = waiterForEvent(&psmSession.StateChangeEvent);
+    waiters[waiterCount++] = waiterForUEvent(&g_eventStopEvent);
+
     while (g_eventRunning.load()) {
         s32 evIdx = -1;
-        Result waitRc;
-        if (hasGcEvent && hasPsmEvent) {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent),
-                waiterForEvent(&gcMountFailEvent),
-                waiterForEvent(&psmSession.StateChangeEvent));
-        } else if (hasGcEvent) {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent),
-                waiterForEvent(&gcMountFailEvent));
-        } else if (hasPsmEvent) {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent),
-                waiterForEvent(&psmSession.StateChangeEvent));
-        } else {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent));
+        const Result waitRc = waitObjects(&evIdx, waiters, waiterCount, UINT64_MAX);
+        if (R_FAILED(waitRc)) {
+            // Not expected with these handles; never spin on it.
+            svcSleepThread(100'000'000ULL);
+            continue;
         }
 
-        if (waitRc == KERNELRESULT(TimedOut)) continue;
-        if (R_FAILED(waitRc)) continue;
-
-        if (evIdx == 0) {
+        if (evIdx == recordIdx) {
             eventClear(&recordEvent);
             switchu::FileLog::log("[event] ApplicationRecordUpdateSystemEvent fired");
 
             g_appCatalogRefreshPending.store(true);
             g_eventRefreshPending.store(true);
             ueventSignal(&g_mainWakeEvent);
-        } else if (evIdx == 1 && hasGcEvent) {
+        } else if (evIdx == gcIdx) {
             eventClear(&gcMountFailEvent);
 
             Result failRc = switchu::ns::getLastGameCardMountFailure();
@@ -2604,15 +2605,13 @@ static void eventManagerThreadFunc(void* arg) {
             g_eventGcMountRc.store(failRc);
             g_eventGcMountFailure.store(true);
             ueventSignal(&g_mainWakeEvent);
-        } else if ((hasGcEvent && hasPsmEvent && evIdx == 2) ||
-                   (!hasGcEvent && hasPsmEvent && evIdx == 1)) {
+        } else if (evIdx == psmIdx) {
             eventClear(&psmSession.StateChangeEvent);
             switchu::FileLog::log("[event] PSM state change fired");
             g_batteryRefreshPending.store(true);
             ueventSignal(&g_mainWakeEvent);
         }
-
-        svcSleepThread(100'000ULL);
+        // (the stop event: the loop condition ends it)
     }
 
     eventClose(&recordEvent);
@@ -2622,6 +2621,7 @@ static void eventManagerThreadFunc(void* arg) {
 }
 
 static Result startEventManager() {
+    ueventCreate(&g_eventStopEvent, false);
     g_eventRunning.store(true);
     Result rc = threadCreate(&g_eventThread, eventManagerThreadFunc, nullptr,
                              nullptr, 0x4000, 0x2C, -2);
@@ -2641,6 +2641,7 @@ static Result startEventManager() {
 
 static void stopEventManager() {
     g_eventRunning.store(false);
+    ueventSignal(&g_eventStopEvent);
     threadWaitForExit(&g_eventThread);
     threadClose(&g_eventThread);
     switchu::FileLog::log("[event] thread stopped");
