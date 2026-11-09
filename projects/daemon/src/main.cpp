@@ -1352,9 +1352,10 @@ static void takeLaunchRequests() {
     }
 }
 
-static void pumpForegroundAppletMessages() {
-    handleGeneralChannel();
-    handleAppletMessages();
+static bool pumpForegroundAppletMessages() {
+    const bool general = handleGeneralChannel();
+    const bool messages = handleAppletMessages();
+    return general || messages;
 }
 
 static bool consumeForegroundAppletHomeRequest() {
@@ -1500,7 +1501,8 @@ static Result launchLibraryApplet(AppletId id, const char* name,
     };
     const Result rc = daemon::runLibraryApplet(
         request, pumpForegroundAppletMessages,
-        consumeForegroundAppletHomeRequest);
+        consumeForegroundAppletHomeRequest,
+        g_generalChannelEventReady ? &g_generalChannelEvent : nullptr);
     g_foregroundAppletActive = false;
     return rc;
 }
@@ -1561,7 +1563,8 @@ static Result runControllerApplet(const char* name,
     g_pendingForegroundAppletHome = false;
     Result rc = daemon::runLibraryApplet(
         request, pumpForegroundAppletMessages,
-        consumeForegroundAppletHomeRequest);
+        consumeForegroundAppletHomeRequest,
+        g_generalChannelEventReady ? &g_generalChannelEvent : nullptr);
     g_foregroundAppletActive = false;
     switchu::FileLog::log(
         "[applet] %s output res=0x%X players=%d selected=%u runner=0x%X",
@@ -1672,7 +1675,8 @@ static Result launchUserProfile(AccountUid uid,
     };
     const Result rc = daemon::runLibraryApplet(
         request, pumpForegroundAppletMessages,
-        consumeForegroundAppletHomeRequest);
+        consumeForegroundAppletHomeRequest,
+        g_generalChannelEventReady ? &g_generalChannelEvent : nullptr);
     g_foregroundAppletActive = false;
     return rc;
 }
