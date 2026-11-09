@@ -974,6 +974,10 @@ bool WiiUMenuApp::onCreate() {
     m_fastReturnRequested = fastReturn;
     m_fastReturnStartupTick = fastReturn ? initStartTick : 0;
     m_appLoader.setPrefetchIcons(!fastReturn);
+    // The JPEGs of the first two pages (the order after the layout is applied);
+    // further pages load as they come into view, like after a fast return.
+    m_appLoader.setPrefetchIconLimit(2 * std::clamp(m_config.gridColumns, 1, 8) *
+                                     std::clamp(m_config.gridRows, 1, 5));
 
     const std::string accessibilityVoice = nxui::I18n::instance().activeLanguageTag();
     const int accessibilityRate = m_config.accessibilitySpeechRate;
