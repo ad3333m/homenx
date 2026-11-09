@@ -8082,7 +8082,9 @@ void CardsActivity::onUpdate(float dt) {
                 if (g.path.empty() && g.action.empty() && (every || g.id == lastGame)) ids.push_back(g.id);
         const AccountUidLike who = m_user;
         m_statsUser = who;
-        m_statsJob = std::async(std::launch::async, [ids, who]() {
+        std::atomic<bool>* const stop = &m_jobsStop; // (the destructor waits for this job)
+        std::atomic<bool>* const failed = &m_totalsFailed;
+        m_statsJob = std::async(std::launch::async, [ids, who, stop, failed]() {
             offScreenCore();
             std::vector<PlayStat> out;
             // The console-wide last-played times count every profile's play: only the
@@ -8091,8 +8093,10 @@ void CardsActivity::onUpdate(float dt) {
             bool lastAsked = false;
             // Play time and launches as NX Activity Log counts them, from the play-event log
             // (one pass for all the games; the statistics call's play time differs).
+            // Only once the profile's own statistics worked (the first game's), and not again
+            // this boot after a pass that failed or hit its caps (it took up to 20 s).
             std::map<std::uint64_t, PlayTotal> totals;
-            const bool haveTotals = playTotals(who, totals);
+            bool haveTotals = false, totalsAsked = failed->load();
             for (const std::uint64_t id : ids) {
                 PlayStatistics st;
                 if (!playStatistics(id, who, st)) continue;
@@ -8106,6 +8110,11 @@ void CardsActivity::onUpdate(float dt) {
                 s.last = !st.perUser && it != last.end() ? it->second : st.last;
                 s.seconds = st.seconds;
                 s.launches = st.launches;
+                if (st.perUser && !totalsAsked) {
+                    totalsAsked = true;
+                    haveTotals = playTotals(who, totals, stop);
+                    if (!haveTotals) failed->store(true);
+                }
                 if (haveTotals && st.perUser) {
                     const auto t = totals.find(id);
                     s.seconds = t != totals.end() ? t->second.seconds : 0;

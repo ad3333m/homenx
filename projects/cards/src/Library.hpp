@@ -137,12 +137,13 @@ struct PlayStatistics {
 bool playStatistics(std::uint64_t id, AccountUidLike user, PlayStatistics& out);
 // This profile's play time and launches of every game, counted from pdm's play-event log the
 // way NX Activity Log does (the statistics call's play time differs from it). One pass over the
-// log, slow: off the screen's thread. false: no valid profile, or the log couldn't be read in time.
+// log, slow: off the screen's thread. false: no valid profile, or the log couldn't be read in time or
+// completely (out is empty then), or `stop` was set.
 struct PlayTotal {
     std::uint64_t seconds = 0;
     std::uint32_t launches = 0;
 };
-bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out);
+bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out, const std::atomic<bool>* stop = nullptr);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
 // Covers and backgrounds as they're shown (opened and shrunk), kept compressed in cards/shown/:
 // read as they are next time. Opening and shrinking a cover took 0.1 to 1 s at every

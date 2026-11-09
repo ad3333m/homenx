@@ -462,7 +462,7 @@ bool playStatistics(std::uint64_t id, AccountUidLike user, PlayStatistics& out) 
     return true;
 }
 
-bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out) {
+bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out, const std::atomic<bool>* stop) {
     out.clear();
     AccountUid want{};
     want.uid[0] = user.uid[0];
@@ -486,13 +486,23 @@ bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out) {
         }
         open = false;
     };
-    for (;;) {
-        if (offset >= kMaxEvents || armTicksToNs(armGetSystemTick() - t0) > kMaxNs) { out.clear(); return false; }
-        s32 n = 0;
-        if (R_FAILED(pdmqryQueryPlayEvent(static_cast<s32>(offset), events.data(), kChunk, &n))) {
-            if (offset == 0) return false;
-            break;
+    // Any failure leaves nothing (the caller then has the statistics call's values), and says
+    // how many events and how long in perf.log (only if that exists: it's the test's switch).
+    auto finish = [&](bool ok) {
+        if (!ok) out.clear();
+        std::error_code ec;
+        if (std::filesystem::exists("sdmc:/config/CardsNX/perf.log", ec)) {
+            char line[80];
+            std::snprintf(line, sizeof(line), "[stats] events=%llu ms=%llu ok=%d\n", static_cast<unsigned long long>(offset),
+                          static_cast<unsigned long long>(armTicksToNs(armGetSystemTick() - t0) / 1000000ULL), ok ? 1 : 0);
+            std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << line;
         }
+        return ok;
+    };
+    for (;;) {
+        if (offset >= kMaxEvents || armTicksToNs(armGetSystemTick() - t0) > kMaxNs || (stop && stop->load())) return finish(false);
+        s32 n = 0;
+        if (R_FAILED(pdmqryQueryPlayEvent(static_cast<s32>(offset), events.data(), kChunk, &n))) return finish(false);
         if (n <= 0) break;
         offset += static_cast<std::uint64_t>(n);
         for (s32 i = 0; i < n; ++i) {
@@ -537,7 +547,7 @@ bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out) {
             }
         }
     }
-    return true; // (a session still open at the end isn't counted, as there)
+    return finish(true); // (a session still open at the end isn't counted, as there)
 }
 
 std::vector<Game> listHomebrew() {
