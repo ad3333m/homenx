@@ -114,6 +114,11 @@ public:
     void onRender(nxui::Renderer& ren) override;
     bool presentInitialFrame(nxui::Renderer& ren) override;
     void onAfterPresent(nxui::Renderer& ren) override;
+    // nxui's render tiers: every frame while something moves on its own; in
+    // deep idle the background, cursor and icons stand still.
+    bool wantsFullRate() const override;
+    bool supportsDeepIdle() const override;
+    void onIdleDeep(bool deep) override;
 
     nxui::Widget* focusRoot() override;
 
@@ -834,6 +839,9 @@ private:
     float m_leaveSplashFade = 0.f;
     bool m_leaveSplashDrawn = false;
     bool m_leaveMotionFrozen = false;
+    bool m_idleMotionFrozen = false; // deep idle (onIdleDeep); either one stops the motion
+    void applyMotionPaused();
+    std::string m_shownClock, m_shownDate; // the clock as last drawn (a new minute: drawn again)
     bool m_leaveMotionFreezePending = false;
     static constexpr float kLeaveSplashHoldDur = 0.06f;
     static constexpr float kLeaveSplashMaxWait = 1.0f; // never block HOME longer than this
