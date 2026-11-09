@@ -7,6 +7,10 @@ A Nintendo Switch HOME menu fork with a PS3 XMB-inspired interface, based on [ad
 - Midnight blue/purple background, animated light ribbons and subtle particles. The existing motion settings stop animation; custom wallpapers remain supported.
 - Game launching, resume, options, achievements, system apps, quick settings and the existing HomeNX integrations use the original backend.
 
+![Illustrative XMB preview](screenshots/xmb-preview.png)
+
+*Illustrative desktop rendering with a sample library; not a Switch capture.*
+
 ## Controls
 
 | Input | Action |
@@ -25,7 +29,9 @@ A Nintendo Switch HOME menu fork with a PS3 XMB-inspired interface, based on [ad
 
 ## Download and install
 
-Builds are available from this fork's [Actions](https://github.com/Hamza-Adnan/homenx/actions) after a successful run. Releases, when built on master, appear in [Releases](https://github.com/Hamza-Adnan/homenx/releases).
+**Current validation:** navigation tests and production deko3d compiler checks pass for both standalone and HOME frontend configurations. GitHub Actions could not start because the account is locked for a billing issue, so this fork does not yet provide a compiled NRO/install ZIP. See [validation notes](docs/xmb-validation.md).
+
+Builds will be available from this fork's [Actions](https://github.com/Hamza-Adnan/homenx/actions) after a successful run. Releases, when built on master, appear in [Releases](https://github.com/Hamza-Adnan/homenx/releases).
 
 For a standalone trial, use **CardsNX.nro** from the HomeNX artifact and open it through hbmenu/Sphaira. Its filename is retained for compatibility; it now renders XMB.
 

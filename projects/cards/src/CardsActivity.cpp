@@ -7513,25 +7513,27 @@ bool CardsActivity::handleTouch() {
     }
 
     // The toolbar has its original hit targets, only while visibly open.
+    if (!in.isTouching() && !in.touchUp()) return false;
     if (m_zone == Zone::Top) {
-    if (y < 95.f) { // the top bar
-        int hit = -1;
-        if (inCircle(kMenuX, kTopY, 40.f)) hit = kTopMenu;
-        else if (inCircle(kDiscordX, kTopY, 40.f)) hit = kTopDiscord;
-        else if (inCircle(kSortX, kTopY, 40.f)) hit = kTopSort;
-        else if (m_userHit.contains(x, y)) hit = kTopUser;
-        else if (m_settings.players && m_playersHit.contains(x, y)) hit = kTopPlayers;
-        else if (inCircle(kBellX, kTopY, 32.f)) hit = kTopBell;
-        else if (inCircle(kMusicX, kTopY, 40.f)) hit = kTopMusic;
-        else if (inCircle(kPowerX, kTopY, 40.f)) hit = kTopPower;
-        else if (inCircle(kGearX, kTopY, 40.f)) hit = kTopGear;
-        if (hit >= 0) {
-            m_zone = Zone::Top;
-            m_topSel = hit;
-            activateTop(hit);
+        if (!in.touchUp()) return true;
+        if (y < 95.f) { // the top bar
+            int hit = -1;
+            if (inCircle(kMenuX, kTopY, 40.f)) hit = kTopMenu;
+            else if (inCircle(kDiscordX, kTopY, 40.f)) hit = kTopDiscord;
+            else if (inCircle(kSortX, kTopY, 40.f)) hit = kTopSort;
+            else if (m_userHit.contains(x, y)) hit = kTopUser;
+            else if (m_settings.players && m_playersHit.contains(x, y)) hit = kTopPlayers;
+            else if (inCircle(kBellX, kTopY, 32.f)) hit = kTopBell;
+            else if (inCircle(kMusicX, kTopY, 40.f)) hit = kTopMusic;
+            else if (inCircle(kPowerX, kTopY, 40.f)) hit = kTopPower;
+            else if (inCircle(kGearX, kTopY, 40.f)) hit = kTopGear;
+            if (hit >= 0) {
+                m_zone = Zone::Top;
+                m_topSel = hit;
+                activateTop(hit);
+            }
+            return true;
         }
-        return true;
-    }
         if (in.touchUp()) m_zone = Zone::Cards;
         return in.isTouching() || in.touchUp();
     }
@@ -8433,7 +8435,7 @@ void CardsActivity::onUpdate(float dt) {
         return;
     }
 
-    // Left / right: repeating while held.
+    // Repeat along the vertical item axis, or horizontal system toolbar axis.
     const bool vertical = m_zone == Zone::Cards;
     const bool left = vertical ? (in.isHeld(B::DUp) || in.isHeld(B::LStickU) || in.isHeld(B::RStickU)) : in.isHeld(B::DLeft) || in.isHeld(B::LStickL) || in.isHeld(B::RStickL);
     const bool right = vertical ? (in.isHeld(B::DDown) || in.isHeld(B::LStickD) || in.isHeld(B::RStickD)) : in.isHeld(B::DRight) || in.isHeld(B::LStickR) || in.isHeld(B::RStickR);
@@ -8451,7 +8453,7 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
 
-    // Plus > Move: left / right carry the card; A or Plus put it down, B puts it back.
+    // Plus > Move: up / down carry the item; A or Plus put it down, B puts it back.
     if (m_moving) {
         auto& page = games();
         const int s = sel(), to = s + move;
