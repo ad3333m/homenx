@@ -297,6 +297,16 @@ static bool shouldDeferViewPolling() {
            !g_foregroundAppletActive;
 }
 
+// The control-cache worker holds its queue while a game owns the foreground
+// and sleeps meanwhile: wake it the moment that ends.
+static void wakeControlCacheIfUndeferred() {
+    static bool s_deferred = false;
+    const bool deferred = shouldDeferViewPolling();
+    if (s_deferred && !deferred)
+        ueventSignal(&g_controlCacheWakeEvent);
+    s_deferred = deferred;
+}
+
 static uint64_t elapsedNsSince(uint64_t startTick) {
     return armTicksToNs(armGetSystemTick() - startTick);
 }
@@ -401,6 +411,11 @@ static void enqueueControlCacheRecords(const std::vector<switchu::ns::ExtApplica
     }
     if (queued)
         ueventSignal(&g_controlCacheWakeEvent);
+}
+
+static bool controlCacheQueueEmpty() {
+    std::lock_guard<std::mutex> lock(g_controlCacheQueueMutex);
+    return g_controlCacheQueue.empty();
 }
 
 static bool popControlCacheTitle(uint64_t& outTitleId) {
@@ -1353,6 +1368,7 @@ static void takeLaunchRequests() {
 }
 
 static bool pumpForegroundAppletMessages() {
+    wakeControlCacheIfUndeferred();
     const bool general = handleGeneralChannel();
     const bool messages = handleAppletMessages();
     return general || messages;
@@ -2379,6 +2395,8 @@ static void mainLoop() {
         switchu::FileLog::log("[main] no app/menu active; relaunching menu");
         daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
     }
+
+    wakeControlCacheIfUndeferred();
 }
 
 static bool mainLoopNeedsFastTick() {
@@ -2586,8 +2604,12 @@ static void controlCacheThreadFunc(void* arg) {
     while (g_controlCacheRunning.load()) {
         // Control-data reads also write icon/meta files. Defer them while a
         // game owns the foreground so they cannot contend with LayeredFS I/O.
+        // With nothing queued it sleeps until enqueueControlCacheRecords()
+        // signals; with work held back, until the main loop sees the game
+        // leave the foreground (5 s at most, in case a path misses it).
         if (shouldDeferViewPolling()) {
-            svcSleepThread(500'000'000ULL);
+            waitSingle(waiterForUEvent(&g_controlCacheWakeEvent),
+                       controlCacheQueueEmpty() ? UINT64_MAX : 5'000'000'000ULL);
             continue;
         }
 
