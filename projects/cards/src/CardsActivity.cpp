@@ -1018,6 +1018,9 @@ void CardsActivity::worker(int index) {
             if (m_wakeGen != wakeGen) { // just woke up: the clock and battery at once
                 wakeGen = m_wakeGen;
                 statusAt = 0;
+                // Nextendo when it's due, a few seconds in (the network comes back first)
+                const std::uint64_t soon = armTicksToNs(armGetSystemTick()) / 1000000ULL + 5000;
+                if (countsAt < soon) countsAt = soon;
             }
         }
         // The bar's numbers, once a second: the time, battery, network, the SD
@@ -1107,6 +1110,7 @@ void CardsActivity::worker(int index) {
                 m_cv.wait_for(lk, std::chrono::milliseconds(index == 1 ? 500 : 1000),
                               [this]() { return m_quit || !m_jobs.empty() || m_workersAsleep.load(); });
             if (m_quit) break;
+            asleep = m_workersAsleep.load(); // (the console may have gone to sleep meanwhile)
             if (!m_jobs.empty()) {
                 job = std::move(m_jobs.front());
                 m_jobs.pop_front();
