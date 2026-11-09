@@ -5805,13 +5805,6 @@ void WiiUMenuApp::onUpdate(float dt) {
         && !(m_launchAnim && m_launchAnim->isPlaying()) && (m_readbackPrepDelay -= dt) <= 0.f)
         m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
 #endif
-    std::uint64_t workStart = armGetSystemTick();
-    m_discord.update(); // HomeNX Discord panel and HOME's alerts
-    noteWork(WorkDiscord, workStart);
-    workStart = armGetSystemTick();
-    updateHomeBanners(dt);
-    updateWeather();
-    noteWork(WorkBanners, workStart);
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
@@ -5855,6 +5848,16 @@ void WiiUMenuApp::onUpdate(float dt) {
         pollSleepNotifications();
         return;
     }
+
+    // Discord, the banners and the weather wait for the wake as well (they
+    // used to run on every sleeping tick).
+    std::uint64_t workStart = armGetSystemTick();
+    m_discord.update(); // HomeNX Discord panel and HOME's alerts
+    noteWork(WorkDiscord, workStart);
+    workStart = armGetSystemTick();
+    updateHomeBanners(dt);
+    updateWeather();
+    noteWork(WorkBanners, workStart);
 
     onUpdateAwake(dt);
 }
