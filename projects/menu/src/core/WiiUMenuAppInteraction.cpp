@@ -1325,7 +1325,8 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
     }
     // Leaving for an applet stops Discord; HOME showing again a while later
     // means it came back without restarting: connect again.
-    if (m_discordAutoStarted && m_discord.stopping() && !launching) {
+    // (Not while the console sleeps: wake() does that.)
+    if (m_discordAutoStarted && m_discord.stopping() && !launching && !m_systemAsleep) {
         if ((m_discordStoppedFor += dt) > 8.f) {
             m_discordStoppedFor = 0.f;
             if (m_discord.hasSavedAccount()) m_discord.activate();

@@ -90,6 +90,22 @@ void DiscordService::beginShutdown() {
     Log::Close();
 }
 
+void DiscordService::sleep() {
+    m_stoppedForSleep = started();
+    if (m_stoppedForSleep) {
+        DebugLog::log("[discord] stopping for the console's sleep");
+        beginShutdown();
+    }
+}
+
+void DiscordService::wake() {
+    if (!m_stoppedForSleep) return;
+    m_stoppedForSleep = false;
+    if (!m_stopping) return; // started again meanwhile
+    DebugLog::log("[discord] the console woke up: connecting again");
+    activate();
+}
+
 // Discord must never hold the menu up (closing for a game waited on it, and the
 // old menu then never let go of HOME). Threads get a short time to stop; any
 // still busy is left to finish on its own, with what it uses kept alive, and

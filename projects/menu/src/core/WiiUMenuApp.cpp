@@ -5878,6 +5878,10 @@ void WiiUMenuApp::enterSystemSleep() {
     // drawn (and what waking shows) are the lock screen, not HOME.
     if (lockScreenOn()) showLockScreen(m_musicWasPlayingBeforeSleep && m_config.musicEnabled);
 
+    // Discord's socket and heartbeats kept the console busy all night: it
+    // stops now and connects again at wake (if it was on).
+    m_discord.sleep();
+
     // Stop presenting. A loop that keeps submitting frames never lets the
     // console settle into its low-power sleep state.
     app().setSleeping(true);
@@ -5888,6 +5892,7 @@ void WiiUMenuApp::leaveSystemSleep() {
         return;
     m_systemAsleep = false;
     app().setSleeping(false);
+    m_discord.wake();
 
     const bool resumeMusic = m_musicWasPlayingBeforeSleep && m_config.musicEnabled;
     m_musicWasPlayingBeforeSleep = false;

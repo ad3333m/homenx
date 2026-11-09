@@ -2690,6 +2690,7 @@ void CardsActivity::pumpDaemon() {
             case M::SleepSequence: // stop drawing (a loop that keeps drawing never lets it sleep)
                 m_asleep = true;
                 m_audio.pause();
+                m_discord.sleep(); // (its socket woke the console all night; back at WakeUp)
                 if (m_settings.lockScreen) { // drawn into the last frames, so waking shows it at once
                     lock();
                     m_lockIn = 1.f;
@@ -2699,6 +2700,7 @@ void CardsActivity::pumpDaemon() {
             case M::WakeUp:
                 m_asleep = false;
                 app().setSleeping(false);
+                m_discord.wake();
                 if (m_settings.lockScreen && m_locked) {
                     // Slept while locked: the lock screen is quiet (it paused
                     // the music before the sleep; the resume below would play

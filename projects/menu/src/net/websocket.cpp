@@ -6,6 +6,7 @@
 #include <thread>
 
 #include <curl/curl.h>
+#include <poll.h>
 
 #include "platform/platform.h"
 #include "util/log.h"
@@ -281,6 +282,7 @@ bool WebSocket::ParseFrames(std::vector<Message>& out) {
 
 bool WebSocket::Poll(std::vector<Message>& out) {
     CURL* c = static_cast<CURL*>(curl_);
+    lastRecv_ = 0;
     if (!c || !open_) return false;
     char buf[16384];
     while (true) {
@@ -293,6 +295,7 @@ bool WebSocket::Poll(std::vector<Message>& out) {
                 break;
             }
             rbuf_.append(buf, n);
+            lastRecv_ += n;
             continue;
         }
         if (rc == CURLE_AGAIN) break;
@@ -313,4 +316,15 @@ bool WebSocket::Wait(std::vector<Message>& out, int timeoutMs) {
         if (out.size() > before || Clock::now() >= deadline) return true;
         SleepMs(10);
     }
+}
+
+bool WebSocket::WaitReadable(int timeoutMs) {
+    CURL* c = static_cast<CURL*>(curl_);
+    if (!c || !open_) return false;
+    curl_socket_t sock = CURL_SOCKET_BAD;
+    if (curl_easy_getinfo(c, CURLINFO_ACTIVESOCKET, &sock) != CURLE_OK || sock == CURL_SOCKET_BAD) return false;
+    pollfd p{};
+    p.fd = sock;
+    p.events = POLLIN;
+    return poll(&p, 1, timeoutMs) >= 0;
 }

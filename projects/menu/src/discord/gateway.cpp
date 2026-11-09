@@ -4,10 +4,12 @@
 
 #include "core/BackgroundThread.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 
 #include <zlib.h>
+#include <switch.h>
 
 #include "discord/types.h"
 #include "net/websocket.h"
@@ -66,7 +68,13 @@ private:
     std::string buf_;
 };
 
-int64_t Now() { return Platform::NowMs(); }
+// For intervals (heartbeats, retries): the steady system tick, which a clock
+// change can't move. (Times sent to Discord don't come from here.)
+int64_t Now() { return (int64_t)(armTicksToNs(armGetSystemTick()) / 1000000ULL); }
+
+// Longest wait for the socket: also how long a Send() or a stop can be left
+// waiting (DiscordService::shutdown() gives the thread 250 ms).
+constexpr int kMaxWaitMs = 200;
 
 }  // namespace
 
@@ -234,9 +242,17 @@ Gateway::After Gateway::Session(const std::string& url) {
     };
 
     std::vector<WebSocket::Message> msgs;
+    int quickWakes = 0;      // waits in a row that returned at once with nothing to read
+    bool wokeAtOnce = false;
     while (!stop_) {
         msgs.clear();
         bool alive = ws.Poll(msgs);
+        if (wokeAtOnce && ws.LastRecvBytes() == 0) {
+            if (quickWakes < 8) ++quickWakes;
+        } else if (ws.LastRecvBytes() > 0) {
+            quickWakes = 0;
+        }
+        wokeAtOnce = false;
         for (auto& m : msgs) {
             std::string text;
             if (m.binary) {
@@ -362,7 +378,31 @@ Gateway::After Gateway::Session(const std::string& url) {
             }
             for (auto& p : out) ws.SendText(p);
         }
-        if (msgs.empty()) std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        if (!msgs.empty()) continue; // more may have come meanwhile
+
+        // Nothing to do: sleep until the socket has data, the next heartbeat or
+        // identify is due, or kMaxWaitMs (it used to wake every 8 ms).
+        int64_t wait = kMaxWaitMs;
+        if (helloSeen) wait = std::min<int64_t>(wait, nextHb - now);
+        if (identifyAt) wait = std::min<int64_t>(wait, identifyAt - now);
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (!out_.empty()) wait = std::min<int64_t>(wait, 50); // queued until READY
+        }
+        if (wait <= 0) continue;
+        if (quickWakes >= 8) { // the wait keeps answering at once with nothing to read: don't spin
+            if (quickWakes == 8) { // (said once; data coming in tries the wait again)
+                LOG("gateway: the socket wait returns at once, sleeping instead");
+                quickWakes = 9;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::min<int64_t>(wait, 50)));
+            continue;
+        }
+        const int64_t before = Now();
+        if (!ws.WaitReadable((int)wait))
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::min<int64_t>(wait, 50)));
+        else
+            wokeAtOnce = Now() - before < 1;
     }
     ws.SendClose(1000);
     return After::Retry;
