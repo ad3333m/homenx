@@ -7621,6 +7621,13 @@ void CardsActivity::watchdog() {
     std::uint64_t since = armGetSystemTick(), woke = since;
     const char* stuckIn = nullptr;
     while (!m_quit) {
+        if (m_workersAsleep.load()) { // the console sleeps: nothing to watch, look twice a second
+            svcSleepThread(500'000'000ULL);
+            woke = since = armGetSystemTick();
+            serial = nxui::g_phaseSerial.load();
+            stuckIn = nullptr;
+            continue;
+        }
         svcSleepThread(50'000'000ULL);
         const std::uint64_t now = armGetSystemTick();
         const float away = ticksMs(now - woke) - 50.f;
@@ -7704,7 +7711,11 @@ void CardsActivity::onUpdate(float dt) {
     }
     // Frame times for the log: the time since the last frame, and what the last one did.
     const std::uint64_t frameTick = armGetSystemTick();
-    if (m_perfLastTick) {
+    if (m_asleep) {
+        // Asleep: no frame is drawn, so none is counted (every sleeping tick was
+        // a "slow frame" line). The first frame after the wake counts from the
+        // last sleeping tick, the one that read the wake.
+    } else if (m_perfLastTick) {
         const float interval = ticksMs(frameTick - m_perfLastTick);
         ++m_perfFrames;
         m_perfWindow += interval;
