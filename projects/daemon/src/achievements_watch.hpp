@@ -158,7 +158,13 @@ inline void statusPopup(const char* app, bool battery, const std::string& title,
     }
 }
 
-inline void watchStatus(bool inGame) {
+inline bool statusPopupsAllowed() {
+    std::error_code ec;
+    return std::filesystem::exists("sdmc:/switch/.overlays/ovlmenu.ovl", ec)
+        && !std::filesystem::exists("sdmc:/config/SwitchU/no_popups", ec);
+}
+
+inline void watchStatus(bool inGame, bool allowed) {
     static std::uint32_t styles[8] = {};
     static bool known = false;
     static std::uint32_t batteryWas = 101;
@@ -167,9 +173,6 @@ inline void watchStatus(bool inGame) {
         known = false; // (changes on HOME were said there)
         return;
     }
-    std::error_code ec;
-    const bool allowed = std::filesystem::exists("sdmc:/switch/.overlays/ovlmenu.ovl", ec)
-                      && !std::filesystem::exists("sdmc:/config/SwitchU/no_popups", ec);
     for (int id = 0; id < 8; ++id) {
         const std::uint32_t now = hidGetNpadStyleSet(static_cast<HidNpadIdType>(HidNpadIdType_No1 + id));
         if (known && allowed && (now != 0) != (styles[id] != 0)) {
@@ -248,6 +251,8 @@ struct Live {
     switchu::packs::Bases bases;
     std::string build;          // this version's build id (upper hex)
     std::uint64_t retryAt = 0;  // (ticks) attaching didn't work: again then
+    std::uint64_t recheckAt = 0; // (ticks) attached: check the process again then
+    bool readFailed = false;    // a memory read failed in the last check
 };
 
 inline void loadPack(Live& l, std::uint64_t title) {
@@ -263,8 +268,9 @@ inline void loadPack(Live& l, std::uint64_t title) {
                           static_cast<unsigned long long>(title), l.pack.list.size(), l.done.size());
 }
 
-// (Again at every check: a collection's games are programs of one application, its ID + 1,
-// + 2..., and starting one swaps the process.)
+// (Again when a read fails, and every 10 s anyway: a collection's games are programs of one
+// application, its ID + 1, + 2..., and starting one swaps the process. Its reads fail
+// meanwhile, which is how a swap shows; the 10 s check is for one dmnt reattached by itself.)
 inline bool attach(Live& l) {
     namespace dm = switchu::dmnt;
     if (!dm::open()) return false;
@@ -286,8 +292,11 @@ inline bool attach(Live& l) {
 // pointer read during a loading screen can briefly give nonsense): kept and shown, at once.
 inline void checkPack(Live& l) {
     namespace ach = switchu::achievements;
-    const switchu::packs::Reader read = [](std::uint64_t address, void* out, std::size_t size) {
-        return switchu::dmnt::read(address, out, size);
+    l.readFailed = false;
+    const switchu::packs::Reader read = [&l](std::uint64_t address, void* out, std::size_t size) {
+        const bool ok = switchu::dmnt::read(address, out, size);
+        if (!ok) l.readFailed = true;
+        return ok;
     };
     std::vector<const switchu::packs::Achievement*> now;
     for (const auto& a : l.pack.list) {
@@ -321,6 +330,9 @@ inline void threadFunc(void*) {
     std::uint64_t title = 0, base = 0, playedNs = 0, checkedNs = 0, last = armGetSystemTick();
     std::uint32_t session = ~0u;
     bool known = false, counted = false; // counted: a game (not a media app: achievements_skip.txt)
+    // Read from the SD once each time a game comes to the front (Settings change only in HOME).
+    bool popups = false, milestones = false;
+    std::uint64_t front = 0;
     Live live;
     while (g_running.load()) {
         // Every second while a game with a pack is in front (it unlocks at once), every 2 s
@@ -343,17 +355,26 @@ inline void threadFunc(void*) {
             counted = t && !switchu::achievements::loadSkipped().count(t);
             live.attached = false; // (a new process)
         }
-        watchStatus(t != 0);
+        if (t && t != front) {
+            popups = statusPopupsAllowed();
+            milestones = switchu::achievements::milestonesEnabled();
+        }
+        front = t;
+        watchStatus(t != 0, popups);
         if (!t) continue; // (HOME or nothing in front: the time isn't play)
         if (t != live.title) loadPack(live, t);
         if (live.pack.valid()) {
-            if (live.attached || now >= live.retryAt) {
+            const bool recheck = live.attached
+                ? live.readFailed || now >= live.recheckAt
+                : now >= live.retryAt;
+            if (recheck) {
                 live.attached = attach(live);
-                if (!live.attached) live.retryAt = now + armNsToTicks(15'000'000'000ULL);
+                if (live.attached) live.recheckAt = now + armNsToTicks(10'000'000'000ULL);
+                else live.retryAt = now + armNsToTicks(15'000'000'000ULL);
             }
             if (live.attached) checkPack(live);
         }
-        if (!pdm || !counted || !switchu::achievements::milestonesEnabled()) continue;
+        if (!pdm || !counted || !milestones) continue;
         bool check = false;
         if (!known) {
             PdmPlayStatistics st{};
