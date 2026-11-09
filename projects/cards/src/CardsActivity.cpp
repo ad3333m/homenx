@@ -535,8 +535,8 @@ bool CardsActivity::onCreate() {
     nxui::GpuDevice::setImageBudget(std::clamp<u64>(total / 4, 64ull << 20, 160ull << 20));
 
     startStep("build " HOMENX_BUILD);
-    startStep("firmware " + std::to_string(hosversionGetMajor(hosversionGet())) + "." + std::to_string(hosversionGetMinor(hosversionGet()))
-              + "." + std::to_string(hosversionGetMicro(hosversionGet())));
+    startStep("firmware " + std::to_string(HOSVER_MAJOR(hosversionGet())) + "." + std::to_string(HOSVER_MINOR(hosversionGet()))
+              + "." + std::to_string(HOSVER_MICRO(hosversionGet())));
     m_settings.load();
     startStep("settings read; language '" + m_settings.language + "'");
     setLanguage(g_safeStart ? std::string("en") : m_settings.language);
