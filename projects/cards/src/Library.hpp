@@ -11,6 +11,16 @@ namespace cards {
 
 // HOME started CardsNX this many times without it running a moment (see menu/src/main.cpp).
 inline constexpr const char* kCardsStarting = "sdmc:/config/SwitchU/cards_starting";
+// After a start that crashed, a safe one: no music, nothing online, plain glass, English, no
+// .nro scan, so what breaks on some consoles can't stop HOME. The file keeps the rest of this
+// boot's starts safe too (one crash each time back from a game would be worse).
+inline constexpr const char* kCardsSafe = "sdmc:/config/SwitchU/cards_safe";
+inline bool g_safeStart = false;
+// config/CardsNX/start.log: how far a start got, written at once (a crash loses what
+// perf.log still has in memory). Only at a console start and after a crash.
+void startLogBegin(bool fresh, const std::string& line);
+void startStep(const std::string& what);
+void startLogEnd();
 
 // Where CardsNX's own files are (fonts/, icons/, certs/, gametdb.tsv): its
 // romfs as an .nro; HomeNX's install as HOME's frontend.

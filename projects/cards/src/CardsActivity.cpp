@@ -534,8 +534,13 @@ bool CardsActivity::onCreate() {
     svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
     nxui::GpuDevice::setImageBudget(std::clamp<u64>(total / 4, 64ull << 20, 160ull << 20));
 
+    startStep("build " HOMENX_BUILD);
+    startStep("firmware " + std::to_string(hosversionGetMajor(hosversionGet())) + "." + std::to_string(hosversionGetMinor(hosversionGet()))
+              + "." + std::to_string(hosversionGetMicro(hosversionGet())));
     m_settings.load();
-    setLanguage(m_settings.language);
+    startStep("settings read; language '" + m_settings.language + "'");
+    setLanguage(g_safeStart ? std::string("en") : m_settings.language);
+    startStep("language table read");
     m_boxArt = m_settings.boxArt;
     m_titleArt = m_settings.titlePics;
     applyTheme();
@@ -570,7 +575,7 @@ bool CardsActivity::onCreate() {
     const std::uint64_t tFonts = armGetSystemTick();
 
     // Names in other scripts (Japanese, Chinese, Korean) from the console's own fonts.
-    if (R_SUCCEEDED(plInitialize(PlServiceType_User))) {
+    if (!g_safeStart && R_SUCCEEDED(plInitialize(PlServiceType_User))) {
         for (PlSharedFontType type : {PlSharedFontType_Standard, PlSharedFontType_ChineseSimplified,
                                       PlSharedFontType_ChineseTraditional, PlSharedFontType_KO,
                                       PlSharedFontType_NintendoExt}) {
@@ -582,8 +587,11 @@ bool CardsActivity::onCreate() {
     const std::string f5 = fonts + "Inter-500.ttf", f6 = fonts + "Inter-600.ttf", f7 = fonts + "Inter-700.ttf";
     if (!m_fTitle.load(gpu, ren, f7, 30) || !m_fPlay.load(gpu, ren, f7, 24) || !m_fLabel.load(gpu, ren, f6, 22)
         || !m_fPill.load(gpu, ren, f6, 19) || !m_fBody.load(gpu, ren, f5, 17) || !m_fBadge.load(gpu, ren, f7, 15)
-        || !m_fCount.load(gpu, ren, f7, 21))
+        || !m_fCount.load(gpu, ren, f7, 21)) {
+        startStep("a font didn't load");
         return false;
+    }
+    startStep("fonts loaded");
     const std::uint64_t tIcons = armGetSystemTick();
     // The buttons' icons: read and decoded off the screen's thread (a first-draw read
     // from the SD card stuttered every button, and decoding ten of them in the first
@@ -597,7 +605,9 @@ bool CardsActivity::onCreate() {
                                  "moon", "restart", "hekate", "download", "trash", "pad", "nextendo", "bluetooth", "trophy"}) {
             std::ifstream in(std::string(kAssets) + "icons/" + name + ".png", std::ios::binary | std::ios::ate);
             if (!in) continue;
-            std::vector<std::uint8_t> data(static_cast<std::size_t>(in.tellg()));
+            const auto length = in.tellg();
+            if (length <= 0) continue;
+            std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
             in.seekg(0);
             in.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
             IconPixels icon;
@@ -636,7 +646,8 @@ bool CardsActivity::onCreate() {
         m_listsStale = stale;
         m_changesIn = 4.f;
     } else { // the very first time: read them now
-        Lists l = readAllLists();
+        startStep("first time: reading the games");
+        Lists l = readAllLists(g_safeStart);
         m_pages[kGames] = std::move(l.games);
         m_pages[kHomebrew] = std::move(l.homebrew);
         saveLists(m_pages[kGames], homebrewToSave());
@@ -645,6 +656,11 @@ bool CardsActivity::onCreate() {
         m_settings.nroHash = l.nroHash;
         scanned = true;
     }
+    if (g_safeStart) { // (no scan for new software behind it either)
+        m_listsStale = false;
+        m_changesIn = 1e9f;
+    }
+    startStep("lists ready: " + std::to_string(m_pages[kGames].size()) + " games, " + std::to_string(m_pages[kHomebrew].size()) + " homebrew");
     dropHidden(m_pages[kGames]);
     dropHidden(m_pages[kHomebrew]);
     splitMedia();
@@ -679,11 +695,13 @@ bool CardsActivity::onCreate() {
         }
     }
     m_user = chosen;
+    startStep("user chosen");
     const std::uint64_t tRest = armGetSystemTick();
 
     m_unread = notifications::unreadCount();
     m_key = steamGridDbKey();
     loadWallpaper();
+    startStep("wallpaper asked for");
 
     m_painter = std::make_shared<Painter>([this](nxui::Renderer& r) { draw(r); });
     rootBox().addChild(m_painter);
@@ -726,8 +744,21 @@ bool CardsActivity::onCreate() {
 #endif
     m_pictureScale = std::max(1.f, app().gpu().scale()); // (before the workers read it)
     // Three picture threads: five at once kept the SD card too busy (HOME froze).
-    for (int i = 0; i < 3; ++i) m_threads.emplace_back([this, i]() { worker(i); });
-    if (m_settings.perfLog) m_threads.emplace_back([this]() { watchdog(); });
+    for (int i = 0; i < 3; ++i)
+        m_threads.emplace_back([this, i]() {
+            try {
+                worker(i);
+            } catch (const std::exception& e) { // (uncaught, it would have ended HOME)
+                startStep(std::string("picture thread stopped: ") + e.what());
+            }
+        });
+    if (m_settings.perfLog) m_threads.emplace_back([this]() {
+        try {
+            watchdog();
+        } catch (const std::exception&) {
+        }
+    });
+    startStep("threads started");
     wantArt();
     // Every game's very small cover, read and decoded off the screen's thread
     // while HOME starts (a few KB each, all together one card transaction):
@@ -779,6 +810,7 @@ bool CardsActivity::onCreate() {
                   ticksMs(tRest - tLists), scanned ? "read now" : stale ? "saved; reading on a thread" : "saved",
                   ticksMs(tEnd - tRest), ticksMs(tEnd - m_perfCreateTick));
     perfLine(line);
+    startStep("created");
     return true;
 }
 
@@ -997,8 +1029,9 @@ void CardsActivity::worker(int index) {
     // (a picture fetched before it's up fails and is asked for again).
     if (index == 0) {
         const std::uint64_t t0 = armGetSystemTick();
-        m_netUp = startNetwork();
+        m_netUp = !g_safeStart && startNetwork();
         m_netReady = true;
+        startStep(m_netUp ? "network up" : "network not up");
         char line[64];
         std::snprintf(line, sizeof(line), "network %s in %.0f ms", m_netUp ? "up" : "not up", ticksMs(armGetSystemTick() - t0));
         perfLine(line);
@@ -7645,6 +7678,8 @@ void CardsActivity::onUpdate(float dt) {
     // Either stick moves through the games and every CardsNX menu (HomeNX's screens
     // in CardsNX already read their buttons before this).
     app().input().mergeRightStick();
+    static const bool firstUpdate = (startStep("first update"), true);
+    (void)firstUpdate;
     updateSpotify();
 #ifdef SWITCHU_MENU
     switchu::timebudget::poll(); // the clock, once the time service has a session to spare
@@ -7652,6 +7687,11 @@ void CardsActivity::onUpdate(float dt) {
         m_startedOk = true;
         std::error_code ec;
         std::filesystem::remove(kCardsStarting, ec);
+        startLogEnd();
+        if (g_safeStart && !std::filesystem::exists(kCardsSafe, ec)) { // (said once a boot)
+            std::ofstream(kCardsSafe) << '1';
+            notifyCard("CardsNX started in safe mode", "It crashed while starting. Music and online pictures are off until the console restarts.", "news");
+        }
     }
     if (m_reopenSec >= 0) { // back from Nintendo's screen: Settings as it was, at once
         const int sec = m_reopenSec;
@@ -7760,14 +7800,18 @@ void CardsActivity::onUpdate(float dt) {
     if (m_startStage < 3) {
         if (m_startStage < 2 && m_time > 1.5f) {
             m_startStage = 2;
-            m_audio.start();
-            m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
-            m_audio.setShuffle(m_settings.shuffle);
-            m_audio.setRepeat(m_settings.repeat);
-            m_audio.setMusic(homeMusic(), m_settings.musicVolume);
+            if (!g_safeStart) {
+                startStep("audio starting");
+                m_audio.start();
+                m_audio.setSounds(m_settings.sounds, m_settings.soundVolume);
+                m_audio.setShuffle(m_settings.shuffle);
+                m_audio.setRepeat(m_settings.repeat);
+                m_audio.setMusic(homeMusic(), m_settings.musicVolume);
+                startStep("audio asked for");
+            }
         } else if (m_startStage == 2 && m_time > 3.f) {
             m_startStage = 3;
-            loadAvatar();
+            if (!g_safeStart) loadAvatar();
         }
     }
     if (m_avatarJob.valid() && m_avatarJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -8254,7 +8298,7 @@ void CardsActivity::onUpdate(float dt) {
     // here and in the bell); the panel opens with L.
     if (!m_discordStarted && !m_leaving && (m_discordStartIn -= dt) <= 0.f) {
         m_discordStarted = true;
-        if (!m_discord.started() && m_discord.hasSavedAccount()) m_discord.activate();
+        if (!g_safeStart && !m_discord.started() && m_discord.hasSavedAccount()) m_discord.activate();
     }
     const std::uint64_t tDiscord = armGetSystemTick();
     m_discord.update();
@@ -8357,7 +8401,7 @@ void CardsActivity::onUpdate(float dt) {
     perfMark("HomeNX's screens, leaving");
     if (updateLock(dt)) return;
     perfMark("lock screen");
-    if (!m_settings.introDone && !m_introOpen && m_time > 0.8f && !m_leaving) { // the first time
+    if (!g_safeStart && !m_settings.introDone && !m_introOpen && m_time > 0.8f && !m_leaving) { // the first time
         m_introOpen = true;
         m_introPage = 0;
         m_introIn = m_settings.motion ? 0.f : 1.f;
@@ -8556,8 +8600,12 @@ void CardsActivity::draw(nxui::Renderer& r) {
     // made the first seconds GPU-bound (the menu's own slow-GPU fallback used
     // to catch it a moment later and stay plain for the whole session). Here
     // the fancy glass only comes back once HOME is running steady.
-    m_frosted = r.gpu().offscreenReady() && !m_gpuSlow && m_time > 1.5f;
+    m_frosted = !g_safeStart && r.gpu().offscreenReady() && !m_gpuSlow && m_time > 1.5f;
+    static const bool firstDraw = (startStep("first frame being drawn"), true);
+    (void)firstDraw;
     if (m_frosted) {
+        static const bool firstGlass = (startStep("first frosted frame"), true);
+        (void)firstGlass;
         const bool moving = std::abs(m_scroll - static_cast<float>(sel())) > 0.002f || m_dragging || m_pageIn < 1.f
                          || m_bgFade < 1.f || m_intro < 1.f || m_leaving || m_moving || focusRoot() != nullptr;
         if (moving || ++m_blurAge >= (m_settings.bgMotion ? 6 : 60)) {

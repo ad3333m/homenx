@@ -348,16 +348,31 @@ int main(int argc, char* argv[]) {
         // NXToggle's Home screen choice: CardsNX's card row instead of HomeNX's.
         std::string homeStyle;
         std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), homeStyle);
-        // CardsNX stopped 3 times in a row just after starting: HomeNX's HOME until the console
-        // restarts, not a black screen that flickers for ever. (Cleared once it has run a moment.)
+        // A CardsNX start that crashes is followed by a safe one; if that crashes too, HomeNX's
+        // HOME until the console restarts, not a black screen that flickers for ever.
+        // (The count is cleared once CardsNX has run a moment.)
         bool useCards = homeStyle.rfind("cards", 0) == 0;
         if (useCards) {
+            const bool atBoot = startMode == switchu::smi::MenuStartMode::StartupBoot;
+            std::error_code ec;
             int starts = 0;
             std::ifstream(cards::kCardsStarting) >> starts;
-            if (startMode == switchu::smi::MenuStartMode::StartupBoot) starts = 0;
-            useCards = starts < 3;
-            if (useCards) std::ofstream(cards::kCardsStarting) << starts + 1;
-            else DebugLog::log("[menu] CardsNX stopped %d times just after starting: HomeNX's HOME instead", starts);
+            if (atBoot) {
+                starts = 0;
+                std::filesystem::remove(cards::kCardsSafe, ec);
+            }
+            useCards = starts < 2;
+            if (useCards) {
+                std::ofstream(cards::kCardsStarting) << starts + 1;
+                cards::g_safeStart = starts > 0 || std::filesystem::exists(cards::kCardsSafe, ec);
+                if (atBoot || starts > 0)
+                    cards::startLogBegin(atBoot, fmt::format("=== start {} ({}), mode {} ===", starts + 1,
+                                                             cards::g_safeStart ? "safe" : "normal", static_cast<u32>(startMode)));
+            } else {
+                cards::startLogBegin(false, "=== the safe start crashed too: HomeNX's HOME instead ===");
+                cards::startLogEnd();
+                DebugLog::log("[menu] CardsNX stopped %d times just after starting: HomeNX's HOME instead", starts);
+            }
         }
         if (useCards) {
             auto activity = std::make_unique<cards::CardsActivity>(sysStatus.suspended_app_id, sysStatus.app_running,
@@ -371,11 +386,17 @@ int main(int argc, char* argv[]) {
         else
             app.setActivity(std::make_unique<TutorialActivity>(makeMenuActivity));
         DebugLog::log("[menu] app.initialize...");
-        if (app.initialize()) {
-            DebugLog::log("[menu] app.run...");
-            app.run();
-        } else {
-            DebugLog::log("[menu] app.initialize FAILED");
+        try {
+            if (app.initialize()) {
+                DebugLog::log("[menu] app.run...");
+                app.run();
+            } else {
+                DebugLog::log("[menu] app.initialize FAILED");
+                cards::startStep("app.initialize failed");
+            }
+        } catch (const std::exception& e) { // (for the log: it still ends the process, as it did)
+            cards::startStep(std::string("exception: ") + e.what());
+            throw;
         }
         DebugLog::log("[menu] app.shutdown...");
         app.shutdown();

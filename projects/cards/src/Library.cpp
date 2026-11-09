@@ -74,6 +74,7 @@ thread_local CURL* t_curl = nullptr; // each worker's: its connections stay open
 // GET, the body in `out`; the HTTP status (0: no answer).
 long get(const std::string& url, std::string& out, const std::vector<std::string>& headers = {}) {
     out.clear();
+    if (g_safeStart) return 0;
     if (!t_curl) t_curl = curl_easy_init();
     CURL* c = t_curl;
     if (!c) return 0;
@@ -510,6 +511,34 @@ void threadDone() {
     t_curl = nullptr;
 }
 
+namespace {
+constexpr const char* kStartLog = "sdmc:/config/CardsNX/start.log";
+std::atomic<bool> g_startLog{false};
+} // namespace
+
+void startLogBegin(bool fresh, const std::string& line) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/CardsNX", ec);
+    if (FILE* f = std::fopen(kStartLog, fresh ? "w" : "a")) {
+        std::fprintf(f, "%s\n", line.c_str());
+        std::fclose(f);
+    }
+    g_startLog = true;
+}
+
+void startStep(const std::string& what) {
+    if (!g_startLog) return;
+    if (FILE* f = std::fopen(kStartLog, "a")) { // (opened and closed each time: a crash loses nothing)
+        std::fprintf(f, "%8.2f s  %s\n", static_cast<double>(armTicksToNs(armGetSystemTick())) / 1e9, what.c_str());
+        std::fclose(f);
+    }
+}
+
+void startLogEnd() {
+    startStep("running: this start is fine");
+    g_startLog = false;
+}
+
 std::string steamGridDbKey() {
     try {
         std::ifstream in(kSettings);
@@ -671,6 +700,10 @@ bool download(const std::string& url, const std::string& path) {
     const std::string part = path + ".part";
     FILE* f = std::fopen(part.c_str(), "wb");
     if (!f) return false;
+    if (g_safeStart) {
+        std::fclose(f);
+        return false;
+    }
     if (!t_curl) t_curl = curl_easy_init();
     long status = 0;
     if (CURL* c = t_curl) {
