@@ -72,8 +72,8 @@ public:
     // Starts stopping without waiting (a game is launching), so shutdown()
     // at exit only joins threads that are already gone.
     void beginShutdown();
-    // The console goes to sleep: Discord stops if it was running (its socket
-    // and heartbeats kept the console busy), and wake() connects it again.
+    // The console goes to sleep: the gateway pauses if it was running (its
+    // socket and heartbeats kept the console busy), and wake() resumes it.
     void sleep();
     void wake();
     // A thread was still busy at shutdown(): keep the sockets up for it.
@@ -158,7 +158,7 @@ private:
     bool m_started = false;
     bool m_stopping = false;
     bool m_lingering = false;
-    bool m_stoppedForSleep = false;
+    bool m_pausedForSleep = false;
     Alert m_alert;
     bool m_hasAlert = false;
     std::deque<Gateway::Event> m_events; // waiting to be applied (a few ms of them per frame)

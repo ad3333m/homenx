@@ -90,20 +90,27 @@ void DiscordService::beginShutdown() {
     Log::Close();
 }
 
+// The gateway's thread stops (its socket and heartbeats kept the console
+// busy); the session, the store and the account stay, and the wake resumes
+// the session, so the open chat and the alerts of what came meanwhile stay.
 void DiscordService::sleep() {
-    m_stoppedForSleep = started();
-    if (m_stoppedForSleep) {
-        DebugLog::log("[discord] stopping for the console's sleep");
-        beginShutdown();
-    }
+    m_pausedForSleep = started() && m_gateway;
+    if (!m_pausedForSleep) return;
+    DebugLog::log("[discord] pausing for the console's sleep");
+    m_gateway->RequestPause();
 }
 
 void DiscordService::wake() {
-    if (!m_stoppedForSleep) return;
-    m_stoppedForSleep = false;
-    if (!m_stopping) return; // started again meanwhile
-    DebugLog::log("[discord] the console woke up: connecting again");
-    activate();
+    if (!m_pausedForSleep) return;
+    m_pausedForSleep = false;
+    if (!m_gateway || !started()) return; // stopped or replaced meanwhile
+    if (m_gateway->Done()) {
+        DebugLog::log("[discord] the console woke up: resuming");
+        m_gateway->Resume();
+    } else { // still stuck (connecting when the console slept): a new connection
+        DebugLog::log("[discord] the console woke up: connecting again");
+        retry();
+    }
 }
 
 // Discord must never hold the menu up (closing for a game waited on it, and the

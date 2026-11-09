@@ -87,6 +87,7 @@ void Gateway::Start(const std::string& token) {
     resumeUrl_.clear();
     seq_ = -1;
     stop_ = false;
+    keepSession_ = false;
     {
         std::lock_guard<std::mutex> lk(mu_);
         in_.clear();
@@ -94,6 +95,18 @@ void Gateway::Start(const std::string& token) {
         error_.clear();
     }
     state_ = State::Connecting;
+    Launch();
+}
+
+void Gateway::Resume() {
+    if (thread_.joinable()) thread_.join(); // (already done: RequestPause() was long ago)
+    stop_ = false;
+    keepSession_ = false;
+    state_ = State::Reconnecting;
+    Launch();
+}
+
+void Gateway::Launch() {
     done_ = false;
     thread_ = std::thread([this] {
         nxui::moveToWorkerCores(); // HomeNX: keep core 0 for the menu's frames
@@ -404,6 +417,6 @@ Gateway::After Gateway::Session(const std::string& url) {
         else
             wokeAtOnce = Now() - before < 1;
     }
-    ws.SendClose(1000);
+    ws.SendClose(keepSession_ ? 4000 : 1000); // (1000 would end the session)
     return After::Retry;
 }
