@@ -49,6 +49,22 @@ public:
     /// GPU→CPU framebuffer readback without interrupting the render pass.
     virtual void onAfterPresent(Renderer& /*ren*/) {}
 
+    /// Render tiers (Application::run): with nothing moving, the screen is
+    /// drawn at ~20 Hz after a few seconds, and, for activities that opt in,
+    /// only on requestRedraw() (plus once a second) after ~30 s. True here
+    /// while something on screen moves on its own (a transition, a fade):
+    /// every frame is drawn.
+    virtual bool wantsFullRate() const { return false; }
+
+    /// Opt in to the deep idle tier (only redraws on request). The activity
+    /// must then call app().requestRedraw() whenever it changes what is shown
+    /// without input (new picture, text, clock), and freeze its decorations
+    /// (pulses, drifts) in onIdleDeep(true).
+    virtual bool supportsDeepIdle() const { return false; }
+
+    /// Entering (true) or leaving (false) the deep idle tier.
+    virtual void onIdleDeep(bool /*deep*/) {}
+
     /// Access the parent Application (set by Application::setActivity).
     Application& app() { return *m_app; }
     const Application& app() const { return *m_app; }

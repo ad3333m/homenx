@@ -59,10 +59,33 @@ public:
     /// Disable/enable GPU rendering.  When disabled the main loop still
     /// runs input + update, but skips beginFrame/endFrame so the GPU is
     /// free for whichever app currently owns the foreground.
-    void setRenderEnabled(bool e) { m_renderEnabled = e; }
-    // Off: 60 Hz even when nothing is pressed (screens that keep moving).
+    void setRenderEnabled(bool e) {
+        if (e && !m_renderEnabled) wakeRendering();
+        m_renderEnabled = e;
+    }
+    // Off: every frame is drawn even when nothing moves (render tiers off).
     void setIdleThrottle(bool on) { m_idleThrottle = on; }
     bool renderEnabled() const    { return m_renderEnabled; }
+
+    /// Render tiers. Input and update always run every ~16 ms; what changes
+    /// is how often a frame is drawn and shown:
+    ///  - active: every turn while there is input, a held button, an
+    ///    AnimationManager tween or activity->wantsFullRate(), and for
+    ///    kCalmAfter s after; also (without restarting that clock) after a
+    ///    redraw request, a texture upload or a timer firing, while text
+    ///    is still to draw and while released textures wait to be freed;
+    ///  - calm (kCalmAfter s without any of those): one turn in three;
+    ///  - deep (kDeepAfter s, activities that opt in): only after
+    ///    requestRedraw(), plus a safety frame each second.
+    static constexpr float kCalmAfter = 3.f;
+    static constexpr float kDeepAfter = 30.f;
+    /// Draw the next turn even if the screen is idle (something changed).
+    void requestRedraw() { m_redrawRequested = true; }
+    /// In the deep idle tier: freeze decorations (also told by onIdleDeep).
+    bool deepIdle() const { return m_deepIdle; }
+    /// Counters for perf logs: main loop turns, and frames actually shown.
+    std::uint64_t loopTurns() const       { return m_loopTurns; }
+    std::uint64_t presentedFrames() const { return m_presentedFrames; }
 
     /// Low-power console sleep.  No frame is presented, no input is dispatched
     /// and the loop parks on a 50 ms tick; the activity is still updated slowly
@@ -72,6 +95,9 @@ public:
 
 private:
     void renderSleepFrames();
+    void wakeRendering() { m_quietSeconds = 0.f; m_redrawRequested = true; }
+    bool shouldPresent(float dt);
+    void setDeepIdle(bool deep);
     void dispatchInput();
     bool applyPendingActivity();
 
@@ -85,6 +111,14 @@ private:
     bool m_renderEnabled = true;
     bool m_idleThrottle = true;
     bool m_sleeping = false;
+    bool m_redrawRequested = true;
+    bool m_deepIdle = false;
+    float m_quietSeconds = 0.f;     // since the last reason to draw every frame
+    float m_textMissingFor = 0.f;   // text left out of frames, in a row
+    float m_sinceLastPresent = 0.f;
+    int m_turnsSincePresent = 0;
+    std::uint64_t m_loopTurns = 0;
+    std::uint64_t m_presentedFrames = 0;
     uint64_t m_navHeldMask = 0;
     int m_navHeldFrames = 0;
     int m_navRepeatCountdown = 0;
