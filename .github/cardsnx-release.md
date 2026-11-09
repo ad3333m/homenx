@@ -1,38 +1,9 @@
-**CardsNX** is a HOME screen for your Switch games: a row of box-art cards over the chosen game's artwork, a status bar on top and a frosted glass panel with Play below.
+# HomeNX XMB
 
-### Use it as HOME
-Open **NXToggle** (HomeNX's Toggle, renamed), choose **Use CardsNX as HOME**, then restart. CardsNX is then the console's HOME screen. Games start and resume through HomeNX, Discord opens with L, Quick Settings with R, and Settings > Updates installs new builds. Pick **Use HomeNX's HOME** in NXToggle to go back. NXToggle also still turns HOME off and on and updates HomeNX.
+PS3 XMB-inspired Nintendo Switch HOME frontend. This fork uses horizontal categories, vertical software lists, original animated waves and existing HomeNX launch/system services.
 
-### Or as an app
-Put `CardsNX.nro` in `sdmc:/switch/CardsNX/` (HomeNX installs it there for you). Open it as an application (from HomeNX's HOME, or hold R while starting a game) so it can start games.
+Download **CardsNX.nro** for a standalone trial through hbmenu/Sphaira. For a HOME replacement, use **HomeNX-full.zip** in the latest release. New installs default to XMB; existing installs can choose **XMB NX** in NXToggle and restart.
 
-### What's on screen
-- **Games:** box art for every installed game, with the cover fitting the card. Art comes from SteamGridDB if you've set a key in HomeNX, otherwise from GameTDB. The eShop banner is the last resort.
-- **Achievements:** + > Achievements on a game. Every game has play-time milestones, and 605 games have their own (coins, money, levels, all the purple coins in each of Super Mario Odyssey's kingdoms...). With Ultrahand they pop up over the game the moment they happen.
-- **Green dots:** how many players are online in that game on [Nextendo](https://nextendo.network) right now. The number in the pill is the total.
-- **Homebrew page:** your .nro apps (Sphaira, Discord/SwitchCord and the Homebrew Manager first) and your NRO forwarders.
-- **Nintendo page:** News (as HOME), eShop, Album, Controllers, Mii Maker, Friends, Browser (BrowseNX, downloaded the first time) and Settings.
-- **Top bar:** the menu, Discord, the sort, a pill (you, the time, battery, free space, Nextendo players), notifications, music, power and settings. Tap your picture to choose, add or remove users, see your friend code or add a friend.
-- **Custom pages:** up to eight, with any games and apps on them (Settings > Home > Custom pages, then + > Add to custom page on a card). + > Hide this card takes a card off HOME without deleting anything.
-- **Your own pictures:** put JPG or PNG files in `sdmc:/config/CardsNX/my-pictures`: they come first when you choose a card, background or title picture.
-- **Storage:** Settings > Console shows the space left and moves games between the console and the SD card.
-- **Notifications:** a card when a controller comes or goes, when the battery is low and for achievements. With Ultrahand the battery and controller ones show in games too.
+Controls: Left/Right category, Up/Down item, A open/resume, + options, Y system toolbar, R quick settings, B back. Touch supports categories, vertical swipe and tap to open.
 
-### Buttons
-
-| Button | Does |
-|---|---|
-| Left / Right | Move between cards |
-| A | Play, or open the app |
-| + or X | Options: Play, Move, Achievements, Delete (.nro), Close software |
-| L | Discord |
-| R | Quick Settings (Wi-Fi, Airplane mode, brightness, volumes, the song, power) |
-| ZL / ZR | Games / Homebrew / Nintendo |
-| Up / Down | Top bar and panel buttons |
-| − | Notifications |
-
-**Move:** + > Move, then Left/Right carries the card. A puts it down, B puts it back. Your order is kept as "My Order".
-
-Built automatically from [ad3333m/homenx](https://github.com/ad3333m/homenx) (`projects/cards`).
-
-**Credits:** box art from [GameTDB](https://www.gametdb.com) and [SteamGridDB](https://www.steamgriddb.com); eShop banners from nlib.cc; player counts from Nextendo; [Inter](https://rsms.me/inter/) font (SIL OFL).
+The CardsNX filename and configuration paths are retained for compatibility. See the repository README for build and recovery instructions. Physical Switch validation remains required.

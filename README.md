@@ -1,3 +1,53 @@
+# HomeNX XMB
+
+A Nintendo Switch HOME menu fork with a PS3 XMB-inspired interface, based on [ad3333m/homenx](https://github.com/ad3333m/homenx). Original procedural waves and existing HomeNX icons; no Sony assets are included. GPL-3.0, with upstream notices retained.
+
+- Horizontal Games, Homebrew, Nintendo, Media and custom categories.
+- Vertical software lists with smooth scrolling, a fixed selection point and large selected icons.
+- Midnight blue/purple background, animated light ribbons and subtle particles. The existing motion settings stop animation; custom wallpapers remain supported.
+- Game launching, resume, options, achievements, system apps, quick settings and the existing HomeNX integrations use the original backend.
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| Left / Right, ZL / ZR | Change category |
+| Up / Down (D-pad or either stick) | Select software; hold to repeat |
+| A | Open / resume selected item |
+| + | Item options; Move uses Up / Down, A confirms, B cancels |
+| Y | Show / hide system toolbar; Left / Right selects a tool, A opens it |
+| B | Return from toolbar or a modal |
+| R | Quick settings |
+| L | Discord (HOME replacement build) |
+| X | Close running software confirmation |
+| Minus | Notifications |
+| Touch | Tap categories, swipe the list vertically, tap a selected item to open; tap the status bar for system tools |
+
+## Download and install
+
+Builds are available from this fork's [Actions](https://github.com/Hamza-Adnan/homenx/actions) after a successful run. Releases, when built on master, appear in [Releases](https://github.com/Hamza-Adnan/homenx/releases).
+
+For a standalone trial, use **CardsNX.nro** from the HomeNX artifact and open it through hbmenu/Sphaira. Its filename is retained for compatibility; it now renders XMB.
+
+For a HOME replacement on an Atmosphère Switch, extract **HomeNX-full.zip** to the SD root and restart. New installations select XMB by default. Existing installations with an explicit Wii U preference can select **XMB NX** in NXToggle and restart. Internal paths and the `cards` preference value remain compatible with HomeNX.
+
+To restore Nintendo HOME, remove `atmosphere/contents/0100000000001000` from the SD card using a computer and restart. On-console HomeNX updates are directed to this fork to preserve the XMB changes.
+
+## Build and validation
+
+Use the upstream devkitPro/xmake toolchain below. The fork's Actions workflow builds both standalone NROs and the full HOME replacement and runs `tests/xmb_navigation_test.cpp` on the host. That test covers empty/single-item lists, navigation boundaries, long libraries, fractional scroll geometry and category/touch alignment. Hardware behavior and performance still need verification on a modded Switch.
+
+```sh
+git clone --recursive https://github.com/Hamza-Adnan/homenx.git
+cd homenx
+xmake f --yes -p cross -m release -a aarch64 --toolchain=devkita64 --homebrew=y
+xmake build CardsNX
+```
+
+The original project documentation follows; descriptions of the former CardsNX card layout refer to upstream behavior.
+
+---
+
 # HomeNX
 
 A new HOME menu for modded Switch consoles. It has two looks: **CardsNX** shows box-art cards and the

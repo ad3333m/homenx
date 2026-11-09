@@ -350,7 +350,7 @@ int main(int argc, char* argv[]) {
         std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), homeStyle);
         // CardsNX stopped 3 times in a row just after starting: HomeNX's HOME until the console
         // restarts, not a black screen that flickers for ever. (Cleared once it has run a moment.)
-        bool useCards = homeStyle.rfind("cards", 0) == 0;
+        bool useCards = homeStyle.empty() || homeStyle.rfind("cards", 0) == 0;
         if (useCards) {
             int starts = 0;
             std::ifstream(cards::kCardsStarting) >> starts;

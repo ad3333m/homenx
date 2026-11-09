@@ -475,6 +475,7 @@ private:
     void draw(nxui::Renderer& r);
     void drawBackground(nxui::Renderer& r);
     void drawTopBar(nxui::Renderer& r, float a);
+    void drawXmb(nxui::Renderer& r);
     void drawCards(nxui::Renderer& r);
     void drawCardExtras(nxui::Renderer& r); // after the blur: glass cards, badges, the sheen
     void drawLaunch(nxui::Renderer& r);
