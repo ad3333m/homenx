@@ -360,7 +360,9 @@ int main(int argc, char* argv[]) {
             useCards = starts < 3;
             if (useCards) std::ofstream(cards::kCardsStarting) << starts + 1;
             else {
-                cardsFallback = true;
+                // Tell the user once: bump the counter past 3 so later starts stay on HomeNX's HOME silently.
+                cardsFallback = (starts == 3);
+                if (cardsFallback) std::ofstream(cards::kCardsStarting) << starts + 1;
                 DebugLog::log("[menu] CardsNX stopped %d times just after starting: HomeNX's HOME instead (frontend.txt=\"%s\", start mode %d)",
                               starts, homeStyle.c_str(), (int)startMode);
             }
