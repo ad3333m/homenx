@@ -354,6 +354,8 @@ private:
     };
     std::future<std::vector<PlayStat>> m_statsJob;
     bool m_statsAsked = false, m_statsEvery = false;
+    std::atomic<bool> m_totalsFailed{false}; // the event log couldn't be counted (capped, stopped...): not tried again this boot
+    AccountUidLike m_statsUser; // the profile m_statsJob was started for
     // Achievements (switchu/achievements.hpp): kept as the play data reaches them
     // (here from every game's stats, by the daemon during a game) and said on HOME.
     struct Achieved {
