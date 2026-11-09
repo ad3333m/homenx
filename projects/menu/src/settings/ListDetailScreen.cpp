@@ -2,6 +2,7 @@
 #include <nxui/core/I18n.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <algorithm>
+#include <cstdlib>
 #include <sstream>
 
 namespace {
@@ -157,16 +158,38 @@ void ListDetailScreen::scrollBy(float dy) {
 
 void ListDetailScreen::onContentUpdate(float dt) {
     TabbedOverlayScreen::onContentUpdate(dt);
+    if (!isActive()) return;
     if (m_tabIndex >= 0 && m_tabIndex < (int)m_entries.size()) {
+        // Lazy pictures: the selected entry's and its neighbours' stay, the
+        // others go back to their loader (40 news pictures added up to most of
+        // HOME's picture memory). Going back to one loads it again.
+        for (int i = 0; i < (int)m_entries.size(); ++i) {
+            Entry& o = m_entries[(size_t)i];
+            if (o.lazyImage && o.lazyTried && std::abs(i - m_tabIndex) > 1) {
+                o.image.reset();
+                o.lazyTried = false;
+            }
+        }
         Entry& e = m_entries[(size_t)m_tabIndex];
-        if (!e.image && e.lazyImage) {
-            auto load = std::move(e.lazyImage);
-            e.lazyImage = nullptr;
-            e.image = load();
+        if (!e.image && e.lazyImage && !e.lazyTried) {
+            e.lazyTried = true;
+            e.image = e.lazyImage();
             if (e.image) m_layoutTab = -2; // lay out again with the picture
         }
     }
     m_scroll += (m_scrollGoal - m_scroll) * std::min(1.f, dt * 14.f);
+}
+
+// Closed: nothing here is drawn again before the next setEntries (every caller
+// goes through it before show()), which replaces it all. The pictures and what
+// they were made from (news JPEGs, loaders) go now instead of staying until
+// then. Textures retire their memory a few frames later (Renderer).
+void ListDetailScreen::onFullyClosed() {
+    m_entries.clear();
+    m_entries.shrink_to_fit();
+    m_lines.clear();
+    m_imageRect = {};
+    m_layoutTab = -1;
 }
 
 // Green dot at the end of unread rows (the tab rows are laid out by drawTabs).

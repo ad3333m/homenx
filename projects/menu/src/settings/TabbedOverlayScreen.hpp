@@ -182,6 +182,9 @@ protected:
     virtual bool usesCustomContentLayout() const { return false; }
     virtual void drawCustomContent(nxui::Renderer&, const nxui::Rect&, const nxui::Rect&, float) {}
     virtual void updateCustomContent(float) {}
+    // The close animation has ended (nothing is drawn any more), just before the
+    // closed callback: a place to let go of pictures only this screen shows.
+    virtual void onFullyClosed() {}
     virtual bool handleCustomPressA() { return false; }
     virtual bool handleCustomPressB() { return false; }
     virtual bool handleCustomPressX() { return false; }

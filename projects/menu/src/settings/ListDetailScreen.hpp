@@ -20,8 +20,10 @@ public:
         std::string actionHint;          // e.g. "Press A to launch"; shown when onActivate is set
         std::function<void()> onActivate; // A inside the entry
         std::shared_ptr<nxui::Texture> image;
-        // Loads `image` the first time the entry is selected (keeps opening fast).
+        // Loads `image` when the entry is selected (keeps opening fast). Called
+        // again if the picture was let go (more than one entry away).
         std::function<std::shared_ptr<nxui::Texture>()> lazyImage;
+        bool lazyTried = false;           // lazyImage called for the current `image`
         bool roundImage = false;          // avatar style instead of a banner
         bool unread = false;              // green dot on its row in the list
         std::function<void()> onShown;    // first time it's shown (marks it read)
@@ -43,6 +45,7 @@ protected:
                            const nxui::Rect& content, float opacity) override;
     void onContentUpdate(float dt) override;
     void onContentRender(nxui::Renderer& ren) override;
+    void onFullyClosed() override;
     bool handleCustomPressA() override;
     bool handleCustomNavUp() override;
     bool handleCustomNavDown() override;
