@@ -272,14 +272,15 @@ void Application::run() {
                 // is clamped above that) and under the screens' 250 ms "stuck"
                 // watchdog.
                 if (!shouldPresent(dt)) {
-                    // Paced on the last drawn turn: the n-th turn after it
-                    // ends n x 16.7 ms after its start. (A flat sleep after the
-                    // update ran ~90 turns a second: a drawn turn after skipped
-                    // ones doesn't wait for a framebuffer, so the calm tier drew
-                    // 30 frames instead of 20.)
+                    // Paced on the last drawn turn: the n-th skipped turn after
+                    // it ends (n + 1) x 16.7 ms after its start. A drawn turn
+                    // after skipped ones doesn't wait for a framebuffer, so it
+                    // takes almost no time and must count as a turn of its own
+                    // (a flat sleep, or n x 16.7 ms, ran ~90 turns a second and
+                    // the calm tier drew 30 frames instead of 20).
                     setPhase("idle (frame not drawn)");
                     const std::uint64_t target = presentTick
-                        + armNsToTicks(16'666'667ULL * static_cast<std::uint64_t>(m_turnsSincePresent));
+                        + armNsToTicks(16'666'667ULL * static_cast<std::uint64_t>(m_turnsSincePresent + 1));
                     const std::uint64_t now = armGetSystemTick();
                     svcSleepThread(target > now + armNsToTicks(1'000'000ULL)
                                    ? static_cast<s64>(armTicksToNs(target - now)) : 1'000'000LL);
