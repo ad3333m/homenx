@@ -25,14 +25,19 @@ struct LibraryAppletRequest {
     std::size_t* outputTransferSize = nullptr;
 };
 
-using LibraryAppletPump = void (*)();
+// Handles what is waiting on the applet-manager channels; returns whether it
+// found anything.
+using LibraryAppletPump = bool (*)();
 using LibraryAppletExitRequested = bool (*)();
 
 // Runs a foreground library applet without delegating its lifetime to a
 // blocking libnx convenience wrapper. This keeps the daemon able to process
 // HOME and guarantees join/close on every successful start path.
+// The pump runs whenever the applet's state, the applet message event or
+// extraWakeEvent (the general channel, may be null) is signalled.
 Result runLibraryApplet(const LibraryAppletRequest& request,
                         LibraryAppletPump pump,
-                        LibraryAppletExitRequested exitRequested);
+                        LibraryAppletExitRequested exitRequested,
+                        Event* extraWakeEvent = nullptr);
 
 } // namespace switchu::daemon
