@@ -17,7 +17,7 @@ void BatteryWidget::setBatteryStatus(uint32_t percentage, bool charging) {
 }
 
 void BatteryWidget::onContentUpdate(float dt) {
-    if (m_charging)
+    if (m_charging && !m_motionPaused)
         m_chargeAnim += dt;
 #ifdef SWITCHU_MENU
     // The daemon owns PSM and pushes state changes. Duplicating the query here

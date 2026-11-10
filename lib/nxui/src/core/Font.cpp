@@ -44,6 +44,17 @@ bool provides(TTF_Font* f, std::uint32_t cp) {
 // once. A per-font budget let a single frame meet a dozen new strings.
 inline std::atomic<std::uint64_t> g_rasterWindow{0};
 inline std::atomic<int> g_rastersInWindow{0};
+// A string couldn't be drawn this frame (budget, no room yet): the screen must
+// be drawn again soon even if nothing else moves (Application's render tiers).
+inline std::atomic<bool> g_textMissing{false};
+inline Texture* textMissing() {
+    g_textMissing.store(true, std::memory_order_relaxed);
+    return nullptr;
+}
+
+bool Font::takeTextMissing() {
+    return g_textMissing.exchange(false, std::memory_order_relaxed);
+}
 
 std::vector<Font::FallbackData>& Font::fallbackData() {
     static std::vector<FallbackData> data;
@@ -291,14 +302,14 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
         auto refused = m_refused.find(text);
         if (refused != m_refused.end()) {
             if (armTicksToNs(now - refused->second) < 250'000'000ULL)
-                return nullptr;
+                return textMissing();
             m_refused.erase(refused);
         }
         if (m_lruList.size() >= kMaxCacheEntries) {
             m_maintenanceRequested = true;
             if (m_refused.size() > 512) m_refused.clear();
             m_refused[text] = now;
-            return nullptr;
+            return textMissing();
         }
         // A raster costs several milliseconds on the screen's thread, and a
         // frame that met a bunch of new strings at once (a screen change, the
@@ -314,7 +325,7 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
             g_rastersInWindow.store(0, std::memory_order_relaxed);
         }
         if (g_rastersInWindow.load(std::memory_order_relaxed) >= kMaxRastersPerFrame)
-            return nullptr; // (no memo: it is drawn the next frame)
+            return textMissing(); // (no memo: it is drawn the next frame)
     }
 
     // Instrumented: the whole new-string path (raster, convert, upload), so a
@@ -335,11 +346,11 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
     std::vector<std::pair<TTF_Font*, std::string>> pieces;
     SDL_Surface* surface = runs(text, pieces) ? renderRuns(pieces)
                                               : TTF_RenderUTF8_Blended(m_font, text.c_str(), white);
-    if (!surface) return nullptr;
+    if (!surface) return textMissing();
 
     SDL_Surface* rgba = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ABGR8888, 0);
     SDL_FreeSurface(surface);
-    if (!rgba) return nullptr;
+    if (!rgba) return textMissing();
 
     SDL_LockSurface(rgba);
     const uint8_t* pixels = static_cast<const uint8_t*>(rgba->pixels);
@@ -358,7 +369,7 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
         m_refused[text] = armGetSystemTick();
         SDL_UnlockSurface(rgba);
         SDL_FreeSurface(rgba);
-        return nullptr;
+        return textMissing();
     }
 
     m_lruList.emplace_front();
@@ -372,7 +383,7 @@ Texture* Font::getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& tex
         m_maintenanceRequested = true;
         SDL_UnlockSurface(rgba);
         SDL_FreeSurface(rgba);
-        return nullptr;
+        return textMissing();
     }
     m_cacheBytes += entry.tex.allocationSize();
 

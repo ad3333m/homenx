@@ -75,6 +75,7 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
 
     SDL_SetTextureBlendMode(m_sdlTex, SDL_BLENDMODE_BLEND);
     SDL_UpdateTexture(m_sdlTex, nullptr, rgba, w * 4);
+    noteUploaded();
 
     // Register in the renderer's slot table
     if (m_slot < 0) {

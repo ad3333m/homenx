@@ -619,6 +619,30 @@ void WiiUMenuApp::scheduleLeaveCapture(std::function<void()> afterCapture,
     m_leaveCaptureAfter = std::move(afterCapture);
 }
 
+// nxui's render tiers: every frame is drawn while one of these moves on its
+// own. What follows a press is covered anyway (a few seconds of full rate after
+// any input, and after any of these ends).
+bool WiiUMenuApp::wantsFullRate() const {
+    if ((m_launchAnim && m_launchAnim->isPlaying()) || m_launchFinishFrames > 0) return true;
+    if (m_fade != m_fadeTarget || m_fadeThen) return true;           // fade to/from black
+    if (leaveSplashActive() || m_leaveMotionFreezePending) return true; // the return from a game
+    if (m_leaveCapturePending) return true;  // onAfterPresent saves the next real frame
+    if (m_wakeStart && m_wakePresentedFrames < 3) return true; // LockFramePresented counts real frames
+    if (m_deferredInitialAssetFrames > 0) return true;
+    if (m_editMode) return true;             // the icons jiggle, one follows the cursor
+    if (m_grid && (m_grid->isTransitioning() || m_grid->isLayoutMorphing())) return true;
+    if (m_folderClosing || m_folderCaptureRequested || m_requestedFolderId != 0) return true;
+    if (m_progressDialog && m_progressDialog->isActive()) return true;
+    return false;
+}
+
+// Deep idle (only drawn on request, the motion stopped) on the home screen and
+// the lock screen only: the screens on top (Settings, the theme shop...) change
+// by themselves in ways nobody tells this about, so they stay in the calm tier.
+bool WiiUMenuApp::supportsDeepIdle() const {
+    return !hasActiveLeaveCaptureOverlay();
+}
+
 bool WiiUMenuApp::hasActiveLeaveCaptureOverlay() const {
     return (m_userSelect && m_userSelect->isActive())
         || (m_contextMenu && m_contextMenu->isActive())
@@ -864,13 +888,26 @@ void WiiUMenuApp::setLeaveMotionFrozen(bool frozen) {
     if (m_leaveMotionFrozen == frozen)
         return;
     m_leaveMotionFrozen = frozen;
+    applyMotionPaused();
+}
 
+void WiiUMenuApp::onIdleDeep(bool deep) {
+    m_idleMotionFrozen = deep;
+    applyMotionPaused();
+}
+
+// The leave freeze (under the return splash) and the deep idle freeze are kept
+// apart: leaving deep idle must not restart what the splash holds still.
+void WiiUMenuApp::applyMotionPaused() {
+    const bool frozen = m_leaveMotionFrozen || m_idleMotionFrozen;
     if (m_background)
         m_background->setMotionPaused(frozen);
     if (m_cursor)
         m_cursor->setMotionPaused(frozen);
     if (m_pointerCursor)
         m_pointerCursor->setMotionPaused(frozen);
+    if (m_battery)
+        m_battery->setMotionPaused(frozen);
     if (m_grid) {
         for (auto& icon : m_grid->allIcons()) {
             if (icon)
@@ -4480,6 +4517,7 @@ void WiiUMenuApp::applyFolderCoversToIcons() {
 
 std::shared_ptr<GlossyIcon> WiiUMenuApp::makeIcon(const AppEntry& entry) {
     auto icon = std::make_shared<GlossyIcon>();
+    icon->setMotionPaused(m_leaveMotionFrozen || m_idleMotionFrozen); // made while frozen: frozen too
     icon->setEntryKind(entry.kind);
     icon->setFolderPreviewCount(entry.folderPreviewCount);
     icon->setFolderVisualSeed(entry.folderId);
@@ -5952,6 +5990,12 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     updateLeaveSplashHandoff(dt);
     pollDeferredLeaveCapture();
     const float motionDt = m_leaveMotionFrozen ? 0.f : dt;
+    // A new minute (or day) on the clock: drawn now, even in deep idle.
+    if (m_clock && (m_clock->timeText() != m_shownClock || m_clock->dateText() != m_shownDate)) {
+        m_shownClock = m_clock->timeText();
+        m_shownDate = m_clock->dateText();
+        app().requestRedraw();
+    }
 
     // Widget-owned images are intentionally managed before recording the next
     // frame. This is the only safe point to retire Deko textures from pages
@@ -6419,6 +6463,7 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
 
             if (notif.magic != switchu::smi::kNotifyMagic) continue;
             DebugLog::log("[notify] msg=%u", (unsigned)notif.msg);
+            app().requestRedraw(); // the battery, a title, the sleep... shown even in deep idle
 
             switch (notif.msg) {
             case switchu::smi::MenuMessage::HomeRequest:

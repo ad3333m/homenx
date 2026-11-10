@@ -65,6 +65,8 @@ public:
 
     bool  virtualPointerEnabled() const { return m_virtualPointerEnabled; }
     bool  hasUserActivity() const;
+    // A button (or stick direction) is being held down, even without change.
+    bool  anyHeld() const { return m_kHeld != 0; }
     float virtualPointerX() const { return m_virtualPointerX; }
     float virtualPointerY() const { return m_virtualPointerY; }
     float virtualPointerSensitivity() const { return m_virtualPointerSensitivity; }

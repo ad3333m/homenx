@@ -513,7 +513,9 @@ bool CardsActivity::onCreate() {
     auto& gpu = app().gpu();
     auto& ren = app().renderer();
     ren.setBoxWireframeEnabled(false);
-    app().setIdleThrottle(false); // it keeps moving: always 60 Hz
+    // (No setIdleThrottle(false) any more: nxui's render tiers draw every frame
+    // while something moves (wantsFullRate), and its decorations stop in deep
+    // idle, the screen then only drawn when something changes.)
 
 #ifdef SWITCHU_MENU
     pdmqryInitialize(); // play time (HOME's own menu reads it through am)
@@ -898,6 +900,51 @@ nxui::Widget* CardsActivity::focusRoot() {
     if (m_padTest && m_padTest->isActive()) return m_padTest.get();
 #endif
     return nullptr;
+}
+
+void CardsActivity::pictureArrived() {
+    m_pictureInAt = m_time;
+    app().requestRedraw();
+}
+
+// nxui's render tiers: every frame is drawn while one of these moves on its
+// own. What follows a press is covered anyway (a few seconds of full rate after
+// any input); this is what moves without one: the opening and the return from
+// a game, a picture fading in, a notice, the lock screen coming or going...
+bool CardsActivity::wantsFullRate() const {
+    if (m_leaving || m_returnTex || m_moving || m_dragging || m_musicVolDrag) return true;
+    if (m_wakeStart && m_wakePresentedFrames < 3) return true; // (LockFramePresented counts real frames)
+    for (float v : {m_intro, m_pageIn, m_detailIn, m_sheen, m_menuIn, m_taskIn, m_logIn, m_pressT, m_bgFade,
+                    m_sheetIn, m_sheetRowsIn, m_quickIn, m_powerIn, m_dotsIn, m_optIn, m_pickIn, m_musicIn,
+                    m_quickListIn})
+        if (v < 1.f) return true;
+    const float target = static_cast<float>(m_sels[m_page]);
+    if (m_scroll != target) return true;
+    if (m_locked && (m_lockIn < 1.f || m_unlockT >= 0.f)) return true;
+    if (m_introOpen && m_introIn < 1.f) return true;
+    if (m_time - m_pictureInAt < 0.4f) return true; // cards fade in 0.35 s, thumbnails 0.2 s
+    if (!m_notice.title.empty()) return true;       // it slides in, counts down and fades
+    if (m_messageFor > 0.f) return true;
+    if (m_musicOpen && (spotifyOn() ? m_sp.playing : m_settings.music && !m_audio.paused()))
+        return true; // the spectrum and the spinning record follow the music
+#ifdef SWITCHU_MENU
+    if (m_newsIn < 1.f || m_newsDragging) return true;
+    if ((m_textEntry && m_textEntry->isActive()) || (m_discordPanel && m_discordPanel->isActive())
+        || (m_social && m_social->isActive()) || (m_padTest && m_padTest->isActive()))
+        return true; // HomeNX's screens: their own animations
+#endif
+    return false;
+}
+
+// Deep idle (only drawn on request, the decorations still) is not for what
+// changes by itself without saying so: a countdown, a scan, a transfer.
+bool CardsActivity::supportsDeepIdle() const {
+    if (m_btScanning || m_storageJob.valid() || m_sdTestJob.valid() || m_mtp.on()) return false;
+#ifdef SWITCHU_MENU
+    if (m_update.load() == static_cast<int>(Update::Installing)) return false; // HomeNX's update: its bar
+    if (m_pairing) return false;
+#endif
+    return true;
 }
 
 const Game* CardsActivity::current() {
@@ -1355,11 +1402,20 @@ void CardsActivity::takeArt() {
         if (m_playersFresh) {
             m_players = m_playersIn;
             m_playersFresh = false;
+            app().requestRedraw();
             m_playersTotal = 0;
             for (const auto& p : m_players) m_playersTotal += p.second;
         }
         if (m_statusFresh) {
             m_statusFresh = false;
+            // Changed (a new minute, the battery, the network...): drawn now,
+            // even when nothing else moves (deep idle draws only on request).
+            const auto changed = [](const std::string& in, const std::string& was) { return !in.empty() && in != was; };
+            if (changed(m_statusIn.clock, m_clock) || changed(m_statusIn.battery, m_battery)
+                || changed(m_statusIn.date, m_date) || changed(m_statusIn.free, m_free)
+                || m_charging != m_statusIn.charging || m_online != m_statusIn.online
+                || (m_statusIn.temperature >= 0 && m_statusIn.temperature != m_temp))
+                app().requestRedraw();
             if (!m_statusIn.clock.empty()) m_clock = m_statusIn.clock;
             if (!m_statusIn.battery.empty()) m_battery = m_statusIn.battery;
             m_charging = m_statusIn.charging;
@@ -1434,6 +1490,7 @@ void CardsActivity::takeArt() {
             m_retryIn = std::min(m_retryIn, 0.6f);
             continue;
         }
+        pictureArrived(); // (cards and thumbnails fade in on m_time; the rest just shows)
         if (d.what == kLaunch) {
             if (m_leaving && d.id == m_leaveId) {
                 m_launchTex = std::move(tex);
@@ -1721,6 +1778,7 @@ void CardsActivity::reloadGames() {
 // The real lists, read on a thread, replace last time's. Where you are stays:
 // the first card stays first, a card further along stays chosen.
 void CardsActivity::takeLists(Lists lists) {
+    app().requestRedraw(); // new or removed cards: drawn now, even in deep idle
     dropHidden(lists.games);
     dropHidden(lists.homebrew);
     // What was there: what's new is said and chosen (Settings > Look for new software, or found by itself).
@@ -2645,6 +2703,7 @@ void CardsActivity::pumpDaemon() {
         if (size >= static_cast<s64>(sizeof(n))) appletStorageRead(&st, 0, &n, sizeof(n));
         appletStorageClose(&st);
         if (n.magic != switchu::smi::kNotifyMagic) continue;
+        app().requestRedraw(); // the battery, a title's state... shown even in deep idle
         using M = switchu::smi::MenuMessage;
         switch (n.msg) {
             case M::HomeRequest:
@@ -3267,7 +3326,7 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
         const std::string prompt = m_pw.prompt();
         textMid(r, m_fLabel, prompt, 640.f - measured(m_fLabel, prompt).x * 0.5f, 440.f + lift,
                 (m_pw.wrong > 0.f ? kRed : kWhite).withAlpha(a));
-        switchu::lockpw::drawDots(r, m_pw, 500.f + lift, a, m_time);
+        switchu::lockpw::drawDots(r, m_pw, 500.f + lift, a, m_decoTime);
         const std::string hint = m_pwSetup ? "A Done    B Clear (again to stop)" : "B Clear";
         textMid(r, m_fBody, hint, 640.f - measured(m_fBody, hint).x * 0.5f, 560.f + lift, kMuted.withAlpha(a));
         return;
@@ -3297,7 +3356,7 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
         }
     }
     // The way in, breathing.
-    const float pulse = 0.55f + 0.45f * (0.5f + 0.5f * std::sin(m_time * 2.4f));
+    const float pulse = 0.55f + 0.45f * (0.5f + 0.5f * std::sin(m_decoTime * 2.4f));
     const std::string hint = "Press any button";
     r.drawRoundedRect({640.f - 56.f, 612.f + lift, 112.f, 5.f}, nxui::Color(1.f, 1.f, 1.f, 0.55f * a * pulse), 2.5f);
     textMid(r, m_fLabel, hint, 640.f - measured(m_fLabel, hint).x * 0.5f, 648.f + lift, kWhite.withAlpha(0.85f * a * pulse));
@@ -4033,7 +4092,7 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
         return;
     }
     const float a = easeOut(m_pickIn);
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
     const nxui::Rect card = scaled(kPickCard, 0.95f + 0.05f * easeOutBack(m_pickIn));
     frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.88f * a));
@@ -4163,7 +4222,7 @@ bool CardsActivity::optionsTouch() {
 void CardsActivity::drawOptions(nxui::Renderer& r) {
     if (!m_optOpen) return;
     const float a = easeOut(m_optIn);
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
     const nxui::Rect card = scaled(kOptCard, 0.95f + 0.05f * easeOutBack(m_optIn));
     frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
@@ -4438,7 +4497,7 @@ bool CardsActivity::dotsTouch() {
 void CardsActivity::drawDots(nxui::Renderer& r) {
     if (!m_dotsOpen) return;
     const float a = easeOut(m_dotsIn);
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.32f * a));
     const nxui::Rect full = dotsPanel(m_dotsTiles.size());
     // It drops from the dots button: grows from its top-left corner.
@@ -4560,7 +4619,7 @@ bool CardsActivity::powerTouch() {
 void CardsActivity::drawPower(nxui::Renderer& r) {
     if (!m_powerOpen) return;
     const float a = easeOut(m_powerIn);
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
     const nxui::Rect card = scaled(kPowerCard, 0.94f + 0.06f * easeOutBack(m_powerIn));
     frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
@@ -5140,7 +5199,7 @@ void CardsActivity::drawSpotifyQr(nxui::Renderer& r) {
 void CardsActivity::drawMusic(nxui::Renderer& r) {
     if (!m_musicOpen) return;
     const float a = easeOut(m_musicIn);
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     const bool spot = spotifyOn(); // Spotify plays somewhere else: its song, and a made-up beat
     const bool playing = spot ? m_sp.playing : m_settings.music && !m_audio.paused();
     // The bars: what's heard now, up quickly and down slowly.
@@ -5148,8 +5207,8 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     m_audio.spectrum(target);
     if (spot)
         for (int i = 0; i < Audio::kBands; ++i)
-            target[i] = 0.16f + 0.18f * (0.5f + 0.5f * std::sin(m_time * 2.6f + i * 0.45f))
-                                      * (0.6f + 0.4f * std::sin(m_time * 1.3f + i * 0.17f));
+            target[i] = 0.16f + 0.18f * (0.5f + 0.5f * std::sin(m_decoTime * 2.6f + i * 0.45f))
+                                      * (0.6f + 0.4f * std::sin(m_decoTime * 1.3f + i * 0.17f));
     const float dt = 1.f / 60.f;
     for (int i = 0; i < Audio::kBands; ++i) {
         float& v = m_viz[(size_t)i];
@@ -5399,6 +5458,7 @@ void CardsActivity::openNotifications() {
 void CardsActivity::say(const std::string& message) {
     m_message = plain(tr(message)); // (split into two lines as it's shown)
     m_messageFor = 4.5f;
+    app().requestRedraw();
 }
 
 void CardsActivity::press(int zone, int index) {
@@ -7112,7 +7172,7 @@ void CardsActivity::drawNews(nxui::Renderer& r) {
         textMid(r, m_fPill, fit(m_fPill, m_newsEmpty, kSheet.width - 80.f), kSecX, 340.f + dy, kMuted.withAlpha(a));
         return;
     }
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     const float visible = kRowsBottom - kSheetTop;
 
     // The list, kept around the chosen one.
@@ -7683,8 +7743,12 @@ void CardsActivity::onUpdate(float dt) {
         ++m_perfFrames;
         m_perfWindow += interval;
         m_perfWorst = std::max(m_perfWorst, interval);
-        if (interval > 20.f) ++m_perfSlow;
-        if (interval > 34.f) ++m_perfVerySlow;
+        // Calm/deep idle paces one turn in three to ~33 ms on purpose: only a
+        // turn well past that is slow then (else 20 log lines a second).
+        const bool paced = app().pacedTurns();
+        const float slowAt = paced ? 40.f : 24.f;
+        if (interval > (paced ? 40.f : 20.f)) ++m_perfSlow;
+        if (interval > (paced ? 40.f : 34.f)) ++m_perfVerySlow;
         const auto waits = app().gpu().takeWaitStats();
         const auto frees = app().renderer().takeFreeStats();
         // A GPU that can't keep 60 frames a second (waiting over 22 ms a frame on it,
@@ -7698,7 +7762,7 @@ void CardsActivity::onUpdate(float dt) {
                           m_gpuWaitAvg);
             perfLine(line);
         }
-        if (interval > 24.f && m_settings.perfLog) {
+        if (interval > slowAt && m_settings.perfLog) {
             char line[460];
             std::snprintf(line, sizeof(line),
                           "slow frame %.1f ms: daemon %.1f, pictures %.1f (%d uploaded), discord %.1f, the rest of update %.1f "
@@ -7712,11 +7776,17 @@ void CardsActivity::onUpdate(float dt) {
             perfLine(line);
         }
         if (m_perfWindow >= 10000.f) {
-            char line[160];
-            std::snprintf(line, sizeof(line), "10 s: %.1f fps, worst frame %.1f ms, %d over 20 ms, %d over 34 ms (chip %d C, GPU %d MHz)",
-                          m_perfFrames * 1000.f / m_perfWindow, m_perfWorst, m_perfSlow, m_perfVerySlow, chipTemperature(),
-                          gpuMhz());
+            // "fps" is the loop's turns (input and update, ~60 a second); "shown"
+            // the frames really drawn (nxui's render tiers: fewer when still).
+            const std::uint64_t shown = app().presentedFrames();
+            char line[200];
+            std::snprintf(line, sizeof(line),
+                          "10 s: %.1f fps, %.1f shown/s%s, worst frame %.1f ms, %d over 20 ms, %d over 34 ms (chip %d C, GPU %d MHz)",
+                          m_perfFrames * 1000.f / m_perfWindow, (shown - m_perfShownAt) * 1000.f / m_perfWindow,
+                          app().deepIdle() ? " (deep idle)" : "", m_perfWorst, m_perfSlow, m_perfVerySlow,
+                          chipTemperature(), gpuMhz());
             perfLine(line);
+            m_perfShownAt = shown;
             m_perfFrames = m_perfSlow = m_perfVerySlow = 0;
             m_perfWindow = m_perfWorst = 0.f;
         }
@@ -7774,8 +7844,10 @@ void CardsActivity::onUpdate(float dt) {
     if (m_avatarJob.valid() && m_avatarJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const Pixels px = m_avatarJob.get();
         auto tex = std::make_unique<nxui::Texture>();
-        if (!px.rgba.empty() && tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h))
+        if (!px.rgba.empty() && tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h)) {
             m_avatar = std::move(tex);
+            pictureArrived();
+        }
     }
     // The icons' files arrived: into the RAM cache (each is decoded the first
     // time it's drawn, from memory).
@@ -7801,14 +7873,17 @@ void CardsActivity::onUpdate(float dt) {
             if (!p.rgba.empty()) {
                 auto tex = std::make_unique<nxui::Texture>();
                 nxui::GpuDevice::EssentialScope essential;
-                if (tex->loadFromPixels(app().gpu(), app().renderer(), p.rgba.data(), p.w, p.h))
+                if (tex->loadFromPixels(app().gpu(), app().renderer(), p.rgba.data(), p.w, p.h)) {
                     m_thumbs[p.id] = {std::move(tex), m_time, p.kind};
+                    pictureArrived();
+                }
             }
             m_thumbUploads.erase(m_thumbUploads.begin());
         }
         app().gpu().endTextureUploadBatch();
     }
     m_time += dt;
+    if (!app().deepIdle()) m_decoTime += dt;
     updateNotices(dt);
     updateStorage();
     perfMark("start-up");
@@ -7894,6 +7969,7 @@ void CardsActivity::onUpdate(float dt) {
             auto tex = std::make_unique<nxui::Texture>();
             if (tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h)) m_wallTex = std::move(tex);
         }
+        pictureArrived(); // (or gone: drawn either way)
         if (!m_wallTex && !m_settings.wallpaper.empty()) say("That picture couldn't be read.");
     }
     if (m_lockJob.valid() && m_lockJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -7904,6 +7980,7 @@ void CardsActivity::onUpdate(float dt) {
             auto tex = std::make_unique<nxui::Texture>();
             if (tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h)) m_lockTex = std::move(tex);
         }
+        pictureArrived();
         if (!m_lockTex && !m_lockPicture.empty()) say("The lock screen picture couldn't be read.");
     }
     // Installed or downloaded meanwhile (an eShop download, an installer)? The background
@@ -8646,7 +8723,7 @@ void CardsActivity::glassCircle(nxui::Renderer& r, float cx, float cy, float d, 
     d *= s;
     const nxui::Rect box{cx - d * 0.5f, cy - d * 0.5f, d, d};
     frost(r, box, d * 0.5f, focused ? nxui::Color(1.f, 1.f, 1.f, 0.22f * a) : glassTint(a));
-    const float pulse = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float pulse = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     r.drawRoundedRectOutline(box, focused ? accent(pulse * a) : kGlassEdge.withAlpha(kGlassEdge.a * a), d * 0.5f,
                              focused ? 3.f : 1.5f);
     icon(r, name, cx, cy, iconSize * s, kWhite.withAlpha(a));
@@ -8666,9 +8743,9 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
     const float lean = !m_leaving ? 0.f
                      : style == kDive ? 0.45f * easeIn(m_leaveT)
                      : style == kZoom || style == kFlip ? 0.10f * easeInOut(m_leaveT) : 0.f;
-    const float zoom = (motion ? 1.06f + 0.03f * std::sin(m_time * 0.11f) : 1.04f) + lean;
-    const float panX = motion ? 0.25f * std::sin(m_time * 0.07f) : 0.f;
-    const float panY = motion ? 0.2f * std::cos(m_time * 0.05f) : 0.f;
+    const float zoom = (motion ? 1.06f + 0.03f * std::sin(m_decoTime * 0.11f) : 1.04f) + lean;
+    const float panX = motion ? 0.25f * std::sin(m_decoTime * 0.07f) : 0.f;
+    const float panY = motion ? 0.2f * std::cos(m_decoTime * 0.05f) : 0.f;
     if (m_wallTex && m_wallTex->valid()) { // Settings > Look > Background: one picture for everything
         drawCover(r, m_wallTex.get(), screen, 0.f, kWhite, 0.f, 0.f, zoom, panX, panY);
     } else {
@@ -8689,14 +8766,14 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     if (a <= 0.001f) return;
     const bool top = m_zone == Zone::Top && !m_moving;
     const float y = kTopY - 18.f * (1.f - a);
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     auto pressedOf = [this](int index) {
         return m_pressZone == 0 && m_pressIndex == index ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
     };
     auto badge = [&](float x, float cy, int count) {
         const std::string n = count > 99 ? "99+" : std::to_string(count);
         const float bw = std::max(24.f, measured(m_fBadge, n).x + 14.f);
-        const float s = 1.f + (m_settings.motion ? 0.06f * std::sin(m_time * 4.f) : 0.f);
+        const float s = 1.f + (m_settings.motion ? 0.06f * std::sin(m_decoTime * 4.f) : 0.f);
         const nxui::Rect b = scaled({x, cy, bw, 24.f}, s);
         r.drawRoundedRect(b, kRed.withAlpha(a), b.height * 0.5f);
         textMid(r, m_fBadge, n, b.x + (b.width - measured(m_fBadge, n).x) * 0.5f, b.y + b.height * 0.5f, kWhite.withAlpha(a));
@@ -8750,7 +8827,7 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     if (showTemp) {
         x += gap;
         const bool hot = m_temp >= 60, warm = m_temp >= 48;
-        const float pulse = hot && m_settings.motion ? 0.55f + 0.45f * std::sin(m_time * 6.f) : 1.f;
+        const float pulse = hot && m_settings.motion ? 0.55f + 0.45f * std::sin(m_decoTime * 6.f) : 1.f;
         const nxui::Color tone = hot ? kRed : warm ? nxui::Color(1.f, 0.72f, 0.3f, 1.f) : kGreen;
         icon(r, "thermo", x + 9.f, y, 24.f, (hot ? tone : kWhite).withAlpha(a * pulse));
         x += 24.f;
@@ -8789,7 +8866,7 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     glassCircle(r, kMusicX, y, kCircle, top && m_topSel == kTopMusic, "music", 34.f, a, pressedOf(kTopMusic));
     if (m_settings.music) { // playing: a little level meter under the note
         for (int i = 0; i < 3; ++i) {
-            const float hgt = 3.f + 5.f * (0.5f + 0.5f * std::sin(m_time * (5.f + i * 1.7f) + i));
+            const float hgt = 3.f + 5.f * (0.5f + 0.5f * std::sin(m_decoTime * (5.f + i * 1.7f) + i));
             r.drawRect({kMusicX - 8.f + i * 6.f, y + 25.f - hgt, 3.f, hgt}, kWhite.withAlpha(0.8f * a));
         }
     }
@@ -8816,7 +8893,7 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     if (m_moving && index == sel()) { // picked up
         w *= 1.05f;
         h *= 1.05f;
-        lift += 22.f + 3.f * std::sin(m_time * 6.f);
+        lift += 22.f + 3.f * std::sin(m_decoTime * 6.f);
     }
     card = {x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f - lift + 60.f * rise, w, h};
     if (m_leaving) {
@@ -8902,7 +8979,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         if (i < sel() && !m_moving) // the ones already passed sit back a little
             r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.30f * (1.f - t) * alpha), kCardRadius);
         if (t > 0.01f) {
-            const float ring = cardsFocused ? 0.85f + 0.15f * std::sin(m_time * 4.f) : 0.55f;
+            const float ring = cardsFocused ? 0.85f + 0.15f * std::sin(m_decoTime * 4.f) : 0.55f;
             r.drawRoundedRectOutline(card, accent(ring * t * alpha), kCardRadius, 3.5f);
         }
     }
@@ -8988,13 +9065,13 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             }
             if (i < sel() && !m_moving) r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.22f * (1.f - t) * alpha), kCardRadius);
             if (t > 0.01f) {
-                const float ring = m_zone == Zone::Cards ? 0.85f + 0.15f * std::sin(m_time * 4.f) : 0.55f;
+                const float ring = m_zone == Zone::Cards ? 0.85f + 0.15f * std::sin(m_decoTime * 4.f) : 0.55f;
                 r.drawRoundedRectOutline(card, accent(ring * t * alpha), kCardRadius, 3.5f);
             }
         }
 
         if (m_moving && i == sel()) { // picked up: arrows either side
-            const float bob = 4.f * std::sin(m_time * 6.f);
+            const float bob = 4.f * std::sin(m_decoTime * 6.f);
             glassCircle(r, card.x - 30.f - bob, card.y + card.height * 0.5f, 46.f, false, "arrows", 26.f, alpha, 0.f);
             glassCircle(r, card.x + card.width + 30.f + bob, card.y + card.height * 0.5f, 46.f, false, "arrows", 26.f,
                         alpha, 0.f);
@@ -9031,7 +9108,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         const nxui::Rect badge{card.x + 14.f, card.y + 14.f, 34.f + measured(m_fCount, n).x + 14.f, 34.f};
         frost(r, badge, 17.f, nxui::Color(0.05f, 0.07f, 0.09f, 0.42f * alpha));
         r.drawRoundedRectOutline(badge, nxui::Color(1.f, 1.f, 1.f, 0.16f * alpha), 17.f, 1.5f);
-        const float breathe = m_settings.motion ? 0.5f + 0.5f * std::sin(m_time * 3.f) : 0.5f;
+        const float breathe = m_settings.motion ? 0.5f + 0.5f * std::sin(m_decoTime * 3.f) : 0.5f;
         r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f + 4.f * breathe, kGreen.withAlpha(0.25f * (1.f - breathe) * alpha), 24);
         r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f, kGreen.withAlpha(alpha), 24);
         textMid(r, m_fCount, n, badge.x + 33.f, badge.y + 17.f, kWhite.withAlpha(alpha));
@@ -9258,7 +9335,7 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
     const nxui::Rect playRect = scaled({panel.x + 22.f, by, 262.f, 77.f}, 1.f - 0.06f * pressedOf(0));
     r.drawRoundedRect(playRect, kWhite.withAlpha(a), playRect.height * 0.5f);
     if (bottom && m_bottomSel == 0) {
-        const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+        const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
         r.drawRoundedRectOutline({playRect.x - 4.f, playRect.y - 4.f, playRect.width + 8.f, playRect.height + 8.f},
                                  accent(ring * a), playRect.height * 0.5f + 4.f, 3.f);
     }
@@ -9303,7 +9380,7 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
 
 // One row: a toggle switch, a slider, a choice (< value >), a value, or an action.
 void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect& row, bool chosen, float a, bool wide) {
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     if (chosen) {
         r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, 0.12f * a), 16.f);
         r.drawRoundedRectOutline(row, accent(ring * a), 16.f, 2.f);
@@ -9468,7 +9545,7 @@ void CardsActivity::drawHints(nxui::Renderer& r, float right, float cy,
 void CardsActivity::drawQuick(nxui::Renderer& r) {
     if (!m_quickOpen) return;
     const float a = easeOut(m_quickIn);
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.30f * a));
     const nxui::Rect p = quickPanel((1.f - a) * 480.f);
     frost(r, p, 30.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
@@ -9638,7 +9715,7 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     textMid(r, m_fLabel, here.name, hereTile.x + 52.f, hy, kWhite.withAlpha(a));
 
     // Sections: a darker column, each one's icon on a tile of its colour.
-    const float ring = 0.8f + 0.2f * std::sin(m_time * 5.f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     const float colTop = kSheetTop - 10.f + dy;
     r.drawRoundedRect({kSecX - 10.f, colTop, kSecW + 20.f, sheet.y + sheet.height - 12.f - colTop},
                       nxui::Color(0.f, 0.f, 0.f, 0.14f * a), 22.f);

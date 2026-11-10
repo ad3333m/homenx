@@ -56,6 +56,8 @@ public:
     virtual void update(float dt) = 0;
     virtual bool isFinished() const = 0;
     virtual void reset() = 0;
+    // False for timers (Delay): they move nothing on screen while they wait.
+    virtual bool movesSomething() const { return true; }
     void stop()  { m_running = false; }
     void start() { m_running = true; }
     bool isRunning() const { return m_running; }
@@ -116,6 +118,7 @@ public:
         if (m_remaining <= 0.f) { m_fired = true; if (m_cb) m_cb(); }
     }
     bool isFinished() const override { return m_fired; }
+    bool movesSomething() const override { return false; }
     void reset() override { m_fired = false; }
 private:
     float m_remaining;
@@ -139,9 +142,17 @@ public:
         d->start(); m_anims.push_back(d); return d;
     }
     void clear();
+    // A tween moved at the last update: frames keep being drawn at full rate
+    // (Application's render tiers).
+    bool active() const { return m_active; }
+    // A timer fired (or a tween ended) at the last update: what it changed
+    // needs one more frame, not full rate.
+    bool fired() const { return m_fired; }
 private:
     AnimationManager() = default;
     std::vector<std::shared_ptr<Animation>> m_anims;
+    bool m_active = false;
+    bool m_fired = false;
 };
 
 // AnimatedProperty<T>
