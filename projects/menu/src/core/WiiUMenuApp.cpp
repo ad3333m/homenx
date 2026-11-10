@@ -5805,13 +5805,6 @@ void WiiUMenuApp::onUpdate(float dt) {
         && !(m_launchAnim && m_launchAnim->isPlaying()) && (m_readbackPrepDelay -= dt) <= 0.f)
         m_readbackPrepared = app().gpu().prepareFramebufferReadback() || m_readbackPrepDelay < -5.f;
 #endif
-    std::uint64_t workStart = armGetSystemTick();
-    m_discord.update(); // HomeNX Discord panel and HOME's alerts
-    noteWork(WorkDiscord, workStart);
-    workStart = armGetSystemTick();
-    updateHomeBanners(dt);
-    updateWeather();
-    noteWork(WorkBanners, workStart);
     // HomeNX fade: ~0.3 s each way, and the music fades with the picture
     // (the launch animation runs its own music fade for games).
     const float fadeStep = dt / 0.3f;
@@ -5856,6 +5849,16 @@ void WiiUMenuApp::onUpdate(float dt) {
         return;
     }
 
+    // Discord, the banners and the weather wait for the wake as well (they
+    // used to run on every sleeping tick).
+    std::uint64_t workStart = armGetSystemTick();
+    m_discord.update(); // HomeNX Discord panel and HOME's alerts
+    noteWork(WorkDiscord, workStart);
+    workStart = armGetSystemTick();
+    updateHomeBanners(dt);
+    updateWeather();
+    noteWork(WorkBanners, workStart);
+
     onUpdateAwake(dt);
 }
 
@@ -5878,6 +5881,11 @@ void WiiUMenuApp::enterSystemSleep() {
     // drawn (and what waking shows) are the lock screen, not HOME.
     if (lockScreenOn()) showLockScreen(m_musicWasPlayingBeforeSleep && m_config.musicEnabled);
 
+    // Discord's socket and heartbeats kept the console busy all night: it
+    // stops now and connects again at wake (if it was on).
+    m_discord.sleep();
+    if (bluetooth::IsDiscovering()) bluetooth::StopDiscovery(); // (Settings isn't updated while asleep)
+
     // Stop presenting. A loop that keeps submitting frames never lets the
     // console settle into its low-power sleep state.
     app().setSleeping(true);
@@ -5888,6 +5896,7 @@ void WiiUMenuApp::leaveSystemSleep() {
         return;
     m_systemAsleep = false;
     app().setSleeping(false);
+    m_discord.wake();
 
     const bool resumeMusic = m_musicWasPlayingBeforeSleep && m_config.musicEnabled;
     m_musicWasPlayingBeforeSleep = false;

@@ -70,7 +70,11 @@ bool initializeRuntimeLocked() {
     }
 
     if (!g_socketInitialized) {
-        Result rc = socketInitializeDefault();
+        // 6 BSD sessions instead of 3: each blocking socket call (a poll()
+        // too) holds one, and the Discord gateway now waits in poll().
+        SocketInitConfig cfg = *socketGetDefaultInitConfig();
+        cfg.num_bsd_sessions = 6;
+        Result rc = socketInitialize(&cfg);
         if (R_FAILED(rc)) {
             DebugLog::log("[themeshop] socketInitializeDefault failed: %s", resultToString(rc).c_str());
             shutdownRuntimeLocked();

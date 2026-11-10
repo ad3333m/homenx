@@ -65,8 +65,8 @@ public:
     bool renderEnabled() const    { return m_renderEnabled; }
 
     /// Low-power console sleep.  No frame is presented, no input is dispatched
-    /// and the loop parks on a 50 ms tick; the activity is still updated slowly
-    /// so it can read the wake notification and resume.
+    /// and the loop parks until the applet receives a message (at most 500 ms);
+    /// the activity is still updated then so it can read the wake notification.
     void setSleeping(bool s);
     bool sleeping() const    { return m_sleeping; }
 

@@ -11,6 +11,42 @@
 
 namespace nxui {
 
+namespace {
+
+#ifndef NXUI_BACKEND_SDL2
+// The applet's "message waiting" event (HOME's daemon talks to the menu through
+// interactive in-data): asleep, the loop waits on it instead of waking every
+// 50 ms. Only a library applet has one; elsewhere the loop keeps its 50 ms tick.
+Event g_inDataEvent{};
+bool g_inDataEventTried = false;
+bool g_inDataEventOk = false;
+int g_inDataQuickWakes = 0; // waits in a row that returned at once
+#endif
+
+// One sleeping tick: until a message comes (the activity reads it in onUpdate),
+// at most 500 ms; 50 ms where there's nothing to wait on.
+void waitWhileAsleep() {
+#ifndef NXUI_BACKEND_SDL2
+    if (!g_inDataEventTried) {
+        g_inDataEventTried = true;
+        g_inDataEventOk = R_SUCCEEDED(appletGetPopInteractiveInDataEvent(&g_inDataEvent));
+    }
+    // The event stays signalled while a message waits; one that kept answering
+    // at once (nothing read) would spin, so then it's the 50 ms tick again.
+    if (g_inDataEventOk && g_inDataQuickWakes < 4) {
+        const uint64_t start = armGetSystemTick();
+        const Result rc = eventWait(&g_inDataEvent, 500'000'000ULL);
+        const bool atOnce = armTicksToNs(armGetSystemTick() - start) < 1'000'000ULL;
+        g_inDataQuickWakes = R_SUCCEEDED(rc) && atOnce ? g_inDataQuickWakes + 1 : 0;
+        return;
+    }
+    g_inDataQuickWakes = 0; // (try the event again next tick)
+#endif
+    svcSleepThread(50'000'000ULL);
+}
+
+} // namespace
+
 Application::~Application() {
     shutdown();
 }
@@ -233,9 +269,10 @@ void Application::run() {
             // If the activity just woke up (e.g. showed the lock screen), do
             // not sleep and skip the render frame: fall through so the lock
             // screen is drawn immediately instead of showing the stale
-            // pre-sleep home screen framebuffer for up to 50 ms.
+            // pre-sleep home screen framebuffer. Asleep, the loop waits for
+            // the daemon's next message (at most 500 ms) rather than 50 ms.
             if (m_sleeping) {
-                svcSleepThread(50'000'000ULL);
+                waitWhileAsleep();
                 prevTick = armGetSystemTick();
                 continue;
             }
@@ -325,6 +362,11 @@ void Application::renderSleepFrames() {
 }
 
 void Application::shutdown() {
+#ifndef NXUI_BACKEND_SDL2
+    if (g_inDataEventOk) eventClose(&g_inDataEvent);
+    g_inDataEventOk = false;
+    g_inDataEventTried = false;
+#endif
     // Clear all pending animations before destroying the activity so that
     // tween callbacks don't fire on already-destroyed widgets.
     AnimationManager::instance().clear();

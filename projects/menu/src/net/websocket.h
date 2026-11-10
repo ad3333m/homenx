@@ -28,6 +28,11 @@ public:
     bool Poll(std::vector<Message>& out);
     // Blocks up to timeoutMs for at least one message (or closure).
     bool Wait(std::vector<Message>& out, int timeoutMs);
+    // Sleeps until the socket has bytes to read or timeoutMs passes. Returns false
+    // (without waiting) when the socket can't be waited on: the caller sleeps itself.
+    // Poll() must still read until it runs dry afterwards (TLS may hold bytes back).
+    bool WaitReadable(int timeoutMs);
+    size_t LastRecvBytes() const { return lastRecv_; } // what the last Poll() read
     void Close();
 
     bool IsOpen() const { return curl_ && open_; }
@@ -47,4 +52,5 @@ private:
     std::string rbuf_;
     std::string frag_;
     int fragOp_ = 0;
+    size_t lastRecv_ = 0;
 };

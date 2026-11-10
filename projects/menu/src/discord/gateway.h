@@ -23,6 +23,11 @@ public:
 
     ~Gateway();
     void Start(const std::string& token);
+    // Sleep: stops the thread but keeps the session (closed with 4000, which
+    // Discord lets resume); Resume() starts again with RESUME, not IDENTIFY,
+    // so the store stays and what came meanwhile is replayed. Resume() once Done().
+    void RequestPause() { keepSession_ = true; stop_ = true; }
+    void Resume();
     void Stop();
     void RequestStop() { stop_ = true; } // Stop() then only joins
     // Stops within timeoutMs or lets the thread finish on its own (then this
@@ -44,6 +49,7 @@ private:
     enum class After { Retry, ResetSession, Fatal, AuthFailed };
 
     void Run();
+    void Launch();
     After Session(const std::string& url);
     void SetState(State s) { state_ = s; }
     void SetError(const std::string& e);
@@ -51,6 +57,7 @@ private:
 
     std::thread thread_;
     std::atomic<bool> stop_{false};
+    std::atomic<bool> keepSession_{false};
     std::atomic<bool> done_{true};
     std::atomic<State> state_{State::Idle};
 

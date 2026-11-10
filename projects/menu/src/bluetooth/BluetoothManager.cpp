@@ -17,6 +17,7 @@ constexpr s32 kMaxDiscovered = 15;
 constexpr s32 kMaxPaired = 10;
 
 Event g_connectionEvent;
+UEvent g_stopEvent; // Finalize() wakes the thread with it (it used to wake twice a second to check)
 
 std::vector<BtmAudioDevice> g_pairedDevices;
 std::recursive_mutex g_pairedLock;
@@ -125,7 +126,10 @@ void ThreadFunc(void*) {
     }
 
     while (g_threadRunning) {
-        rc = eventWait(&g_connectionEvent, 500'000'000);
+        s32 which = -1;
+        rc = waitMulti(&which, UINT64_MAX, waiterForEvent(&g_connectionEvent), waiterForUEvent(&g_stopEvent));
+        if (R_SUCCEEDED(rc) && which == 1)
+            break; // Finalize()
         if (R_FAILED(rc) && rc != KERNELRESULT(TimedOut)) {
             // Only back off on a real error: an unconditional 1 ms sleep here
             // woke this thread 1000 times a second for the whole session, which
@@ -163,6 +167,7 @@ void Initialize() {
     ReloadConnected();
 
     g_threadRunning = true;
+    ueventCreate(&g_stopEvent, false);
     rc = threadCreate(&g_thread, ThreadFunc, nullptr, g_threadStack, sizeof(g_threadStack), 0x2C, -2);
     if (R_FAILED(rc)) {
         DebugLog::log("[bt] threadCreate failed: 0x%x", rc);
@@ -187,6 +192,7 @@ void Finalize() {
     if (g_discovering) StopDiscovery();
 
     g_threadRunning = false;
+    ueventSignal(&g_stopEvent);
     threadWaitForExit(&g_thread);
     threadClose(&g_thread);
     btmsysExit();
