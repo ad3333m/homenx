@@ -76,6 +76,7 @@ private:
     void startPendingDecode(std::uint64_t titleId);
     void beginCrossfade(int nextSet, std::uint64_t titleId);
     bool hasGpuArtwork(std::uint64_t titleId) const;
+    void releaseArtwork();
 
     nxui::GpuDevice& m_gpu;
     nxui::Renderer& m_renderer;

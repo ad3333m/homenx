@@ -2,6 +2,7 @@
 #include "widgets/BatteryDrawing.hpp"
 
 #include <nxui/core/I18n.hpp>
+#include <nxui/core/ImageDecode.hpp>
 #include <switchu/lock_picture.hpp>
 
 #include <algorithm>
@@ -123,13 +124,33 @@ void LockScreen::beginSetup(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
     m_pw.startMaking();
 }
 
+namespace {
+// The picture fills the screen, cropped to its shape: no bigger than that needs
+// on the real framebuffer (1280x720 handheld: a 1920x1080 picture was kept at
+// 8 MB instead of 3.5 MB). Never above the 1920 it was before.
+int wallpaperMaxSide(nxui::GpuDevice& gpu, const std::string& path) {
+    constexpr int kMax = 1920;
+    const int fbW = std::max(1, gpu.width()), fbH = std::max(1, gpu.height());
+    int w = 0, h = 0, ch = 0;
+    if (path.empty() || !stbi_info(path.c_str(), &w, &h, &ch) || w <= 0 || h <= 0) return kMax;
+    const float cover = std::max(static_cast<float>(fbW) / w, static_cast<float>(fbH) / h);
+    const int needed = static_cast<int>(std::ceil(std::max(w, h) * cover));
+    return std::clamp(needed, 1, kMax);
+}
+}  // namespace
+
 void LockScreen::loadWallpaper(nxui::GpuDevice& gpu, nxui::Renderer& renderer) {
     if (m_wallpaperLoaded) return;
     m_wallpaper = nxui::Texture{};
     m_wallpaperFor = switchu::lockpicture::get(); // Settings > HomeNX > Lock screen picture first
-    if (m_wallpaperFor.empty() || !m_wallpaper.loadFromFile(gpu, renderer, m_wallpaperFor, 1920))
-        if (!m_wallpaper.loadFromFile(gpu, renderer, kWallpaper, 1920))
-            m_wallpaper.loadFromFile(gpu, renderer, "sdmc:/switch/SwitchU/lockscreen/wallpaper.jpg", 1920);
+    auto load = [&](const std::string& path) {
+        return m_wallpaper.loadFromFile(gpu, renderer, path, wallpaperMaxSide(gpu, path));
+    };
+    // Kept while locked and unlocked: show() at wake reloads it synchronously, so
+    // letting it go at unlock would put a decode in front of every wake.
+    if (m_wallpaperFor.empty() || !load(m_wallpaperFor))
+        if (!load(kWallpaper))
+            load("sdmc:/switch/SwitchU/lockscreen/wallpaper.jpg");
     m_wallpaperLoaded = true;
 }
 

@@ -5,6 +5,7 @@
 #include "core/DebugLog.hpp"
 
 #include <nxui/core/GpuDevice.hpp>
+#include <nxui/core/ImageDecode.hpp>
 #include <nxui/core/I18n.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/ThreadPool.hpp>
@@ -19,6 +20,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 #include <unordered_set>
@@ -31,6 +33,14 @@ constexpr int kCommunityPreviewEntriesPerPage = kCommunityPreviewGridCols * kCom
 constexpr int kMaxPreviewUploadsPerFrame = 1;
 constexpr int kMaxPreviewDownloadsInFlight = kCommunityPreviewEntriesPerPage;
 constexpr int kCommunityPreviewMaxSide = 960;
+// The installed grid's cards show their preview at most ~460 px wide (two
+// columns beside the tabs; logical pixels, times gpu.scale() when loaded),
+// the detail and full-screen views up to 960 px.
+constexpr int kInstalledGridPreviewMaxSide = 480;
+
+std::string installedPreviewKey(const std::string& previewPath, bool detail) {
+    return detail ? previewPath + "|960" : previewPath;
+}
 
 bool startsWith(const std::string& value, const std::string& prefix) {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
@@ -111,7 +121,7 @@ void ThemeShopScreen::refreshCommunityCatalog() {
 void ThemeShopScreen::setThemeShopState(const std::vector<ThemeShopEntry>& entries,
                                         const std::string& activeId) {
     m_allThemeShopEntries = entries;
-    m_installedPreviewCache.clear();
+    clearInstalledPreviewCache(); // and cancel the decodes still running
     applySearchFilter();
 
     auto hasId = [&](const std::string& id) {
@@ -353,11 +363,12 @@ const nxui::Texture* ThemeShopScreen::communityPreviewTexture(const ThemeCatalog
     return communityPreviewTexture(entry.cover);
 }
 
-ThemeShopScreen::PreviewPhase ThemeShopScreen::installedPreviewPhase(const std::string& previewPath) const {
+ThemeShopScreen::PreviewPhase ThemeShopScreen::installedPreviewPhase(const std::string& previewPath,
+                                                                    bool detail) const {
     if (previewPath.empty())
         return PreviewPhase::Failed;
 
-    auto it = m_installedPreviewCache.find(previewPath);
+    auto it = m_installedPreviewCache.find(installedPreviewKey(previewPath, detail));
     if (it == m_installedPreviewCache.end() || !it->second)
         return PreviewPhase::Idle;
 
@@ -365,11 +376,12 @@ ThemeShopScreen::PreviewPhase ThemeShopScreen::installedPreviewPhase(const std::
     return it->second->phase;
 }
 
-const nxui::Texture* ThemeShopScreen::installedPreviewTexture(const std::string& previewPath) const {
+const nxui::Texture* ThemeShopScreen::installedPreviewTexture(const std::string& previewPath,
+                                                              bool detail) const {
     if (previewPath.empty())
         return nullptr;
 
-    auto it = m_installedPreviewCache.find(previewPath);
+    auto it = m_installedPreviewCache.find(installedPreviewKey(previewPath, detail));
     if (it == m_installedPreviewCache.end() || !it->second)
         return nullptr;
 
@@ -379,11 +391,19 @@ const nxui::Texture* ThemeShopScreen::installedPreviewTexture(const std::string&
     return &it->second->texture;
 }
 
-void ThemeShopScreen::primeInstalledPreview(const std::string& previewPath) {
-    if (!m_gpu || !m_renderer || previewPath.empty())
+// Installed previews are decoded on the thread pool (a 1280x720 JPEG took the
+// UI thread for a frame or more each) and uploaded one a frame by
+// syncFinishedInstalledPreviewLoads. Nothing new starts while closing: the
+// ones already there are drawn during the fade, then go (onFullyClosed).
+void ThemeShopScreen::primeInstalledPreview(const std::string& previewPath, bool detail) {
+    if (!m_gpu || !m_renderer || previewPath.empty() || !m_showing)
         return;
 
-    auto& slot = m_installedPreviewCache[previewPath];
+    // In real pixels: 720 px for the grid on a 1080p framebuffer (scale 1.5).
+    const int maxSide = detail ? kCommunityPreviewMaxSide
+        : std::min(kCommunityPreviewMaxSide,
+                   static_cast<int>(std::ceil(kInstalledGridPreviewMaxSide * m_gpu->scale())));
+    auto& slot = m_installedPreviewCache[installedPreviewKey(previewPath, detail)];
     if (!slot)
         slot = std::make_shared<PreviewImageState>();
 
@@ -395,13 +415,37 @@ void ThemeShopScreen::primeInstalledPreview(const std::string& previewPath) {
             slot->failureCount = 0;
             slot->texture = nxui::Texture();
         }
-        if (slot->phase == PreviewPhase::Ready || slot->phase == PreviewPhase::Failed)
+        if (slot->phase != PreviewPhase::Idle)
             return;
         slot->phase = PreviewPhase::Loading;
     }
 
+    if (m_threadPool) {
+        m_hasPendingInstalledPreviewWork = true;
+        slot->future = m_threadPool->submit([slot, previewPath, maxSide]() {
+            int w = 0, h = 0;
+            std::uint8_t* px = nxui::image::decodeFile(previewPath.c_str(), maxSide, w, h);
+            std::lock_guard<std::mutex> lk(slot->mutex);
+            if (slot->cancelled) {
+                std::free(px);
+                return;
+            }
+            if (!px) {
+                slot->phase = PreviewPhase::Failed;
+                slot->failureCount += 1;
+                return;
+            }
+            std::free(slot->pixels);
+            slot->pixels = px;
+            slot->pixelW = w;
+            slot->pixelH = h;
+            slot->phase = PreviewPhase::Downloaded;
+        });
+        return;
+    }
+
     nxui::Texture uploaded;
-    bool ok = uploaded.loadFromFile(*m_gpu, *m_renderer, previewPath, kCommunityPreviewMaxSide);
+    bool ok = uploaded.loadFromFile(*m_gpu, *m_renderer, previewPath, maxSide);
     std::lock_guard<std::mutex> lk(slot->mutex);
     if (ok) {
         slot->texture = std::move(uploaded);
@@ -411,6 +455,98 @@ void ThemeShopScreen::primeInstalledPreview(const std::string& previewPath) {
         slot->phase = PreviewPhase::Failed;
         slot->failureCount += 1;
     }
+}
+
+void ThemeShopScreen::syncFinishedInstalledPreviewLoads() {
+    if (!m_gpu || !m_renderer || !m_hasPendingInstalledPreviewWork)
+        return;
+
+    bool hasPendingWork = false;
+    int uploadsThisFrame = 0;
+    for (auto& entry : m_installedPreviewCache) {
+        auto state = entry.second;
+        if (!state)
+            continue;
+
+        if (state->future.valid()) {
+            if (state->future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                try {
+                    state->future.get();
+                } catch (...) {
+                    std::lock_guard<std::mutex> lk(state->mutex);
+                    state->phase = PreviewPhase::Failed;
+                    state->failureCount += 1;
+                    DebugLog::log("[themeshop] installed preview task failed");
+                }
+            } else {
+                hasPendingWork = true;
+            }
+        }
+
+        std::uint8_t* px = nullptr;
+        int w = 0, h = 0;
+        {
+            std::lock_guard<std::mutex> lk(state->mutex);
+            if (state->phase == PreviewPhase::Downloaded) {
+                if (uploadsThisFrame >= kMaxPreviewUploadsPerFrame) {
+                    hasPendingWork = true;
+                } else {
+                    px = state->pixels;
+                    w = state->pixelW;
+                    h = state->pixelH;
+                    state->pixels = nullptr;
+                }
+            }
+        }
+        if (!px)
+            continue;
+
+        ++uploadsThisFrame;
+        nxui::Texture uploaded;
+        const bool ok = uploaded.loadFromPixels(*m_gpu, *m_renderer, px, w, h);
+        std::free(px);
+        std::lock_guard<std::mutex> lk(state->mutex);
+        if (ok) {
+            state->texture = std::move(uploaded);
+            state->failureCount = 0;
+            state->phase = PreviewPhase::Ready;
+        } else {
+            state->failureCount += 1;
+            state->phase = PreviewPhase::Failed;
+        }
+    }
+
+    m_hasPendingInstalledPreviewWork = hasPendingWork;
+}
+
+void ThemeShopScreen::clearInstalledPreviewCache() {
+    if (m_installedPreviewCache.empty())
+        return;
+
+    if (m_gpu)
+        m_gpu->waitIdle(); // as clearCommunityPreviewCache: nothing drawn is freed under the GPU
+
+    for (auto& entry : m_installedPreviewCache) {
+        auto& state = entry.second;
+        if (!state)
+            continue;
+
+        std::lock_guard<std::mutex> lk(state->mutex);
+        state->cancelled = true; // a decode still running drops its pixels
+        std::free(state->pixels);
+        state->pixels = nullptr;
+        state->texture = nxui::Texture();
+    }
+
+    m_installedPreviewCache.clear();
+    m_hasPendingInstalledPreviewWork = false;
+}
+
+// Closed: the installed previews (one or two per theme looked at, up to 960 px)
+// stayed until the theme list changed. They are read again on the next visit.
+void ThemeShopScreen::onFullyClosed() {
+    clearInstalledPreviewCache();
+    clearCommunityPreviewCache();
 }
 
 void ThemeShopScreen::primeCommunityPreview(const std::string& previewPath) {

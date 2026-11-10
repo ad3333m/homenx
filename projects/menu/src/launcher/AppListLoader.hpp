@@ -54,6 +54,10 @@ public:
         m_pendingTransform = std::move(transform);
     }
     void setPrefetchIcons(bool enabled) { m_prefetchIcons = enabled; }
+    // Prefetched JPEGs kept for the first `count` apps only (< 0: all). The
+    // others are read again when their page comes into view, as without
+    // prefetch: a few hundred games' icons otherwise stayed in the heap.
+    void setPrefetchIconLimit(int count) { m_prefetchIconLimit = count; }
 
 private:
     static void fetchApps(std::vector<PendingApp>& output, bool prefetchIcons);
@@ -68,4 +72,5 @@ private:
     std::shared_ptr<AsyncLoadState> m_asyncState;
     PendingTransform        m_pendingTransform;
     bool                    m_prefetchIcons = true;
+    int                     m_prefetchIconLimit = -1;
 };

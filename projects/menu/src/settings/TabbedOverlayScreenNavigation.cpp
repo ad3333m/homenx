@@ -1124,6 +1124,7 @@ void TabbedOverlayScreen::onContentUpdate(float dt) {
                 m_active = false;
                 syncPanelState(0.f);
                 setVisible(false);
+                onFullyClosed();
                 if (m_closedCb) m_closedCb();
                 return;
             }

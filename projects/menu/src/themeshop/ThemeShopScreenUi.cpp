@@ -688,6 +688,7 @@ void ThemeShopScreen::updateCustomContent(float dt) {
         return;
     }
 
+    syncFinishedInstalledPreviewLoads();
     if (isCommunityTab())
         syncFinishedCommunityPreviewLoads();
     else {
@@ -1754,9 +1755,9 @@ void ThemeShopScreen::drawCustomContent(nxui::Renderer& ren, const nxui::Rect&, 
             activeTheme = entry.active;
             previewRequested = !entry.coverPath.empty();
             if (previewRequested) {
-                primeInstalledPreview(entry.coverPath);
-                previewTexture = installedPreviewTexture(entry.coverPath);
-                previewPhase = installedPreviewPhase(entry.coverPath);
+                primeInstalledPreview(entry.coverPath, false);
+                previewTexture = installedPreviewTexture(entry.coverPath, false);
+                previewPhase = installedPreviewPhase(entry.coverPath, false);
             }
         }
 
@@ -1913,9 +1914,14 @@ void ThemeShopScreen::drawCustomContent(nxui::Renderer& ren, const nxui::Rect&, 
             : i18n.tr("themeshop.installed.builtin_hint", "This is part of the built-in theme set.");
         detailPreviewRequested = !entry->coverPath.empty();
         if (detailPreviewRequested) {
-            primeInstalledPreview(entry->coverPath);
-            detailPreviewTexture = installedPreviewTexture(entry->coverPath);
-            detailPreviewPhase = installedPreviewPhase(entry->coverPath);
+            primeInstalledPreview(entry->coverPath, true);
+            detailPreviewTexture = installedPreviewTexture(entry->coverPath, true);
+            detailPreviewPhase = installedPreviewPhase(entry->coverPath, true);
+            if (!detailPreviewTexture) { // the grid's smaller one until the big one is in
+                detailPreviewTexture = installedPreviewTexture(entry->coverPath, false);
+                if (detailPreviewTexture)
+                    detailPreviewPhase = PreviewPhase::Ready;
+            }
         }
     }
 

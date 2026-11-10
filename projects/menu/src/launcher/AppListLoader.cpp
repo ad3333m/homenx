@@ -186,14 +186,16 @@ bool fetchDaemonCatalog(std::vector<PendingApp>& out, bool prefetchIcons) {
 
 void registerEntries(std::vector<PendingApp>& apps,
                      GridModel& model,
-                     IconStreamer& streamer) {
+                     IconStreamer& streamer,
+                     int prefetchIconLimit) {
     streamer.init((int)apps.size());
     streamer.setIconDataLoader(AppListLoader::loadIconData);
     for (int i = 0; i < (int)apps.size(); ++i) {
         auto& p = apps[i];
         streamer.setTitleId(i, p.kind == GridEntryKind::Application ? p.titleId : 0);
-        if (!p.iconData.empty())
+        if (!p.iconData.empty() && (prefetchIconLimit < 0 || i < prefetchIconLimit))
             streamer.setIconData(i, std::move(p.iconData));
+        std::vector<uint8_t>().swap(p.iconData); // past the limit: read on demand
         AppEntry entry;
         entry.id           = std::move(p.id);
         entry.title        = std::move(p.title);
@@ -325,7 +327,7 @@ void AppListLoader::load(GridModel& model, IconStreamer& streamer) {
     }
     if (m_pendingTransform)
         m_pendingTransform(m_pending);
-    registerEntries(m_pending, model, streamer);
+    registerEntries(m_pending, model, streamer, m_prefetchIconLimit);
     m_pending.clear();
 }
 
@@ -389,7 +391,7 @@ bool AppListLoader::finalize(GridModel& model, IconStreamer& streamer) {
 
     if (m_pendingTransform)
         m_pendingTransform(m_pending);
-    registerEntries(m_pending, model, streamer);
+    registerEntries(m_pending, model, streamer, m_prefetchIconLimit);
     m_pending.clear();
     return true;
 }

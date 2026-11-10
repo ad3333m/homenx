@@ -1224,6 +1224,7 @@ void SocialScreen::ensureFaces() {
             auto& png = m_faceJob->pngs[i];
             if (!png.second.empty()) {
                 m_facePngs[png.first] = std::move(png.second);
+                m_faceTried.insert(png.first); // again, if the screen closed (and forgot) meanwhile
                 continue;
             }
             const std::string why = i < m_faceJob->errors.size() ? m_faceJob->errors[i] : std::string("?");
@@ -1260,6 +1261,25 @@ void SocialScreen::ensureFaces() {
         job->errors = std::move(errors);
         job->done = true;
     });
+}
+
+// Closed: friends' pictures and Mii faces are only drawn here. The avatars'
+// JPEGs stay with the friend list, so reopening uploads them again (a couple
+// a frame); faces are asked for again when the Miis page opens. A texture
+// retires its memory a few frames later (Renderer), not under a frame in flight.
+void SocialScreen::releasePictures() {
+    for (auto& f : m_friends) {
+        f.avatar.reset();
+        f.avatarTried = false;
+    }
+    m_faces.clear();
+    m_facePngs.clear();
+    m_faceTried.clear();
+    m_faceRetryAt = 0;
+    if (!m_editing) {
+        m_editFaces.clear();
+        m_editFaceOrder.clear();
+    }
 }
 
 const nxui::Texture* SocialScreen::face(const std::string& url) const {
@@ -1306,7 +1326,10 @@ void SocialScreen::onUpdate(float dt) {
     if (m_anim != target) {
         const float step = dt / kAnimDur;
         m_anim = m_anim < target ? std::min(target, m_anim + step) : std::max(target, m_anim - step);
-        if (m_anim <= 0.f && !m_active) setVisible(false);
+        if (m_anim <= 0.f && !m_active) {
+            setVisible(false);
+            releasePictures();
+        }
     }
 
     bool finished = false;
@@ -1365,8 +1388,9 @@ void SocialScreen::onUpdate(float dt) {
         }
     }
 
-    // Pictures: a couple per frame (each is a small JPEG to decode).
-    if (m_gpu && m_ren) {
+    // Pictures: a couple per frame (each is a small JPEG to decode). Not on the
+    // frame that closed the screen: releasePictures just let them go.
+    if (m_gpu && m_ren && isVisible()) {
         int budget = 2;
         for (auto& f : m_friends) {
             if (budget == 0) break;
@@ -1374,14 +1398,18 @@ void SocialScreen::onUpdate(float dt) {
             f.avatarTried = true;
             if (f.data.avatar.empty()) continue;
             auto tex = std::make_unique<nxui::Texture>();
-            if (tex->loadFromMemory(*m_gpu, *m_ren, f.data.avatar.data(), f.data.avatar.size(), 192))
+            // 128 px: the biggest avatar drawn is 104 px (the profile), so no blur;
+            // on a 1080p framebuffer that is 156 real pixels, so 192 as before.
+            const int side = std::min(192, static_cast<int>(std::ceil(128.f * m_gpu->scale())));
+            if (tex->loadFromMemory(*m_gpu, *m_ren, f.data.avatar.data(), f.data.avatar.size(), side))
                 f.avatar = std::move(tex);
             --budget;
         }
         while (budget > 0 && !m_facePngs.empty()) {
             auto it = m_facePngs.begin();
             auto tex = std::make_unique<nxui::Texture>();
-            // 192 px: sharp at the sizes it's drawn, and ~40% of 256 px's GPU memory.
+            // 192 px: faces are drawn up to 230 px (detail, Mii Maker), so not smaller;
+            // ~40% of 256 px's GPU memory.
             if (tex->loadFromMemory(*m_gpu, *m_ren, it->second.data(), it->second.size(), 192)) {
                 m_faces[it->first] = std::move(tex);
             } else {
