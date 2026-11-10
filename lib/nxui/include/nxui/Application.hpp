@@ -83,6 +83,9 @@ public:
     void requestRedraw() { m_redrawRequested = true; }
     /// In the deep idle tier: freeze decorations (also told by onIdleDeep).
     bool deepIdle() const { return m_deepIdle; }
+    /// Calm or deep idle: turns are paced on purpose (one in three takes
+    /// ~33 ms), so a perf log mustn't count them as slow frames.
+    bool pacedTurns() const { return m_idleThrottle && m_quietSeconds >= kCalmAfter; }
     /// Counters for perf logs: main loop turns, and frames actually shown.
     std::uint64_t loopTurns() const       { return m_loopTurns; }
     std::uint64_t presentedFrames() const { return m_presentedFrames; }

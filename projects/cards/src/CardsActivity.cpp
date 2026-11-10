@@ -7743,8 +7743,12 @@ void CardsActivity::onUpdate(float dt) {
         ++m_perfFrames;
         m_perfWindow += interval;
         m_perfWorst = std::max(m_perfWorst, interval);
-        if (interval > 20.f) ++m_perfSlow;
-        if (interval > 34.f) ++m_perfVerySlow;
+        // Calm/deep idle paces one turn in three to ~33 ms on purpose: only a
+        // turn well past that is slow then (else 20 log lines a second).
+        const bool paced = app().pacedTurns();
+        const float slowAt = paced ? 40.f : 24.f;
+        if (interval > (paced ? 40.f : 20.f)) ++m_perfSlow;
+        if (interval > (paced ? 40.f : 34.f)) ++m_perfVerySlow;
         const auto waits = app().gpu().takeWaitStats();
         const auto frees = app().renderer().takeFreeStats();
         // A GPU that can't keep 60 frames a second (waiting over 22 ms a frame on it,
@@ -7758,7 +7762,7 @@ void CardsActivity::onUpdate(float dt) {
                           m_gpuWaitAvg);
             perfLine(line);
         }
-        if (interval > 24.f && m_settings.perfLog) {
+        if (interval > slowAt && m_settings.perfLog) {
             char line[460];
             std::snprintf(line, sizeof(line),
                           "slow frame %.1f ms: daemon %.1f, pictures %.1f (%d uploaded), discord %.1f, the rest of update %.1f "
