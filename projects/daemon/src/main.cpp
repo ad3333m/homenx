@@ -42,7 +42,6 @@ static bool g_accountReady = false;
 static bool g_nssuReady = false;
 static bool g_avmReady = false;
 static bool g_psmReady = false;
-static bool g_lblReady = false;
 static bool g_viReady = false;
 static bool g_wakeCovered = false;
 static uint64_t g_wakeCoverDeadline = 0;
@@ -152,10 +151,8 @@ extern "C" void __appInit(void) {
     rc = viInitialize(ViServiceType_Manager);
     g_viReady = R_SUCCEEDED(rc);
     if (g_viReady) viSetContentVisibility(true); // recover any previous daemon exit
-    rc = lblInitialize();
-    g_lblReady = R_SUCCEEDED(rc);
-    if (R_FAILED(rc))
-        svcOutputDebugString("[SwitchU-daemon] lblInitialize FAIL", 36);
+    // No lbl session here: the daemon never sets the backlight, and lbl has few
+    // sessions. Holding one left none for HOME's brightness slider (OutOfSessions).
 
     rc = hidInitialize();
     g_hidReady = R_SUCCEEDED(rc);
@@ -171,7 +168,7 @@ extern "C" void __appInit(void) {
 
     switchu::FileLog::open("daemon");
     switchu::FileLog::log("[daemon] __appInit complete (sd mount: 0x%X)", rc);
-    switchu::FileLog::log("[daemon] services time=%d setsys=%d set=%d ns=%d ldr=%d account=%d nssu=%d avm=%d psm=%d lbl=%d hid=%d",
+    switchu::FileLog::log("[daemon] services time=%d setsys=%d set=%d ns=%d ldr=%d account=%d nssu=%d avm=%d psm=%d hid=%d",
                           switchu::timebudget::syncBootTime() ? 1 : 0,
                           g_setsysReady ? 1 : 0,
                           g_setReady ? 1 : 0,
@@ -181,7 +178,6 @@ extern "C" void __appInit(void) {
                           g_nssuReady ? 1 : 0,
                           g_avmReady ? 1 : 0,
                           g_psmReady ? 1 : 0,
-                          g_lblReady ? 1 : 0,
                           g_hidReady ? 1 : 0);
 
     svcOutputDebugString("[SwitchU-daemon] __appInit done", 31);
@@ -194,7 +190,6 @@ extern "C" void __appExit(void) {
     if (g_hidReady) hidExit();
     revealWakeDisplay();
     if (g_viReady) viExit();
-    if (g_lblReady) lblExit();
     if (g_psmReady) psmExit();
     if (g_avmReady) avmExit();
     if (g_nssuReady) nssuExit();
