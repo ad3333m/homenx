@@ -62,3 +62,10 @@ Wii U sounds and music are Nintendo's.
 
 - **PowerCmptr**: the HomeNX lock screen and Discord token sign-in
   ([ad3333m/homenx#5](https://github.com/ad3333m/homenx/pull/5)).
+
+## Switify client (cristowo/SwitchU)
+
+`projects/menu/src/core/SwitifyClient.{hpp,cpp}` and `SwitifyProtocol.hpp` come from
+cristowo/SwitchU (branch `switify-integration`), GPL-3.0. They talk to the background
+service of Switify (github.com/DomazinUS/Switify, by HiroshiYamauchi, GPL-3.0-or-later;
+tested with the service built from cristowo/Switify branch `switchu`).

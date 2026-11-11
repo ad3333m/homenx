@@ -1335,9 +1335,22 @@ void DiscordPanel::drawChat(nxui::Renderer& ren, const nxui::Rect& area, float a
 
 void DiscordPanel::drawQrView(nxui::Renderer& ren, const nxui::Rect& area, float a) {
     auto& i18n = nxui::I18n::instance();
+    const bool failed = m_service->qrFailed();
     const std::string url = m_service->qrUrl();
     const float side = 250.f;
     const nxui::Rect box{area.x + (kPanelW - side) * 0.5f, area.y + 28.f, side, side};
+    if (failed) { // the code is spent: why, where the code was (it stayed up, and looked like nothing happened)
+        ren.drawRoundedRect(box, bgSecondary(a), 10.f);
+        float ty = box.y + 40.f;
+        for (const auto& line : wrap(m_font, m_service->qrStatus(), side - 28.f, 0.72f, 6)) {
+            ren.drawText(line, {box.x + (side - m_font->measure(line).x * 0.72f) * 0.5f, ty}, m_font, textHeader(a), 0.72f);
+            ty += 24.f;
+        }
+        const std::string again = i18n.tr("discord.qr_again", "Press A for a new code");
+        ren.drawText(again, {box.x + (side - m_smallFont->measure(again).x * 0.76f) * 0.5f, box.y + side - 36.f},
+                     m_smallFont, textMuted(a), 0.76f);
+        return;
+    }
     drawQr(ren, url, box, a);
     if (url.empty()) {
         const std::string wait = i18n.tr("discord.qr_wait", "Getting a code...");

@@ -138,7 +138,6 @@ SDL_Surface* Font::renderRuns(const std::vector<std::pair<TTF_Font*, std::string
 bool Font::load(GpuDevice& gpu, Renderer& ren,
                 const std::string& path, int ptSize)
 {
-    const int pxSize = std::max(1, static_cast<int>(std::lround(ptSize * gpu.scale()))); // sharp at 1080p
     // The face reads its glyph tables through the file stream: with the fonts
     // on the SD card, every fresh glyph's load cost ~4-6 ms of card reads (the
     // menu's first seconds measured ~1.4 s of text work — hinting, HarfBuzz
@@ -152,6 +151,17 @@ bool Font::load(GpuDevice& gpu, Renderer& ren,
     std::vector<std::uint8_t> data(static_cast<std::size_t>(in.tellg()));
     in.seekg(0);
     in.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    return loadData(gpu, ren, std::move(data), ptSize);
+}
+
+bool Font::loadFromMemory(GpuDevice& gpu, Renderer& ren, const void* bytes, std::size_t size, int ptSize) {
+    if (!bytes || size == 0) return false;
+    const auto* p = static_cast<const std::uint8_t*>(bytes);
+    return loadData(gpu, ren, std::vector<std::uint8_t>(p, p + size), ptSize);
+}
+
+bool Font::loadData(GpuDevice& gpu, Renderer& ren, std::vector<std::uint8_t> data, int ptSize) {
+    const int pxSize = std::max(1, static_cast<int>(std::lround(ptSize * gpu.scale()))); // sharp at 1080p
     SDL_RWops* rw = SDL_RWFromConstMem(data.data(), static_cast<int>(data.size()));
     TTF_Font* newFont = rw ? TTF_OpenFontRW(rw, 1, pxSize) : nullptr;
     if (!newFont) {

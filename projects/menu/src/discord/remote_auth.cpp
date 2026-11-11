@@ -256,7 +256,13 @@ bool RemoteAuth::Session(Key& key) {
                     LOG("remote auth: logged in as %s", snap_.username.c_str());
                 } else {
                     snap_.phase = Phase::Failed;
-                    snap_.error = r.Ok() ? "Discord sent an unreadable token." : Api::ErrorText(r);
+                    // Discord's hCaptcha (risk-based: the network, many tries) can only be
+                    // solved in its own apps; the phone said yes, but the console can't
+                    // finish. Said plainly, or the panel just showed a new code.
+                    snap_.error = r.Ok() ? "Discord sent an unreadable token."
+                                : r.body.find("captcha_key") != std::string::npos
+                                    ? "Discord asked for a CAPTCHA, which the console can't show. Wait a while, or try from another network, then press A."
+                                    : Api::ErrorText(r);
                     LOG("remote auth: ticket exchange failed: HTTP %ld %s", r.status, r.body.substr(0, 200).c_str());
                 }
                 ws.Close();
