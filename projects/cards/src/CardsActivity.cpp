@@ -8028,6 +8028,14 @@ bool CardsActivity::handleTouch() {
         m_touchScroll = m_scroll;
         m_dragging = false;
         m_gridDrag = 0.f;
+        if (gridOn()) { // the pages stop under the finger, where they are
+            const float at = m_gridSlideT < 1.f ? gridPageDx(m_gridShown) : m_gridSettle;
+            m_gridSlideT = 1.f;
+            m_gridBump = 0.f;
+            m_gridBumpT = -1.f;
+            m_gridGrab = m_gridDrag = at;
+            m_gridSettle = m_gridSettleV = 0.f;
+        }
         m_flingV = 0.f; // (a finger stops a glide)
         m_touchTrail.clear();
         m_holdIndex = -1;
@@ -8067,23 +8075,25 @@ bool CardsActivity::handleTouch() {
         const float dx = x - in.touchStartX();
         if (in.isTouching()) {
             if (!m_dragging && std::abs(dx) > 14.f) m_dragging = true;
-            if (m_dragging) m_gridDrag = dx;
+            if (m_dragging) {
+                // It follows the finger; past the first or last page, stiffly.
+                const int pages = (static_cast<int>(games().size()) + kGridPer - 1) / kGridPer;
+                float off = m_gridGrab + dx;
+                if ((off > 0.f && m_gridShown == 0) || (off < 0.f && m_gridShown >= pages - 1)) off *= 0.35f;
+                m_gridDrag = off;
+            }
             return true;
         }
         if (m_dragging) {
             m_dragging = false;
-            const float drag = m_gridDrag, speed = touchSpeed();
+            const float offset = m_gridDrag;
             m_gridDrag = 0.f;
-            // A flick turns the page however short it was, a fast one more than
-            // one; a slow drag past a third of a tile, one.
-            int pages = 0;
-            if (std::abs(speed) > 600.f && (speed < 0.f) == (drag < 0.f))
-                pages = std::clamp(static_cast<int>(std::abs(speed) / 1600.f) + 1, 1, 3);
-            else if (std::abs(drag) > kGridCell / 3.f)
-                pages = 1;
-            if (pages > 0) gridPages(drag < 0.f ? pages : -pages);
+            gridTouchRelease(offset, touchSpeed());
             return true;
         }
+        // A tap: the pages ease on from where they were caught.
+        m_gridSettle = m_gridDrag;
+        m_gridDrag = 0.f;
     }
     // Dragging the row: it follows the finger, the card under the middle is chosen.
     if (!gridOn() && in.isTouching() && m_touchOnCards) {
@@ -9316,7 +9326,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
         const bool drifting = m_settings.motion && m_settings.bgMotion && !m_gpuSlow; // (drawBackground's)
         const bool moving = drifting || std::abs(m_scroll - static_cast<float>(sel())) > 0.002f || m_dragging
                          || m_pageIn < 1.f || m_bgFade < 1.f || m_intro < 1.f || m_leaving || m_moving
-                         || focusRoot() != nullptr || m_gridSlideT < 1.f || m_gridDrag != 0.f || m_gridBumpT >= 0.f
+                         || focusRoot() != nullptr || m_gridSlideT < 1.f || m_gridDrag != 0.f || m_gridSettle != 0.f || m_gridBumpT >= 0.f
                          || !m_glides.empty() || m_moveJiggle > 0.f || std::abs(m_gridIn - (gridOn() ? 1.f : 0.f)) > 0.f
                          || m_time - m_artArrivedAt < 0.4f;
         if (moving || ++m_blurAge >= 60) {
@@ -9715,7 +9725,7 @@ float CardsActivity::gridPageDx(int page) const {
         if (page == m_gridFrom) return in - kGridStride * static_cast<float>(m_gridDir);
         return in + static_cast<float>(page - m_gridShown) * kGridStride;
     }
-    return static_cast<float>(page - m_gridShown) * kGridStride + m_gridBump + m_gridDrag;
+    return static_cast<float>(page - m_gridShown) * kGridStride + m_gridBump + m_gridDrag + m_gridSettle;
 }
 
 nxui::Rect CardsActivity::gridTileRect(int index) const {
@@ -9758,6 +9768,40 @@ float CardsActivity::touchSpeed() const {
     const auto& b = m_touchTrail.back();
     const float dt = b.first - a.first;
     return dt > 0.008f ? (b.second - a.second) / dt : 0.f;
+}
+
+// A finger let go of the grid's pages offset px from the shown one's place,
+// moving at speed px/s. A flick turns the page however short it was (a very
+// hard one up to three); a slow drag past a third of a tile, one; else it goes
+// back. Either way the pages carry on from where they are, at that speed.
+void CardsActivity::gridTouchRelease(float offset, float speed) {
+    auto& page = games();
+    const int n = static_cast<int>(page.size());
+    int count = 0;
+    // (A normal swipe is one page: two or three only for a clearly hard flick,
+    // as 1600 px/s a page turned plain swipes into two, 2026-11-11.)
+    if (std::abs(speed) > 500.f && (speed < 0.f) == (offset < 0.f))
+        count = 1 + (std::abs(speed) > 3500.f ? 1 : 0) + (std::abs(speed) > 5200.f ? 1 : 0);
+    else if (std::abs(offset) > kGridCell / 3.f)
+        count = 1;
+    if (offset > 0.f) count = -count;
+    int target = m_gridShown;
+    if (n > 0 && count != 0) {
+        const int pages = (n + kGridPer - 1) / kGridPer;
+        target = std::clamp(m_gridShown + count, 0, pages - 1);
+    }
+    if (target != m_gridShown) {
+        const int s = std::clamp(sel(), 0, n - 1);
+        const int old = m_gridShown;
+        m_gridShown = m_gridFrom = target;
+        m_gridSlideT = 1.f;
+        m_zone = Zone::Cards;
+        select(std::min(n - 1, target * kGridPer + s % kGridPer));
+        m_audio.play("tab_transition");
+        offset += static_cast<float>(target - old) * kGridStride; // (the new page, where it is now)
+    }
+    m_gridSettle = offset;
+    m_gridSettleV = std::clamp(speed, -6000.f, 6000.f);
 }
 
 // A flick on the grid: count pages on (or back), the same cell on the page it
@@ -9846,6 +9890,16 @@ void CardsActivity::updateGrid(float dt) {
     m_arrowKickL = std::max(0.f, m_arrowKickL - dt / kGridArrowKick);
     m_arrowKickR = std::max(0.f, m_arrowKickR - dt / kGridArrowKick);
     if (m_gridSlideT < 1.f) m_gridSlideT = motion ? std::min(1.f, m_gridSlideT + dt / kGridSlideSec) : 1.f;
+    if (!m_dragging && (m_gridSettle != 0.f || m_gridSettleV != 0.f)) {
+        // Critically damped (no wobble), in small steps so a slow frame can't overshoot.
+        constexpr float kW = 15.f;
+        for (float left = dt; left > 0.f && motion; left -= 1.f / 240.f) {
+            const float h = std::min(left, 1.f / 240.f);
+            m_gridSettleV += (-kW * kW * m_gridSettle - 2.f * kW * m_gridSettleV) * h;
+            m_gridSettle += m_gridSettleV * h;
+        }
+        if (!motion || (std::abs(m_gridSettle) < 0.5f && std::abs(m_gridSettleV) < 8.f)) m_gridSettle = m_gridSettleV = 0.f;
+    }
     if (m_gridBumpT >= 0.f) { // IconGrid::bumpEdge: out 26 px in 0.10 s, back with outElastic in 0.34 s
         m_gridBumpT += dt;
         const float out = -static_cast<float>(m_gridBumpDir) * kGridBumpPx;
@@ -9881,7 +9935,7 @@ void CardsActivity::updateGrid(float dt) {
         m_curT = 1.f;
         if (!m_curInit) m_curTeleport = 1.f;
         m_curInit = true;
-    } else if (m_gridSlideT < 1.f || m_dragging || m_gridBumpT >= 0.f) {
+    } else if (m_gridSlideT < 1.f || m_dragging || m_gridBumpT >= 0.f || m_gridSettle != 0.f) {
         m_curRect = m_curFrom = m_curTo = target;
         m_curT = 1.f;
     } else {

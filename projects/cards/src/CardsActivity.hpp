@@ -234,6 +234,11 @@ private:
     std::unique_ptr<nxui::Texture> m_gridArrowL, m_gridArrowR;
     bool m_gridAssetsTried = false;
     float m_gridDrag = 0.f;         // a swipe in progress (pixels)
+    // Touch on the grid moves the pages on a spring: let go, they carry on from
+    // where the finger left them, at its speed (m_gridSettle eases to 0); a new
+    // touch catches them where they are (m_gridGrab).
+    float m_gridSettle = 0.f, m_gridSettleV = 0.f, m_gridGrab = 0.f;
+    void gridTouchRelease(float offset, float speed);
     // L / R on the card row: a screenful of cards at a time.
     static constexpr int kCardsPerScreen = 5;
 
