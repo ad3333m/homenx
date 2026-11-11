@@ -21,6 +21,9 @@ public:
 
     bool load(GpuDevice& gpu, Renderer& ren,
               const std::string& path, int ptSize);
+    // A font already in memory (the console's own, from pl). The bytes are copied.
+    bool loadFromMemory(GpuDevice& gpu, Renderer& ren, const void* data, std::size_t size, int ptSize);
+    bool valid() const { return m_font != nullptr; }
 
     // Render a string to a texture (cached) and draw it. False when it
     // couldn't be drawn this frame (no room for its texture yet).
@@ -57,6 +60,7 @@ public:
     static void addFallback(const void* data, std::size_t size);
 
 private:
+    bool loadData(GpuDevice& gpu, Renderer& ren, std::vector<std::uint8_t> data, int ptSize);
     // Render full string to texture (cache by string)
     Texture* getOrRender(GpuDevice& gpu, Renderer& ren, const std::string& text);
     // The font for a character: this one, else a fallback that has it, else null.

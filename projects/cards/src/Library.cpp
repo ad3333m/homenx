@@ -763,6 +763,17 @@ std::vector<std::uint8_t> cardArt(const Game& game, const std::string& key, bool
     return gameIcon(game);
 }
 
+namespace {
+// Connected now (HOME keeps nifm open): "nothing online" means none, not offline.
+bool onlineNow() {
+    NifmInternetConnectionType type{};
+    u32 strength = 0;
+    NifmInternetConnectionStatus status{};
+    return R_SUCCEEDED(nifmGetInternetConnectionStatus(&type, &strength, &status))
+        && status == NifmInternetConnectionStatus_Connected;
+}
+} // namespace
+
 std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key, ArtKind& kind) {
     kind = ArtKind::Icon;
     if (!game.action.empty()) return readFile(systemIconPath(game.action));
@@ -774,14 +785,27 @@ std::vector<std::uint8_t> backgroundArt(const Game& game, const std::string& key
     kind = ArtKind::Banner;
     const std::string path = std::string(kCacheDir) + "/" + hexId(game.id) + ".bg";
     if (std::filesystem::exists(path)) return readFile(path);
+    // One with no banner anywhere (YouTube: 1.5 s, every time it was shown) is
+    // looked for online once a run; its box or icon after that.
+    static std::mutex noBannerMu;
+    static std::set<std::uint64_t> noBanner;
+    bool lookOnline;
+    {
+        std::lock_guard<std::mutex> lk(noBannerMu);
+        lookOnline = !noBanner.count(game.id);
+    }
     std::string got;
-    if (!key.empty()) // the usual 1920 wide first: a 3840 one takes long to open, and lags
+    if (lookOnline && !key.empty()) // the usual 1920 wide first: a 3840 one takes long to open, and lags
         got = steamGridDbPicture(game, key, "heroes",
                                  "dimensions=1920x620,1600x650&types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false");
-    if (!key.empty() && got.empty())
+    if (lookOnline && !key.empty() && got.empty())
         got = steamGridDbPicture(game, key, "heroes", "types=static&mimes=image/png,image/jpeg&nsfw=false&humor=false");
     if (got.empty() && keptBack(game.id, ".bg")) return readFile(path); // taken down since: the one saved
-    if (got.empty()) got = eshopBanner(game, 1280, 720);
+    if (lookOnline && got.empty()) got = eshopBanner(game, 1280, 720);
+    if (lookOnline && got.empty() && onlineNow()) {
+        std::lock_guard<std::mutex> lk(noBannerMu);
+        noBanner.insert(game.id);
+    }
     if (!got.empty()) {
         writeFile(path, got);
         return std::vector<std::uint8_t>(got.begin(), got.end());

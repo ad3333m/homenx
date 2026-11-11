@@ -100,6 +100,7 @@ public:
     void signInWithUserToken(const std::string& token);
     std::string qrUrl() const;      // empty until the code is ready
     std::string qrStatus() const;   // what the phone did so far
+    bool qrFailed() const;          // the sign-in failed: its code is spent (A: a new one)
 
     std::vector<Dm> dms(size_t max = 30) const;
     int dmMentions() const;

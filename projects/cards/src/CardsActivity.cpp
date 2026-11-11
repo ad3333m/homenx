@@ -58,6 +58,53 @@ constexpr float kTopY = 47.f, kCircle = 77.f;
 constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 14.f;
 constexpr float kCardMidY = 291.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
 const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
+// Y's grid: SwitchU's (WiiUMenuApp / IconGrid / GlossyIcon / SelectionCursor
+// with the Default Dark theme). Its grid rect {0, 90, 1280, 540} holds 5 x 3
+// cells of 150, 20 / 16 apart, centred: the origin is (225, 119).
+constexpr float kGridCell = 150.f, kGridPadX = 20.f, kGridPadY = 16.f;
+constexpr float kGridOriginX = 225.f, kGridOriginY = 119.f, kGridStride = 1280.f;
+constexpr float kGridIconRadius = 24.f, kGridCursorRadius = 26.f, kGridCursorBorder = 3.f;
+constexpr float kGridSlideSec = 0.34f, kGridBumpPx = 26.f;
+constexpr float kGridPillY = 630.f, kGridDotsY = 685.f, kGridDotsH = 28.f;
+constexpr float kGridArrowInset = 152.f, kGridArrowW = 54.f, kGridArrowH = 72.f;
+constexpr float kGridArrowFade = 0.20f, kGridArrowKick = 0.32f;
+const nxui::Color kSuTile(0.16f, 0.16f, 0.22f, 0.42f);     // Theme::dark().iconDefault
+const nxui::Color kSuBorder(0.55f, 0.55f, 0.60f, 0.28f);   // panelBorder
+const nxui::Color kSuHighlight(1.f, 1.f, 1.f, 0.12f);      // panelHighlight
+const nxui::Color kSuPanel(0.16f, 0.16f, 0.20f, 0.94f);    // panelBase
+const nxui::Color kSuCursor(0.35f, 0.55f, 1.f, 1.f);       // cursorNormal
+const nxui::Color kSuDotOff(1.f, 1.f, 1.f, 0.25f);         // pageIndicator
+const nxui::Color kSuDotOn(0.15f, 1.f, 0.447f, 1.f);       // pageIndicatorActive
+// nxui's easing curves, as SwitchU's AnimatedProperty uses them.
+float suOutCubic(float t) { t = std::clamp(t, 0.f, 1.f); return 1.f - (1.f - t) * (1.f - t) * (1.f - t); }
+float suInOutCubic(float t) {
+    t = std::clamp(t, 0.f, 1.f);
+    return t < 0.5f ? 4.f * t * t * t : 1.f - std::pow(-2.f * t + 2.f, 3.f) * 0.5f;
+}
+float suOutBack(float t) {
+    t = std::clamp(t, 0.f, 1.f);
+    constexpr float c1 = 1.70158f, c3 = c1 + 1.f;
+    return 1.f + c3 * std::pow(t - 1.f, 3.f) + c1 * std::pow(t - 1.f, 2.f);
+}
+float suOutExpo(float t) { t = std::clamp(t, 0.f, 1.f); return t >= 1.f ? 1.f : 1.f - std::pow(2.f, -10.f * t); }
+float suOutElastic(float t) {
+    t = std::clamp(t, 0.f, 1.f);
+    if (t <= 0.f || t >= 1.f) return t;
+    constexpr float c4 = 2.f * 3.14159265f / 3.f;
+    return std::pow(2.f, -10.f * t) * std::sin((t * 10.f - 0.75f) * c4) + 1.f;
+}
+nxui::Rect suLerp(const nxui::Rect& a, const nxui::Rect& b, float t) {
+    return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.width + (b.width - a.width) * t,
+            a.height + (b.height - a.height) * t};
+}
+nxui::Rect suGrow(const nxui::Rect& r, float d) { return {r.x - d, r.y - d, r.width + 2.f * d, r.height + 2.f * d}; }
+std::string suGlyph(std::uint32_t cp) { // switch_icons.ttf's button glyphs (L E0E4, R E0E5)
+    std::string s;
+    s += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
+    s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    s += static_cast<char>(0x80 | (cp & 0x3F));
+    return s;
+}
 constexpr float kPanelRadius = 35.f;
 // The top bar: menu, Discord and sort on the left; the pill (you,
 // the time, battery, free space, Nextendo) ends at kPillRight; then the bell,
@@ -613,7 +660,7 @@ bool CardsActivity::onCreate() {
         return out;
     });
 
-    // The pages: games; homebrew (.nro apps, then NRO forwarders); Nintendo.
+    // The pages: games (and NRO forwarders: splitMedia); homebrew (.nro apps); Nintendo.
     // Last time's lists show at once. Reading every game and .nro takes
     // seconds, so that happens only at console start, when the console says
     // the games changed, or when the lists are half an hour old (on a thread).
@@ -695,6 +742,7 @@ bool CardsActivity::onCreate() {
     // Always the first card on the list, in the sort you chose (it was put back to Title here
     // at every start, so Last Played never stuck).
     m_page = firstShownPage(); // the first page in your order (that isn't hidden)
+    takeSwitchUOrder();
     sortGames(m_settings.sort, false);
     for (int& s : m_sels) s = 0;
     m_scroll = 0.f;
@@ -831,6 +879,7 @@ void CardsActivity::onDestroy() {
         std::lock_guard<std::mutex> lk(m_mu);
         m_quit = true;
         m_jobs.clear();
+        m_idleJobs.clear();
     }
     m_cv.notify_all();
     for (std::thread& t : m_threads)
@@ -1092,11 +1141,12 @@ void CardsActivity::worker(int index) {
         {
             std::unique_lock<std::mutex> lk(m_mu);
             m_cv.wait_for(lk, std::chrono::milliseconds(index == 1 ? 500 : 1000),
-                          [this]() { return m_quit || !m_jobs.empty(); });
+                          [this]() { return m_quit || !m_jobs.empty() || !m_idleJobs.empty(); });
             if (m_quit) break;
-            if (!m_jobs.empty()) {
-                job = std::move(m_jobs.front());
-                m_jobs.pop_front();
+            std::deque<Job>& from = !m_jobs.empty() ? m_jobs : m_idleJobs; // (what's near first)
+            if (!from.empty()) {
+                job = std::move(from.front());
+                from.pop_front();
                 haveJob = true;
                 key = m_key; // (Settings > Pictures can change it: copied under the lock)
             }
@@ -1113,10 +1163,12 @@ void CardsActivity::worker(int index) {
             }
             continue;
         }
-        // Bound transient compressed/decoded/scaling memory independently of
-        // the completed-result queue. Never held by the rendering thread.
+        // Bound transient decoded/scaling memory independently of the
+        // completed-result queue. Never held by the rendering thread. Taken for
+        // the decode only: held while a picture came from the internet, one slow
+        // download (19 s once) held up every other worker's covers and icons.
         static std::mutex artworkDecodeMutex;
-        std::unique_lock<std::mutex> decodeLock(artworkDecodeMutex);
+        std::unique_lock<std::mutex> decodeLock(artworkDecodeMutex, std::defer_lock);
         Done done;
         done.id = job.game.id;
         done.what = job.what;
@@ -1156,6 +1208,16 @@ void CardsActivity::worker(int index) {
             data = backgroundArt(look, key, done.kind);
         } else if (job.what == kCard) {
             data = cardArt(look, key, m_boxArt.load(), done.kind);
+        } else if (job.what == kStock) {
+            // The console's own icon (HomeNX keeps it from the title's control
+            // data); a Nintendo page entry's picture; a .nro's own icon.
+            done.kind = ArtKind::Icon;
+            if (!job.game.action.empty()) {
+                std::ifstream in(systemIconPath(job.game.action), std::ios::binary);
+                data.assign(std::istreambuf_iterator<char>(in), {});
+            } else {
+                data = gameIcon(look);
+            }
         } else if (!job.game.action.empty()) {
             std::ifstream in(systemIconPath(job.game.action), std::ios::binary);
             data.assign(std::istreambuf_iterator<char>(in), {});
@@ -1172,6 +1234,7 @@ void CardsActivity::worker(int index) {
         }
         const auto readFinished = armGetSystemTick();
         if (!data.empty()) {
+            if (!decodeLock.owns_lock()) decodeLock.lock();
             int w = 0, h = 0;
             stbi_uc* px = decodePicture(data.data(), static_cast<int>(data.size()), w, h);
             if (px) {
@@ -1181,7 +1244,7 @@ void CardsActivity::worker(int index) {
                 // box cover to 300, and stretching it was the blur); an icon a wash of its colours;
                 // cards as drawn.
                 const int maxW = job.what == kLaunch ? 1280
-                               : job.what == kIcon ? static_cast<int>(160.f * m_pictureScale)
+                               : job.what == kIcon || job.what == kStock ? static_cast<int>(160.f * m_pictureScale)
                                : job.what == kCard ? static_cast<int>(300.f * m_pictureScale) // drawn ~250 wide
                                : done.kind == ArtKind::Icon ? 32
                                                             : 1280;
@@ -1225,7 +1288,7 @@ void CardsActivity::worker(int index) {
                       static_cast<unsigned long long>(done.id), done.what, ticksMs(readFinished - jobStart),
                       data.size(), ticksMs(armGetSystemTick() - readFinished), done.rgba.capacity());
         perfLine(artDiagnostic);
-        decodeLock.unlock();
+        if (decodeLock.owns_lock()) decodeLock.unlock();
         const float took = ticksMs(armGetSystemTick() - jobStart);
         if (took > 800.f) { // a picture that took long (the internet, mostly)
             char line[160];
@@ -1244,7 +1307,7 @@ void CardsActivity::worker(int index) {
         m_cv.wait(lk, [this]() {
             std::size_t bytes = 0;
             for (const auto& d : m_done) bytes += d.rgba.capacity() + d.small.capacity();
-            return m_quit || (m_done.size() < 6 && bytes < (12u << 20));
+            return m_quit || (m_done.size() < 10 && bytes < (12u << 20));
         });
         if (m_quit) break;
         m_done.push_back(std::move(done));
@@ -1254,37 +1317,54 @@ void CardsActivity::worker(int index) {
 
 // Admission uses the device's charged bytes, including retired images awaiting
 // safe reclamation. This deliberately also reserves room for non-art textures.
-bool CardsActivity::reserveArtwork(std::uint64_t bytes) {
+// The grid's icons (160-ish, a few MB for a whole library) are let go last: they
+// went with their entry's background before, and the grid sat on spinners while
+// every new background pushed another page of icons out (74 a session).
+CardsActivity::Admit CardsActivity::reserveArtwork(std::uint64_t bytes, bool stock) {
     auto used = [&]() { return app().gpu().imageMemoryUsed(); };
-    while (bytes > kArtworkBudget || used() > kArtworkBudget - bytes) {
+    if (bytes <= kArtworkBudget && used() <= kArtworkBudget - bytes) return Admit::kYes;
+    if (bytes > kArtworkBudget) return Admit::kNever;
+    // One let go a moment ago: its memory frees after the frames in flight
+    // (Renderer::retireImageMemory). Letting more go meanwhile emptied far too much.
+    if (m_time < m_evictWait) return Admit::kLater;
+    const Game* chosen = current();
+    auto victimFor = [&](bool stockToo) {
         auto victim = m_art.end();
-        const Game* chosen = current();
         for (auto it = m_art.begin(); it != m_art.end(); ++it) {
             const auto id = it->first;
-            if ((chosen && chosen->id == id) || (m_locked && id == m_lockGameId) || id == m_bgId || id == m_bgPrevId ||
-                (!it->second.card && !it->second.bg && !it->second.icon)) continue;
-            if (victim == m_art.end() || it->second.lastAccess < victim->second.lastAccess)
-                victim = it;
+            const Art& a = it->second;
+            if ((chosen && chosen->id == id) || (m_locked && id == m_lockGameId) || id == m_bgId || id == m_bgPrevId) continue;
+            if (!(a.card || a.bg || a.icon || (stockToo && a.stock))) continue;
+            if (victim == m_art.end() || a.lastAccess < victim->second.lastAccess) victim = it;
         }
-        if (victim == m_art.end()) return false;
-        auto& a = victim->second;
-        a.card.reset(); a.bg.reset(); a.icon.reset();
-        a.cardAsked = a.bgAsked = a.iconAsked = false;
-        perfLine("[ART] evicted LRU entry; GPU bytes remain charged until retirement");
-        // Never wait for retirement here. Retry admission on a later frame.
-        return false;
+        return victim;
+    };
+    auto victim = victimFor(false);
+    const bool stockGoes = victim == m_art.end();
+    if (stockGoes && !stock) victim = victimFor(true); // (a grid icon never pushes out another)
+    if (victim == m_art.end()) return Admit::kNever;
+    auto& a = victim->second;
+    a.card.reset(); a.bg.reset(); a.icon.reset();
+    a.cardAsked = a.bgAsked = a.iconAsked = false;
+    if (stockGoes) {
+        a.stock.reset();
+        a.stockAsked = false;
     }
-    return true;
+    m_evictWait = m_time + 0.1f; // (4 frames and a little)
+    perfLine(stockGoes ? "[ART] evicted LRU grid icon; GPU bytes remain charged until retirement"
+                       : "[ART] evicted LRU entry; GPU bytes remain charged until retirement");
+    return Admit::kLater;
 }
 
 void CardsActivity::wantArt() {
     auto& page = games();
     std::vector<Job> jobs;
-    auto add = [&](int i, int what) {
+    auto add = [&](int i, int what, bool used = true) {
         if (i < 0 || i >= static_cast<int>(page.size())) return;
         Art& a = m_art[page[(size_t)i].id];
-        a.lastAccess = ++m_artAccess;
-        bool& asked = what == kBackground ? a.bgAsked : what == kIcon ? a.iconAsked : a.cardAsked;
+        if (used) a.lastAccess = ++m_artAccess; // (not a prefetch: the far pages looked the most recent)
+        bool& asked = what == kBackground ? a.bgAsked : what == kIcon ? a.iconAsked
+                    : what == kStock ? a.stockAsked : a.cardAsked;
         if (asked || m_time < a.retryAt) return;
         if (what == kBackground && page[(size_t)i].action == "get") return; // a download glyph isn't a background
         asked = true;
@@ -1316,6 +1396,37 @@ void CardsActivity::wantArt() {
         add(s + d, kIcon);
         add(s - d, kIcon);
     }
+    if (gridOn()) {
+        // The grid shows the console's own icons: the whole page, then the
+        // pages either side; and the backgrounds of the tiles around the cursor.
+        const int pg = s / kGridPer;
+        for (int i = pg * kGridPer; i < (pg + 1) * kGridPer; ++i) add(i, kStock);
+        for (int d : {1, -1, kGridCols, -kGridCols}) add(s + d, kBackground);
+        // Then every other page's, nearest pages first, when nothing else is
+        // wanted (they're kept: SwitchU's grid shows its icons at once). Up to
+        // a third of the picture memory (~100 icons); past that, the pages
+        // either side only.
+        std::uint64_t stockBytes = 0;
+        for (const auto& [id, art] : m_art)
+            if (art.stock) stockBytes += 4ull * art.stock->width() * art.stock->height();
+        const int pages = (static_cast<int>(page.size()) + kGridPer - 1) / kGridPer;
+        const int far = stockBytes < kArtworkBudget / 3 ? pages : 1;
+        const size_t before = jobs.size();
+        for (int d = 1; d <= far; ++d)
+            for (int p : {pg + d, pg - d})
+                for (int i = p * kGridPer; i < (p + 1) * kGridPer; ++i) add(i, kStock, false);
+        if (jobs.size() > before) {
+            std::lock_guard<std::mutex> lk(m_mu);
+            for (size_t j = before; j < jobs.size(); ++j) m_idleJobs.push_back(std::move(jobs[j]));
+            jobs.resize(before);
+        }
+    } else {
+        // Backgrounds a little further ahead: the next ones swap in at once.
+        for (int d = 2; d <= 3; ++d) {
+            add(s + d, kBackground);
+            add(s - d, kBackground);
+        }
+    }
     // Cancel queued requests outside the new working set. In-flight work owns
     // its data and completes safely; asked flags deduplicate it.
     {
@@ -1323,22 +1434,28 @@ void CardsActivity::wantArt() {
         for (auto it = m_jobs.begin(); it != m_jobs.end();) {
             auto found = std::find_if(page.begin(), page.end(), [&](const Game& g) { return g.id == it->game.id; });
             const int distance = found == page.end() ? 10000 : std::abs(static_cast<int>(found - page.begin()) - s);
-            const int radius = it->what == kCard ? 12 : 2;
+            const int radius = it->what == kCard ? 12 : it->what == kStock ? 2 * kGridPer
+                             : it->what == kBackground ? (gridOn() ? kGridCols : 3) : 2;
             if (it->what != kLaunch && !(m_locked && it->game.id == m_lockGameId) && distance > radius) {
                 auto& a = m_art[it->game.id];
-                (it->what == kBackground ? a.bgAsked : it->what == kIcon ? a.iconAsked : a.cardAsked) = false;
+                (it->what == kBackground ? a.bgAsked : it->what == kIcon ? a.iconAsked
+                 : it->what == kStock ? a.stockAsked : a.cardAsked) = false;
                 it = m_jobs.erase(it);
             } else ++it;
         }
     }
-    if (jobs.empty()) return;
+    if (jobs.empty()) {
+        m_cv.notify_all(); // (the idle queue's)
+        return;
+    }
     {
         std::lock_guard<std::mutex> lk(m_mu); // what's near the selection now goes first
         for (auto it = jobs.rbegin(); it != jobs.rend(); ++it) m_jobs.push_front(std::move(*it));
-        while (m_jobs.size() > 40) {
+        while (m_jobs.size() > 64) {
             const auto& job = m_jobs.back();
             auto& a = m_art[job.game.id];
-            (job.what == kBackground ? a.bgAsked : job.what == kIcon ? a.iconAsked : a.cardAsked) = false;
+            (job.what == kBackground ? a.bgAsked : job.what == kIcon ? a.iconAsked
+             : job.what == kStock ? a.stockAsked : a.cardAsked) = false;
             m_jobs.pop_back();
         }
     }
@@ -1349,7 +1466,7 @@ void CardsActivity::takeArt() {
     std::vector<Done> done;
     {
         std::lock_guard<std::mutex> lk(m_mu);
-        const size_t n = std::min<size_t>(3, m_done.size()); // a few a frame (uploads don't wait any more)
+        const size_t n = std::min<size_t>(8, m_done.size()); // up to 8 a frame, 4 ms at most (below); 3 kept a page of grid icons waiting
         for (size_t i = 0; i < n; ++i) done.push_back(std::move(m_done[i]));
         m_done.erase(m_done.begin(), m_done.begin() + static_cast<std::ptrdiff_t>(n));
         if (m_playersFresh) {
@@ -1393,13 +1510,16 @@ void CardsActivity::takeArt() {
         if (d.what == kCard && it->second.card && it->second.card->valid()) continue;
         bool* asked = d.what == kBackground ? &it->second.bgAsked
                     : d.what == kIcon       ? &it->second.iconAsked
+                    : d.what == kStock      ? &it->second.stockAsked
                     : d.what == kCard       ? &it->second.cardAsked
                                             : nullptr;
-        if (d.what != kLaunch && d.id != selected && !(m_locked && d.id == m_lockGameId)) {
+        // (A grid icon is kept wherever it is: the grid's pages show at once.)
+        if (d.what != kLaunch && d.what != kStock && d.id != selected && !(m_locked && d.id == m_lockGameId)) {
             const auto& page = games();
             const auto found = std::find_if(page.begin(), page.end(), [&](const Game& g) { return g.id == d.id; });
             const int distance = found == page.end() ? 10000 : std::abs(static_cast<int>(found - page.begin()) - sel());
-            if (distance > (d.what == kCard ? 12 : 2)) {
+            if (distance > (d.what == kCard ? 12 : d.what == kStock ? 2 * kGridPer
+                            : d.what == kBackground ? (gridOn() ? kGridCols : 3) : 2)) {
                 if (asked) *asked = false;
                 continue;
             }
@@ -1410,6 +1530,7 @@ void CardsActivity::takeArt() {
             continue;
         }
         if (d.what == kBackground && it->second.bg) continue;
+        if (d.what == kStock && it->second.stock && it->second.stock->valid()) continue;
 #ifdef NXUI_BACKEND_DEKO3D
         dk::ImageLayout artLayout;
         dk::ImageLayoutMaker{app().gpu().device()}.setFlags(0)
@@ -1418,9 +1539,16 @@ void CardsActivity::takeArt() {
 #else
         const std::uint64_t needed = static_cast<std::uint64_t>(d.w) * d.h * 4;
 #endif
-        if (!reserveArtwork(needed)) {
+        const Admit admit = reserveArtwork(needed, d.what == kStock);
+        if (admit == Admit::kLater) { // room in a few frames: it and the rest wait for it (they were dropped,
+            std::lock_guard<std::mutex> lk(m_mu); // and asked for again only on the 5 s retry)
+            m_done.insert(m_done.begin(), std::make_move_iterator(&d), std::make_move_iterator(done.data() + done.size()));
+            break;
+        }
+        if (admit == Admit::kNever) {
             if (asked) *asked = false;
             it->second.retryAt = m_time + 0.5f;
+            m_retryIn = std::min(m_retryIn, 0.6f);
             continue;
         }
         const auto uploadStart = armGetSystemTick();
@@ -1440,6 +1568,8 @@ void CardsActivity::takeArt() {
                 m_launchTexId = d.id;
                 m_launchTexIn = m_time;
             }
+        } else if (d.what == kStock) {
+            it->second.stock = std::move(tex);
         } else if (d.what == kIcon) {
             it->second.icon = std::move(tex);
             it->second.iconKind = d.kind;
@@ -1450,6 +1580,7 @@ void CardsActivity::takeArt() {
         } else if (d.what == kBackground) {
             it->second.bg = std::move(tex);
             it->second.bgKind = d.kind;
+            it->second.bgIn = m_time; // it sharpens in over the stand-in
             if (d.id == selected && m_bgId != d.id) {
                 m_bgPrevId = m_bgId;
                 m_bgId = d.id;
@@ -1463,7 +1594,7 @@ void CardsActivity::takeArt() {
             // that until it's back, never a blank card.
             if (!d.small.empty() && (d.kind == ArtKind::Grid || d.kind == ArtKind::Box) && !m_thumbs.count(d.id)) {
                 auto small = std::make_unique<nxui::Texture>();
-                if (reserveArtwork(65536) && small->loadFromPixels(app().gpu(), app().renderer(), d.small.data(), d.sw, d.sh))
+                if (reserveArtwork(65536) == Admit::kYes && small->loadFromPixels(app().gpu(), app().renderer(), d.small.data(), d.sw, d.sh))
                     m_thumbs[d.id] = {std::move(small), m_time, d.kind};
             }
             if (!m_perfFirstCard && d.id == selected) {
@@ -1487,6 +1618,7 @@ void CardsActivity::takeArt() {
             perfLine(visible);
         }
         ++m_perfUploads;
+        m_artArrivedAt = m_time; // (it fades in behind the glass: the blurred copy follows)
     }
     if (batch) app().gpu().endTextureUploadBatch();
 
@@ -1499,6 +1631,7 @@ void CardsActivity::forgetAllArt() {
     {
         std::lock_guard<std::mutex> lk(m_mu);
         m_jobs.clear();
+        m_idleJobs.clear();
         m_done.clear();
     }
     app().gpu().waitIdle(); // they may still be drawing
@@ -1550,7 +1683,11 @@ void CardsActivity::select(int index) {
     std::snprintf(cacheLine, sizeof(cacheLine), "[ART] title=%016llX cache=%s",
                   static_cast<unsigned long long>(id), it != m_art.end() && it->second.bg ? "HIT" : "MISS");
     perfLine(cacheLine);
-    if (it != m_art.end() && it->second.bg && m_bgId != id) {
+    // The background follows at once: its own picture if it's here, else the
+    // card's art stands in until it comes (drawBackground), instead of the
+    // last game's staying up for the seconds a 1280-wide picture can take.
+    (void)it;
+    if (m_bgId != id) {
         m_bgPrevId = m_bgId;
         m_bgId = id;
         m_bgFade = 0.f;
@@ -1644,6 +1781,13 @@ void CardsActivity::goToPage(int page, int dir) {
     m_bgFade = 0.f;
     const Game* cur = current();
     m_bgId = cur ? cur->id : 0;
+    // The grid starts on the new list's page, its cursor appearing there.
+    m_gridShown = m_gridFrom = std::max(0, sel()) / kGridPer;
+    m_gridSlideT = 1.f;
+    m_gridFocus = m_gridUnfocus = -1;
+    m_curInit = false;
+    m_pillShown.clear();
+    m_dotsPage = -1;
     requeueArt(); // what's near has changed
 }
 
@@ -1651,6 +1795,7 @@ void CardsActivity::requeueArt() {
     {
         std::lock_guard<std::mutex> lk(m_mu);
         m_jobs.clear();
+        m_idleJobs.clear();
     }
     // Everything asked for and not here yet may have been in the queue: asked
     // again where it's wanted now. (Icons were left out after a new order: a
@@ -1659,6 +1804,7 @@ void CardsActivity::requeueArt() {
         if (!art.card) art.cardAsked = false;
         if (!art.bg) art.bgAsked = false;
         if (!art.icon) art.iconAsked = false;
+        if (!art.stock) art.stockAsked = false;
     }
     wantArt();
 }
@@ -1701,6 +1847,40 @@ void CardsActivity::applyOrder(int page) {
         if (ra != rb) return ra < rb;
         return page == kGames ? lower(a.name) < lower(b.name) : a.order < b.order;
     });
+}
+
+// Coming from SwitchU: its own order (layout.json's slots, its empty ones left
+// out) becomes My order on the Games page, once (forwarders are with the games
+// here as there). Anything SwitchU didn't have goes after, by title.
+void CardsActivity::takeSwitchUOrder() {
+    if (m_settings.switchuOrder) return;
+    m_settings.switchuOrder = true; // (once, whatever it finds)
+    std::ifstream f("sdmc:/config/SwitchU/layout.json");
+    nlohmann::json j;
+    try {
+        if (f) f >> j;
+    } catch (...) {
+        j = nullptr;
+    }
+    std::vector<std::string> order;
+    if (j.is_object() && j.contains("slots") && j["slots"].is_array())
+        for (const auto& v : j["slots"]) {
+            std::uint64_t id = 0;
+            if (v.is_string()) id = std::strtoull(v.get<std::string>().c_str(), nullptr, 16);
+            else if (v.is_number_unsigned()) id = v.get<std::uint64_t>();
+            if (id) order.push_back(idText(id));
+        }
+    if (order.empty()) {
+        m_settings.save();
+        return;
+    }
+    m_settings.order[kGames] = std::move(order);
+    m_settings.sort = 3;
+    m_settings.save();
+    char line[96];
+    std::snprintf(line, sizeof(line), "SwitchU's order taken as My order (%zu titles)", m_settings.order[kGames].size());
+    perfLine(line);
+    say("Your games are in SwitchU's order.");
 }
 
 void CardsActivity::saveOrder(int page) {
@@ -1816,6 +1996,17 @@ void CardsActivity::splitMedia() {
             ++it;
         }
     }
+    // Installed NRO forwarders are with the games, as on the console's own HOME
+    // and SwitchU's (+ > Move to Homebrew / Media keeps one off, by gamesOut).
+    for (auto it = homebrew.begin(); it != homebrew.end();) {
+        const bool forwarder = it->homebrew && it->path.empty() && it->action.empty();
+        if (m_settings.forwardersOnGames && forwarder && !listed(m_settings.gamesOut, *it) && !listed(m_settings.mediaIn, *it)) {
+            games.push_back(std::move(*it));
+            it = homebrew.erase(it);
+        } else {
+            ++it;
+        }
+    }
     for (auto it = homebrew.begin(); it != homebrew.end();) {
         if (listed(m_settings.gamesIn, *it)) {
             games.push_back(std::move(*it));
@@ -1861,8 +2052,9 @@ void CardsActivity::moveToPage(const Game& g, int to) {
     for (auto* list : {&m_settings.mediaIn, &m_settings.mediaOut, &m_settings.gamesIn, &m_settings.gamesOut})
         list->erase(std::remove(list->begin(), list->end(), key), list->end());
     const bool ownMedia = !g.path.empty() && mediaAppOf(g.name, g.path); // goes to Media by itself
-    if (to == kGames && g.homebrew) m_settings.gamesIn.push_back(key);
-    if (to != kGames && !g.homebrew) m_settings.gamesOut.push_back(key);
+    const bool forwarder = m_settings.forwardersOnGames && g.homebrew && g.path.empty() && g.action.empty(); // with the games by itself
+    if (to == kGames && g.homebrew && !forwarder) m_settings.gamesIn.push_back(key);
+    if (to != kGames && (!g.homebrew || forwarder)) m_settings.gamesOut.push_back(key);
     if (to == kMedia && !ownMedia) m_settings.mediaIn.push_back(key);
     if (to == kHomebrew && ownMedia) m_settings.mediaOut.push_back(key);
     // Every game and app back where it was read, then placed again.
@@ -2690,6 +2882,12 @@ void CardsActivity::pumpDaemon() {
             case M::SleepSequence: // stop drawing (a loop that keeps drawing never lets it sleep)
                 m_asleep = true;
                 m_audio.pause();
+                // Spotify goes under paused: a sleep cuts its connection, and one
+                // that slept playing came back broken (cristowo's SwitchU).
+                if (spotifyOn() && (m_switify.nowPlaying().playing || m_switify.nowPlaying().reloading)) {
+                    m_swPausedForSleep = true;
+                    m_switify.send(switchu::switify::IpcCommand::Pause);
+                }
                 if (m_settings.lockScreen) { // drawn into the last frames, so waking shows it at once
                     lock();
                     m_lockIn = 1.f;
@@ -2699,6 +2897,10 @@ void CardsActivity::pumpDaemon() {
             case M::WakeUp:
                 m_asleep = false;
                 app().setSleeping(false);
+                if (m_swPausedForSleep) { // the same song, where it was, once Spotify is back
+                    m_swPausedForSleep = false;
+                    m_switify.send(switchu::switify::IpcCommand::ReloadCurrent);
+                }
                 if (m_settings.lockScreen && m_locked) {
                     // Slept while locked: the lock screen is quiet (it paused
                     // the music before the sleep; the resume below would play
@@ -4254,17 +4456,27 @@ void CardsActivity::startMove() {
     m_moving = true;
     m_moveBefore = games();
     m_moveBeforeSel = sel();
+    m_moveId = games()[(size_t)sel()].id;
+    m_moveTime = 0.f;
+    m_moveTouch = false;
+    m_moveEdgeDir = 0;
+    m_moveEdgeHold = 0.f;
     m_zone = Zone::Cards;
+    m_pillShown.clear(); // ("Move: " and its name)
     m_audio.play("activation");
 }
 
 void CardsActivity::finishMove(bool keep) {
     if (!m_moving) return;
     m_moving = false;
-    if (!keep) {
-        games() = std::move(m_moveBefore);
+    m_moveTouch = false;
+    m_pillShown.clear();
+    if (!keep) { // all back where it was, gliding there
+        arrange(std::move(m_moveBefore));
+        m_moveBefore.clear();
         sel() = m_moveBeforeSel;
-        m_scroll = static_cast<float>(sel());
+        if (gridOn()) gridSlideTo(sel() / kGridPer);
+        m_bgId = m_bgPrevId = m_moveId;
         m_audio.play("hide_modal");
         return;
     }
@@ -4273,6 +4485,88 @@ void CardsActivity::finishMove(bool keep) {
     if (m_page == kGames) m_settings.sort = 3; // the order shown is yours now
     m_settings.save();
     m_audio.play("toggle_on");
+}
+
+nxui::Vec2 CardsActivity::slotPos(int index) const {
+    if (gridOn()) {
+        const nxui::Rect r = gridTileRect(index);
+        return {r.x, r.y};
+    }
+    return {kCardFirstX + (static_cast<float>(index) - m_scroll) * kCardPitch, 0.f};
+}
+
+// The page in a new order: every card that changes place glides from where it
+// is drawn now (part way along an earlier glide, too) to its new place, the
+// farther the longer (SwitchU's ghost: 0.2 s, up to 2.2x for a long way).
+void CardsActivity::arrange(std::vector<Game> next) {
+    auto& page = games();
+    std::unordered_map<std::uint64_t, nxui::Vec2> was;
+    for (size_t i = 0; i < page.size(); ++i) {
+        nxui::Vec2 p = slotPos(static_cast<int>(i));
+        auto g = m_glides.find(page[i].id);
+        if (g != m_glides.end()) {
+            const float left = 1.f - suOutCubic(g->second.t / g->second.dur);
+            p.x += g->second.dx * left;
+            p.y += g->second.dy * left;
+        }
+        was[page[i].id] = p;
+    }
+    page = std::move(next);
+    for (size_t i = 0; i < page.size(); ++i) {
+        auto w = was.find(page[i].id);
+        if (w == was.end()) continue;
+        const nxui::Vec2 now = slotPos(static_cast<int>(i));
+        const float dx = w->second.x - now.x, dy = w->second.y - now.y;
+        if (std::abs(dx) < 0.5f && std::abs(dy) < 0.5f) {
+            m_glides.erase(page[i].id);
+            continue;
+        }
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        m_glides[page[i].id] = {dx, dy, 0.f, 0.2f * (1.f + std::clamp(dist / 320.f, 0.f, 2.4f) * 0.5f)};
+    }
+}
+
+// The held card to this place: the grid swaps it with the one there (as
+// SwitchU's grid drops it), the row puts it in between (as its single row).
+void CardsActivity::moveTo(int index) {
+    if (!m_moving) return;
+    const int n = static_cast<int>(m_moveBefore.size());
+    if (n != static_cast<int>(games().size())) { // (the lists changed under it)
+        finishMove(false);
+        return;
+    }
+    index = std::clamp(index, 0, n - 1);
+    std::vector<Game> next = m_moveBefore;
+    const int from = m_moveBeforeSel;
+    if (gridOn()) {
+        std::swap(next[(size_t)from], next[(size_t)index]);
+    } else {
+        Game held = std::move(next[(size_t)from]);
+        next.erase(next.begin() + from);
+        next.insert(next.begin() + index, std::move(held));
+    }
+    arrange(std::move(next));
+    sel() = index;
+    m_bgId = m_bgPrevId = m_moveId; // (its background stays)
+}
+
+void CardsActivity::updateMove(float dt) {
+    for (auto it = m_glides.begin(); it != m_glides.end();) {
+        it->second.t += dt;
+        if (it->second.t >= it->second.dur) it = m_glides.erase(it);
+        else ++it;
+    }
+    // The jiggle comes and goes over 0.18 s (outCubic, close enough as an ease).
+    const float want = m_moving ? 1.f : 0.f;
+    if (m_moveJiggle != want) {
+        m_moveJiggle += (want > m_moveJiggle ? 1.f : -1.f) * dt / 0.18f;
+        m_moveJiggle = clamp01(m_moveJiggle);
+    }
+    if (m_moving || m_moveJiggle > 0.f) m_moveTime += dt;
+    if (!m_moving) return;
+    // The cursor moved (D-pad, L / R, a page turned): the held card goes there.
+    const auto& page = games();
+    if (sel() >= 0 && sel() < static_cast<int>(page.size()) && page[(size_t)sel()].id != m_moveId) moveTo(sel());
 }
 
 std::vector<CardsActivity::MenuItem> CardsActivity::powerItems() {
@@ -4727,7 +5021,7 @@ void CardsActivity::updateQuick() {
         }
         return;
     }
-    if (in.isDown(B::B) || in.isDown(B::R) || in.isDown(B::Plus)) {
+    if (in.isDown(B::B) || in.isDown(B::R) || in.isDown(B::Minus) || in.isDown(B::Plus)) {
         m_quickOpen = false;
         m_audio.play("hide_modal");
         return;
@@ -4816,6 +5110,13 @@ void CardsActivity::openMusic() {
     m_musicZone = 0;
     m_musicCol = 2; // play / pause
     m_musicRow = std::max(0L, m_audio.playing());
+#ifdef SWITCHU_MENU
+    if (spotifyOn()) { // the list: your library (once it's up; asked again each time, it's quick)
+        m_musicRow = 0;
+        if (m_switify.nowPlaying().controllable() && m_switify.browsePage().depth == 0)
+            m_switify.browse(switchu::switify::IpcCommand::BrowseLibrary);
+    }
+#endif
     m_audio.play("show_modal");
 }
 
@@ -4869,12 +5170,16 @@ void CardsActivity::updateMusic() {
     using B = nxui::Button;
     const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
     const bool up = in.isDown(B::DUp) || in.isDown(B::LStickU), down = in.isDown(B::DDown) || in.isDown(B::LStickD);
+    if (in.isDown(B::B) && m_musicZone == 2 && spotifyOn() && spotifyBack()) { // (up a level first)
+        m_audio.play("navigation");
+        return;
+    }
     if (in.isDown(B::B) || in.isDown(B::Plus)) {
         m_musicOpen = false;
         m_audio.play("hide_modal");
         return;
     }
-    const int songs = spotifyOn() ? 0 : static_cast<int>(m_audio.titles().size());
+    const int songs = spotifyOn() ? spotifyRows() : static_cast<int>(m_audio.titles().size());
     const int zone = m_musicZone;
     if (zone == 0) {
         if (left && m_musicCol > 0) --m_musicCol;
@@ -4895,7 +5200,10 @@ void CardsActivity::updateMusic() {
         if (up && m_musicRow > 0) --m_musicRow;
         else if (down && m_musicRow < songs - 1) ++m_musicRow;
         else if (left) m_musicZone = 0;
-        if (in.isDown(B::A) && m_musicRow < songs) {
+        if (in.isDown(B::A) && m_musicRow < songs && spotifyOn()) {
+            spotifyRow(m_musicRow);
+            m_audio.play("activation");
+        } else if (in.isDown(B::A) && m_musicRow < songs) {
             m_settings.music = true;
             m_audio.playTrack(static_cast<size_t>(m_musicRow));
             m_settings.save();
@@ -4938,10 +5246,15 @@ bool CardsActivity::musicTouch() {
             return true;
         }
     }
-    const int songs = spotifyOn() ? 0 : static_cast<int>(m_audio.titles().size());
+    const int songs = spotifyOn() ? spotifyRows() : static_cast<int>(m_audio.titles().size());
     if (x >= kMusicListX && x <= kMusicListX + kMusicListW && y >= kMusicListTop && y <= kMusicListBottom) {
         const int row = static_cast<int>((y - kMusicListTop + m_musicListScroll) / kMusicRowH);
-        if (row >= 0 && row < songs) {
+        if (row >= 0 && row < songs && spotifyOn()) {
+            m_musicZone = 2;
+            m_musicRow = row;
+            spotifyRow(row);
+            m_audio.play("activation");
+        } else if (row >= 0 && row < songs) {
             m_musicZone = 2;
             m_musicRow = row;
             m_settings.music = true;
@@ -4989,26 +5302,86 @@ void CardsActivity::drawReturn(nxui::Renderer& r) {
     drawCover(r, m_returnTex.get(), at, kCardRadius * e, kWhite.withAlpha(1.f - easeIn(t)));
 }
 
+// Settings > Sound > Music player: HOME music, or Spotify through Switify
+// (the Spotify Connect remote taken out on 2026-10-31 stays out).
 bool CardsActivity::spotifyOn() const {
-    return false; // Spotify was taken out (2026-10-31): HOME music only
-}
-
-bool CardsActivity::spotifySignedIn() const {
 #ifdef SWITCHU_MENU
-    return m_spotify.signedIn();
+    return m_settings.spotify;
 #else
     return false;
 #endif
 }
 
+bool CardsActivity::spotifySignedIn() const {
+#ifdef SWITCHU_MENU
+    return m_switify.nowPlaying().state == switchu::switify::ServiceState::Ready;
+#else
+    return false;
+#endif
+}
+
+namespace {
+#ifdef SWITCHU_MENU
+// What Switify is doing, for the player while it can't play.
+std::string switifyState(switchu::switify::ServiceState state) {
+    using S = switchu::switify::ServiceState;
+    switch (state) {
+        case S::NotInstalled: return "Switify isn't installed";
+        case S::NotRunning: return "Switify is stopped: Play starts it";
+        case S::Starting: return "Starting Switify...";
+        case S::WaitingForCredentials: return "Sign in once in the Switify app";
+        case S::Connecting: return "Connecting to Spotify...";
+        case S::Ready: return "Spotify";
+    }
+    return "Spotify";
+}
+#endif
+} // namespace
+
 void CardsActivity::spotifyDo(Spotify::Cmd c, int value) {
 #ifdef SWITCHU_MENU
-    if (!m_spotify.signedIn()) { // the sign-in, straight away
-        signInSpotify();
-        return;
+    namespace sw = switchu::switify;
+    const sw::NowPlaying now = m_switify.nowPlaying();
+    switch (now.state) {
+        case sw::ServiceState::NotInstalled:
+            say("Switify isn't installed: its service goes in atmosphere/contents/4200000000535754.");
+            return;
+        case sw::ServiceState::WaitingForCredentials:
+            say("Open the Switify app once (on the Homebrew page) and sign in to Spotify.");
+            return;
+        case sw::ServiceState::NotRunning: // started by the press (it stays off until something asks)
+            m_switify.launchService();
+            m_swPlayWhenReady = c == Spotify::Cmd::PlayPause;
+            m_swStartedAt = m_time;
+            say("Starting Switify...");
+            return;
+        case sw::ServiceState::Starting:
+        case sw::ServiceState::Connecting:
+            say("Switify is still starting.");
+            return;
+        case sw::ServiceState::Ready:
+            break;
     }
-    m_spotify.command(c, value);
-    m_sp = m_spotify.now(); // its guess, at once
+    switch (c) { // (what it'll be, shown at once; the next status says for sure)
+        case Spotify::Cmd::PlayPause:
+            m_switify.send(sw::IpcCommand::PlayPause);
+            m_sp.playing = !m_sp.playing;
+            break;
+        case Spotify::Cmd::Next: m_switify.send(sw::IpcCommand::Next); break;
+        case Spotify::Cmd::Previous: m_switify.send(sw::IpcCommand::Previous); break;
+        case Spotify::Cmd::Shuffle:
+            m_switify.send(sw::IpcCommand::SetShuffle, now.shuffle ? 0u : 1u);
+            m_sp.shuffle = !now.shuffle;
+            break;
+        case Spotify::Cmd::Repeat: // off, the playlist, the song (SwitchU's order; Switify counts its own)
+            m_sp.repeat = (now.repeat + 1) % 3;
+            m_switify.send(sw::IpcCommand::SetRepeatMode, sw::switifyRepeatFromMenu(m_sp.repeat));
+            break;
+        case Spotify::Cmd::Volume:
+            m_sp.volume = std::clamp(value, 0, 100);
+            m_switify.send(sw::IpcCommand::SetVolume, static_cast<std::uint32_t>(m_sp.volume) * 10u); // (thousandths)
+            break;
+    }
 #else
     (void)c;
     (void)value;
@@ -5023,21 +5396,87 @@ float CardsActivity::spotifyPos() const {
 
 void CardsActivity::updateSpotify() {
 #ifdef SWITCHU_MENU
-    const bool watch = spotifyOn() && (m_musicOpen || m_quickOpen) && !m_leaving && !m_asleep;
-    if (watch != m_spWatch) {
-        m_spWatch = watch;
-        if (watch) m_spotify.start();
-        m_spotify.setWatching(watch);
+    namespace sw = switchu::switify;
+    if (!spotifyOn()) return;
+    m_switify.start(); // (its own thread: every call to the service, the SD card and the covers are there)
+    m_switify.setDemand(m_musicOpen || m_quickOpen ? sw::Client::Demand::Active : sw::Client::Demand::Background);
+    const sw::NowPlaying now = m_switify.nowPlaying();
+    Spotify::Now sp;
+    sp.active = now.hasTrack;
+    sp.playing = now.playing;
+    sp.shuffle = now.shuffle;
+    sp.repeat = now.repeat;
+    sp.durationMs = static_cast<int>(now.durationMs);
+    sp.volume = now.controllable() ? static_cast<int>(now.volumePermille / 10) : -1;
+    sp.track = now.title;
+    sp.artist = now.album.empty() || now.artist.empty() ? now.artist : now.artist + " - " + now.album;
+    sp.device = now.reloading ? std::string("Reconnecting...") : switifyState(now.state);
+    // The position moves on from when it was said (polled 4 times a second at
+    // most): a new one only when it changed, else the clock would jump back.
+    if (now.positionMs != m_swPos || now.playing != m_sp.playing || !m_sp.at) {
+        m_swPos = now.positionMs;
+        sp.progressMs = static_cast<int>(now.positionMs);
+        sp.at = armGetSystemTick();
+    } else {
+        sp.progressMs = m_sp.progressMs;
+        sp.at = m_sp.at;
     }
-    if (!m_spWatch) return;
-    const int dragged = m_sp.volume;
-    m_sp = m_spotify.now();
-    if (m_musicVolDrag) m_sp.volume = dragged;
-    std::vector<std::uint8_t> px;
-    int w = 0, h = 0;
-    if (m_spotify.takeCover(px, w, h) && !px.empty()) m_spCover.loadFromPixels(app().gpu(), app().renderer(), px.data(), w, h);
-    const std::string error = m_spotify.takeError();
-    if (!error.empty()) say(error);
+    if (m_musicVolDrag) sp.volume = m_sp.volume;
+    // Started by Play: it plays what it had once it's up (or says why not).
+    if (m_swPlayWhenReady && now.state == sw::ServiceState::Ready) {
+        m_swPlayWhenReady = false;
+        if (now.hasTrack && !now.playing) m_switify.send(sw::IpcCommand::Play);
+        else if (!now.hasTrack) say("Switify is ready: pick a playlist in the music player.");
+    } else if (m_swPlayWhenReady && m_time - m_swStartedAt > 30.f) {
+        m_swPlayWhenReady = false;
+    }
+    // Its cover (decoded on the client's thread).
+    const auto cover = m_switify.cover();
+    const std::string key = cover && !cover->rgba.empty() ? cover->key : std::string();
+    if (key != m_swCover) {
+        m_swCover = key;
+        if (cover && !key.empty()) m_spCover.loadFromPixels(app().gpu(), app().renderer(), cover->rgba.data(), cover->width, cover->height);
+    }
+    sp.coverUrl = m_swCover;
+    m_sp = std::move(sp);
+#endif
+}
+
+// The Music screen's list with Spotify: the page Switify is on (your library
+// first: its playlists, then a playlist's songs).
+int CardsActivity::spotifyRows() const {
+#ifdef SWITCHU_MENU
+    const auto page = m_switify.browsePage();
+    return page.state == switchu::switify::kBrowseReady ? static_cast<int>(page.items.size()) : 0;
+#else
+    return 0;
+#endif
+}
+
+void CardsActivity::spotifyRow(int row) {
+#ifdef SWITCHU_MENU
+    namespace sw = switchu::switify;
+    const auto page = m_switify.browsePage();
+    if (page.state != sw::kBrowseReady || row < 0 || row >= static_cast<int>(page.items.size())) return;
+    const bool track = page.items[(size_t)row].track;
+    m_switify.browse(track ? sw::IpcCommand::BrowsePlay : sw::IpcCommand::BrowseOpen, page.generation, static_cast<std::uint32_t>(row));
+    if (!track) m_musicRow = 0;
+    m_sp.playing = track ? true : m_sp.playing;
+#else
+    (void)row;
+#endif
+}
+
+bool CardsActivity::spotifyBack() {
+#ifdef SWITCHU_MENU
+    namespace sw = switchu::switify;
+    const auto page = m_switify.browsePage();
+    if (page.depth == 0 || page.state == sw::kBrowseLoading) return false;
+    m_switify.browse(sw::IpcCommand::BrowseBack, page.generation);
+    m_musicRow = 0;
+    return true;
+#else
+    return false;
 #endif
 }
 
@@ -5202,14 +5641,14 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     const long now = m_audio.playing();
     const auto& titles = m_audio.titles();
     std::string song = m_settings.music && !m_audio.trackName().empty() ? m_audio.trackName() : std::string("Not playing");
-    if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? "Nothing on Spotify" : "A signs in to Spotify";
+    if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? std::string("Nothing playing") : m_sp.device;
     const float ts = fitScale(m_fTitle, song, kMusicInfoW, 0.7f);
     r.drawText(fit(m_fTitle, song, kMusicInfoW, ts), {kMusicInfoX, 150.f + dy}, &m_fTitle, kWhite.withAlpha(a), ts);
     std::string sub = tr("HOME music");
     if (now >= 0 && !titles.empty())
         sub += "    " + trf("Song {n} of {total}", {std::to_string(now + 1), std::to_string(titles.size())});
     if (!m_settings.music) sub = "Music is off: play to start it";
-    if (spot) sub = m_sp.active ? m_sp.artist : std::string("Play something in Spotify first");
+    if (spot) sub = m_sp.active ? m_sp.artist : spotifySignedIn() ? std::string("Pick a playlist on the right") : std::string("Spotify, played by Switify");
     r.drawText(fit(m_fBody, sub, kMusicInfoW), {kMusicInfoX, 194.f + dy}, &m_fBody, kMuted.withAlpha(a));
     const float length = spot ? m_sp.durationMs / 1000.f : m_audio.duration();
     const float songAt = spot ? spotifyPos() : m_settings.music ? m_audio.position() : 0.f;
@@ -5250,13 +5689,30 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     // The playlist.
     r.drawRect({kMusicListX - 22.f, 112.f + dy, 1.f, kMusicListBottom - 100.f}, nxui::Color(1.f, 1.f, 1.f, 0.10f * a));
     icon(r, "playlist", kMusicListX + 10.f, 106.f + dy, 20.f, kMuted.withAlpha(a));
-    textMid(r, m_fPill, spot ? "Spotify" : "Playlist", kMusicListX + 30.f, 106.f + dy, kMuted.withAlpha(a), 0.9f);
-    const int songs = spot ? 0 : static_cast<int>(titles.size());
-    if (spot) { // where it plays, instead of the songs
-        const std::string where = m_sp.device.empty() ? std::string("No device playing") : trf("Playing on {device}", {m_sp.device});
-        textMid(r, m_fBody, fit(m_fBody, where, kMusicListW - 10.f, 0.9f), kMusicListX + 10.f, 152.f + dy, kWhite.withAlpha(a), 0.9f);
-        textMid(r, m_fBody, "The buttons need Spotify Premium", kMusicListX + 10.f, 184.f + dy, kMuted.withAlpha(0.8f * a), 0.85f);
+    // The rows: HOME's songs, or the Spotify page Switify is on (your library, a playlist).
+    std::vector<std::pair<std::string, std::string>> rows; // name, what it is
+    std::string listTitle = "Playlist", listNote;
+    if (!spot) {
+        for (const std::string& t : titles) rows.push_back({t, std::string()});
     }
+#ifdef SWITCHU_MENU
+    if (spot) {
+        namespace sw = switchu::switify;
+        const sw::BrowsePage pg = m_switify.browsePage();
+        listTitle = !pg.title.empty() ? pg.title : std::string("Your library");
+        if (!spotifySignedIn()) listNote = m_sp.device;
+        else if (pg.state == sw::kBrowseLoading) listNote = "Loading...";
+        else if (pg.state == sw::kBrowseError) listNote = !pg.message.empty() ? pg.message : std::string("Spotify didn't answer");
+        else if (pg.state == sw::kBrowseIdle) listNote = "A on Play, or reopen this, to load your library";
+        if (pg.state == sw::kBrowseReady)
+            for (const auto& item : pg.items) rows.push_back({item.name, item.subtitle});
+        if (pg.state == sw::kBrowseReady && rows.empty()) listNote = !pg.message.empty() ? pg.message : std::string("Nothing here");
+    }
+#endif
+    textMid(r, m_fPill, fit(m_fPill, listTitle, kMusicListW - 40.f, 0.9f), kMusicListX + 30.f, 106.f + dy, kMuted.withAlpha(a), 0.9f);
+    const int songs = static_cast<int>(rows.size());
+    if (!listNote.empty())
+        textMid(r, m_fBody, fit(m_fBody, listNote, kMusicListW - 10.f, 0.9f), kMusicListX + 10.f, 152.f + dy, kWhite.withAlpha(0.85f * a), 0.9f);
     const float want = std::clamp(m_musicRow * kMusicRowH - (kMusicListBottom - kMusicListTop) * 0.5f + kMusicRowH * 0.5f, 0.f,
                                   std::max(0.f, songs * kMusicRowH - (kMusicListBottom - kMusicListTop)));
     m_musicListScroll += (want - m_musicListScroll) * 0.25f;
@@ -5264,13 +5720,17 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     for (int i = 0; i < songs; ++i) {
         const nxui::Rect row{kMusicListX, kMusicListTop + dy + i * kMusicRowH - m_musicListScroll, kMusicListW, kMusicRowH - 6.f};
         if (row.y + row.height < kMusicListTop + dy || row.y > kMusicListBottom + dy) continue;
-        const bool current = i == now && m_settings.music, chosen = m_musicZone == 2 && m_musicRow == i;
+        const bool current = spot ? !m_sp.track.empty() && rows[(size_t)i].first == m_sp.track : i == now && m_settings.music;
+        const bool chosen = m_musicZone == 2 && m_musicRow == i;
         if (current || chosen) r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.12f : 0.06f) * a), 14.f);
         if (chosen) r.drawRoundedRectOutline(row, accent(ring * a), 14.f, 2.f);
         const float cy = row.y + row.height * 0.5f;
         textMid(r, m_fBody, std::to_string(i + 1), row.x + 12.f, cy, kMuted.withAlpha(0.7f * a), 0.9f);
-        textMid(r, m_fPill, fit(m_fPill, titles[(size_t)i], row.width - 80.f, 0.9f), row.x + 38.f, cy,
+        const auto& [name, what] = rows[(size_t)i];
+        textMid(r, m_fPill, fit(m_fPill, name, row.width - 80.f, 0.9f), row.x + 38.f, what.empty() ? cy : cy - 8.f,
                 current ? accent(a) : kWhite.withAlpha(a), 0.9f);
+        if (!what.empty())
+            textMid(r, m_fBody, fit(m_fBody, what, row.width - 80.f, 0.75f), row.x + 38.f, cy + 11.f, kMuted.withAlpha(0.75f * a), 0.75f);
         if (current) // little bars that move with it
             for (int k = 0; k < 3; ++k) {
                 const float h = 6.f + 14.f * (playing ? m_viz[(size_t)(4 + k * 9)] : 0.15f);
@@ -5470,6 +5930,12 @@ void CardsActivity::buildSettings() {
             sortGames(kSortCycle[(at + d + 4) % 4]);
             save();
         }, "My Order is how you arranged them (Plus > Move)"));
+    home.rows.push_back(toggle("NRO forwarders with the games", [this]() { return m_settings.forwardersOnGames; },
+        [this, save]() {
+            m_settings.forwardersOnGames = !m_settings.forwardersOnGames;
+            save();
+            startListRefresh(true); // (read again, then put where they go)
+        }, "Installed forwarders on the Games page, as the console's own HOME and SwitchU show them"));
 #ifdef SWITCHU_MENU
     home.rows.push_back(toggle("Ask who's playing", [this]() { return m_settings.askUser; },
         [this, save]() { m_settings.askUser = !m_settings.askUser; save(); },
@@ -5565,6 +6031,8 @@ void CardsActivity::buildSettings() {
 #endif
     look.rows.push_back(slider("Background softness", [this]() { return m_settings.haze * 100 / 80; },
         [this, save](int v) { m_settings.haze = v * 80 / 100; save(); }, "A haze over the game's art"));
+    look.rows.push_back(toggle("Grid view", [this]() { return m_settings.gridView; },
+        [this]() { toggleGrid(); }, "SwitchU's Wii U grid of icons instead of the cards (Y; hold Y to move a game)"));
     look.rows.push_back(toggle("Moving background", [this]() { return m_settings.bgMotion; },
         [this, save]() { m_settings.bgMotion = !m_settings.bgMotion; save(); }, "The art drifts slowly"));
     look.rows.push_back(choice("Clock", [this]() { return std::string(m_settings.clock24 ? "24-hour" : "12-hour"); },
@@ -5652,6 +6120,15 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(lockTab));
 
     Section sound{"Sound", "music", {}};
+#ifdef SWITCHU_MENU
+    sound.rows.push_back(choice("Music player", [this]() { return std::string(m_settings.spotify ? "Spotify (Switify)" : "HOME music"); },
+        [this, save](int) {
+            m_settings.spotify = !m_settings.spotify;
+            if (!m_settings.spotify && m_switify.nowPlaying().playing) m_switify.send(switchu::switify::IpcCommand::Pause); // one at a time
+            m_audio.setMusic(homeMusic(), m_settings.musicVolume);
+            save();
+        }, "Spotify: played by the console through Switify, in HOME and over games (Premium; sign in once in the Switify app)"));
+#endif
     sound.rows.push_back(toggle("Music", [this]() { return m_settings.music; }, [this, save]() {
         m_settings.music = !m_settings.music;
         m_audio.setMusic(homeMusic(), m_settings.musicVolume);
@@ -7506,18 +7983,120 @@ bool CardsActivity::handleTouch() {
         }
         return true;
     }
-    if (m_moving) { // a tap puts it down
+    if (m_moving && !m_moveTouch) { // a tap puts it down
         if (in.touchUp()) finishMove(true);
         return in.isTouching() || in.touchUp();
     }
+    // Dragging a picked-up card (WiiUMenuApp's touch edit drag): the grid's tile
+    // stays under the finger and the cell under it is where it goes; held 0.45 s
+    // at the grid's side, the page turns (and keeps turning). The row: it goes
+    // a card along per card's width dragged. Let go: it's put down.
+    if (m_moving) {
+        if (in.touchUp() || !in.isTouching()) {
+            finishMove(true);
+            return true;
+        }
+        m_moveTouchX = x;
+        m_moveTouchY = y;
+        const int n = static_cast<int>(games().size());
+        if (gridOn()) {
+            const float pitchX = kGridCell + kGridPadX, pitchY = kGridCell + kGridPadY;
+            const int col = std::clamp(static_cast<int>(std::floor((x - kGridOriginX + kGridPadX * 0.5f) / pitchX)), 0, kGridCols - 1);
+            const int row = std::clamp(static_cast<int>(std::floor((y - kGridOriginY + kGridPadY * 0.5f) / pitchY)), 0, kGridRows - 1);
+            const int to = std::min(n - 1, m_gridShown * kGridPer + row * kGridCols + col);
+            if (m_gridSlideT >= 1.f && to != sel()) select(to);
+            constexpr float kEdgeZone = 48.f, kEdgeHoldDelay = 0.45f;
+            const float right = kGridOriginX + kGridCols * kGridCell + (kGridCols - 1) * kGridPadX;
+            const int dir = x < kGridOriginX + kEdgeZone ? -1 : x > right - kEdgeZone ? 1 : 0;
+            if (dir != m_moveEdgeDir) { // (m_moveEdgeHold: when it came to this edge)
+                m_moveEdgeDir = dir;
+                m_moveEdgeHold = m_time;
+            } else if (dir && m_time - m_moveEdgeHold >= kEdgeHoldDelay) {
+                m_moveEdgeHold = m_time;
+                gridPage(dir, false);
+            }
+        } else {
+            const int to = std::clamp(m_moveTouchFrom + static_cast<int>(std::lround((x - in.touchStartX()) / kCardPitch)), 0, n - 1);
+            if (to != sel()) select(to);
+        }
+        updateMove(0.f);
+        return true;
+    }
 
     if (in.touchDown()) {
-        m_touchOnCards = y > 100.f && y < 490.f;
+        m_touchOnCards = y > 100.f && y < (gridOn() ? 650.f : 490.f);
         m_touchScroll = m_scroll;
         m_dragging = false;
+        m_gridDrag = 0.f;
+        if (gridOn()) { // the pages stop under the finger, where they are
+            const float at = m_gridSlideT < 1.f ? gridPageDx(m_gridShown) : m_gridSettle;
+            m_gridSlideT = 1.f;
+            m_gridBump = 0.f;
+            m_gridBumpT = -1.f;
+            m_gridGrab = m_gridDrag = at;
+            m_gridSettle = m_gridSettleV = 0.f;
+        }
+        m_flingV = 0.f; // (a finger stops a glide)
+        m_touchTrail.clear();
+        m_holdIndex = -1;
+        for (int i = 0; m_touchOnCards && i < static_cast<int>(games().size()); ++i) {
+            nxui::Rect card;
+            float t = 0.f;
+            if (cardRect(i, card, t) && card.contains(x, y)) m_holdIndex = i;
+        }
+    }
+    // The finger's trail, for its speed when it lets go (the last ~100 ms).
+    if (in.isTouching() || in.touchUp()) {
+        m_touchTrail.push_back({m_time, x});
+        while (m_touchTrail.size() > 2 && m_time - m_touchTrail.front().first > 0.1f) m_touchTrail.pop_front();
+    }
+    // A card held still 0.55 s is picked up (SwitchU's long press), and moves with the finger.
+    if (m_holdIndex >= 0 && in.isTouching()) {
+        if (m_dragging || std::abs(in.touchDeltaX()) > 18.f || std::abs(in.touchDeltaY()) > 18.f) {
+            m_holdIndex = -1;
+        } else if (in.touchDuration() >= 0.55f && m_holdIndex < static_cast<int>(games().size())) {
+            const int i = m_holdIndex;
+            m_holdIndex = -1;
+            m_zone = Zone::Cards;
+            if (i != sel()) select(i);
+            startMove();
+            if (m_moving) {
+                m_moveTouch = true;
+                m_moveTouchFrom = sel();
+                m_moveTouchX = x;
+                m_moveTouchY = y;
+            }
+            return true;
+        }
+    }
+    // The grid: a sideways swipe drags the page; let go past a third of a tile
+    // and the next page slides in (the same cell on it), else it springs back.
+    if (gridOn() && m_touchOnCards && (in.isTouching() || in.touchUp())) {
+        const float dx = x - in.touchStartX();
+        if (in.isTouching()) {
+            if (!m_dragging && std::abs(dx) > 14.f) m_dragging = true;
+            if (m_dragging) {
+                // It follows the finger; past the first or last page, stiffly.
+                const int pages = (static_cast<int>(games().size()) + kGridPer - 1) / kGridPer;
+                float off = m_gridGrab + dx;
+                if ((off > 0.f && m_gridShown == 0) || (off < 0.f && m_gridShown >= pages - 1)) off *= 0.35f;
+                m_gridDrag = off;
+            }
+            return true;
+        }
+        if (m_dragging) {
+            m_dragging = false;
+            const float offset = m_gridDrag;
+            m_gridDrag = 0.f;
+            gridTouchRelease(offset, touchSpeed());
+            return true;
+        }
+        // A tap: the pages ease on from where they were caught.
+        m_gridSettle = m_gridDrag;
+        m_gridDrag = 0.f;
     }
     // Dragging the row: it follows the finger, the card under the middle is chosen.
-    if (in.isTouching() && m_touchOnCards) {
+    if (!gridOn() && in.isTouching() && m_touchOnCards) {
         const float dx = x - in.touchStartX();
         if (!m_dragging && std::abs(dx) > 14.f) m_dragging = true;
         if (m_dragging && !games().empty()) {
@@ -7529,8 +8108,12 @@ bool CardsActivity::handleTouch() {
         return true;
     }
     if (!in.touchUp()) return false;
-    if (m_dragging) { // let go: it settles on the nearest card
+    if (m_dragging) { // let go: it glides on with the finger's speed, else settles on the nearest card
         m_dragging = false;
+        if (!gridOn()) {
+            const float v = -touchSpeed() / kCardPitch; // (cards a second; the row moves against the finger)
+            m_flingV = std::abs(v) > 2.f ? std::clamp(v, -40.f, 40.f) : 0.f;
+        }
         return true;
     }
 
@@ -7844,7 +8427,7 @@ void CardsActivity::onUpdate(float dt) {
     step(m_taskIn, 0.2f);
     step(m_logIn, 0.2f);
     step(m_pressT, 0.22f);
-    step(m_bgFade, 0.45f);
+    step(m_bgFade, 0.15f); // (was 0.45: the swap should feel instant)
     step(m_sheetIn, 0.24f);
     step(m_sheetRowsIn, 0.22f);
     step(m_quickIn, 0.22f);
@@ -7858,10 +8441,26 @@ void CardsActivity::onUpdate(float dt) {
     step(m_newsIn, 0.24f);
 #endif
     const float target = static_cast<float>(sel());
-    if (!m_dragging) {
+    if (m_flingV != 0.f && !m_dragging && !gridOn() && !games().empty()) {
+        // A flick: the row glides on, slowing (friction), the card under the
+        // middle chosen as it passes; slow enough, it settles on the nearest.
+        const float last = static_cast<float>(games().size() - 1);
+        m_scroll += m_flingV * dt;
+        m_flingV *= std::exp(-dt * 3.2f);
+        if (m_scroll < 0.f || m_scroll > last) { // the end: it stops there
+            m_scroll = std::clamp(m_scroll, 0.f, last);
+            m_flingV = 0.f;
+        }
+        const int near = std::clamp(static_cast<int>(std::lround(m_scroll)), 0, static_cast<int>(last));
+        if (near != sel()) select(near);
+        if (std::abs(m_flingV) < 1.6f) m_flingV = 0.f; // (the easing below takes it onto the card)
+    } else if (!m_dragging) {
+        m_flingV = 0.f;
         m_scroll = motion ? m_scroll + (target - m_scroll) * (1.f - std::exp(-dt * 13.f)) : target;
         if (std::abs(m_scroll - target) < 0.001f) m_scroll = target;
     }
+    updateGrid(dt);
+    updateMove(dt);
     if (m_messageFor > 0.f) m_messageFor -= dt;
 
     // Pictures that didn't come are asked for again now and then — and the
@@ -8457,19 +9056,50 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
 
-    // Plus > Move: left / right carry the card; A or Plus put it down, B puts it back.
+    // Moving: the D-pad, the stick and L / R move the cursor as always (the
+    // grid's pages turn at its edges) and the held card follows it
+    // (updateMove); A or Plus put it down, B puts it all back.
     if (m_moving) {
-        auto& page = games();
-        const int s = sel(), to = s + move;
-        if (move && to >= 0 && to < static_cast<int>(page.size())) {
-            std::swap(page[(size_t)s], page[(size_t)to]);
-            sel() = to;
-            m_audio.play("navigation");
-            wantArt();
+        m_zone = Zone::Cards;
+        if (aDown || in.isDown(B::Plus)) {
+            finishMove(true);
+            return;
         }
-        if (aDown || in.isDown(B::Plus)) finishMove(true);
-        else if (bDown) finishMove(false);
+        if (bDown) {
+            finishMove(false);
+            return;
+        }
+        if (gridOn()) {
+            if (move) gridMove(move, 0);
+            if (upDown) gridMove(0, -1); // (not up to the bar: it stays on the grid)
+            if (downDown) gridMove(0, 1);
+        } else if (move) {
+            select(sel() + move);
+        }
+        if (in.isDown(B::L) || in.isDown(B::R)) {
+            const int dir = in.isDown(B::L) ? -1 : 1;
+            if (gridOn()) {
+                gridPage(dir, false);
+            } else {
+                const int to = std::clamp(sel() + dir * kCardsPerScreen, 0, static_cast<int>(games().size()) - 1);
+                if (to != sel()) select(to);
+            }
+        }
+        updateMove(0.f); // (there at once: drawn this frame)
         return;
+    }
+
+    // The grid: the D-pad / stick moves over its tiles as SwitchU's does (the
+    // row's ends turn the page); down goes no further than the last row (it
+    // has no panel), up from the top row reaches the bar.
+    bool gridUp = upDown, gridDown = downDown;
+    if (gridOn() && m_zone == Zone::Cards) {
+        if (move && gridMove(move, 0)) move = 0;
+        if (gridUp && gridMove(0, -1)) gridUp = false;
+        if (gridDown) {
+            gridMove(0, 1);
+            gridDown = false;
+        }
     }
 
     if (move) {
@@ -8494,12 +9124,13 @@ void CardsActivity::onUpdate(float dt) {
             m_bottomSel = next;
         }
     }
-    if (upDown && m_zone != Zone::Top) {
+    if (gridUp && m_zone != Zone::Top) {
         m_zone = m_zone == Zone::Bottom ? Zone::Cards : Zone::Top;
         m_audio.play("navigation");
     }
-    if (downDown && m_zone != Zone::Bottom) {
+    if (gridDown && m_zone != Zone::Bottom && !(gridOn() && m_zone == Zone::Cards)) {
         m_zone = m_zone == Zone::Top ? Zone::Cards : Zone::Bottom;
+        if (gridOn() && m_zone == Zone::Bottom) m_zone = Zone::Cards; // no panel in the grid
         m_audio.play("navigation");
     }
     if (aDown) {
@@ -8515,14 +9146,140 @@ void CardsActivity::onUpdate(float dt) {
     if (bDown && m_zone != Zone::Cards) m_zone = Zone::Cards;
     if (in.isDown(B::Plus)) openOptions();
     if (in.isDown(B::X)) askClose();
-    if (in.isDown(B::Minus)) openNotifications();
-    if (in.isDown(B::L)) openDiscord();
-    if (in.isDown(B::R)) openQuick();
+    // L / R: a full page (the grid's next page, or a screenful of cards).
+    // Quick Settings moved to Minus; Discord and the notifications are the
+    // bar's buttons.
+    if (in.isDown(B::Minus)) openQuick();
+    if (in.isDown(B::L) || in.isDown(B::R)) {
+        const int dir = in.isDown(B::L) ? -1 : 1;
+        if (gridOn()) {
+            gridPage(dir, false);
+        } else if (!games().empty()) {
+            const int n = static_cast<int>(games().size());
+            const int to = std::clamp(sel() + dir * kCardsPerScreen, 0, n - 1);
+            if (to != sel()) {
+                m_zone = Zone::Cards;
+                select(to);
+                m_audio.play("tab_transition");
+            }
+        }
+    }
     if (in.isDown(B::ZL)) switchPage(-1);
     if (in.isDown(B::ZR)) switchPage(1);
+    // Y: a tap switches the grid; held half a second, the chosen game is picked
+    // up to move (SwitchU's Y). (The tap acts on letting go, so the hold can be told apart.)
+    if (in.isDown(B::Y)) {
+        m_yAt = m_time;
+        m_yArmed = true;
+    }
+    if (m_yArmed && in.isHeld(B::Y) && m_time - m_yAt >= 0.5f) {
+        m_yArmed = false;
+        if (m_zone == Zone::Cards && !games().empty()) startMove();
+    }
+    if (m_yArmed && in.isUp(B::Y)) {
+        m_yArmed = false;
+        toggleGrid();
+    }
+}
+
+void CardsActivity::gpuFrameBegin() {
+#ifdef NXUI_BACKEND_DEKO3D
+    if (!m_settings.perfLog) return;
+    if (!m_gpuTimes) {
+        m_gpuTimes = dk::MemBlockMaker{app().gpu().device(), 0x1000}
+                         .setFlags(DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached)
+                         .create();
+        if (!m_gpuTimes) return;
+        std::memset(m_gpuTimes.getCpuAddr(), 0, 0x1000);
+        m_gpuWindowAt = m_time + 10.f;
+    }
+    ++m_gpuFrame;
+    auto* base = static_cast<volatile std::uint64_t*>(m_gpuTimes.getCpuAddr());
+    if (m_gpuFrame > static_cast<std::uint64_t>(kGpuRing)) { // frame N-3: done
+        const int old = static_cast<int>((m_gpuFrame - 3) % kGpuRing);
+        const volatile std::uint64_t* p = base + old * kGpuMarks * 2;
+        std::uint64_t first = p[1], prev = p[1];
+        float total = 0.f, worst = 0.f;
+        const char* worstName = "";
+        bool ok = first != 0;
+        std::vector<std::pair<const char*, float>> steps;
+        for (int i = 1; ok && i < kGpuMarks && m_gpuNames[old][i]; ++i) {
+            const std::uint64_t ts = p[i * 2 + 1];
+            if (!ts || ts < prev) { ok = false; break; }
+            const float ms = static_cast<float>(dkTimestampToNs(ts - prev)) / 1e6f;
+            steps.push_back({m_gpuNames[old][i], ms});
+            if (ms > worst) { worst = ms; worstName = m_gpuNames[old][i]; }
+            prev = ts;
+        }
+        if (ok && !steps.empty()) {
+            total = static_cast<float>(dkTimestampToNs(prev - first)) / 1e6f;
+            for (const auto& [name, ms] : steps) {
+                auto& st = m_gpuSteps[name];
+                st.first += ms;
+                st.second = std::max(st.second, ms);
+            }
+            ++m_gpuFrames;
+            m_gpuTotalSum += total;
+            m_gpuTotalMax = std::max(m_gpuTotalMax, total);
+            m_gpuBlurs += m_gpuBlur[old];
+            m_gpuMenus += m_gpuMenu[old];
+            if (total > 14.f) { // (the frame's drawing alone near the 16.7 ms budget)
+                ++m_gpuOver;
+                ++m_gpuOverBy[worstName];
+                m_gpuOverMenu += m_gpuMenu[old];
+                m_gpuOverBlur += m_gpuBlur[old];
+            }
+        }
+    }
+    if (m_time >= m_gpuWindowAt && m_gpuFrames > 0) {
+        m_gpuWindowAt = m_time + 10.f;
+        std::string line;
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "GPU 10 s: drawing %.1f ms avg, %.1f max; %d of %d frames over 14 ms (%d with a menu, %d blurred; menus open %d, blurred %d); steps avg/max:",
+                      m_gpuTotalSum / m_gpuFrames, m_gpuTotalMax, m_gpuOver, m_gpuFrames, m_gpuOverMenu, m_gpuOverBlur,
+                      m_gpuMenus, m_gpuBlurs);
+        line = buf;
+        for (const auto& [name, st] : m_gpuSteps) {
+            std::snprintf(buf, sizeof(buf), " %s %.2f/%.1f;", name.c_str(), st.first / m_gpuFrames, st.second);
+            line += buf;
+        }
+        if (!m_gpuOverBy.empty()) {
+            line += " over 14 ms, most in:";
+            for (const auto& [name, n] : m_gpuOverBy) line += " " + name + " " + std::to_string(n) + ";";
+        }
+        perfLine(line);
+        m_gpuSteps.clear();
+        m_gpuOverBy.clear();
+        m_gpuFrames = m_gpuOver = m_gpuOverMenu = m_gpuOverBlur = m_gpuBlurs = m_gpuMenus = 0;
+        m_gpuTotalSum = m_gpuTotalMax = 0.f;
+    }
+    const int slot = static_cast<int>(m_gpuFrame % kGpuRing);
+    for (int i = 0; i < kGpuMarks * 2; ++i) base[slot * kGpuMarks * 2 + i] = 0;
+    for (auto& n : m_gpuNames[slot]) n = nullptr;
+    m_gpuMenu[slot] = focusRoot() != nullptr || m_optOpen || !m_menu.empty() || m_quickOpen || m_sheetOpen
+                   || m_powerOpen || m_dotsOpen || m_musicOpen || m_notifOpen;
+    m_gpuBlur[slot] = false;
+    m_gpuMark = 0;
+    gpuMark("start");
+#endif
+}
+
+void CardsActivity::gpuMark(const char* ended) {
+#ifdef NXUI_BACKEND_DEKO3D
+    if (!m_gpuTimes || !m_settings.perfLog || m_gpuMark >= kGpuMarks) return;
+    app().renderer().flush();
+    const int slot = static_cast<int>(m_gpuFrame % kGpuRing);
+    m_gpuNames[slot][m_gpuMark] = ended;
+    app().gpu().cmdBuf().reportCounter(DkCounter_Timestamp,
+                                       m_gpuTimes.getGpuAddr() + static_cast<DkGpuAddr>((slot * kGpuMarks + m_gpuMark) * 16));
+    ++m_gpuMark;
+#else
+    (void)ended;
+#endif
 }
 
 void CardsActivity::drawStep(const char* next) {
+    gpuMark(nxui::g_phase.load()); // (the step that just ended, on the GPU)
     const std::uint64_t now = armGetSystemTick();
     const float ms = ticksMs(now - m_drawMarkTick);
     if (ms > m_drawMarkMs && m_drawMarkTick) {
@@ -8542,6 +9299,8 @@ void CardsActivity::draw(nxui::Renderer& r) {
     m_drawMarkTick = armGetSystemTick();
     m_drawMarkMs = 0.f;
     m_drawMarkName = "";
+    gpuFrameBegin();
+    nxui::setPhase("draw: start");
     drawStep("draw: the background");
     drawBackground(r);
     drawStep("draw: the cards");
@@ -8559,12 +9318,22 @@ void CardsActivity::draw(nxui::Renderer& r) {
     // the fancy glass only comes back once HOME is running steady.
     m_frosted = r.gpu().offscreenReady() && !m_gpuSlow && m_time > 1.5f;
     if (m_frosted) {
-        const bool moving = std::abs(m_scroll - static_cast<float>(sel())) > 0.002f || m_dragging || m_pageIn < 1.f
-                         || m_bgFade < 1.f || m_intro < 1.f || m_leaving || m_moving || focusRoot() != nullptr;
-        if (moving || ++m_blurAge >= (m_settings.bgMotion ? 6 : 60)) {
+        // Anything behind the glass that moves: the copy is made again every frame
+        // (2.5 ms of GPU at most, measured; the frame's drawing peaked at 12.3 of
+        // 16.7). The drifting background was copied every 6th frame, so the glass
+        // showed it in steps; the grid's slides, gliding tiles and pictures
+        // fading in weren't counted at all.
+        const bool drifting = m_settings.motion && m_settings.bgMotion && !m_gpuSlow; // (drawBackground's)
+        const bool moving = drifting || std::abs(m_scroll - static_cast<float>(sel())) > 0.002f || m_dragging
+                         || m_pageIn < 1.f || m_bgFade < 1.f || m_intro < 1.f || m_leaving || m_moving
+                         || focusRoot() != nullptr || m_gridSlideT < 1.f || m_gridDrag != 0.f || m_gridSettle != 0.f || m_gridBumpT >= 0.f
+                         || !m_glides.empty() || m_moveJiggle > 0.f || std::abs(m_gridIn - (gridOn() ? 1.f : 0.f)) > 0.f
+                         || m_time - m_artArrivedAt < 0.4f;
+        if (moving || ++m_blurAge >= 60) {
             r.captureToOffscreen(false);
             r.applyBlur(2.5f, 2);
             m_blurAge = 0;
+            m_gpuBlur[m_gpuFrame % kGpuRing] = true;
         }
     } else {
         m_blurAge = 1000; // made at once when it's back
@@ -8577,9 +9346,9 @@ void CardsActivity::draw(nxui::Renderer& r) {
     const float ui = m_leaving && leaveStyle != kNoAnimation && leaveStyle != kFade ? 1.f - easeOut(m_leaveT / 0.3f) : 1.f;
     drawTopBar(r, easeOut(m_intro * 2.2f) * ui);
     drawStep("draw: the panel");
-    drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
+    drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui * (1.f - easeOut(m_gridIn)));
     drawStep("draw: the messages");
-    if (m_moving) { // what Move does
+    if (m_moving && !gridOn()) { // what Move does (the grid says it in its pill, as SwitchU)
         const std::string hint = "Move it with  < >      A  Done      B  Put it back";
         const float w = measured(m_fBody, hint).x + 44.f;
         const nxui::Rect pill{640.f - w * 0.5f, 452.f, w, 40.f};
@@ -8659,6 +9428,27 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
         auto it = m_art.find(id);
         return it != m_art.end() && it->second.bg && it->second.bg->valid() ? it->second.bg.get() : nullptr;
     };
+    // Until its background has come: the game's card art (or its small copy),
+    // so the backdrop changes the moment the selection does.
+    auto standInOf = [this](std::uint64_t id) -> const nxui::Texture* {
+        auto it = m_art.find(id);
+        if (it != m_art.end()) {
+            if (it->second.card && it->second.card->valid()) return it->second.card.get();
+            if (it->second.stock && it->second.stock->valid()) return it->second.stock.get();
+        }
+        auto th = m_thumbs.find(id);
+        return th != m_thumbs.end() && th->second.tex ? th->second.tex.get() : nullptr;
+    };
+    auto drawBg = [&](std::uint64_t id, float alpha, float zoom, float panX, float panY) {
+        const nxui::Rect full{0.f, 0.f, 1280.f, 720.f};
+        const nxui::Texture* real = bgOf(id);
+        const auto it = m_art.find(id);
+        const float sharp = real && it != m_art.end() ? easeOut((m_time - it->second.bgIn) / 0.2f) : 0.f;
+        if (sharp < 1.f)
+            if (const nxui::Texture* stand = standInOf(id))
+                drawCover(r, stand, full, 0.f, kWhite.withAlpha(alpha), 0.f, 0.f, zoom, panX, panY);
+        if (real) drawCover(r, real, full, 0.f, kWhite.withAlpha(alpha * sharp), 0.f, 0.f, zoom, panX, panY);
+    };
     const nxui::Rect screen{0.f, 0.f, 1280.f, 720.f};
     // A slow drift (zoom and pan), so the art feels alive; launching, it leans in.
     const bool motion = m_settings.motion && m_settings.bgMotion && !m_gpuSlow; // (a slow GPU: it stays still)
@@ -8672,10 +9462,8 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
     if (m_wallTex && m_wallTex->valid()) { // Settings > Look > Background: one picture for everything
         drawCover(r, m_wallTex.get(), screen, 0.f, kWhite, 0.f, 0.f, zoom, panX, panY);
     } else {
-        if (m_bgFade < 1.f)
-            if (const nxui::Texture* prev = bgOf(m_bgPrevId)) drawCover(r, prev, screen, 0.f, kWhite, 0.f, 0.f, zoom, panX, panY);
-        if (const nxui::Texture* cur = bgOf(m_bgId))
-            drawCover(r, cur, screen, 0.f, kWhite.withAlpha(easeOut(m_bgFade)), 0.f, 0.f, zoom, panX, panY);
+        if (m_bgFade < 1.f) drawBg(m_bgPrevId, 1.f, zoom, panX, panY);
+        drawBg(m_bgId, easeOut(m_bgFade), zoom, panX, panY);
     }
     // The haze over it (Settings > Background softness), and a little depth at the edges.
     const float haze = static_cast<float>(m_settings.haze) / 100.f
@@ -8797,13 +9585,90 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     glassCircle(r, kGearX, y, kCircle, top && m_topSel == kTopGear, "gear", 36.f, a, pressedOf(kTopGear));
 }
 
+// Moving: a card on its way to its new place is drawn part way (it glides);
+// the others jiggle (GlossyIcon::setJiggle); a dragged grid tile is under the finger.
 bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
+    if (morphing()) { // IconGrid::renderLayoutMorph: each one from its place in one layout to the other's
+        nxui::Rect row{}, tile{};
+        float cRow = 0.f, cTile = 0.f;
+        m_forceLayout = 0;
+        bool inRow = cardRectAt(index, row, cRow);
+        m_forceLayout = 1;
+        bool inGrid = cardRectAt(index, tile, cTile) && index / kGridPer == m_gridShown;
+        m_forceLayout = -1;
+        // Off the row's screen: it grows in at its tile (from 0.85, as it fades
+        // in), all of them alike. (Flying in from where they'd be in the row,
+        // the far right ones came on one after another.)
+        if (!rowShows(index)) row = scaled(tile, 0.85f);
+        if (!inGrid) tile = row; // not on the grid's page: it stays in the row, fading
+        if (!rowShows(index) && !inGrid) return false;
+        const float e = suInOutCubic(m_gridIn);
+        card = {row.x + (tile.x - row.x) * e, row.y + (tile.y - row.y) * e, row.width + (tile.width - row.width) * e,
+                row.height + (tile.height - row.height) * e};
+        chosen = cRow + (cTile - cRow) * e;
+        return true;
+    }
+    if (!cardRectAt(index, card, chosen)) return false;
+    const auto& page = games();
+    if (index < 0 || index >= static_cast<int>(page.size())) return true;
+    if (!m_glides.empty()) {
+        auto g = m_glides.find(page[(size_t)index].id);
+        if (g != m_glides.end()) {
+            const float left = 1.f - suOutCubic(g->second.t / g->second.dur);
+            card.x += g->second.dx * left;
+            card.y += g->second.dy * left;
+        }
+    }
+    if (m_moving && index == sel() && m_moveTouch && gridOn()) {
+        card.x = m_moveTouchX - card.width * 0.5f;
+        card.y = m_moveTouchY - card.height * 0.5f;
+    } else if (m_moveJiggle > 0.001f && index != sel()) {
+        const float jig = m_moveJiggle, p = m_moveTime, seed = static_cast<float>(index) * 1.7f;
+        const float sq = std::sin(p * 10.2f + seed * 2.3f);
+        const float jw = card.width * (1.f + 0.012f * jig * sq), jh = card.height * (1.f - 0.012f * jig * sq);
+        card.x += (card.width - jw) * 0.5f + 2.2f * jig * std::sin(p * 9.0f + seed);
+        card.y += (card.height - jh) * 0.5f + 1.8f * jig * std::sin(p * 11.3f + seed * 1.7f);
+        card.width = jw;
+        card.height = jh;
+    }
+    return true;
+}
+
+// On the row's screen (as the row lays it out now, whichever layout is shown).
+bool CardsActivity::rowShows(int index) const {
+    const float x0 = kCardFirstX + (static_cast<float>(index) - m_scroll) * kCardPitch;
+    return x0 < 1290.f && x0 + kCardPitch > -10.f;
+}
+
+bool CardsActivity::cardRectAt(int index, nxui::Rect& card, float& chosen) {
     const float rel = static_cast<float>(index) - m_scroll;
     // A page switch slides the row in from the side.
     float slide = (1.f - easeOut(m_pageIn)) * 160.f * static_cast<float>(m_pageDir);
     // Launching: the others make way.
     if (m_leaving && m_leaveIndex >= 0 && index != m_leaveIndex && launchStyle() == kZoom)
         slide += (index < m_leaveIndex ? -1.f : 1.f) * 420.f * easeIn(m_leaveT / 0.5f);
+    if (gridOn()) {
+        card = gridTileRect(index);
+        if (card.x > 1290.f || card.x + card.width < -10.f) return false;
+        chosen = index == sel() ? 1.f : 0.f;
+        const float fs = gridFocusScale(index);
+        if (std::abs(fs - 1.f) > 0.001f) card = scaled(card, fs);
+        if (m_moving && index == sel()) // picked up: SwitchU's ghost, 1.07 and breathing
+            card = scaled(card, 1.07f + 0.025f * std::sin(m_moveTime * 7.f));
+        if (m_leaving) {
+            const int style = launchStyle();
+            if (style == kFade && index == m_leaveIndex) {
+                const float hop = 0.5f - 0.5f * std::cos(6.28318f * clamp01(m_leaveT / 0.6f));
+                card = scaled(card, 1.f + 0.06f * hop);
+                card.y -= 20.f * hop;
+            }
+            if (style == kDive) {
+                const float k = 1.f + 2.4f * easeIn(m_leaveT / 0.8f);
+                card = {640.f + (card.x - 640.f) * k, 330.f + (card.y - 330.f) * k, card.width * k, card.height * k};
+            }
+        }
+        return true;
+    }
     const float x0 = kCardFirstX + rel * kCardPitch + slide;
     if (x0 > 1290.f || x0 + kCardPitch < -10.f) return false;
     chosen = clamp01(1.f - std::abs(rel));
@@ -8834,9 +9699,535 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     return true;
 }
 
+// Y / Settings > Look > Grid view: the card row or SwitchU's Wii U grid.
+void CardsActivity::toggleGrid() {
+    m_settings.gridView = !m_settings.gridView;
+    m_settings.save();
+    m_gridShown = m_gridFrom = std::max(0, sel()) / kGridPer;
+    m_gridSlideT = 1.f;
+    m_gridBumpT = -1.f;
+    m_gridBump = m_gridDrag = 0.f;
+    m_dragging = false;
+    m_gridFocus = m_gridUnfocus = -1; // the chosen tile grows in
+    m_curInit = false;                // the cursor appears on it
+    m_pillShown.clear();
+    if (m_zone == Zone::Bottom && gridOn()) m_zone = Zone::Cards;
+    m_audio.play(gridOn() ? "toggle_on" : "toggle_off");
+    wantArt();
+}
+
+// A page's horizontal offset: IconGrid's slide (the new page comes in over
+// 0.34 s, inOutCubic, the old one leaving ahead of it), its edge bump, a finger.
+float CardsActivity::gridPageDx(int page) const {
+    if (m_gridSlideT < 1.f) {
+        const float in = (1.f - suInOutCubic(m_gridSlideT)) * kGridStride * static_cast<float>(m_gridDir);
+        if (page == m_gridShown) return in;
+        if (page == m_gridFrom) return in - kGridStride * static_cast<float>(m_gridDir);
+        return in + static_cast<float>(page - m_gridShown) * kGridStride;
+    }
+    return static_cast<float>(page - m_gridShown) * kGridStride + m_gridBump + m_gridDrag + m_gridSettle;
+}
+
+nxui::Rect CardsActivity::gridTileRect(int index) const {
+    const int page = index / kGridPer, local = index % kGridPer;
+    const int col = local % kGridCols, row = local / kGridCols;
+    return {kGridOriginX + static_cast<float>(col) * (kGridCell + kGridPadX) + gridPageDx(page),
+            kGridOriginY + static_cast<float>(row) * (kGridCell + kGridPadY), kGridCell, kGridCell};
+}
+
+// GlossyIcon::onFocusGained / Lost: 1.075 over 0.18 s (outBack), back over 0.20 s (outCubic).
+float CardsActivity::gridFocusScale(int index) const {
+    if (index == m_gridFocus) return 1.f + 0.075f * suOutBack(m_gridFocusT / 0.18f);
+    if (index == m_gridUnfocus) return 1.075f - 0.075f * suOutCubic(m_gridUnfocusT / 0.20f);
+    return 1.f;
+}
+
+float CardsActivity::gridFocusGlow(int index) const {
+    if (index == m_gridFocus) return suOutCubic(m_gridFocusT / 0.16f);
+    if (index == m_gridUnfocus) return 1.f - suOutCubic(m_gridUnfocusT / 0.16f);
+    return 0.f;
+}
+
+void CardsActivity::gridSlideTo(int page) {
+    if (page == m_gridShown) return;
+    m_gridFrom = m_gridShown;
+    m_gridDir = page > m_gridShown ? 1 : -1;
+    m_gridShown = page;
+    m_gridSlideT = 0.f;
+    m_gridBumpT = -1.f;
+    m_gridBump = 0.f;
+    (m_gridDir < 0 ? m_arrowKickL : m_arrowKickR) = 1.f;
+}
+
+// L / R (fromEdge false) keep the cell, as IconGrid::startPageTransition;
+// the row's ends (fromEdge true) carry on along the row from the other side,
+// as WiiUMenuApp::flipPageFromEdge. The first / last page: the edge bump.
+float CardsActivity::touchSpeed() const {
+    if (m_touchTrail.size() < 2) return 0.f;
+    const auto& a = m_touchTrail.front();
+    const auto& b = m_touchTrail.back();
+    const float dt = b.first - a.first;
+    return dt > 0.008f ? (b.second - a.second) / dt : 0.f;
+}
+
+// A finger let go of the grid's pages offset px from the shown one's place,
+// moving at speed px/s. A flick turns the page however short it was (a very
+// hard one up to three); a slow drag past a third of a tile, one; else it goes
+// back. Either way the pages carry on from where they are, at that speed.
+void CardsActivity::gridTouchRelease(float offset, float speed) {
+    auto& page = games();
+    const int n = static_cast<int>(page.size());
+    int count = 0;
+    // (A normal swipe is one page: two or three only for a clearly hard flick,
+    // as 1600 px/s a page turned plain swipes into two, 2026-11-11.)
+    if (std::abs(speed) > 500.f && (speed < 0.f) == (offset < 0.f))
+        count = 1 + (std::abs(speed) > 3500.f ? 1 : 0) + (std::abs(speed) > 5200.f ? 1 : 0);
+    else if (std::abs(offset) > kGridCell / 3.f)
+        count = 1;
+    if (offset > 0.f) count = -count;
+    int target = m_gridShown;
+    if (n > 0 && count != 0) {
+        const int pages = (n + kGridPer - 1) / kGridPer;
+        target = std::clamp(m_gridShown + count, 0, pages - 1);
+    }
+    if (target != m_gridShown) {
+        const int s = std::clamp(sel(), 0, n - 1);
+        const int old = m_gridShown;
+        m_gridShown = m_gridFrom = target;
+        m_gridSlideT = 1.f;
+        m_zone = Zone::Cards;
+        select(std::min(n - 1, target * kGridPer + s % kGridPer));
+        m_audio.play("tab_transition");
+        offset += static_cast<float>(target - old) * kGridStride; // (the new page, where it is now)
+    }
+    m_gridSettle = offset;
+    m_gridSettleV = std::clamp(speed, -6000.f, 6000.f);
+}
+
+// A flick on the grid: count pages on (or back), the same cell on the page it
+// lands on (the nearest tile on a short last page); the edge bump past the ends.
+void CardsActivity::gridPages(int count) {
+    auto& page = games();
+    if (page.empty() || count == 0 || m_gridSlideT < 1.f) return;
+    const int n = static_cast<int>(page.size());
+    const int pages = (n + kGridPer - 1) / kGridPer;
+    const int s = std::clamp(sel(), 0, n - 1);
+    const int target = std::clamp(s / kGridPer + count, 0, pages - 1);
+    if (target == s / kGridPer) {
+        gridPage(count > 0 ? 1 : -1, false); // (the edge's bump)
+        return;
+    }
+    const int to = std::min(n - 1, target * kGridPer + s % kGridPer);
+    m_zone = Zone::Cards;
+    gridSlideTo(target);
+    select(to);
+    m_audio.play("tab_transition");
+}
+
+void CardsActivity::gridPage(int dir, bool fromEdge) {
+    auto& page = games();
+    if (page.empty() || m_gridSlideT < 1.f) return;
+    const int n = static_cast<int>(page.size());
+    const int pages = (n + kGridPer - 1) / kGridPer;
+    const int s = std::clamp(sel(), 0, n - 1);
+    const int target = s / kGridPer + dir;
+    if (target < 0 || target >= pages) {
+        if (m_gridBumpT < 0.f) {
+            m_gridBumpDir = dir;
+            m_gridBumpT = 0.f;
+        }
+        return;
+    }
+    const int local = s % kGridPer;
+    const int row = local / kGridCols;
+    const int col = fromEdge ? (dir > 0 ? 0 : kGridCols - 1) : local % kGridCols;
+    int to = target * kGridPer + row * kGridCols + col;
+    if (to >= n) to = n - 1; // a short last page: the nearest tile on it
+    m_zone = Zone::Cards;
+    gridSlideTo(target);
+    select(to);
+    m_audio.play("tab_transition");
+}
+
+// One step on the grid. Left / right along the row (its ends turn the page);
+// up / down a row within the page; up from the top row leaves the grid.
+bool CardsActivity::gridMove(int dx, int dy) {
+    auto& page = games();
+    if (page.empty()) return dy >= 0;
+    const int n = static_cast<int>(page.size());
+    const int s = std::clamp(sel(), 0, n - 1);
+    const int local = s % kGridPer, col = local % kGridCols, row = local / kGridCols;
+    if (dx) {
+        if ((dx < 0 && col == 0) || (dx > 0 && (col == kGridCols - 1 || s + 1 >= n))) {
+            gridPage(dx, true);
+            return true;
+        }
+        select(s + dx);
+        return true;
+    }
+    if (dy < 0) {
+        if (row == 0) return false; // the top bar
+        select(s - kGridCols);
+        return true;
+    }
+    if (row + 1 < kGridRows && s + kGridCols < std::min(n, (s / kGridPer + 1) * kGridPer))
+        select(s + kGridCols);
+    return true;
+}
+
+void CardsActivity::updateGrid(float dt) {
+    const bool motion = m_settings.motion;
+    const float layout = gridOn() ? 1.f : 0.f; // (evenly over 0.40 s; eased where it's drawn, as SwitchU's)
+    m_gridIn = motion ? (m_gridIn < layout ? std::min(layout, m_gridIn + dt / 0.40f) : std::max(layout, m_gridIn - dt / 0.40f))
+                      : layout;
+    if (!gridOn()) return;
+
+    m_gridPulse += dt * 2.8f;
+    m_curWave += dt;
+    m_curTeleport = std::max(0.f, m_curTeleport - dt / 0.18f);
+    m_gridFocusT += dt;
+    m_gridUnfocusT += dt;
+    m_arrowKickL = std::max(0.f, m_arrowKickL - dt / kGridArrowKick);
+    m_arrowKickR = std::max(0.f, m_arrowKickR - dt / kGridArrowKick);
+    if (m_gridSlideT < 1.f) m_gridSlideT = motion ? std::min(1.f, m_gridSlideT + dt / kGridSlideSec) : 1.f;
+    if (!m_dragging && (m_gridSettle != 0.f || m_gridSettleV != 0.f)) {
+        // Critically damped (no wobble), in small steps so a slow frame can't overshoot.
+        constexpr float kW = 15.f;
+        for (float left = dt; left > 0.f && motion; left -= 1.f / 240.f) {
+            const float h = std::min(left, 1.f / 240.f);
+            m_gridSettleV += (-kW * kW * m_gridSettle - 2.f * kW * m_gridSettleV) * h;
+            m_gridSettle += m_gridSettleV * h;
+        }
+        if (!motion || (std::abs(m_gridSettle) < 0.5f && std::abs(m_gridSettleV) < 8.f)) m_gridSettle = m_gridSettleV = 0.f;
+    }
+    if (m_gridBumpT >= 0.f) { // IconGrid::bumpEdge: out 26 px in 0.10 s, back with outElastic in 0.34 s
+        m_gridBumpT += dt;
+        const float out = -static_cast<float>(m_gridBumpDir) * kGridBumpPx;
+        if (m_gridBumpT < 0.10f) m_gridBump = out * suOutCubic(m_gridBumpT / 0.10f);
+        else if (m_gridBumpT < 0.44f) m_gridBump = out * (1.f - suOutElastic((m_gridBumpT - 0.10f) / 0.34f));
+        else { m_gridBump = 0.f; m_gridBumpT = -1.f; }
+    }
+
+    auto& page = games();
+    const int n = static_cast<int>(page.size());
+    if (n == 0) return;
+    const int s = std::clamp(sel(), 0, n - 1);
+    // The selection moved some other way (touch, Move, a sort): its page.
+    if (s / kGridPer != m_gridShown && m_gridSlideT >= 1.f && !m_dragging) {
+        if (m_curInit) gridSlideTo(s / kGridPer);
+        else m_gridShown = m_gridFrom = s / kGridPer;
+    }
+    // Focus: the grid has it while the cursor is in it (the bar takes it).
+    const int focused = m_zone == Zone::Cards ? s : -1;
+    if (focused != m_gridFocus) {
+        m_gridUnfocus = m_gridFocus;
+        m_gridUnfocusT = 0.f;
+        m_gridFocus = focused;
+        m_gridFocusT = 0.f;
+    }
+
+    // The cursor (SelectionCursor): the chosen tile at its focused size, 4 px
+    // out; it glides there (0.2 s, longer for far moves, outCubic) and rides
+    // along while the page slides.
+    const nxui::Rect target = suGrow(scaled(gridTileRect(s), 1.075f), 4.f);
+    if (!m_curInit || !motion) {
+        m_curRect = m_curFrom = m_curTo = target;
+        m_curT = 1.f;
+        if (!m_curInit) m_curTeleport = 1.f;
+        m_curInit = true;
+    } else if (m_gridSlideT < 1.f || m_dragging || m_gridBumpT >= 0.f || m_gridSettle != 0.f) {
+        m_curRect = m_curFrom = m_curTo = target;
+        m_curT = 1.f;
+    } else {
+        if (std::abs(target.x - m_curTo.x) > 0.5f || std::abs(target.y - m_curTo.y) > 0.5f) {
+            m_curFrom = m_curRect;
+            m_curTo = target;
+            m_curT = 0.f;
+            // SelectionCursor::computeAdaptiveDuration (same size and corners: distance only).
+            const float dxc = (target.x + target.width * 0.5f) - (m_curRect.x + m_curRect.width * 0.5f);
+            const float dyc = (target.y + target.height * 0.5f) - (m_curRect.y + m_curRect.height * 0.5f);
+            const float dist = std::clamp(std::sqrt(dxc * dxc + dyc * dyc) / 320.f, 0.f, 2.4f);
+            m_curDur = std::clamp(0.2f * (1.f + dist * 0.5f), 0.2f * 0.95f, 0.2f * 2.8f);
+        }
+        m_curT = std::min(1.f, m_curT + dt / m_curDur);
+        m_curRect = suLerp(m_curFrom, m_curTo, suOutCubic(m_curT));
+    }
+
+    // The title pill (TitlePillWidget::setText): it resizes to the new name
+    // over 0.22 s (outCubic) and the text rises in (0.32 -> 1 over 0.18 s).
+    m_pillT = std::min(1.f, m_pillT + dt / 0.22f);
+    m_pillReveal = std::min(1.f, m_pillReveal + dt / 0.18f * 0.68f);
+    const std::string name = m_moving ? tr("Move: ") + page[(size_t)s].name : page[(size_t)s].name;
+    if (name != m_pillText || m_pillShown.empty()) {
+        const float curX = m_pillXFrom + (m_pillXTo - m_pillXFrom) * suOutCubic(m_pillT);
+        const float curW = m_pillWFrom + (m_pillWTo - m_pillWFrom) * suOutCubic(m_pillT);
+        m_pillText = name;
+        std::string shown = name;
+        if (m_fGridPill.valid()) { // ellipsized to 736 (screen width - 420 at most)
+            while (shown.size() > 1 && m_fGridPill.measure(shown + "...").x > 736.f && m_fGridPill.measure(shown).x > 736.f) {
+                size_t cut = shown.size() - 1;
+                while (cut > 0 && (static_cast<unsigned char>(shown[cut]) & 0xC0u) == 0x80u) --cut;
+                shown.erase(cut);
+            }
+            if (shown != name) shown += "...";
+        }
+        const float w = (m_fGridPill.valid() ? m_fGridPill.measure(shown).x : measured(m_fLabel, shown).x) + 44.f;
+        const bool first = m_pillShown.empty();
+        m_pillShown = shown;
+        m_pillXTo = (1280.f - w) * 0.5f;
+        m_pillWTo = w;
+        if (first) {
+            m_pillXFrom = m_pillXTo;
+            m_pillWFrom = w;
+            m_pillT = 1.f;
+            m_pillReveal = 1.f;
+        } else {
+            m_pillXFrom = curX;
+            m_pillWFrom = curW;
+            m_pillT = 0.f;
+            m_pillReveal = 0.32f;
+        }
+    }
+
+    // The page dots: the new page's dot pops (0.30 s).
+    const int shown = s / kGridPer;
+    if (shown != m_dotsPage) {
+        if (m_dotsPage >= 0) m_dotsPop = 0.f;
+        m_dotsPage = shown;
+    }
+    m_dotsPop = std::min(0.30f, m_dotsPop + dt);
+    // The page arrows fade in where there's a page to go to.
+    const int pages = (n + kGridPer - 1) / kGridPer;
+    auto fade = [dt](float& a, bool on) { a = std::clamp(a + (on ? dt : -dt) / kGridArrowFade, 0.f, 1.f); };
+    fade(m_arrowShowL, shown > 0);
+    fade(m_arrowShowR, shown < pages - 1);
+}
+
+void CardsActivity::drawGrid(nxui::Renderer& r) {
+    auto& page = games();
+    const float gridIn = suInOutCubic(m_gridIn); // (the row fades by the same curve: drawCards)
+    if (page.empty()) {
+        textMid(r, m_fLabel, m_page == kHomebrew ? "No homebrew in sdmc:/switch"
+                             : m_page == kMedia  ? "No media apps yet"
+                             : m_page >= kPageCount ? "This page is empty. Use + on a game or app to add it."
+                                                 : "No games installed", 480.f, 340.f,
+                kWhite.withAlpha(gridIn));
+        return;
+    }
+    if (!m_gridAssetsTried) { // SwitchU's own: the system font for the pill, its button glyphs, its arrows
+        m_gridAssetsTried = true;
+        auto& gpu = app().gpu();
+        auto& ren = app().renderer();
+        PlFontData font{};
+        if (R_SUCCEEDED(plGetSharedFontByType(&font, PlSharedFontType_Standard)))
+            m_fGridPill.loadFromMemory(gpu, ren, font.address, font.size, 24);
+        m_fGridGlyph.load(gpu, ren, "sdmc:/switch/SwitchU/fonts/switch_icons.ttf", 24);
+        for (int side = 0; side < 2; ++side) {
+            auto tex = std::make_unique<nxui::Texture>();
+            const std::string file = std::string("sdmc:/switch/SwitchU/icons/") + (side ? "page_arrow_right.png" : "page_arrow_left.png");
+            if (tex->loadFromFile(gpu, ren, file)) (side ? m_gridArrowR : m_gridArrowL) = std::move(tex);
+        }
+    }
+    const int n = static_cast<int>(page.size());
+    const int s = std::clamp(sel(), 0, n - 1);
+    const float making = othersAlpha();
+    const bool shader = app().gpu().offscreenReady();
+
+    // GlassPanel's liquid glass (the screen behind, refracted), else its frosted look.
+    auto glass = [&](const nxui::Rect& rc, float radius, const nxui::Color& base, const nxui::Color& border,
+                     const nxui::Color& highlight, float borderW, float op) {
+        if (shader) {
+            r.captureToOffscreen(true);
+            r.drawLiquidGlass(0, rc, radius, base, op, 0.f);
+        } else {
+            nxui::Color body = base;
+            body.a = std::max(body.a, 0.16f);
+            r.drawFrostedInset(rc, body, border, highlight, radius, op);
+        }
+        if (highlight.a > 0.01f)
+            r.drawRoundedRectOutline({rc.x + 1.f, rc.y + 1.f, rc.width - 2.f, rc.height - 2.f},
+                                     highlight.withAlpha(highlight.a * 0.55f * op), std::max(0.f, radius - 1.f), 1.f);
+        if (borderW > 0.f) r.drawRoundedRectOutline(rc, border.withAlpha(border.a * 0.80f * op), radius, borderW);
+    };
+
+    // The tiles (GlossyIcon), the page and its neighbours.
+    const int pageLo = std::max(0, std::min(m_gridShown, m_gridFrom) - 1);
+    const int pageHi = std::max(m_gridShown, m_gridFrom) + 1;
+    // (A card being moved goes last: over the others, as SwitchU's ghost.)
+    std::vector<int> order;
+    for (int i = pageLo * kGridPer; i < std::min(n, (pageHi + 1) * kGridPer); ++i)
+        if (!(m_moving && i == s)) order.push_back(i);
+    if (m_moving) order.push_back(s);
+    for (int i : order) {
+        if (launchDrawsCard() && i == m_leaveIndex) continue; // drawn on top (drawLaunch)
+        if (morphing() && i / kGridPer != m_gridShown) continue; // (only the page it morphs into)
+        nxui::Rect tile;
+        float t = 0.f;
+        if (!cardRect(i, tile, t)) continue;
+        // GlossyIcon::startAppear at HOME's start: scale and fade in (outExpo), staggered.
+        const int local = i % kGridPer;
+        const float delay = 0.1f + 0.03f * static_cast<float>(local % kGridCols + local / kGridCols);
+        const float appear = m_intro >= 1.f ? 1.f : suOutExpo((m_intro - delay) / 0.4f);
+        float a = making * gridIn * easeOut(m_pageIn) * std::min(1.f, appear * 1.33f);
+        if (m_moving && i == s) a *= 0.80f + 0.08f * std::sin(m_moveTime * 8.f); // the ghost's pulse
+        if (a <= 0.01f) continue;
+        if (appear < 0.999f) tile = scaled(tile, appear);
+        const float pressed = m_pressZone == 1 && m_pressIndex == i ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
+        if (pressed > 0.f) tile = scaled(tile, 1.f - 0.05f * pressed);
+        const Game& g = page[(size_t)i];
+        const float sc = tile.width / kGridCell;
+
+        r.drawRoundedRect({tile.x + 1.f, tile.y + 6.f, tile.width, tile.height},
+                          nxui::Color(0.02f, 0.04f, 0.06f, 0.20f * a), kGridIconRadius + 1.f);
+        glass(tile, kGridIconRadius, kSuTile, kSuBorder, kSuHighlight, 1.f, a);
+
+        // The console's icon, 8 px in, its corners 3 px tighter; a spinner while it loads.
+        auto it = m_art.find(g.id);
+        const nxui::Texture* icon = it != m_art.end() && it->second.stock && it->second.stock->valid()
+                                        ? it->second.stock.get() : nullptr;
+        if (icon) {
+            nxui::Rect tr{tile.x + 8.f * sc, tile.y + 8.f * sc, tile.width - 16.f * sc, tile.height - 16.f * sc};
+            const float ta = static_cast<float>(icon->width()) / std::max(1.f, static_cast<float>(icon->height()));
+            if (ta > 1.001f) { const float h = tr.width / ta; tr.y += (tr.height - h) * 0.5f; tr.height = h; }
+            else if (ta < 0.999f) { const float w = tr.height * ta; tr.x += (tr.width - w) * 0.5f; tr.width = w; }
+            r.drawTextureRounded(icon, tr, kGridIconRadius - 3.f, kWhite.withAlpha(a));
+        } else {
+            const nxui::Vec2 c{tile.x + tile.width * 0.5f, tile.y + tile.height * 0.5f};
+            const float outer = std::clamp(tile.width * 0.105f, 8.f, 16.f), inner = outer * 0.48f;
+            for (int k = 0; k < 10; ++k) {
+                const float ang = m_gridPulse * 2.8f + 6.28318531f / 10.f * static_cast<float>(k);
+                const float w = 1.f - static_cast<float>(k) / 10.f;
+                r.drawLine({c.x + std::cos(ang) * inner, c.y + std::sin(ang) * inner},
+                           {c.x + std::cos(ang) * outer, c.y + std::sin(ang) * outer},
+                           kSuCursor.withAlpha((0.14f + 0.72f * w) * a), std::max(1.f, 2.4f - 0.9f * (static_cast<float>(k) / 10.f)));
+            }
+        }
+
+        // Focused: a soft cyan glow 5 px out.
+        const float glow = gridFocusGlow(i);
+        if (glow > 0.01f) {
+            const float breathe = 0.5f + 0.5f * std::sin(m_gridPulse * 1.8f + 0.4f);
+            r.drawRoundedRectOutline(suGrow(tile, 5.f * glow),
+                                     nxui::Color(0.65f, 0.90f, 1.f, (0.08f + 0.04f * breathe) * glow * a),
+                                     kGridIconRadius + 5.f, 2.f);
+        }
+        // Open now (suspended): the breathing green ring and the play badge.
+        if (isRunning(g.id)) {
+            const float pulse = 0.5f + 0.5f * std::sin(m_gridPulse);
+            const nxui::Color green(0.20f, 0.92f, 0.50f, 1.f);
+            r.drawRoundedRectOutline(suGrow(tile, 5.f), green.withAlpha((0.28f + 0.42f * pulse) * a * 0.55f),
+                                     kGridIconRadius + 5.f, 4.5f);
+            r.drawRoundedRectOutline(suGrow(tile, 2.f), green.withAlpha((0.55f + 0.35f * pulse) * a),
+                                     kGridIconRadius + 2.f, 3.2f);
+            const float bs = 28.f * sc;
+            const nxui::Vec2 bc{tile.x + tile.width - bs - 4.f * sc + bs * 0.5f, tile.y + tile.height - bs - 4.f * sc + bs * 0.5f};
+            r.drawCircle(bc, bs * 0.58f, green.withAlpha((0.20f + 0.25f * pulse) * a), 20);
+            r.drawCircle(bc, bs * 0.5f, nxui::Color(0.06f, 0.10f, 0.08f, 0.90f * a), 16);
+            const float th = bs * 0.45f, tw = th * 0.85f;
+            r.drawTriangle({bc.x - tw * 0.35f, bc.y - th * 0.5f}, {bc.x - tw * 0.35f, bc.y + th * 0.5f},
+                           {bc.x + tw * 0.65f, bc.y}, green.withAlpha(0.98f * a));
+        }
+    }
+
+    // The cursor (SelectionCursor): two breathing rings, 2 and 5 px out, and a
+    // short pulse when it appears.
+    if (m_curInit && m_zone == Zone::Cards && !morphing() && !(launchDrawsCard() && s == m_leaveIndex)) {
+        const float op = making * gridIn * easeOut(m_pageIn);
+        const float arrival = m_curTeleport * (2.f - m_curTeleport);
+        nxui::Rect rc = m_curRect;
+        float cr = kGridCursorRadius;
+        if (arrival > 0.01f) {
+            rc = suGrow(rc, 4.f * arrival);
+            cr += 4.f * arrival;
+            r.drawRoundedRectOutline(suGrow(rc, 7.f * arrival), kSuCursor.withAlpha(0.28f * arrival * op),
+                                     cr + 7.f * arrival, 2.f);
+        }
+        const float wave = std::sin(m_curWave * 3.5f) * 0.5f + 0.5f;
+        r.drawRoundedRectOutline(suGrow(rc, 5.f), kSuCursor.withAlpha((0.28f + 0.22f * wave) * op * 0.55f),
+                                 cr + 5.f, kGridCursorBorder + 1.5f);
+        r.drawRoundedRectOutline(suGrow(rc, 2.f), kSuCursor.withAlpha((0.72f + 0.20f * wave) * op), cr + 2.f,
+                                 kGridCursorBorder);
+    }
+
+    const float uiA = gridIn * easeOut((m_intro - 0.3f) * 2.f) * othersAlpha();
+    if (uiA <= 0.01f) return;
+    const int pages = (n + kGridPer - 1) / kGridPer;
+
+    // The page arrows (L / R here), kicked outward when a page turns.
+    auto arrow = [&](bool left, float show, float kick) {
+        const nxui::Texture* tex = left ? m_gridArrowL.get() : m_gridArrowR.get();
+        if (show <= 0.002f || !tex || !tex->valid()) return;
+        const float e = show * show * (3.f - 2.f * show), bump = kick * kick;
+        const float outward = (left ? -1.f : 1.f) * ((1.f - e) * 16.f + bump * 9.f);
+        const float scale = (0.86f + 0.14f * e) * (1.f + 0.18f * bump);
+        const float cx = (left ? kGridArrowInset : 1280.f - kGridArrowInset) + outward;
+        const float cy = 90.f + 540.f * 0.5f;
+        const float w = kGridArrowW * scale, h = kGridArrowH * scale;
+        r.drawTexture(tex, {cx - w * 0.5f, cy - h * 0.5f, w, h}, nxui::Color(1.f, 1.f, 1.f, e * uiA));
+        if (m_fGridGlyph.valid()) {
+            const std::string glyph = suGlyph(left ? 0xE0E4 : 0xE0E5);
+            const nxui::Vec2 gs = m_fGridGlyph.measure(glyph);
+            r.drawText(glyph, {cx - gs.x * 0.70f * 0.5f, cy + h * 0.5f + 6.f}, &m_fGridGlyph,
+                       kWhite.withAlpha(0.9f * e * uiA), 0.70f);
+        }
+    };
+    arrow(true, m_arrowShowL, m_arrowKickL);
+    arrow(false, m_arrowShowR, m_arrowKickR);
+
+    // The title pill: SwitchU's panel glass (alpha 0.90, its border and shine
+    // stronger), 9 / 22 padding, the system font.
+    {
+        nxui::Font& font = m_fGridPill.valid() ? m_fGridPill : m_fLabel;
+        const float textH = font.measure(m_pillShown.empty() ? std::string("Ag") : m_pillShown).y;
+        const float h = textH + 18.f;
+        const float x = m_pillXFrom + (m_pillXTo - m_pillXFrom) * suOutCubic(m_pillT);
+        const float w = m_pillWFrom + (m_pillWTo - m_pillWFrom) * suOutCubic(m_pillT);
+        if (w > 0.5f && !m_pillShown.empty()) {
+            const nxui::Rect pill{x, kGridPillY, w, h};
+            glass(pill, h * 0.5f, kSuPanel.withAlpha(0.90f), kSuBorder.withAlpha(0.84f), kSuHighlight.withAlpha(0.42f),
+                  0.f, 0.98f * uiA);
+            const nxui::Rect content{pill.x + 22.f, pill.y + 9.f, std::max(0.f, pill.width - 44.f), textH};
+            const float reveal = std::clamp(m_pillReveal, 0.f, 1.f);
+            const nxui::Vec2 ts = font.measure(m_pillShown);
+            r.pushClipRect(content);
+            r.drawText(m_pillShown, {content.x + (content.width - ts.x) * 0.5f, content.y + (1.f - reveal) * 3.f}, &font,
+                       kWhite.withAlpha(uiA * reveal), 1.f);
+            r.popClipRect();
+        }
+    }
+
+    // The page dots (PageIndicator): a glass pill, 4 px dots 14 apart, the
+    // current one green and popping when the page changes.
+    if (pages > 1) {
+        constexpr float dotR = 4.f, gap = 14.f;
+        const float dotsW = static_cast<float>(pages) * dotR * 2.f + static_cast<float>(pages - 1) * gap;
+        const nxui::Rect pill{(1280.f - (dotsW + 36.f)) * 0.5f, kGridDotsY, dotsW + 36.f, kGridDotsH};
+        glass(pill, pill.height * 0.5f, kSuPanel, kSuBorder, kSuHighlight, 1.f, uiA);
+        const float popP = std::clamp(m_dotsPop / 0.30f, 0.f, 1.f);
+        const bool popping = m_dotsPop < 0.30f;
+        const float activeR = dotR * (1.f + 0.34f * std::sin(popP * 3.14159265f));
+        const float startX = pill.x + 18.f, cy = pill.y + pill.height * 0.5f;
+        for (int p = 0; p < pages; ++p) {
+            const float cx = startX + static_cast<float>(p) * (dotR * 2.f + gap) + dotR;
+            const bool cur = p == m_dotsPage;
+            if (cur && popping)
+                r.drawCircle({cx, cy}, dotR + 11.f * popP, kSuDotOn.withAlpha(0.30f * (1.f - popP) * uiA), 20);
+            const nxui::Color c = cur ? kSuDotOn : kSuDotOff;
+            r.drawCircle({cx, cy}, cur ? activeR : dotR, c.withAlpha(c.a * uiA), 16);
+        }
+    }
+}
+
 void CardsActivity::drawCards(nxui::Renderer& r) {
+    if (gridOn() && !morphing()) {
+        drawGrid(r);
+        return;
+    }
+    if (morphing()) drawGrid(r); // the tiles coming (or going), the cards over them going (or coming)
+    const float rowIn = 1.f - suInOutCubic(m_gridIn);
     auto& page = games();
     if (page.empty()) {
+        if (morphing()) return; // (the grid says it)
         textMid(r, m_fLabel, m_page == kHomebrew ? "No homebrew in sdmc:/switch"
                              : m_page == kMedia  ? "No media apps yet"
                              : m_page >= kPageCount ? "This page is empty. Use + on a game or app to add it."
@@ -8846,9 +10237,10 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
     }
     const bool cardsFocused = m_zone == Zone::Cards;
     const float pageAlpha = easeOut(m_pageIn);
-    const float making = othersAlpha(); // launching: the others fade
+    const float making = othersAlpha() * rowIn; // launching: the others fade (and the grid coming: all of them)
     for (int i = 0; i < static_cast<int>(page.size()); ++i) {
         if (launchDrawsCard() && i == m_leaveIndex) continue; // drawn on top (drawLaunch)
+        if (morphing() && !rowShows(i)) continue; // (a tile only: it grows in on the grid)
         nxui::Rect card;
         float t = 0.f;
         if (!cardRect(i, card, t)) continue;
@@ -8911,10 +10303,12 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
 // Nextendo: players online in each game now (a glass pill, its dot breathing);
 // what's open now; and the light that crosses the card just chosen.
 void CardsActivity::drawCardExtras(nxui::Renderer& r) {
+    if (gridOn() && !morphing()) return; // the grid's tiles draw everything themselves
     auto& page = games();
-    const float making = othersAlpha();
+    const float making = othersAlpha() * (1.f - suInOutCubic(m_gridIn)); // (fading as the grid comes)
     for (int i = 0; i < static_cast<int>(page.size()); ++i) {
         if (launchDrawsCard() && i == m_leaveIndex) continue;
+        if (morphing() && !rowShows(i)) continue;
         nxui::Rect card;
         float t = 0.f;
         if (!cardRect(i, card, t)) continue;
@@ -9511,7 +10905,7 @@ void CardsActivity::drawQuick(nxui::Renderer& r) {
     box(player, false);
     const bool spot = spotifyOn();
     std::string song = m_settings.music && !m_audio.trackName().empty() ? m_audio.trackName() : std::string("Not playing");
-    if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? "Nothing on Spotify" : "Play signs in to Spotify";
+    if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? std::string("Nothing playing") : m_sp.device;
     const float ss = fitScale(m_fPill, song, w - 36.f, 0.8f);
     textMid(r, m_fPill, fit(m_fPill, song, w - 36.f, ss), player.x + 18.f, player.y + 26.f, kWhite.withAlpha(a), ss);
     const std::string from = !spot ? tr("HOME music") : m_sp.artist.empty() ? std::string("Spotify") : "Spotify    " + m_sp.artist;

@@ -440,6 +440,10 @@ std::string DiscordService::qrUrl() const {
     return m_auth ? m_auth->Get().qrUrl : std::string();
 }
 
+bool DiscordService::qrFailed() const {
+    return m_auth && m_auth->Get().phase == RemoteAuth::Phase::Failed;
+}
+
 std::string DiscordService::qrStatus() const {
     if (!m_auth) return {};
     const RemoteAuth::Snapshot s = m_auth->Get();

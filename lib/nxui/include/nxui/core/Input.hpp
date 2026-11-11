@@ -89,6 +89,11 @@ private:
     bool readActiveSixAxisState(HidSixAxisSensorState& out) const;
 
     PadState m_pad{};
+    // Each controller on its own (players 1-8, handheld): a single Joy-Con held
+    // sideways is turned to how it's held (its stick, face buttons, SL / SR).
+    PadState m_pads[9]{};
+    uint64_t m_prevHeld = 0;
+    void readControllers(uint64_t& held, HidAnalogStickState& ls, HidAnalogStickState& rs);
     HidSixAxisSensorHandle m_handheldSixAxisHandle{};
     HidSixAxisSensorHandle m_fullKeySixAxisHandle{};
     HidSixAxisSensorHandle m_joyDualSixAxisHandles[2]{};

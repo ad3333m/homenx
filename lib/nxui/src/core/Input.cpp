@@ -26,6 +26,11 @@ void Input::initialize() {
     // Every controller drives the menu (players 1-8 and handheld), not only player 1.
     padConfigureInput(8, HidNpadStyleSet_NpadStandard);
     padInitializeAny(&m_pad);
+    for (int i = 0; i < 8; ++i) padInitialize(&m_pads[i], static_cast<HidNpadIdType>(HidNpadIdType_No1 + i));
+    padInitialize(&m_pads[8], HidNpadIdType_Handheld);
+    // Single Joy-Cons are turned here (readControllers), from what they say as
+    // held upright: the system mustn't turn them as well.
+    hidSetNpadJoyHoldType(HidNpadJoyHoldType_Vertical);
     hidInitializeTouchScreen();
 
     recenterVirtualPointer();
@@ -132,6 +137,78 @@ bool Input::readActiveSixAxisState(HidSixAxisSensorState& out) const {
     return false;
 }
 
+namespace {
+
+// The stick's direction buttons from where it points (as HID makes them).
+uint64_t stickBits(const HidAnalogStickState& s, bool left) {
+    constexpr int kThreshold = 0x4000; // (about half way, as HID's own)
+    uint64_t b = 0;
+    if (s.x < -kThreshold) b |= left ? HidNpadButton_StickLLeft : HidNpadButton_StickRLeft;
+    if (s.x > kThreshold) b |= left ? HidNpadButton_StickLRight : HidNpadButton_StickRRight;
+    if (s.y > kThreshold) b |= left ? HidNpadButton_StickLUp : HidNpadButton_StickRUp;
+    if (s.y < -kThreshold) b |= left ? HidNpadButton_StickLDown : HidNpadButton_StickRDown;
+    return b;
+}
+
+void map(uint64_t raw, uint64_t& out, uint64_t from, uint64_t to) {
+    if (raw & from) out |= to;
+}
+
+} // namespace
+
+// Every controller, each as it is held. A single Joy-Con (no grip, no pair) is
+// held sideways, rail up, as on the console's own HOME: its stick is turned a
+// quarter, its four buttons are A (right) B (bottom) X (top) Y (left), and SL /
+// SR are L / R (they scroll). Its stick drives the menu as the left stick does.
+void Input::readControllers(uint64_t& held, HidAnalogStickState& ls, HidAnalogStickState& rs) {
+    auto bigger = [](const HidAnalogStickState& a, const HidAnalogStickState& b) {
+        return std::abs(static_cast<int>(b.x)) + std::abs(static_cast<int>(b.y)) >
+               std::abs(static_cast<int>(a.x)) + std::abs(static_cast<int>(a.y));
+    };
+    for (PadState& pad : m_pads) {
+        padUpdate(&pad);
+        if (!padIsConnected(&pad)) continue;
+        const uint32_t style = padGetStyleSet(&pad);
+        const uint64_t raw = padGetButtons(&pad);
+        const HidAnalogStickState l = padGetStickPos(&pad, 0), r = padGetStickPos(&pad, 1);
+        const bool joyLeft = (style & HidNpadStyleTag_NpadJoyLeft) && !(style & HidNpadStyleTag_NpadJoyDual);
+        const bool joyRight = (style & HidNpadStyleTag_NpadJoyRight) && !(style & HidNpadStyleTag_NpadJoyDual);
+        if (joyLeft) {
+            // Rail up: the stick on the left, the arrows on the right.
+            const HidAnalogStickState s{static_cast<s32>(-l.y), static_cast<s32>(l.x)};
+            uint64_t b = stickBits(s, true);
+            map(raw, b, HidNpadButton_Down, HidNpadButton_A);
+            map(raw, b, HidNpadButton_Left, HidNpadButton_B);
+            map(raw, b, HidNpadButton_Right, HidNpadButton_X);
+            map(raw, b, HidNpadButton_Up, HidNpadButton_Y);
+            map(raw, b, HidNpadButton_LeftSL, HidNpadButton_L);
+            map(raw, b, HidNpadButton_LeftSR, HidNpadButton_R);
+            map(raw, b, HidNpadButton_Minus, HidNpadButton_Minus);
+            map(raw, b, HidNpadButton_StickL, HidNpadButton_Plus); // (it has no +: the stick's click)
+            held |= b;
+            if (bigger(ls, s)) ls = s;
+        } else if (joyRight) {
+            // Rail up: the stick on the left, the buttons on the right.
+            const HidAnalogStickState s{static_cast<s32>(r.y), static_cast<s32>(-r.x)};
+            uint64_t b = stickBits(s, true);
+            map(raw, b, HidNpadButton_X, HidNpadButton_A);
+            map(raw, b, HidNpadButton_A, HidNpadButton_B);
+            map(raw, b, HidNpadButton_Y, HidNpadButton_X);
+            map(raw, b, HidNpadButton_B, HidNpadButton_Y);
+            map(raw, b, HidNpadButton_RightSL, HidNpadButton_L);
+            map(raw, b, HidNpadButton_RightSR, HidNpadButton_R);
+            map(raw, b, HidNpadButton_Plus, HidNpadButton_Plus);
+            map(raw, b, HidNpadButton_StickR, HidNpadButton_Minus); // (it has no -: the stick's click)
+            held |= b;
+            if (bigger(ls, s)) ls = s;
+        } else {
+            held |= raw; // (HID's own stick directions, as before)
+            if (bigger(ls, l)) ls = l;
+            if (bigger(rs, r)) rs = r;
+        }
+    }
+}
+
 void Input::update() {
     uint64_t nowTick = armGetSystemTick();
     float dt = m_prevUpdateTick
@@ -140,14 +217,16 @@ void Input::update() {
     m_prevUpdateTick = nowTick;
     if (dt > 0.05f) dt = 1.f / 60.f;
 
-    padUpdate(&m_pad);
-    m_kDown = padGetButtonsDown(&m_pad);
-    m_kUp   = padGetButtonsUp(&m_pad);
-    m_kHeld = padGetButtons(&m_pad);
+    padUpdate(&m_pad); // (kept for anything that reads it)
+    HidAnalogStickState ls{}, rs{};
+    uint64_t held = 0;
+    readControllers(held, ls, rs);
+    m_kHeld = held;
+    m_kDown = held & ~m_prevHeld;
+    m_kUp   = m_prevHeld & ~held;
+    m_prevHeld = held;
 
     // Analog sticks
-    HidAnalogStickState ls = padGetStickPos(&m_pad, 0);
-    HidAnalogStickState rs = padGetStickPos(&m_pad, 1);
     m_lx = ls.x / 32767.f;
     m_ly = ls.y / 32767.f;
     m_rx = rs.x / 32767.f;

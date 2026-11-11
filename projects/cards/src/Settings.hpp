@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <map>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <string>
 #include <vector>
@@ -41,6 +43,7 @@ struct Settings {
     bool players = true;      // Nextendo's green dots
     bool motion = true;       // animations (off: things move straight to place)
     bool bgMotion = true;     // the background art drifts
+    bool gridView = false;    // Y: SwitchU's Wii U grid of icons instead of the card row
     int startPage = 0;        // (old: the page order's first is where it opens now)
     std::vector<int> pageOrder = {0, 1, 2, 3}; // the pages in order: 0 games, 1 homebrew, 2 Nintendo, 3 media, then custom pages
     int lastPage = -1; // the custom page something was started from: back there afterwards
@@ -74,6 +77,8 @@ struct Settings {
     long long picturesAt = 0;   // when every game's pictures were last made sure of (seconds)
     long long achSeenAt = 0;    // the newest achievement HOME has said (seconds; 0: none said yet)
     bool introDone = false;     // the first-time intro was shown
+    bool switchuOrder = false;  // SwitchU's own order (its layout.json) taken as My order, once
+    bool forwardersOnGames = true; // installed NRO forwarders on the Games page (as the console's HOME and SwitchU)
     std::string wallpaper;      // one picture behind everything ("" = each game's art)
     std::map<std::string, std::string> names; // + > Rename: by title ID (hex) or .nro path
     std::vector<std::string> sheetOrder; // Settings' tabs by name, in his order (new ones after)
@@ -102,12 +107,46 @@ struct Settings {
     }
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
+    static constexpr const char* kBackup = "sdmc:/config/CardsNX/settings.json.bak"; // the last one read whole
+    static constexpr const char* kRestore = "sdmc:/config/CardsNX/settings.restore.json"; // put there by hand: taken once
+
+    // Saving writes what's in memory over the file: only when that came from
+    // it (or there was none). A file that couldn't be read left the defaults
+    // here, and the next save wrote them over everything (2026-11-10: HOME out
+    // of memory with Spotify playing reset every setting).
+    bool readable = false;
 
     void load() {
+        std::string text;
+        if (read(kRestore, &text)) { // settings put back from outside (HOME would have saved over the file itself)
+            readable = true;
+            writeLater(kPath, text);
+            writeLater(kBackup, std::move(text));
+            std::remove(kRestore);
+            normalizePages();
+            return;
+        }
+        readable = read(kPath, &text);
+        if (readable) {
+            writeLater(kBackup, std::move(text));
+        } else {
+            readable = read(kBackup, nullptr); // the last good copy
+            if (!readable) {
+                std::error_code e1, e2;
+                const bool have = std::filesystem::exists(kPath, e1), haveBackup = std::filesystem::exists(kBackup, e2);
+                readable = !e1 && !e2 && !have && !haveBackup; // none at all: a first start, these are its settings
+            }
+        }
+        normalizePages();
+    }
+
+    bool read(const char* path, std::string* textOut) {
         try {
-            std::ifstream in(kPath);
-            if (!in) return;
-            const auto j = nlohmann::json::parse(in);
+            std::ifstream in(path, std::ios::binary);
+            if (!in) return false;
+            std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            const auto j = nlohmann::json::parse(text);
+            if (!j.is_object()) return false;
             music = j.value("music", music);
             musicVolume = j.value("musicVolume", musicVolume);
             shuffle = j.value("shuffle", shuffle);
@@ -117,6 +156,7 @@ struct Settings {
             players = j.value("players", players);
             motion = j.value("motion", motion);
             bgMotion = j.value("bgMotion", bgMotion);
+            gridView = j.value("gridView", gridView);
             startPage = j.value("startPage", startPage);
             pageOrder = j.value("pageOrder", pageOrder);
             customPages.clear();
@@ -168,6 +208,8 @@ struct Settings {
             picturesAt = j.value("picturesAt", picturesAt);
             achSeenAt = j.value("achSeenAt", achSeenAt);
             introDone = j.value("introDone", introDone);
+            switchuOrder = j.value("switchuOrder", switchuOrder);
+            forwardersOnGames = j.value("forwardersOnGames", forwardersOnGames);
             wallpaper = j.value("wallpaper", wallpaper);
             names = j.value("names", names);
             sheetOrder = j.value("sheetOrder", sheetOrder);
@@ -178,18 +220,21 @@ struct Settings {
             language = j.value("language", language);
             const char* const keys[4] = {"orderGames", "orderHomebrew", "orderNintendo", "orderMedia"};
             for (int p = 0; p < 4; ++p) order[p] = j.value(keys[p], order[p]);
+            if (textOut) *textOut = std::move(text);
+            return true;
         } catch (...) {
+            return false;
         }
-        normalizePages();
     }
 
     void save() const {
+        if (!readable) return; // (see readable)
         nlohmann::json j = {{"music", music}, {"musicVolume", musicVolume}, {"shuffle", shuffle}, {"repeat", repeat},
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
-                            {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
+                            {"motion", motion}, {"bgMotion", bgMotion}, {"gridView", gridView}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
+                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"switchuOrder", switchuOrder}, {"forwardersOnGames", forwardersOnGames}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};

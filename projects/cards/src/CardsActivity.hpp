@@ -5,6 +5,9 @@
 #include "Settings.hpp"
 #include <switchu/lock_screen_policy.hpp>
 #include "Spotify.hpp"
+#ifdef SWITCHU_MENU
+#include "core/SwitifyClient.hpp" // Switify: Spotify played by the console itself
+#endif
 
 #include <nxui/Activity.hpp>
 #include <nxui/core/Font.hpp>
@@ -95,11 +98,15 @@ private:
         std::unique_ptr<nxui::Texture> card, bg, icon;
         ArtKind kind = ArtKind::Banner, bgKind = ArtKind::Banner, iconKind = ArtKind::Icon;
         bool cardAsked = false, bgAsked = false, iconAsked = false;
+        std::unique_ptr<nxui::Texture> stock; // the console's own icon (the grid's tiles)
+        bool stockAsked = false;
+        float bgIn = -10.f;                    // when its background arrived (it sharpens in)
         std::uint64_t lastAccess = 0, selectedTick = 0;
         float cardIn = -10.f; // when it arrived (it fades in)
         float retryAt = 0.f;  // nothing came: asked again after this
     };
-    enum What { kCard, kBackground, kIcon, kLaunch }; // kLaunch: the art at full size, for the launch
+    enum What { kCard, kBackground, kIcon, kLaunch, kStock }; // kLaunch: the art at full size, for the launch;
+                                                              // kStock: the console's own icon (the grid)
     // The lists, read on a thread (HOME shows last time's at once).
     struct Lists {
         std::vector<Game> games, homebrew;
@@ -147,7 +154,10 @@ private:
 #endif
     static constexpr std::uint64_t kArtworkBudget = CARDS_ARTWORK_GPU_MB * 1024ull * 1024ull;
     std::uint64_t m_artAccess = 0;
-    bool reserveArtwork(std::uint64_t bytes);
+    // Room for a picture: kYes now; kLater when one was let go and its memory
+    // frees a few frames on (the picture waits for it); kNever when nothing can go.
+    enum class Admit { kYes, kLater, kNever };
+    Admit reserveArtwork(std::uint64_t bytes, bool stock = false);
 
     // The queue is cleared (a page switch, a new order): what was asked and isn't
     // here yet is asked for again near the new selection.
@@ -181,6 +191,56 @@ private:
     static MenuItem slider(std::string label, std::function<int()> get, std::function<void(int)> set,
                            std::string detail = {});
     static MenuItem info(std::string label, std::function<std::string()> value);
+
+    // Y: SwitchU's Wii U grid (Settings.gridView) instead of the card row, drawn
+    // and moving as SwitchU's does (IconGrid, GlossyIcon, SelectionCursor,
+    // TitlePillWidget, PageIndicator and its page arrows, Default Dark): 5 x 3
+    // glass tiles with the console's own icons, pages that slide (0.34 s),
+    // the edge bump, a cursor that glides between tiles, the name pill and dots.
+    static constexpr int kGridCols = 5, kGridRows = 3, kGridPer = kGridCols * kGridRows;
+    bool gridOn() const { return m_forceLayout >= 0 ? m_forceLayout == 1 : m_settings.gridView; }
+    // Y: the row and the grid morph into each other (IconGrid's layout morph,
+    // 0.40 s inOutCubic): m_gridIn goes 0 (the row) to 1 (the grid) evenly.
+    bool morphing() const { return m_gridIn > 0.f && m_gridIn < 1.f; }
+    int m_forceLayout = -1; // (cardRect: either layout's place, while they morph)
+    void toggleGrid();
+    void drawGrid(nxui::Renderer& r);
+    void updateGrid(float dt);
+    bool gridMove(int dx, int dy);  // false when the move leaves the grid (up from the top row)
+    void gridPage(int dir, bool fromEdge); // L / R (and the row's ends): the next page
+    void gridPages(int count);              // a flick: that many pages on (- back), the same cell
+    void gridSlideTo(int page);
+    float gridPageDx(int page) const;
+    nxui::Rect gridTileRect(int index) const; // its cell, with the slide (no focus scale)
+    float gridFocusScale(int index) const;
+    float gridFocusGlow(int index) const;
+    float m_gridIn = 0.f;           // 0 the card row, 1 the grid (the panel fades with it)
+    int m_gridShown = 0, m_gridFrom = 0, m_gridDir = 1; // IconGrid's page, the one leaving
+    float m_gridSlideT = 1.f;       // 1: not sliding
+    float m_gridBump = 0.f, m_gridBumpT = -1.f;
+    int m_gridBumpDir = 0;
+    int m_gridFocus = -1, m_gridUnfocus = -1; // GlossyIcon focus: grows 1.075, the last one shrinks back
+    float m_gridFocusT = 1.f, m_gridUnfocusT = 1.f;
+    float m_gridPulse = 0.f;        // GlossyIcon's m_suspendPulse
+    nxui::Rect m_curFrom{}, m_curTo{}, m_curRect{};
+    float m_curT = 1.f, m_curDur = 0.2f, m_curTeleport = 0.f, m_curWave = 0.f;
+    bool m_curInit = false;
+    std::string m_pillText, m_pillShown;
+    float m_pillXFrom = 640.f, m_pillWFrom = 0.f, m_pillXTo = 640.f, m_pillWTo = 0.f, m_pillT = 1.f, m_pillReveal = 1.f;
+    int m_dotsPage = -1;
+    float m_dotsPop = 0.30f;
+    float m_arrowShowL = 0.f, m_arrowShowR = 0.f, m_arrowKickL = 0.f, m_arrowKickR = 0.f;
+    nxui::Font m_fGridPill, m_fGridGlyph;
+    std::unique_ptr<nxui::Texture> m_gridArrowL, m_gridArrowR;
+    bool m_gridAssetsTried = false;
+    float m_gridDrag = 0.f;         // a swipe in progress (pixels)
+    // Touch on the grid moves the pages on a spring: let go, they carry on from
+    // where the finger left them, at its speed (m_gridSettle eases to 0); a new
+    // touch catches them where they are (m_gridGrab).
+    float m_gridSettle = 0.f, m_gridSettleV = 0.f, m_gridGrab = 0.f;
+    void gridTouchRelease(float offset, float speed);
+    // L / R on the card row: a screenful of cards at a time.
+    static constexpr int kCardsPerScreen = 5;
 
     std::vector<Game>& games() { return m_pages[m_page]; }
     int& sel() { return m_sels[m_page]; }
@@ -334,7 +394,20 @@ private:
 #ifdef SWITCHU_MENU
     Spotify m_spotify;
     bool m_spWatch = false;
+    // Spotify through Switify (github.com/DomazinUS/Switify; the client is
+    // cristowo/SwitchU's): its background service plays on the console, in
+    // HOME and over games. m_sp is filled from it; the buttons go to it.
+    switchu::switify::Client m_switify;
+    std::string m_swCover;             // the cover shown (its URL)
+    std::uint32_t m_swPos = 0;         // the last position it said (the song moves on from m_sp.at)
+    bool m_swPlayWhenReady = false;    // started by Play: it plays once it's up
+    float m_swStartedAt = 0.f;
+    bool m_swPausedForSleep = false;
 #endif
+    // The Music screen's list with Spotify: your library, playlists, their songs.
+    int spotifyRows() const;
+    void spotifyRow(int row);  // A on it: a playlist opens, a song plays
+    bool spotifyBack();        // B in the list: up a level (false at the top)
     // + > Title picture: the game's pictures to choose from, in a grid.
     bool m_pickOpen = false;
     Game m_pickGame;
@@ -460,8 +533,13 @@ private:
     void listInput(std::vector<MenuItem>& items, int& sel, const std::function<void()>& close);
     void openUsers();
     void openNotifications();
+    void takeSwitchUOrder();
     void startMove();
     void finishMove(bool keep);
+    void moveTo(int index);                    // the held card to this place (the others glide)
+    void arrange(std::vector<Game> next);      // the page in a new order, its cards gliding there
+    nxui::Vec2 slotPos(int index) const;       // a place's spot, as laid out now (no glide)
+    void updateMove(float dt);
     void say(const std::string& message);
     void activateTop(int index);
     void activateBottom(int index);
@@ -489,7 +567,9 @@ private:
                      float a, float pressed);
     void frost(nxui::Renderer& r, const nxui::Rect& rect, float radius, const nxui::Color& tint);
     void icon(nxui::Renderer& r, const char* name, float cx, float cy, float size, const nxui::Color& tint);
-    bool cardRect(int index, nxui::Rect& card, float& chosen);
+    bool cardRect(int index, nxui::Rect& card, float& chosen); // with a move's glide and jiggle
+    bool cardRectAt(int index, nxui::Rect& card, float& chosen);
+    bool rowShows(int index) const;
     const nxui::Texture* gameIconTexture();
     nxui::Color accent(float a = 1.f) const;
     nxui::Color glassTint(float a = 1.f) const;
@@ -566,6 +646,8 @@ private:
     // after HOME is up, so coming back from a game doesn't read the whole
     // shelf at once; browsing widens it at once.
     int m_artRadius = 1;
+    float m_artArrivedAt = -10.f; // the last picture shown (fading in for a moment)
+    float m_evictWait = 0.f; // a picture let go: its memory frees 4 frames on (nothing else goes until then)
     std::future<Lists> m_listJob;
     float m_pageIn = 1.f;         // 0 -> 1 after a page switch
     int m_pageDir = 1;
@@ -588,10 +670,42 @@ private:
     std::uint64_t m_launchTexId = 0;
     float m_launchTexIn = 0.f;
 
-    // Plus > Move: the chosen card moves with left / right.
+    // Moving a card (Plus > Move, or a touch held 0.55 s), as SwitchU's edit
+    // mode: the held one rides the cursor, lifted and pulsing; the others jiggle
+    // and glide to where they'd go (the grid swaps, as SwitchU's grid drops; the
+    // row inserts, as its single row). A puts it down, B puts it all back.
     bool m_moving = false;
     std::vector<Game> m_moveBefore;
     int m_moveBeforeSel = 0;
+    std::uint64_t m_moveId = 0;
+    float m_moveJiggle = 0.f, m_moveTime = 0.f; // the others' jiggle (0..1, 0.18 s), its phase
+    bool m_moveTouch = false;                   // dragged with a finger: the held tile follows it
+    float m_moveTouchX = 0.f, m_moveTouchY = 0.f;
+    int m_moveTouchFrom = 0, m_moveEdgeDir = 0;
+    float m_moveEdgeHold = 0.f;
+    float m_yAt = 0.f; bool m_yArmed = false; // Y: tapped (the grid) or held (Move)
+    int m_holdIndex = -1; // the card under a touch that began on one (held 0.55 s: picked up)
+    struct Glide {
+        float dx = 0.f, dy = 0.f, t = 0.f, dur = 0.2f;
+    };
+    std::unordered_map<std::uint64_t, Glide> m_glides; // cards on their way to a new place (by id)
+
+    // The GPU's time per drawing step (Settings > perf log): timestamps between
+    // the steps, read 3 frames on (done by then: NUM_FB is 2), summed per 10 s.
+    static constexpr int kGpuRing = 4, kGpuMarks = 24;
+#ifdef NXUI_BACKEND_DEKO3D
+    dk::UniqueMemBlock m_gpuTimes;
+#endif
+    std::uint64_t m_gpuFrame = 0;
+    int m_gpuMark = 0;
+    const char* m_gpuNames[kGpuRing][kGpuMarks] = {};
+    bool m_gpuMenu[kGpuRing] = {}, m_gpuBlur[kGpuRing] = {};
+    std::map<std::string, std::pair<float, float>> m_gpuSteps; // sum, max (ms)
+    std::map<std::string, int> m_gpuOverBy;
+    int m_gpuFrames = 0, m_gpuOver = 0, m_gpuOverMenu = 0, m_gpuOverBlur = 0, m_gpuBlurs = 0, m_gpuMenus = 0;
+    float m_gpuTotalSum = 0.f, m_gpuTotalMax = 0.f, m_gpuWindowAt = 0.f;
+    void gpuFrameBegin();
+    void gpuMark(const char* ended);
 
     // The background: the chosen game's art, faded in over the last one.
     std::uint64_t m_bgId = 0, m_bgPrevId = 0;
@@ -765,6 +879,7 @@ private:
     std::mutex m_mu;
     std::condition_variable m_cv;
     std::deque<Job> m_jobs;
+    std::deque<Job> m_idleJobs; // the grid's other icons: taken when nothing else is wanted
     std::vector<Done> m_done;
     std::map<std::uint64_t, int> m_playersIn;
     bool m_playersFresh = false;
@@ -808,6 +923,12 @@ private:
     // Touch: drag the row, tap a card (again to play), tap any button.
     bool m_dragging = false, m_touchOnCards = false;
     float m_touchScroll = 0.f;
+    // Swipes with momentum: where the finger was over the last ~100 ms (time,
+    // x) gives its speed when it lets go; the row glides on (m_flingV, cards a
+    // second) and slows to a stop on a card; a grid flick turns 1-3 pages.
+    std::deque<std::pair<float, float>> m_touchTrail;
+    float m_flingV = 0.f;
+    float touchSpeed() const; // pixels a second, left negative
 
 #ifdef SWITCHU_MENU
     // As HOME.
