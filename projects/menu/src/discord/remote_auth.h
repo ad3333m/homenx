@@ -7,15 +7,17 @@
 #include <thread>
 
 // "Scan the QR code with your phone" login (Discord's remote auth v2). The phone app
-// approves the session and we receive the account token, so no password or captcha
-// has to be typed on the console.
+// approves the session and we receive the account token. If Discord asks for a
+// CAPTCHA, the console shows a second code. The phone opens that page and the user
+// completes the check there. The Switch browser cannot open a page on the console.
 class RemoteAuth {
 public:
-    enum class Phase { Idle, Preparing, ShowQr, Confirm, LoggingIn, Done, Cancelled, Failed };
+    enum class Phase { Idle, Preparing, ShowQr, Captcha, Confirm, LoggingIn, Done, Cancelled, Failed };
 
     struct Snapshot {
         Phase phase = Phase::Idle;
         std::string qrUrl;
+        std::string captchaUrl;                // phone page that shows Discord's check
         std::string userId, username, avatar;  // after the phone scans
         std::string token;                     // when Done
         std::string error;

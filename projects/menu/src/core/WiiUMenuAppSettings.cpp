@@ -1020,6 +1020,9 @@ void WiiUMenuApp::ensureDiscordPanel() {
             // the keyboard above the Discord panel.
             m_discordTokenEntryPending = true;
         };
+        cb.onOpenCaptcha = [this](const std::string& url) {
+            m_launcher.launchBrowser(activeProfileUid(), url.c_str());
+        };
         cb.onNavigate = [this]() { m_audio.playSfx(Sfx::Navigate); };
         cb.onActivate = [this]() { m_audio.playSfx(Sfx::Activate); };
         m_discordPanel->setCallbacks(std::move(cb));

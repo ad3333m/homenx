@@ -294,6 +294,11 @@ void DiscordPanel::bindInput() {
         }
     });
     addAction(static_cast<uint64_t>(nxui::Button::A), [this]() {
+        if (m_service && m_service->qrNeedsCaptcha()) {
+            // A would open the Switch browser, which cannot load this page.
+            if (m_cb.onActivate) m_cb.onActivate();
+            return;
+        }
         if (!listFocused()) { // A on a server goes into its channels
             m_column = 1;
             if (m_cb.onNavigate) m_cb.onNavigate();
@@ -957,7 +962,10 @@ void DiscordPanel::drawTopBar(nxui::Renderer& ren, const nxui::Rect& p, float a)
     }
 
     std::string title, hint;
-    if (qr) {
+    if (qr && m_service->qrNeedsCaptcha()) {
+        title = "Discord check";
+        hint = i18n.tr("discord.hint_cancel", "B  Cancel");
+    } else if (qr) {
         title = i18n.tr("discord.qr_title", "Log in with QR Code");
         hint = i18n.tr("discord.hint_cancel", "B  Cancel");
     } else if (m_view == View::Chat) {
@@ -1335,7 +1343,8 @@ void DiscordPanel::drawChat(nxui::Renderer& ren, const nxui::Rect& area, float a
 
 void DiscordPanel::drawQrView(nxui::Renderer& ren, const nxui::Rect& area, float a) {
     auto& i18n = nxui::I18n::instance();
-    const std::string url = m_service->qrUrl();
+    const bool check = m_service->qrNeedsCaptcha();
+    const std::string url = check ? m_service->qrCaptchaUrl() : m_service->qrUrl();
     const float side = 250.f;
     const nxui::Rect box{area.x + (kPanelW - side) * 0.5f, area.y + 28.f, side, side};
     drawQr(ren, url, box, a);
@@ -1345,14 +1354,16 @@ void DiscordPanel::drawQrView(nxui::Renderer& ren, const nxui::Rect& area, float
                      m_smallFont, rgb(30, 31, 34, a), 0.8f);
     }
     float y = box.y + side + 24.f;
-    for (const auto& line : wrap(m_font, i18n.tr("discord.qr_body",
-             "Scan this with the Discord mobile app to log in instantly."), kPanelW - 48.f, 0.74f, 3)) {
+    const std::string headline = check
+        ? std::string("Scan this with your phone's camera.")
+        : i18n.tr("discord.qr_body", "Scan this with the Discord mobile app to log in instantly.");
+    for (const auto& line : wrap(m_font, headline, kPanelW - 48.f, 0.74f, 3)) {
         ren.drawText(line, {area.x + (kPanelW - m_font->measure(line).x * 0.74f) * 0.5f, y}, m_font,
                      textHeader(a), 0.74f);
         y += 25.f;
     }
     y += 8.f;
-    for (const auto& line : wrap(m_smallFont, m_service->qrStatus(), kPanelW - 48.f, 0.76f, 4)) {
+    for (const auto& line : wrap(m_smallFont, m_service->qrStatus(), kPanelW - 48.f, 0.76f, check ? 6 : 4)) {
         ren.drawText(line, {area.x + (kPanelW - m_smallFont->measure(line).x * 0.76f) * 0.5f, y}, m_smallFont,
                      textMuted(a), 0.76f);
         y += 22.f;

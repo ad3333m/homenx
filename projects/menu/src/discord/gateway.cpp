@@ -362,7 +362,27 @@ Gateway::After Gateway::Session(const std::string& url) {
             }
             for (auto& p : out) ws.SendText(p);
         }
-        if (msgs.empty()) std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        if (msgs.empty()) {
+            // A quiet gateway has nothing to read most of the time. Waiting on the
+            // socket still sends the heartbeat on time and still sends anything the
+            // menu queued, without waking this thread on every frame.
+            int waitMs = 100;
+            const int64_t soon = Now();
+            auto sooner = [&](int64_t at) {
+                if (at <= soon) return;
+                const int left = static_cast<int>(std::min<int64_t>(at - soon, waitMs));
+                if (left > 0 && left < waitMs) waitMs = left;
+            };
+            if (helloSeen) sooner(nextHb);
+            sooner(identifyAt);
+            bool pending = false;
+            {
+                std::lock_guard<std::mutex> lk(mu_);
+                pending = !out_.empty();
+            }
+            if (!pending && ws.WaitReadable(waitMs) < 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        }
     }
     ws.SendClose(1000);
     return After::Retry;

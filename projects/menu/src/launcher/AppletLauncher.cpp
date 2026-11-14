@@ -603,7 +603,27 @@ Result AppletLauncher::launchEshop(AccountUid uid) {
     }
     return rc;
 }
-Result AppletLauncher::launchBrowser(AccountUid, const char*) { return 0; }
+Result AppletLauncher::launchBrowser(AccountUid uid, const char* url) {
+    if (!url || !url[0]) return 0;
+    WebCommonConfig cfg{};
+    WebCommonReply reply{};
+    Result rc = webPageCreate(&cfg, url);
+    if (R_FAILED(rc)) {
+        DebugLog::log("[launcher] browser create rc=0x%X", rc);
+        return rc;
+    }
+    // The check page loads hCaptcha from another host, so the applet has to
+    // allow more than the first address.
+    webConfigSetWhitelist(&cfg, ".*");
+    webConfigSetPointer(&cfg, true);
+    webConfigSetLeftStickMode(&cfg, WebLeftStickMode_Pointer);
+    webConfigSetTouchEnabledOnContents(&cfg, true);
+    webConfigSetBootDisplayKind(&cfg, WebBootDisplayKind_Black);
+    if (accountUidIsValid(&uid)) webConfigSetUid(&cfg, uid);
+    rc = webConfigShow(&cfg, &reply);
+    DebugLog::log("[launcher] browser rc=0x%X", rc);
+    return rc;
+}
 Result AppletLauncher::launchFriends(AccountUid) { return 0; }
 
 #else
