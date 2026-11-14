@@ -119,11 +119,6 @@ jobs:
           g++ -std=c++20 -I projects/common/include tools/test_achievement_packs.cpp -o /tmp/packs_test
           /tmp/packs_test
 
-      - name: Build the achievements overlay (Tesla/Ultrahand .ovl)
-        run: |
-          make -C projects/achievements -j"$(nproc)"
-          test -s projects/achievements/homenx-achievements.ovl
-
       - name: Set xmake env
         run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> "$GITHUB_ENV"
 
@@ -170,11 +165,7 @@ jobs:
           mkdir -p dist/frontend/switch/SwitchU/bin
           cp build/cross/aarch64/release/HomeNX-Loader.nro dist/frontend/switch/SwitchU/bin/homenx-loader.nro
           cp romfs/bin/sphaira.nro dist/frontend/switch/SwitchU/bin/sphaira.nro
-          # The menu copies it to switch/.overlays/ (the updaters only write HomeNX's folders).
-          cp projects/achievements/homenx-achievements.ovl dist/frontend/switch/SwitchU/bin/homenx-achievements.ovl
-          # Achievement packs (docs/achievement-packs.md): the games HomeNX has achievements for.
-          mkdir -p dist/frontend/switch/SwitchU/achievements
-          cp projects/achievements/packs/*.txt dist/frontend/switch/SwitchU/achievements/ 2>/dev/null || true
+          # (Achievements are off for now, 2026-11-14: their overlay and packs aren't shipped.)
           # NXToggle ships inside HomeNX's folder and the menu copies it into
           # switch/NXToggle/ (a running Toggle can't replace its own .nro).
           mv dist/frontend/switch/NXToggle/NXToggle.nro dist/frontend/switch/SwitchU/bin/homenx-toggle.nro

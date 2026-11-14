@@ -2838,7 +2838,8 @@ int main(int argc, char* argv[]) {
     if (R_FAILED(rc))
         switchu::FileLog::log("[daemon] menu launch failed: 0x%X", rc);
 
-    switchu::daemon::achievements_watch::start();
+    // Achievements are off for now (2026-11-14): no watcher, so dmnt and the game's memory are
+    // never touched. switchu::daemon::achievements_watch::start() brings them back.
 
     while (g_running.load()) {
         g_bootTimeSynced = switchu::timebudget::syncBootTime(); // until it has worked once

@@ -307,9 +307,6 @@ void AppletLauncher::installBundledApps() {
          "sdmc:/switch/Homebrew-Manager/Homebrew-Manager.nro"},
         {"sdmc:/switch/SwitchU/bin/cardsnx.nro", "sdmc:/switch/CardsNX",
          "sdmc:/switch/CardsNX/CardsNX.nro"},
-        // Achievements over games: a Tesla/Ultrahand overlay.
-        {"sdmc:/switch/SwitchU/bin/homenx-achievements.ovl", "sdmc:/switch/.overlays",
-         "sdmc:/switch/.overlays/homenx-achievements.ovl"},
     };
     // Same bytes, not just the same size: .nro/.ovl segments are page-aligned,
     // so a new build is often exactly as big as the old one (that kept an old
@@ -373,6 +370,12 @@ void AppletLauncher::installBundledApps() {
         DebugLog::log("[launcher] installed %s ok=%d", app.target, ok ? 1 : 0);
     }
 
+    // Achievements are off for now (2026-11-14): their overlay goes from the console too.
+    {
+        std::error_code gone;
+        std::filesystem::remove("sdmc:/switch/.overlays/homenx-achievements.ovl", gone);
+        std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-achievements.ovl", gone);
+    }
     // Ultrahand settings for the overlay, in sdmc:/config/ultrahand/overlays.ini:
     // force_support=true: it's built with the new libnx (MOD0 "LNY2"), but an
     // Ultrahand that looked at it while this copy was being written keeps

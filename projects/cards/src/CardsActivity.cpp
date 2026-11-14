@@ -3870,8 +3870,6 @@ void CardsActivity::openOptions() {
         if (game) {
             items.push_back(action("About this game", [this, g]() { openGameInfo(g); }));
             items.back().glyph = "dots";
-            items.push_back(action("Achievements", [this, g]() { openAchievements(g); }));
-            items.back().glyph = "trophy";
         }
     }
     if (const NroUpdate* u = nroUpdate(g)) { // a newer version
@@ -6155,21 +6153,8 @@ void CardsActivity::buildSettings() {
 #ifdef SWITCHU_MENU
             syncPopupsFlag();
 #endif
-        }, "Battery, controllers and achievements; in games too, with Ultrahand"));
-    m_milestonesOn = switchu::achievements::milestonesEnabled();
-    notices.rows.push_back(toggle("Playtime milestones", [this]() { return m_milestonesOn; },
-        [this]() {
-            m_milestonesOn = !m_milestonesOn;
-            switchu::achievements::setMilestonesEnabled(m_milestonesOn);
-        },
-        "For every game. Each game's own goals stay on without them."));
-    m_packsOn = switchu::achievements::packsEnabled();
-    notices.rows.push_back(toggle("Game achievements", [this]() { return m_packsOn; },
-        [this]() {
-            m_packsOn = !m_packsOn;
-            switchu::achievements::setPacksEnabled(m_packsOn);
-        },
-        "Each game's own goals, read from the game while it runs (Atmosphère's cheat service)"));
+        }, "Battery and controllers"));
+    // (Achievements are off for now, 2026-11-14: their rows come back with them.)
     m_sheet.push_back(std::move(notices));
     Section storage{"Storage", "copy", {}};
     storage.rows.push_back(info("Console memory", [this]() { return m_storageSummary[0]; }));
