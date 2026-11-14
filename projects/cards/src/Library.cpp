@@ -2085,11 +2085,33 @@ bool setBluetooth(bool on) {
     setsysExit();
     // The flag alone waits for a restart: the radio itself changes now.
     if (ok && hosversionAtLeast(13, 0, 0) && R_SUCCEEDED(btmsysInitialize())) {
-        if (on) btmsysEnableRadio();
-        else btmsysDisableRadio();
+        // btm's DisableRadio is the system's Airplane mode switch (it drags nifm along): put nifm's
+        // state back, so Bluetooth off leaves Airplane mode and Wi-Fi as they were.
+        bool wasAirplane = true; // not read = not touched
+        const bool known = !on && readAirplaneMode(wasAirplane);
+        const Result rc = on ? btmsysEnableRadio() : btmsysDisableRadio();
         btmsysExit();
+        if (!on) {
+            const bool restored = known && !wasAirplane && setAirplaneMode(false);
+            bool now = false;
+            const bool read = readAirplaneMode(now);
+            if (std::filesystem::exists("sdmc:/config/CardsNX/perf.log")) // only when the log is on
+                std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app)
+                    << "[bt] off: radio rc=0x" << std::hex << rc << std::dec << " airplane before=" << (known ? int(wasAirplane) : -1)
+                    << " restore=" << restored << " after=" << (read ? int(now) : -1) << "\n";
+        }
     }
     return ok;
+}
+
+bool readAirplaneMode(bool& airplane) {
+    NifmSystem nifm;
+    u8 wireless = 1;
+    if (!nifm.open()) return false;
+    serviceAssumeDomain(&nifm.general);
+    if (R_FAILED(serviceDispatchOut(&nifm.general, 17, wireless))) return false;
+    airplane = (wireless & 1) == 0;
+    return true;
 }
 
 bool setAirplaneMode(bool on) {

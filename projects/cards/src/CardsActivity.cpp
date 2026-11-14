@@ -6503,6 +6503,7 @@ void CardsActivity::flipBluetooth() {
     }
     if (setBluetooth(on)) m_quick.bluetooth = on;
     else say("Bluetooth didn't change.");
+    readAirplaneMode(m_quick.airplane); // the radio call can move it
     m_audio.play(on ? "toggle_on" : "toggle_off");
 }
 
