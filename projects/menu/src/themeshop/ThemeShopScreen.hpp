@@ -6,6 +6,7 @@
 #include <nxui/core/Texture.hpp>
 
 #include <cstdint>
+#include <cstdlib>
 #include <algorithm>
 #include <future>
 #include <memory>
@@ -141,6 +142,12 @@ private:
         std::vector<std::uint8_t> bytes;
         std::future<void> future;
         nxui::Texture texture;
+        // Installed previews: decoded on the thread pool (std::free), uploaded
+        // on the UI thread while phase is Downloaded.
+        std::uint8_t* pixels = nullptr;
+        int pixelW = 0;
+        int pixelH = 0;
+        ~PreviewImageState() { std::free(pixels); }
     };
 
     enum class ThemeTouchTarget {
@@ -198,9 +205,13 @@ private:
     PreviewPhase communityPreviewPhase(const ThemeCatalogClient::Entry& entry) const;
     const nxui::Texture* communityPreviewTexture(const std::string& previewPath) const;
     const nxui::Texture* communityPreviewTexture(const ThemeCatalogClient::Entry& entry) const;
-    PreviewPhase installedPreviewPhase(const std::string& previewPath) const;
-    const nxui::Texture* installedPreviewTexture(const std::string& previewPath) const;
-    void primeInstalledPreview(const std::string& previewPath);
+    // detail: the big preview (960 px) rather than the grid's (480 px).
+    PreviewPhase installedPreviewPhase(const std::string& previewPath, bool detail) const;
+    const nxui::Texture* installedPreviewTexture(const std::string& previewPath, bool detail) const;
+    void primeInstalledPreview(const std::string& previewPath, bool detail);
+    void syncFinishedInstalledPreviewLoads();
+    void clearInstalledPreviewCache();
+    void onFullyClosed() override;
     void primeCommunityPreview(const std::string& previewPath);
     void primeCommunityPreview(const ThemeCatalogClient::Entry& entry);
     void primeVisibleCommunityPreviews();
@@ -253,6 +264,7 @@ private:
     std::string m_packageTransferThemeId;
     bool m_packageTransferInstallMode = false;
     bool m_hasPendingCommunityPreviewWork = false;
+    bool m_hasPendingInstalledPreviewWork = false;
     std::uint64_t m_communityRevision = 0;
     bool m_detailOpen = false;
     bool m_detailFullscreen = false;

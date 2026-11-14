@@ -23,10 +23,43 @@ SteamGridDbBackdrop::SteamGridDbBackdrop(nxui::GpuDevice& gpu,
 }
 
 void SteamGridDbBackdrop::setEnabled(bool enabled) {
+    const bool wasEnabled = m_enabled;
     m_enabled = enabled;
     if (!enabled && m_pendingDecode && m_pendingDecode->state)
         m_pendingDecode->state->cancelled.store(true);
+    if (wasEnabled && !enabled)
+        releaseArtwork();
     setVisible(enabled);
+}
+
+// Off (the setting, or a view or folder that doesn't show it): both sets on the
+// GPU (a 1280x720 hero and a logo each, ~8 MB) and the decoded ones waiting
+// (~4 MB each) are let go. Turning it back on decodes the focused title again
+// from the disk cache. Textures retire their memory a few frames later
+// (Renderer), so this is safe mid-frame; clear() alone would keep the
+// vectors' capacity, hence the swaps.
+void SteamGridDbBackdrop::releaseArtwork() {
+    for (auto& set : m_sets) {
+        set.hero = nxui::Texture();
+        set.logo = nxui::Texture();
+        set.titleId = 0;
+        set.hasHero = false;
+        set.hasLogo = false;
+    }
+    m_readyArtwork.reset();
+    m_uploadStage = 0;
+    std::vector<DecodedArtwork>().swap(m_decodedCache);
+    // A cancelled decode still running keeps its pixels until it ends; with the
+    // thread pool, dropping the future doesn't wait (std::async's would).
+    if (m_pendingDecode && m_threadPool)
+        m_pendingDecode.reset();
+    // Nothing is shown now: the next showTitle, even of the same title, decodes.
+    m_requestedTitleId = 0;
+    ++m_requestGeneration;
+    m_appliedGeneration = m_requestGeneration;
+    m_showPreviousDuringCrossfade = false;
+    m_artworkOpacity.setImmediate(0.f);
+    m_fade.setImmediate(1.f);
 }
 
 void SteamGridDbBackdrop::invalidateArtworkCaches() {

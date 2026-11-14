@@ -652,7 +652,18 @@ void DiscordPanel::onUpdate(float dt) {
     if (m_anim != target) {
         const float step = dt / kAnimDur;
         m_anim = m_anim < target ? std::min(target, m_anim + step) : std::max(target, m_anim - step);
-        if (m_anim <= 0.f && !m_active) setVisible(false);
+        if (m_anim <= 0.f && !m_active) {
+            setVisible(false);
+            // Chat pictures and GIFs (up to kPictureBudget) are only shown while the
+            // panel is open: give them back and download again on the next visit.
+            // Avatars stay (small, and the HOME bar and the friends list use them).
+            // A texture retires its memory a few frames later (Renderer), and a load
+            // still in flight finds its slot gone and drops its pixels.
+            m_pictures.clear();
+            m_pictureOrder.clear();
+            m_pictureOrder.shrink_to_fit();
+            m_pictureBytes = 0;
+        }
     }
     if (!m_active || !m_service) return;
     m_rebuildIn -= dt;
@@ -731,6 +742,9 @@ const DiscordPanel::Picture* DiscordPanel::picture(const std::string& url, const
             if (alive.expired() || d->rgba.empty()) return;
             auto slot = m_pictures.find(url);
             if (slot == m_pictures.end()) return; // dropped meanwhile
+            // Closed and reopened while it downloaded: a second download for the
+            // same URL may land first. Keep that one (its bytes are counted).
+            if (slot->second) return;
             const std::size_t bytes = d->rgba.size();
             if (m_gpu->imageMemoryAvailable() < bytes + (16u << 20)) return; // leave room for HOME
             auto pic = std::make_unique<Picture>();

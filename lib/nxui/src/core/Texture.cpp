@@ -2,6 +2,7 @@
 #include <nxui/core/GpuDevice.hpp>
 #include <nxui/core/Renderer.hpp>
 
+#include <nxui/core/ImageDecode.hpp> // before the implementation below
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -249,42 +250,13 @@ bool Texture::loadFromPixelsPooled(GpuDevice& gpu, Renderer& ren,
 }
 
 bool Texture::loadFromFile(GpuDevice& gpu, Renderer& ren, const std::string& path, int maxSide) {
-    int w, h, ch;
-    uint8_t* data = stbi_load(path.c_str(), &w, &h, &ch, 4);
+    // Size read first, over 4 MP refused, then shrunk to maxSide (ImageDecode.hpp).
+    int w = 0, h = 0;
+    uint8_t* data = image::decodeFile(path.c_str(), maxSide, w, h);
     if (!data) {
-        std::printf("[Texture] stbi_load FAILED: %s\n", path.c_str());
         // Half a texture is worse than none: it can still be bound and drawn.
         m_valid = false;
         return false;
-    }
-    // A file can decode without failing outright and still describe nothing
-    // usable. Caught here so the path that scales and uploads never sees it.
-    if (w <= 0 || h <= 0) {
-        std::printf("[Texture] decoded %dx%d, refusing: %s\n", w, h, path.c_str());
-        stbi_image_free(data);
-        m_valid = false;
-        return false;
-    }
-    if (maxSide > 0 && (w > maxSide || h > maxSide)) {
-        float scale = std::min((float)maxSide / w, (float)maxSide / h);
-        int dw = std::max(1, (int)(w * scale));
-        int dh = std::max(1, (int)(h * scale));
-        uint8_t* scaled = (uint8_t*)std::malloc((size_t)dw * dh * 4);
-        if (scaled) {
-            for (int y = 0; y < dh; ++y) {
-                int sy = y * h / dh;
-                for (int x = 0; x < dw; ++x) {
-                    int sx = x * w / dw;
-                    std::memcpy(scaled + ((size_t)y * dw + x) * 4,
-                                data   + ((size_t)sy * w + sx) * 4, 4);
-                }
-            }
-            stbi_image_free(data);
-            data = scaled;
-            w = dw;
-            h = dh;
-            // after this, data is malloc'd not stbi
-        }
     }
     bool ok = loadFromPixels(gpu, ren, data, w, h);
     // stbi_image_free uses free(), and malloc'd data also uses free()
@@ -295,31 +267,9 @@ bool Texture::loadFromFile(GpuDevice& gpu, Renderer& ren, const std::string& pat
 bool Texture::loadFromMemory(GpuDevice& gpu, Renderer& ren,
                              const uint8_t* data, size_t dataSize, int maxSide)
 {
-    int w, h, ch;
-    uint8_t* pixels = stbi_load_from_memory(data, (int)dataSize, &w, &h, &ch, 4);
+    int w = 0, h = 0;
+    uint8_t* pixels = image::decodeMemory(data, dataSize, maxSide, w, h);
     if (!pixels) return false;
-
-    if (maxSide > 0 && (w > maxSide || h > maxSide)) {
-        float scale = std::min((float)maxSide / w, (float)maxSide / h);
-        int dw = std::max(1, (int)(w * scale));
-        int dh = std::max(1, (int)(h * scale));
-        uint8_t* scaled = (uint8_t*)std::malloc((size_t)dw * dh * 4);
-        if (scaled) {
-            for (int y = 0; y < dh; ++y) {
-                int sy = y * h / dh;
-                for (int x = 0; x < dw; ++x) {
-                    int sx = x * w / dw;
-                    std::memcpy(scaled + ((size_t)y * dw + x) * 4,
-                                pixels + ((size_t)sy * w + sx) * 4, 4);
-                }
-            }
-            stbi_image_free(pixels);
-            pixels = scaled;
-            w = dw;
-            h = dh;
-        }
-    }
-
     bool ok = loadFromPixels(gpu, ren, pixels, w, h);
     std::free(pixels);
     return ok;

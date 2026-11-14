@@ -287,18 +287,44 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done, const std::atom
         for (const auto& r : rj)
             if (!r.value("private", false)) own[squash(r.value("name", std::string()))] = r.value("full_name", std::string());
 
-    // The HB App Store: by .nro path, then by title.
-    std::map<std::string, nlohmann::json> byPath, byTitle;
-    const std::string store = getText("https://switch.cdn.fortheusers.org/repo.json", status);
+    // The HB App Store: by .nro path, then by title. repo.json is ~1.6 MB of
+    // text and several times that parsed; each package used to be copied whole
+    // into both maps. Only the three fields read below are kept, once, and the
+    // text and the parsed tree go before the apps are looked at.
+    struct StorePackage {
+        std::string version, name, binary;
+    };
+    std::vector<StorePackage> packages;
+    std::map<std::string, std::size_t> byPath, byTitle; // index into packages
     {
+        std::string store = getText("https://switch.cdn.fortheusers.org/repo.json", status);
         auto sj = nlohmann::json::parse(store, nullptr, false);
-        if (!sj.is_discarded() && sj.is_object())
-            for (auto& p : sj.value("packages", nlohmann::json::array())) {
-                std::string bin = p.value("binary", std::string());
-                std::transform(bin.begin(), bin.end(), bin.begin(), [](unsigned char c) { return std::tolower(c); });
-                if (!bin.empty()) byPath[bin] = p;
-                byTitle[squash(p.value("title", std::string()))] = p;
+        std::string().swap(store);
+        if (!sj.is_discarded() && sj.is_object()) {
+            const auto list = sj.find("packages");
+            if (list != sj.end() && list->is_array()) {
+                // value() throws on a field that isn't a string; one odd package
+                // must not end the whole check.
+                auto text = [](const nlohmann::json& o, const char* k) {
+                    const auto f = o.find(k);
+                    return f != o.end() && f->is_string() ? f->get<std::string>() : std::string();
+                };
+                packages.reserve(list->size());
+                for (const auto& p : *list) {
+                    if (!p.is_object()) continue;
+                    StorePackage pkg;
+                    pkg.version = text(p, "version");
+                    pkg.name = text(p, "name");
+                    pkg.binary = text(p, "binary");
+                    std::string bin = pkg.binary;
+                    std::transform(bin.begin(), bin.end(), bin.begin(), [](unsigned char c) { return std::tolower(c); });
+                    const std::size_t index = packages.size();
+                    if (!bin.empty()) byPath[bin] = index;
+                    byTitle[squash(text(p, "title"))] = index;
+                    packages.push_back(std::move(pkg));
+                }
             }
+        }
     }
 
     for (App& app : apps) {
@@ -316,14 +342,14 @@ void findUpdates(std::vector<App>& apps, std::atomic<int>& done, const std::atom
         if (!found) {
             std::string rel = app.path.substr(std::strlen("sdmc:"));
             std::transform(rel.begin(), rel.end(), rel.begin(), [](unsigned char c) { return std::tolower(c); });
-            const nlohmann::json* p = nullptr;
-            if (auto it = byPath.find(rel); it != byPath.end()) p = &it->second;
-            else if (auto t = byTitle.find(key); t != byTitle.end()) p = &t->second;
+            const StorePackage* p = nullptr;
+            if (auto it = byPath.find(rel); it != byPath.end()) p = &packages[it->second];
+            else if (auto t = byTitle.find(key); t != byTitle.end()) p = &packages[t->second];
             if (p) {
-                app.latest = p->value("version", std::string());
-                app.downloadUrl = "https://switch.cdn.fortheusers.org/zips/" + p->value("name", std::string()) + ".zip";
+                app.latest = p->version;
+                app.downloadUrl = "https://switch.cdn.fortheusers.org/zips/" + p->name + ".zip";
                 app.zip = true;
-                std::string bin = p->value("binary", std::string());
+                std::string bin = p->binary;
                 if (!bin.empty() && bin[0] == '/') bin.erase(0, 1);
                 app.zipEntry = bin;
                 app.source = "HB App Store";

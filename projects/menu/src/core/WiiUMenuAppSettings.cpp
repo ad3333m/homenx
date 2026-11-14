@@ -1550,6 +1550,7 @@ void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
             m_accessibility.announce(text);
         });
         m_detail->onClosed([this]() {
+            m_detailIsNews = false; // its JPEGs go once stale (releaseStaleNews)
             // Back to where it was opened from (Home, or Settings for pickers).
             if (m_navigator.route() == switchu::navigation::Route::ListDetail)
                 m_navigator.navigate(m_detailPrevRoute);
@@ -1557,6 +1558,7 @@ void WiiUMenuApp::showDetailScreen(std::vector<ListDetailScreen::Entry> entries,
         });
     }
     m_detailReturnFocus = returnFocus;
+    m_detailIsNews = false; // openNews sets it again after this
     app().gpu().waitIdle(); // the previous entries' pictures are freed below
     m_detail->setEntries(std::move(entries), std::move(emptyTitle), std::move(emptyMessage));
     m_audio.playSfx(Sfx::ModalShow);
@@ -1666,6 +1668,18 @@ void WiiUMenuApp::openNews() {
     const auto& left = m_sidebar.leftButtons();
     showDetailScreen(m_newsEntries, i18n.tr("sidebar.news", "News"), m_newsEmpty,
                      left.size() > 2 ? left[2].get() : nullptr);
+    m_detailIsNews = true;
+}
+
+// The articles hold every picture's JPEG (up to 40). Once News is closed and
+// the list is old enough to be read again on the next visit anyway, they go:
+// no extra read compared with keeping them.
+void WiiUMenuApp::releaseStaleNews() {
+    if (m_newsEntries.empty() || m_detailIsNews || !m_newsLoaded) return;
+    if (armTicksToNs(armGetSystemTick() - m_newsLoadedAt) <= 60'000'000'000ULL) return;
+    m_newsEntries.clear();
+    m_newsEntries.shrink_to_fit();
+    m_newsLoaded = false;
 }
 
 // HomeNX Social: your profile, quick buttons and your friends (SocialScreen).

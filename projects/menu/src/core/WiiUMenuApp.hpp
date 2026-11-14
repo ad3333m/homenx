@@ -590,6 +590,8 @@ private:
     float m_fadeRecover = 0.f; // frontend: fade back in if the launch never left
     bool m_fadeOwnsMusic = false;
     std::vector<ListDetailScreen::Entry> m_newsEntries;
+    bool m_detailIsNews = false; // the detail screen shows m_newsEntries
+    void releaseStaleNews();
     std::string m_newsEmpty;
     std::shared_ptr<SteamGridDbPickerScreen> m_steamGridDbPicker;
     std::shared_ptr<FolderOptionsScreen> m_folderOptions;
