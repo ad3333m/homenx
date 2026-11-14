@@ -64,6 +64,13 @@ constexpr size_t kHeapLadder[] = {
     288u * 1024u * 1024u,
     256u * 1024u * 1024u,
     kMenuAppletHeapSize,
+    // With a title suspended the applet pool can be short (Spotify playing in
+    // a game): with no heap at all the menu can't even open its log, and
+    // closes itself to a black screen. Peak use is ~50-80 MiB.
+    192u * 1024u * 1024u,
+    160u * 1024u * 1024u,
+    128u * 1024u * 1024u,
+    96u * 1024u * 1024u,
 };
 }
 
@@ -75,7 +82,20 @@ extern "C" void __libnx_initheap(void) {
 
     void* address = nullptr;
     size_t granted = 0;
+    // 64 MiB of the applet pool stay free (cristowo/SwitchU's fix): a sysmodule
+    // in the applet pool, Switify's service, takes its memory from what this
+    // limit says is free. With the 416 MiB rung taken, Spotify playing left
+    // 124 KiB: every picture was refused (the covers went) and HOME over a game
+    // couldn't make its first texture (a black screen, 2026-11-10).
+    size_t available = 0;
+    u64 total = 0, used = 0;
+    if (R_SUCCEEDED(svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0)) &&
+        R_SUCCEEDED(svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0)) && total > used)
+        available = static_cast<size_t>(total - used);
+    constexpr size_t kHeadroom = 64u * 1024u * 1024u;
+    const size_t ceiling = available > kHeadroom ? available - kHeadroom : 0;
     for (size_t requested : kHeapLadder) {
+        if (ceiling != 0 && requested > ceiling && requested > kHeapLadder[std::size(kHeapLadder) - 1]) continue;
         if (R_SUCCEEDED(svcSetHeapSize(&address, requested))) {
             granted = requested;
             break;
@@ -269,6 +289,13 @@ int main(int argc, char* argv[]) {
     DebugLog::log("[main] applet config...");
 #else
     DebugLog::log("[menu] main() entry");
+    {
+        u64 total = 0, used = 0;
+        svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+        svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+        DebugLog::log("[menu] heap %zu MiB; applet pool free after it %llu MiB", g_switchuHeapSize >> 20,
+                      static_cast<unsigned long long>(total > used ? (total - used) >> 20 : 0));
+    }
 
     auto startMode = readStartMode();
     auto sysStatus = readSystemStatus();
