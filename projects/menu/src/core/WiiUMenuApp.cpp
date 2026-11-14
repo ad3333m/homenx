@@ -1056,6 +1056,14 @@ bool WiiUMenuApp::onCreate() {
                        details,
                        {{nxui::I18n::instance().tr("button.ok", "OK"), {}, true}});
         focusManager().setFocus(m_dialog.get());
+    } else if (m_cardsFallbackNotice && m_dialog) {
+        // NXToggle says CardsNX, but it stopped just after starting 3 times: say why HOME looks different.
+        auto& i18n = nxui::I18n::instance();
+        m_dialog->show(i18n.tr("cards.fallback_title", "CardsNX didn't start"),
+                       i18n.tr("cards.fallback_body",
+                               "CardsNX stopped 3 times while starting, so HomeNX's HOME is shown until the next restart.\nSee /config/SwitchU/menu.log."),
+                       {{i18n.tr("button.ok", "OK"), {}, true}});
+        focusManager().setFocus(m_dialog.get());
     }
 #endif
 

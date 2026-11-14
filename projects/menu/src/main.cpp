@@ -334,8 +334,10 @@ int main(int argc, char* argv[]) {
         DebugLog::log("[hb] app.shutdown...");
         app.shutdown();
 #else
-        auto makeMenuActivity = [sysStatus, startMode](bool fromTutorial = false) -> std::unique_ptr<nxui::Activity> {
+        bool cardsFallback = false; // set below; the lambda reads it when it builds the activity
+        auto makeMenuActivity = [sysStatus, startMode, &cardsFallback](bool fromTutorial = false) -> std::unique_ptr<nxui::Activity> {
             auto activity = std::make_unique<WiiUMenuApp>();
+            activity->setCardsFallbackNotice(cardsFallback);
             activity->setStartupStatus(sysStatus,
                 startMode == switchu::smi::MenuStartMode::AppletReturn);
             activity->setBootStart(startMode == switchu::smi::MenuStartMode::StartupBoot);
@@ -371,7 +373,11 @@ int main(int argc, char* argv[]) {
             } else {
                 cards::startLogBegin(false, "=== the safe start crashed too: HomeNX's HOME instead ===");
                 cards::startLogEnd();
-                DebugLog::log("[menu] CardsNX stopped %d times just after starting: HomeNX's HOME instead", starts);
+                // Tell the user once: the counter goes past 2, so later starts stay on HomeNX's HOME silently.
+                cardsFallback = (starts == 2);
+                if (cardsFallback) std::ofstream(cards::kCardsStarting) << starts + 1;
+                DebugLog::log("[menu] CardsNX stopped %d times just after starting: HomeNX's HOME instead (frontend.txt=\"%s\", start mode %d)",
+                              starts, homeStyle.c_str(), (int)startMode);
             }
         }
         if (useCards) {
