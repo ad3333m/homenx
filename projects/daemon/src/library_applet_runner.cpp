@@ -31,7 +31,8 @@ Result exitReasonResult(LibAppletExitReason reason) {
 
 Result runLibraryApplet(const LibraryAppletRequest& request,
                         LibraryAppletPump pump,
-                        LibraryAppletExitRequested exitRequested) {
+                        LibraryAppletExitRequested exitRequested,
+                        Event* extraWakeEvent) {
     if (request.id == AppletId_None ||
         (request.inputCount != 0 && request.inputs == nullptr)) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
@@ -78,11 +79,22 @@ Result runLibraryApplet(const LibraryAppletRequest& request,
     }
     guard.started = true;
 
+    // Sleep until the applet changes state or a message arrives instead of
+    // polling every 10 ms for as long as the applet is open. Everything the
+    // pump handles (HOME, sleep, wake, SAMS) arrives on these events.
+    Waiter waiters[3]{};
+    s32 waiterCount = 0;
+    waiters[waiterCount++] = waiterForEvent(&guard.holder.StateChangedEvent);
+    if (Event* messageEvent = appletGetMessageEvent())
+        waiters[waiterCount++] = waiterForEvent(messageEvent);
+    if (extraWakeEvent)
+        waiters[waiterCount++] = waiterForEvent(extraWakeEvent);
+
     bool exitWasRequested = false;
+    bool wokeOnMessage = false;
     while (appletHolderActive(&guard.holder) &&
            !appletHolderCheckFinished(&guard.holder)) {
-        if (pump)
-            pump();
+        const bool handled = pump && pump();
 
         if (!exitWasRequested && exitRequested && exitRequested()) {
             exitWasRequested = true;
@@ -97,7 +109,23 @@ Result runLibraryApplet(const LibraryAppletRequest& request,
             break;
         }
 
-        svcSleepThread(10'000'000ULL);
+        if (handled)
+            continue; // one message per pass, as before: look again at once
+
+        // A channel event that stays signalled with nothing to pop must not
+        // turn into a hot loop: back off like the old 10 ms poll.
+        if (wokeOnMessage)
+            svcSleepThread(10'000'000ULL);
+        wokeOnMessage = false;
+
+        // The timeout is a safety net only: a missed signal costs at most this.
+        s32 signalled = -1;
+        const Result waitRc = waitObjects(&signalled, waiters, waiterCount,
+                                          1'000'000'000ULL);
+        if (R_FAILED(waitRc) && waitRc != KERNELRESULT(TimedOut))
+            svcSleepThread(10'000'000ULL); // a rejected waiter: poll as before
+        else if (R_SUCCEEDED(waitRc) && signalled > 0)
+            wokeOnMessage = true;
     }
 
     appletHolderJoin(&guard.holder);

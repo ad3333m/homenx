@@ -206,6 +206,7 @@ extern "C" void __appExit(void) {
 }
 
 static std::atomic<bool> g_running{true};
+static bool g_bootTimeSynced = false;
 static std::atomic<bool> g_powerSequenceStarted{false};
 static UEvent g_mainWakeEvent{};
 static UEvent g_controlCacheWakeEvent{};
@@ -290,6 +291,19 @@ static bool shouldDeferViewPolling() {
            daemon::app::hasForeground() &&
            !daemon::menu_la::isActive() &&
            !g_foregroundAppletActive;
+}
+
+// The control-cache worker holds its queue while a game owns the foreground
+// and sleeps meanwhile: wake it the moment that ends.
+// (Also whenever work is queued and nothing defers it: the worker may have seen
+// a deferral that began and ended within one pass, with no edge here.)
+static bool controlCacheQueueEmpty();
+static void wakeControlCacheIfUndeferred() {
+    static bool s_deferred = false;
+    const bool deferred = shouldDeferViewPolling();
+    if (!deferred && (s_deferred || !controlCacheQueueEmpty()))
+        ueventSignal(&g_controlCacheWakeEvent);
+    s_deferred = deferred;
 }
 
 static uint64_t elapsedNsSince(uint64_t startTick) {
@@ -396,6 +410,11 @@ static void enqueueControlCacheRecords(const std::vector<switchu::ns::ExtApplica
     }
     if (queued)
         ueventSignal(&g_controlCacheWakeEvent);
+}
+
+static bool controlCacheQueueEmpty() {
+    std::lock_guard<std::mutex> lock(g_controlCacheQueueMutex);
+    return g_controlCacheQueue.empty();
 }
 
 static bool popControlCacheTitle(uint64_t& outTitleId) {
@@ -1347,9 +1366,11 @@ static void takeLaunchRequests() {
     }
 }
 
-static void pumpForegroundAppletMessages() {
-    handleGeneralChannel();
-    handleAppletMessages();
+static bool pumpForegroundAppletMessages() {
+    wakeControlCacheIfUndeferred();
+    const bool general = handleGeneralChannel();
+    const bool messages = handleAppletMessages();
+    return general || messages;
 }
 
 static bool consumeForegroundAppletHomeRequest() {
@@ -1495,7 +1516,8 @@ static Result launchLibraryApplet(AppletId id, const char* name,
     };
     const Result rc = daemon::runLibraryApplet(
         request, pumpForegroundAppletMessages,
-        consumeForegroundAppletHomeRequest);
+        consumeForegroundAppletHomeRequest,
+        g_generalChannelEventReady ? &g_generalChannelEvent : nullptr);
     g_foregroundAppletActive = false;
     return rc;
 }
@@ -1556,7 +1578,8 @@ static Result runControllerApplet(const char* name,
     g_pendingForegroundAppletHome = false;
     Result rc = daemon::runLibraryApplet(
         request, pumpForegroundAppletMessages,
-        consumeForegroundAppletHomeRequest);
+        consumeForegroundAppletHomeRequest,
+        g_generalChannelEventReady ? &g_generalChannelEvent : nullptr);
     g_foregroundAppletActive = false;
     switchu::FileLog::log(
         "[applet] %s output res=0x%X players=%d selected=%u runner=0x%X",
@@ -1667,7 +1690,8 @@ static Result launchUserProfile(AccountUid uid,
     };
     const Result rc = daemon::runLibraryApplet(
         request, pumpForegroundAppletMessages,
-        consumeForegroundAppletHomeRequest);
+        consumeForegroundAppletHomeRequest,
+        g_generalChannelEventReady ? &g_generalChannelEvent : nullptr);
     g_foregroundAppletActive = false;
     return rc;
 }
@@ -2323,19 +2347,6 @@ static void mainLoop() {
 
     didWork |= consumeOneAction();
 
-    { // Achievements: the game in front (not homebrew in a borrowed game); a new session at each launch and exit.
-        namespace aw = switchu::daemon::achievements_watch;
-        static bool wasRunning = false;
-        const bool running = daemon::app::isRunning();
-        if (running != wasRunning) {
-            wasRunning = running;
-            aw::g_sessions.fetch_add(1);
-        }
-        aw::g_title.store(running && daemon::app::hasForeground() && g_homebrewHostTitleId == 0
-                              ? daemon::app::suspendedTitleId()
-                              : 0);
-    }
-
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
         g_launchForegroundPending = false;
@@ -2370,6 +2381,23 @@ static void mainLoop() {
         switchu::FileLog::log("[main] no app/menu active; relaunching menu");
         daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
     }
+
+    // (Last, so an exit or a foreground change seen in this pass is published
+    // now: the next pass can be seconds away.)
+    { // Achievements: the game in front (not homebrew in a borrowed game); a new session at each launch and exit.
+        namespace aw = switchu::daemon::achievements_watch;
+        static bool wasRunning = false;
+        const bool running = daemon::app::isRunning();
+        if (running != wasRunning) {
+            wasRunning = running;
+            aw::g_sessions.fetch_add(1);
+        }
+        aw::g_title.store(running && daemon::app::hasForeground() && g_homebrewHostTitleId == 0
+                              ? daemon::app::suspendedTitleId()
+                              : 0);
+    }
+
+    wakeControlCacheIfUndeferred();
 }
 
 static bool mainLoopNeedsFastTick() {
@@ -2383,6 +2411,65 @@ static bool mainLoopNeedsFastTick() {
         || g_controlCacheRefreshPending.load()
         || g_menuRelaunchCooldown > 0
         || !g_actionQueue.empty();
+}
+
+// How long the main loop may sleep when no event comes. Everything it reacts
+// to arrives on the waiters of waitForMainWork() (applet messages, the general
+// channel, menu commands and state, the application's state, and g_mainWakeEvent
+// from the event and control-cache threads); what is only time-driven is listed
+// here, each with its deadline. Anything not proven to be signalled is covered
+// by the long fallback instead of an infinite wait.
+static u64 mainLoopTimeoutNs() {
+    // Tick-counted work (view polls, menu relaunch cooldown, queued actions,
+    // catalogue and control-cache coalescing) keeps the 10 ms tick.
+    if (mainLoopNeedsFastTick())
+        return 10'000'000ULL;
+
+    u64 timeout = 5'000'000'000ULL;
+    const uint64_t now = armGetSystemTick();
+    auto until = [&](uint64_t deadlineTick) {
+        // A deadline already behind us was handled by this pass unless what it
+        // does failed (it then stays armed): retry at the old 1 s cadence.
+        const u64 ns = deadlineTick > now ? armTicksToNs(deadlineTick - now) + 1'000'000ULL
+                                          : 1'000'000'000ULL;
+        if (ns < timeout)
+            timeout = ns;
+    };
+    auto atMost = [&](u64 ns) {
+        if (ns < timeout)
+            timeout = ns;
+    };
+
+    // Wake cover: shown again 8 s after wake at the latest.
+    if (g_wakeCovered && g_wakeCoverDeadline)
+        until(g_wakeCoverDeadline);
+    // HOME waiting for ChangeIntoForeground: opened anyway (or retried) after 2 s.
+    if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0)
+        until(g_pendingHomeMenuStartedAt + armNsToTicks(2'000'000'000ULL));
+    // A menu that should be closing: closed by the watchdog after 5 s.
+    if (g_menuExitExpectedAt != 0)
+        until(g_menuExitExpectedAt + armNsToTicks(5'000'000'000ULL));
+    // Control-cache refresh held back while a game is in front (no fast tick then).
+    if (g_controlCacheRefreshPending.load()) {
+        const uint64_t holdStart = g_controlCacheHoldStartTick.load();
+        if (holdStart != 0)
+            until(holdStart + armNsToTicks(kControlCacheCoalesceNs));
+    }
+    // syncBootTime() retries every 2 s until the time service answers.
+    if (!g_bootTimeSynced)
+        atMost(2'000'000'000ULL);
+    // Homebrew running as an application (CardsNX over a game) can ask AM to
+    // start another title; nothing proves AM signals us for that, and
+    // takeLaunchRequests() only polls: keep the old 1 s cadence meanwhile.
+    if (g_homebrewHostTitleId != 0)
+        atMost(1'000'000'000ULL);
+    // Nothing on screen (the menu exited by itself, or a relaunch failed): the
+    // "relaunching menu" fallback at the end of mainLoop() runs on the next
+    // pass, which no event brings. Keep the old 1 s cadence for it.
+    if (!g_pendingHomeMenuLaunch && !daemon::app::isRunning() &&
+        !daemon::menu_la::hasHolder() && !g_foregroundAppletActive)
+        atMost(1'000'000'000ULL);
+    return timeout;
 }
 
 static void waitForMainWork() {
@@ -2409,9 +2496,7 @@ static void waitForMainWork() {
     }
 
     s32 signalledIndex = -1;
-    const u64 timeout = mainLoopNeedsFastTick()
-        ? 10'000'000ULL
-        : 1'000'000'000ULL;
+    const u64 timeout = mainLoopTimeoutNs();
     static Result s_lastWaitFailure = 0;
     static uint32_t s_waitFailureRepeatCount = 0;
     const Result rc = waitObjects(&signalledIndex, waiters, waiterCount, timeout);
@@ -2442,6 +2527,8 @@ static void waitForMainWork() {
 
 static Thread g_eventThread = {};
 static std::atomic<bool> g_eventRunning{false};
+// Signalled by stopEventManager(): the thread waits on its events alone.
+static UEvent g_eventStopEvent{};
 
 static void eventManagerThreadFunc(void* arg) {
     (void)arg;
@@ -2483,38 +2570,37 @@ static void eventManagerThreadFunc(void* arg) {
         switchu::FileLog::log("[event] PSM unavailable; battery events disabled");
     }
 
+    // Waiter order: record update, game-card mount failure (if any), PSM (if
+    // any), stop. Nothing here is time-driven: sleep until one of them fires.
+    Waiter waiters[4]{};
+    s32 waiterCount = 0;
+    const s32 recordIdx = waiterCount;
+    waiters[waiterCount++] = waiterForEvent(&recordEvent);
+    const s32 gcIdx = hasGcEvent ? waiterCount : -1;
+    if (hasGcEvent)
+        waiters[waiterCount++] = waiterForEvent(&gcMountFailEvent);
+    const s32 psmIdx = hasPsmEvent ? waiterCount : -1;
+    if (hasPsmEvent)
+        waiters[waiterCount++] = waiterForEvent(&psmSession.StateChangeEvent);
+    waiters[waiterCount++] = waiterForUEvent(&g_eventStopEvent);
+
     while (g_eventRunning.load()) {
         s32 evIdx = -1;
-        Result waitRc;
-        if (hasGcEvent && hasPsmEvent) {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent),
-                waiterForEvent(&gcMountFailEvent),
-                waiterForEvent(&psmSession.StateChangeEvent));
-        } else if (hasGcEvent) {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent),
-                waiterForEvent(&gcMountFailEvent));
-        } else if (hasPsmEvent) {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent),
-                waiterForEvent(&psmSession.StateChangeEvent));
-        } else {
-            waitRc = waitMulti(&evIdx, 1'000'000'000ULL,
-                waiterForEvent(&recordEvent));
+        const Result waitRc = waitObjects(&evIdx, waiters, waiterCount, UINT64_MAX);
+        if (R_FAILED(waitRc)) {
+            // Not expected with these handles; never spin on it.
+            svcSleepThread(100'000'000ULL);
+            continue;
         }
 
-        if (waitRc == KERNELRESULT(TimedOut)) continue;
-        if (R_FAILED(waitRc)) continue;
-
-        if (evIdx == 0) {
+        if (evIdx == recordIdx) {
             eventClear(&recordEvent);
             switchu::FileLog::log("[event] ApplicationRecordUpdateSystemEvent fired");
 
             g_appCatalogRefreshPending.store(true);
             g_eventRefreshPending.store(true);
             ueventSignal(&g_mainWakeEvent);
-        } else if (evIdx == 1 && hasGcEvent) {
+        } else if (evIdx == gcIdx) {
             eventClear(&gcMountFailEvent);
 
             Result failRc = switchu::ns::getLastGameCardMountFailure();
@@ -2523,15 +2609,13 @@ static void eventManagerThreadFunc(void* arg) {
             g_eventGcMountRc.store(failRc);
             g_eventGcMountFailure.store(true);
             ueventSignal(&g_mainWakeEvent);
-        } else if ((hasGcEvent && hasPsmEvent && evIdx == 2) ||
-                   (!hasGcEvent && hasPsmEvent && evIdx == 1)) {
+        } else if (evIdx == psmIdx) {
             eventClear(&psmSession.StateChangeEvent);
             switchu::FileLog::log("[event] PSM state change fired");
             g_batteryRefreshPending.store(true);
             ueventSignal(&g_mainWakeEvent);
         }
-
-        svcSleepThread(100'000ULL);
+        // (the stop event: the loop condition ends it)
     }
 
     eventClose(&recordEvent);
@@ -2541,6 +2625,7 @@ static void eventManagerThreadFunc(void* arg) {
 }
 
 static Result startEventManager() {
+    ueventCreate(&g_eventStopEvent, false);
     g_eventRunning.store(true);
     Result rc = threadCreate(&g_eventThread, eventManagerThreadFunc, nullptr,
                              nullptr, 0x4000, 0x2C, -2);
@@ -2560,6 +2645,7 @@ static Result startEventManager() {
 
 static void stopEventManager() {
     g_eventRunning.store(false);
+    ueventSignal(&g_eventStopEvent);
     threadWaitForExit(&g_eventThread);
     threadClose(&g_eventThread);
     switchu::FileLog::log("[event] thread stopped");
@@ -2577,8 +2663,12 @@ static void controlCacheThreadFunc(void* arg) {
     while (g_controlCacheRunning.load()) {
         // Control-data reads also write icon/meta files. Defer them while a
         // game owns the foreground so they cannot contend with LayeredFS I/O.
+        // With nothing queued it sleeps until enqueueControlCacheRecords()
+        // signals; with work held back, until the main loop sees the game
+        // leave the foreground (5 s at most, in case a path misses it).
         if (shouldDeferViewPolling()) {
-            svcSleepThread(500'000'000ULL);
+            waitSingle(waiterForUEvent(&g_controlCacheWakeEvent),
+                       controlCacheQueueEmpty() ? UINT64_MAX : 5'000'000'000ULL);
             continue;
         }
 
@@ -2728,7 +2818,7 @@ int main(int argc, char* argv[]) {
     switchu::daemon::achievements_watch::start();
 
     while (g_running.load()) {
-        switchu::timebudget::syncBootTime(); // until it has worked once
+        g_bootTimeSynced = switchu::timebudget::syncBootTime(); // until it has worked once
         mainLoop();
         waitForMainWork();
     }
