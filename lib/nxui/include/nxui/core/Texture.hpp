@@ -4,6 +4,7 @@
 #ifdef NXUI_BACKEND_DEKO3D
 #include <deko3d.hpp>
 #endif
+#include <atomic>
 #include <string>
 #include <memory>
 
@@ -29,6 +30,12 @@ public:
 #endif
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
+
+    // A picture was uploaded since the last call (any texture, any thread):
+    // it is on screen only once a frame is drawn, so Application draws one
+    // even when idle (render tiers).
+    static bool takeUploaded() { return s_uploaded.exchange(false, std::memory_order_relaxed); }
+    static void noteUploaded() { s_uploaded.store(true, std::memory_order_relaxed); }
 
     // Load from RGBA pixel data already in memory
     bool loadFromPixels(GpuDevice& gpu, Renderer& ren,
@@ -94,6 +101,7 @@ private:
     int m_height = 0;
     int m_slot   = -1;
     bool m_valid = false;
+    inline static std::atomic<bool> s_uploaded{false};
 };
 
 } // namespace nxui

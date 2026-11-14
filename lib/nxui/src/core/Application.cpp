@@ -6,6 +6,8 @@
 #include <nxui/core/GpuDevice.hpp>
 #include <nxui/core/Renderer.hpp>
 #include <nxui/core/Input.hpp>
+#include <nxui/core/Font.hpp>
+#include <nxui/core/Texture.hpp>
 #include <nxui/focus/FocusManager.hpp>
 #include <switch.h>
 
@@ -71,6 +73,8 @@ bool Application::applyPendingActivity() {
         m_activity->onDestroy();
 
     m_activity = std::move(m_pendingActivity);
+    m_deepIdle = false; // the new screen starts awake
+    wakeRendering();
     m_navHeldMask = 0;
     m_navHeldFrames = 0;
     m_navRepeatCountdown = 0;
@@ -249,8 +253,7 @@ void Application::dispatchInput() {
 
 void Application::run() {
     uint64_t prevTick = armGetSystemTick();
-    float idleSeconds = 0.f;
-    bool skipIdleFrame = false;
+    uint64_t presentTick = prevTick; // the last drawn turn's start (paces the skipped ones)
 
     while (m_running) {
         uint64_t nowTick = armGetSystemTick();
@@ -280,12 +283,6 @@ void Application::run() {
 
         setPhase("reading the buttons");
         m_input.update();
-        if (m_input.hasUserActivity()) {
-            idleSeconds = 0.f;
-            skipIdleFrame = false;
-        } else {
-            idleSeconds += dt;
-        }
         setPhase("handing the buttons to the screens");
         dispatchInput();
 
@@ -305,18 +302,28 @@ void Application::run() {
             m_activity->m_rootBox->update(dt);
 
             if (m_renderEnabled) {
-                // Static menus do not need a full GPU submission at 60 Hz.
-                // Keep input/update responsive, but present every other frame
-                // after the UI has been idle long enough for transitions to
-                // settle. Any new input immediately restores 60 Hz.
-                // (8 s: after 2 s, any animation on screen while you only looked ran at 30 fps.)
-                if (m_idleThrottle && idleSeconds >= 8.f) {
-                    skipIdleFrame = !skipIdleFrame;
-                    if (skipIdleFrame) {
-                        svcSleepThread(16'000'000ULL);
-                        continue;
-                    }
+                // Render tiers (Application.hpp): input and update keep their
+                // ~16 ms pace, only the drawing slows down when nothing moves.
+                // A skipped turn sleeps instead: without beginFrame waiting for
+                // a framebuffer, nothing else paces the loop. Under 100 ms (dt
+                // is clamped above that) and under the screens' 250 ms "stuck"
+                // watchdog.
+                if (!shouldPresent(dt)) {
+                    // Paced on the last drawn turn: the n-th skipped turn after
+                    // it ends (n + 1) x 16.7 ms after its start. A drawn turn
+                    // after skipped ones doesn't wait for a framebuffer, so it
+                    // takes almost no time and must count as a turn of its own
+                    // (a flat sleep, or n x 16.7 ms, ran ~90 turns a second and
+                    // the calm tier drew 30 frames instead of 20).
+                    setPhase("idle (frame not drawn)");
+                    const std::uint64_t target = presentTick
+                        + armNsToTicks(16'666'667ULL * static_cast<std::uint64_t>(m_turnsSincePresent + 1));
+                    const std::uint64_t now = armGetSystemTick();
+                    svcSleepThread(target > now + armNsToTicks(1'000'000ULL)
+                                   ? static_cast<s64>(armTicksToNs(target - now)) : 1'000'000LL);
+                    continue;
                 }
+                presentTick = nowTick;
                 setPhase("waiting for the GPU (frame)");
                 m_gpu.beginFrame();
                 setPhase("starting the frame");
@@ -339,11 +346,72 @@ void Application::run() {
     }
 }
 
+bool Application::shouldPresent(float dt) {
+    ++m_loopTurns;
+    m_sinceLastPresent += dt;
+
+    // Text left out of the last drawn frame (budget, no room): draw again,
+    // but not forever if it keeps being turned away (the cache is full);
+    // the calm/deep frames still retry it.
+    if (m_turnsSincePresent == 0) {
+        if (Font::takeTextMissing()) m_textMissingFor += dt;
+        else m_textMissingFor = 0.f;
+    } else if (m_textMissingFor > 0.f) {
+        m_textMissingFor += dt;
+    }
+    const bool textPending = m_textMissingFor > 0.f && m_textMissingFor < 2.f;
+
+    // Something moves: every frame, and the idle clock starts again.
+    const bool busy = !m_idleThrottle
+        || m_input.hasUserActivity() || m_input.anyHeld()
+        || AnimationManager::instance().active()
+        || (m_activity && m_activity->wantsFullRate());
+    m_quietSeconds = busy ? 0.f : m_quietSeconds + dt;
+
+    // Something to finish: frames until it's done, without restarting the idle
+    // clock (a cache trimmed now and then mustn't keep the screen at 60 Hz).
+    if (Texture::takeUploaded() || AnimationManager::instance().fired()) // a new picture, a timer's change
+        m_redrawRequested = true;
+    const bool finishing = textPending
+        || m_renderer->hasPendingReleases(); // freed a few drawn frames later
+
+    const bool deep = m_activity && m_activity->supportsDeepIdle()
+                   && m_quietSeconds >= kDeepAfter;
+    setDeepIdle(deep);
+
+    bool present;
+    if (busy || finishing || m_redrawRequested || m_quietSeconds < kCalmAfter)
+        present = true;
+    else if (!deep)
+        present = m_turnsSincePresent >= 2;        // calm: one turn in three, ~20 Hz
+    else
+        present = m_sinceLastPresent >= 1.f;       // deep: a safety frame each second
+
+    if (present) {
+        m_redrawRequested = false;
+        m_turnsSincePresent = 0;
+        m_sinceLastPresent = 0.f;
+        ++m_presentedFrames;
+    } else {
+        ++m_turnsSincePresent;
+    }
+    return present;
+}
+
+void Application::setDeepIdle(bool deep) {
+    if (m_deepIdle == deep) return;
+    m_deepIdle = deep;
+    if (m_activity) m_activity->onIdleDeep(deep);
+    if (!deep) m_redrawRequested = true;
+}
+
 void Application::setSleeping(bool s) {
     if (m_sleeping == s) return;
     m_sleeping = s;
     if (m_sleeping) {
         renderSleepFrames();
+    } else {
+        wakeRendering();
     }
 }
 

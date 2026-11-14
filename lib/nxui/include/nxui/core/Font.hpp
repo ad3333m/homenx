@@ -40,6 +40,9 @@ public:
     void clearCache();
 
     bool maintenanceRequested() const { return m_maintenanceRequested; }
+    // A string was left out of a frame since the last call (it is drawn on a
+    // later one): the screen needs another frame. Shared by every font.
+    static bool takeTextMissing();
     std::size_t cacheBytes() const { return m_cacheBytes; }
     std::size_t cacheEntryCount() const { return m_lruList.size(); }
     void trimCache(std::size_t maxEntries = 72,

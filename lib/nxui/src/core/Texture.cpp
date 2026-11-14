@@ -182,6 +182,7 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
         return false;
     }
 
+    noteUploaded();
     dk::ImageView view{m_image};
     if (oldSlot >= 0) {
         // Reuse the same descriptor slot — avoids slot exhaustion
@@ -234,6 +235,7 @@ bool Texture::loadFromPixelsPooled(GpuDevice& gpu, Renderer& ren,
         return false;
     }
 
+    noteUploaded();
     dk::ImageView view{m_image};
     m_slot = ren.registerTexture(view);
     if (m_slot < 0) {

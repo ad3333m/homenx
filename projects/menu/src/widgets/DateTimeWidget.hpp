@@ -23,6 +23,9 @@ public:
     // HomeNX: makes the clock's letters now, while HOME's GPU memory is still
     // free (after a game it fills up and the clock's letters couldn't be made).
     void warmGlyphs(nxui::Renderer& ren);
+    // What it shows now (a change means the screen must be drawn again).
+    const std::string& timeText() const { return m_timeStr; }
+    const std::string& dateText() const { return m_dateStr; }
 
 protected:
     void onContentUpdate(float dt) override;

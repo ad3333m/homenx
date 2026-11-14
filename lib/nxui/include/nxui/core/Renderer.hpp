@@ -95,6 +95,14 @@ public:
     // Pictures given back to the system since the last call, and the time it took.
     struct FreeStats { int count = 0; float ms = 0.f; };
     FreeStats takeFreeStats() { FreeStats s = m_frees; m_frees = {}; return s; }
+    // Textures given back but not freed yet: that happens a few frames later,
+    // and frames only count when drawn (Application keeps drawing meanwhile).
+    bool hasPendingReleases() const {
+#ifdef NXUI_BACKEND_DEKO3D
+        if (!m_deferredImages.empty()) return true;
+#endif
+        return !m_deferredDescSlots.empty();
+    }
 
     // 2D drawing
     void drawRect(const Rect& r, const Color& c);
