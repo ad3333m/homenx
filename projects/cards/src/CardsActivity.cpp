@@ -1051,7 +1051,20 @@ void CardsActivity::worker(int index) {
     std::uint64_t countsAt = armTicksToNs(armGetSystemTick()) / 1000000ULL + 8000, statusAt = 0, logAt = 0, freeAt = 0, tempAt = 0;
     std::string lastFree;
     int lastTemp = -1;
+    unsigned wakeGen = 0;
     for (;;) {
+        bool asleep = false;
+        {
+            std::lock_guard<std::mutex> lk(m_mu);
+            asleep = m_workersAsleep.load();
+            if (m_wakeGen != wakeGen) { // just woke up: the clock and battery at once
+                wakeGen = m_wakeGen;
+                statusAt = 0;
+                // Nextendo when it's due, a few seconds in (the network comes back first)
+                const std::uint64_t soon = armTicksToNs(armGetSystemTick()) / 1000000ULL + 5000;
+                if (countsAt < soon) countsAt = soon;
+            }
+        }
         // The bar's numbers, once a second: the time, battery, network, the SD
         // card's free space (that one waited on the card on the screen's thread).
         const std::uint64_t now = armTicksToNs(armGetSystemTick()) / 1000000ULL;
@@ -1071,7 +1084,7 @@ void CardsActivity::worker(int index) {
                 std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << out;
             }
         }
-        if (index == 1 && now >= statusAt) {
+        if (index == 1 && !asleep && now >= statusAt) {
             statusAt = now + 1000;
             Status s;
             TimeCalendarTime t{};
@@ -1133,9 +1146,13 @@ void CardsActivity::worker(int index) {
         bool haveJob = false;
         {
             std::unique_lock<std::mutex> lk(m_mu);
-            m_cv.wait_for(lk, std::chrono::milliseconds(index == 1 ? 500 : 1000),
-                          [this]() { return m_quit || !m_jobs.empty(); });
+            if (asleep) // nothing to show: no timeout, the wake (or a job) tells us
+                m_cv.wait(lk, [this]() { return m_quit || !m_jobs.empty() || !m_workersAsleep.load(); });
+            else
+                m_cv.wait_for(lk, std::chrono::milliseconds(index == 1 ? 500 : 1000),
+                              [this]() { return m_quit || !m_jobs.empty() || m_workersAsleep.load(); });
             if (m_quit) break;
+            asleep = m_workersAsleep.load(); // (the console may have gone to sleep meanwhile)
             if (!m_jobs.empty()) {
                 job = std::move(m_jobs.front());
                 m_jobs.pop_front();
@@ -1143,8 +1160,8 @@ void CardsActivity::worker(int index) {
                 key = m_key; // (Settings > Pictures can change it: copied under the lock)
             }
         }
-        if (!haveJob) { // pictures first; Nextendo's players every minute
-            if (index == 0 && m_netUp && now >= countsAt) {
+        if (!haveJob) { // pictures first; Nextendo's players every 3 minutes, when they're shown and awake
+            if (index == 0 && m_netUp && !asleep && m_wantPlayers.load() && now >= countsAt) {
                 countsAt = now + 180000; // (a connection each time: every 3 minutes is plenty)
                 std::map<std::uint64_t, int> counts;
                 if (nextendoOnline(counts)) {
@@ -2731,7 +2748,13 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::SleepSequence: // stop drawing (a loop that keeps drawing never lets it sleep)
                 m_asleep = true;
+                {
+                    std::lock_guard<std::mutex> lk(m_mu);
+                    m_workersAsleep = true;
+                }
+                m_cv.notify_all();
                 m_audio.pause();
+                m_discord.sleep(); // (its socket woke the console all night; back at WakeUp)
                 if (m_settings.lockScreen) { // drawn into the last frames, so waking shows it at once
                     lock();
                     m_lockIn = 1.f;
@@ -2740,7 +2763,14 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::WakeUp:
                 m_asleep = false;
+                {
+                    std::lock_guard<std::mutex> lk(m_mu);
+                    m_workersAsleep = false;
+                    ++m_wakeGen;
+                }
+                m_cv.notify_all();
                 app().setSleeping(false);
+                m_discord.wake();
                 if (m_settings.lockScreen && m_locked) {
                     // Slept while locked: the lock screen is quiet (it paused
                     // the music before the sleep; the resume below would play
@@ -7821,6 +7851,13 @@ void CardsActivity::watchdog() {
     std::uint64_t since = armGetSystemTick(), woke = since;
     const char* stuckIn = nullptr;
     while (!m_quit) {
+        if (m_workersAsleep.load()) { // the console sleeps: nothing to watch, look twice a second
+            svcSleepThread(500'000'000ULL);
+            woke = since = armGetSystemTick();
+            serial = nxui::g_phaseSerial.load();
+            stuckIn = nullptr;
+            continue;
+        }
         svcSleepThread(50'000'000ULL);
         const std::uint64_t now = armGetSystemTick();
         const float away = ticksMs(now - woke) - 50.f;
@@ -7911,7 +7948,11 @@ void CardsActivity::onUpdate(float dt) {
     }
     // Frame times for the log: the time since the last frame, and what the last one did.
     const std::uint64_t frameTick = armGetSystemTick();
-    if (m_perfLastTick) {
+    if (m_asleep) {
+        // Asleep: no frame is drawn, so none is counted (every sleeping tick was
+        // a "slow frame" line). The first frame after the wake counts from the
+        // last sleeping tick, the one that read the wake.
+    } else if (m_perfLastTick) {
         const float interval = ticksMs(frameTick - m_perfLastTick);
         ++m_perfFrames;
         m_perfWindow += interval;
@@ -7976,6 +8017,7 @@ void CardsActivity::onUpdate(float dt) {
     // A slow frame no longer jumps everything ahead (it looked like stutter):
     // things move a little slower for a moment instead.
     dt = std::min(dt, 1.f / 30.f);
+    m_wantPlayers.store(m_settings.players, std::memory_order_relaxed); // (read by worker 0)
 #ifdef SWITCHU_MENU
     std::uint64_t t = armGetSystemTick();
     pumpDaemon();

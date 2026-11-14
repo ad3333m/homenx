@@ -160,6 +160,11 @@ void SettingsScreen::prefetchOneTab() {
 }
 
 void SettingsScreen::onContentUpdate(float dt) {
+    // Bluetooth > Discover Devices searches only while that tab is on screen:
+    // the radio kept scanning after leaving the tab or closing Settings.
+    constexpr int kBluetoothTab = 8; // (see buildTabNow)
+    if (bluetooth::IsDiscovering() && (!m_showing || m_tabIndex != kBluetoothTab))
+        bluetooth::StopDiscovery();
     pollTabLoaders();
     if (isActive())
         prefetchOneTab();

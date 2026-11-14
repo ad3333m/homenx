@@ -81,7 +81,7 @@ struct Settings {
     std::string user;         // who games start as (hex), "" = the last one who played
     std::string lastGame;     // the last game (or app) started from here, hex
     long long listsAt = 0;    // when the games and apps were last read in full (seconds since 1970)
-    bool perfLog = true;      // sdmc:/config/CardsNX/perf.log: start-up times and slow frames
+    bool perfLog = false;      // sdmc:/config/CardsNX/perf.log: start-up times and slow frames
     std::string language;     // "es", "ja", ... ("" = the console's)
     std::vector<std::string> order[kMaxPages]; // My order, per page: ids (hex)
 

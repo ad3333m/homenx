@@ -620,7 +620,9 @@ bool startNetwork() {
 #ifdef SWITCHU_MENU
     return themeshop::http::initialize(); // HOME's sockets and curl (Discord and updates use them too)
 #else
-    if (R_FAILED(socketInitializeDefault())) return false;
+    SocketInitConfig cfg = *socketGetDefaultInitConfig();
+    cfg.num_bsd_sessions = 6; // (as HOME's: a blocking poll() holds one)
+    if (R_FAILED(socketInitialize(&cfg))) return false;
     return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
 #endif
 }
