@@ -196,11 +196,12 @@ std::vector<TitleChoice> myPictures(size_t max);
 std::vector<TitleChoice> coverChoices(const Game& game, const std::string& key, size_t max = 15,
                                       const std::string& query = {});
 // Downloads it and keeps it as the game's card for good; nullptr: back to the usual one.
-bool chooseCoverArt(const Game& game, const TitleChoice* choice);
+// tooBig (if given): it failed because the picture is one HOME can't open, not the connection.
+bool chooseCoverArt(const Game& game, const TitleChoice* choice, bool* tooBig = nullptr);
 // + > Background picture: SteamGridDB's heroes to choose; the one chosen is kept (.bgme).
 std::vector<TitleChoice> heroChoices(const Game& game, const std::string& key, size_t max = 11,
                                      const std::string& query = {});
-bool chooseHeroArt(const Game& game, const TitleChoice* choice);
+bool chooseHeroArt(const Game& game, const TitleChoice* choice, bool* tooBig = nullptr);
 // Halves a picture until it's at most maxW wide.
 void shrink(std::vector<std::uint8_t>& rgba, int& w, int& h, int maxW);
 // Scales it to maxW wide exactly (averaging), when it's wider: backgrounds at the screen's size.
