@@ -30,6 +30,18 @@ enum class Kind : std::uint8_t {
 // The milestones work for every game; each game's own goals (its pack) stay either way.
 // Settings > Achievements turns them off. What was earned is kept.
 inline constexpr const char* kMilestonesOffFlag = "sdmc:/config/SwitchU/achievement_milestones_off";
+// Each game's own achievements (packs): read from the game's memory through Atmosphère's dmnt.
+inline constexpr const char* kPacksOffFlag = "sdmc:/config/SwitchU/achievement_packs_off";
+inline bool packsEnabled() {
+    std::error_code ec;
+    return !std::filesystem::exists(kPacksOffFlag, ec);
+}
+inline void setPacksEnabled(bool enabled) {
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    if (enabled) std::filesystem::remove(kPacksOffFlag, ec);
+    else std::ofstream(kPacksOffFlag) << '1';
+}
 inline bool milestonesEnabled() {
     std::error_code ec;
     return !std::filesystem::exists(kMilestonesOffFlag, ec);

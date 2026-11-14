@@ -2981,6 +2981,7 @@ void CardsActivity::pumpDaemon() {
                 m_cv.notify_all();
                 invalidateGameCard();
                 app().setSleeping(false);
+                app().requestRedraw(); // (a still screen isn't redrawn by itself: a fresh frame at once)
                 m_discord.wake();
                 if (m_settings.lockScreen && m_locked) {
                     // Slept while locked: the lock screen is quiet (it paused
@@ -6162,6 +6163,13 @@ void CardsActivity::buildSettings() {
             switchu::achievements::setMilestonesEnabled(m_milestonesOn);
         },
         "For every game. Each game's own goals stay on without them."));
+    m_packsOn = switchu::achievements::packsEnabled();
+    notices.rows.push_back(toggle("Game achievements", [this]() { return m_packsOn; },
+        [this]() {
+            m_packsOn = !m_packsOn;
+            switchu::achievements::setPacksEnabled(m_packsOn);
+        },
+        "Each game's own goals, read from the game while it runs (Atmosphère's cheat service)"));
     m_sheet.push_back(std::move(notices));
     Section storage{"Storage", "copy", {}};
     storage.rows.push_back(info("Console memory", [this]() { return m_storageSummary[0]; }));

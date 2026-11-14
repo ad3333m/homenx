@@ -259,6 +259,10 @@ inline void loadPack(Live& l, std::uint64_t title) {
     namespace ach = switchu::achievements;
     l = Live{};
     l.title = title;
+    // Not in a game's first 20 s: attaching while it is still starting (and Atmosphère's cheat
+    // module is setting it up) is the likeliest cause of dmnt's crash in #43.
+    l.retryAt = armGetSystemTick() + armNsToTicks(20'000'000'000ULL);
+    if (!switchu::achievements::packsEnabled()) return; // (Settings: off, dmnt is never asked)
     l.pack = switchu::packs::load(title);
     if (!l.pack.valid()) return;
     const ach::Earned e = ach::load();
@@ -354,6 +358,7 @@ inline void threadFunc(void*) {
             known = false;
             counted = t && !switchu::achievements::loadSkipped().count(t);
             live.attached = false; // (a new process)
+            live.retryAt = armGetSystemTick() + armNsToTicks(20'000'000'000ULL); // (not while it starts, #43)
         }
         if (t && t != front) {
             popups = statusPopupsAllowed();

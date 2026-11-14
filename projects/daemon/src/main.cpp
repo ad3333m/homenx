@@ -1281,6 +1281,11 @@ static bool handleAppletMessages() {
         return false;
 
     switchu::FileLog::log("[ae] msg=%u", msg);
+    // The screen hidden for sleep is shown again 8 s after the wake at the latest. A wake that came
+    // without its own message (after a long sleep) left it hidden for good: a black screen until a
+    // restart (#51). Pressing HOME or docking means it's awake.
+    if (g_wakeCovered && !g_wakeCoverDeadline && (msg == 20 || msg == 30)) // (HOME pressed, docked or undocked: awake for sure)
+        g_wakeCoverDeadline = armGetSystemTick() + armNsToTicks(8'000'000'000ULL);
     switch (msg) {
         case 1:
         switchu::FileLog::log("[ae] -> ChangeIntoForeground");

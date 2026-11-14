@@ -83,7 +83,7 @@ private:
     void readStorage(bool withTitles = false);
     bool m_storageWantTitles = false;
     std::vector<std::string> m_lockPlaylist;
-    bool m_lockRotate = false, m_milestonesOn = true; // (files: read when Settings opens, not every frame)
+    bool m_lockRotate = false, m_milestonesOn = true, m_packsOn = true; // (files: read when Settings opens, not every frame)
     void moveSoftware(const Game& game, bool toSd);
     bool softwareBusy(std::uint64_t id) const;
     void updateStorage();
