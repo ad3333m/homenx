@@ -26,6 +26,9 @@ public:
     void SendClose(uint16_t code);
     // Non-blocking: appends complete messages. Returns false once the connection is closed.
     bool Poll(std::vector<Message>& out);
+    // 1: the socket can be read. 0: nothing arrived before timeoutMs. -1: it could not wait,
+    // so the caller should sleep briefly instead of spinning.
+    int WaitReadable(int timeoutMs);
     // Blocks up to timeoutMs for at least one message (or closure).
     bool Wait(std::vector<Message>& out, int timeoutMs);
     void Close();

@@ -440,12 +440,26 @@ std::string DiscordService::qrUrl() const {
     return m_auth ? m_auth->Get().qrUrl : std::string();
 }
 
+bool DiscordService::qrNeedsCaptcha() const {
+    if (!m_auth) return false;
+    return m_auth->Get().phase == RemoteAuth::Phase::Captcha;
+}
+
+std::string DiscordService::qrCaptchaUrl() const {
+    if (!m_auth) return {};
+    const RemoteAuth::Snapshot s = m_auth->Get();
+    return s.phase == RemoteAuth::Phase::Captcha ? s.captchaUrl : std::string();
+}
+
 std::string DiscordService::qrStatus() const {
     if (!m_auth) return {};
     const RemoteAuth::Snapshot s = m_auth->Get();
     switch (s.phase) {
         case RemoteAuth::Phase::Preparing: return "Getting a code...";
         case RemoteAuth::Phase::ShowQr:    return "Scan this with the Discord mobile app: Settings > Scan QR Code.";
+        case RemoteAuth::Phase::Captcha:   return s.error.empty()
+            ? "Scan this with your phone's camera and complete the check. The phone has to be on this console's Wi-Fi."
+            : s.error;
         case RemoteAuth::Phase::Confirm:   return "Confirm on your phone" + (s.username.empty() ? std::string() : " (" + s.username + ")") + ".";
         case RemoteAuth::Phase::LoggingIn: return "Signing in...";
         case RemoteAuth::Phase::Failed:    return s.error.empty() ? "The sign-in failed. Press A to try again." : s.error;

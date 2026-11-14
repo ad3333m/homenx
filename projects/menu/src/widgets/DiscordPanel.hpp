@@ -26,6 +26,8 @@ public:
         std::function<void()> onNavigate;  // sounds
         std::function<void()> onActivate;
         std::function<void()> onUserTokenLogin;
+        // Discord's check, opened in the system browser. The call blocks until it closes.
+        std::function<void(const std::string& url)> onOpenCaptcha;
     };
 
     DiscordPanel();

@@ -6,6 +6,7 @@
 #include <thread>
 
 #include <curl/curl.h>
+#include <poll.h>
 
 #include "platform/platform.h"
 #include "util/log.h"
@@ -303,6 +304,21 @@ bool WebSocket::Poll(std::vector<Message>& out) {
     }
     bool alive = ParseFrames(out);
     return alive && open_;
+}
+
+int WebSocket::WaitReadable(int timeoutMs) {
+    CURL* c = static_cast<CURL*>(curl_);
+    if (!c || !open_ || timeoutMs < 0) return -1;
+    curl_socket_t sock = CURL_SOCKET_BAD;
+    if (curl_easy_getinfo(c, CURLINFO_ACTIVESOCKET, &sock) != CURLE_OK || sock == CURL_SOCKET_BAD)
+        return -1;
+    pollfd pfd{};
+    pfd.fd = static_cast<int>(sock);
+    pfd.events = POLLIN;
+    const int rc = ::poll(&pfd, 1, timeoutMs);
+    if (rc < 0) return -1;
+    if (rc == 0) return 0;
+    return 1;
 }
 
 bool WebSocket::Wait(std::vector<Message>& out, int timeoutMs) {
