@@ -151,6 +151,23 @@ bool setDarkTheme(bool dark);
 std::vector<std::pair<long long, std::string>> steamGridDbFind(const std::string& query, const std::string& key, size_t n);
 // When each was last played (POSIX seconds), from the console's play log.
 std::map<std::uint64_t, std::uint64_t> lastPlayTimes(const std::vector<std::uint64_t>& ids);
+// A game's play statistics for this profile (what NX Activity Log shows), else the console's
+// (no profile, or the per-profile ask failed): the console-wide ones count every profile's play.
+struct PlayStatistics {
+    std::uint64_t last = 0, seconds = 0; // last played (POSIX seconds), total play time
+    std::uint32_t launches = 0;
+    bool perUser = false; // the profile's own, not the console's
+};
+bool playStatistics(std::uint64_t id, AccountUidLike user, PlayStatistics& out);
+// This profile's play time and launches of every game, counted from pdm's play-event log the
+// way NX Activity Log does (the statistics call's play time differs from it). One pass over the
+// log, slow: off the screen's thread. false: no valid profile, or the log couldn't be read in time or
+// completely (out is empty then), or `stop` was set.
+struct PlayTotal {
+    std::uint64_t seconds = 0;
+    std::uint32_t launches = 0;
+};
+bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out, const std::atomic<bool>* stop = nullptr);
 void forgetArt(std::uint64_t id); // the next ask downloads them again
 // Covers and backgrounds as they're shown (opened and shrunk), kept compressed in cards/shown/:
 // read as they are next time. Opening and shrinking a cover took 0.1 to 1 s at every

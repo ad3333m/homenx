@@ -729,11 +729,15 @@ bool CardsActivity::onCreate() {
         for (auto& page : m_pages)
             for (Game& g : page)
                 if (m_backTo && g.id == m_backTo && g.path.empty() && g.action.empty()) {
-                    PdmPlayStatistics st{};
-                    if (R_SUCCEEDED(pdmqryQueryPlayStatisticsByApplicationId(g.id, false, &st))) {
-                        g.lastPlayed = st.last_timestamp_user;
-                        g.playSeconds = st.playtime / 1000000000ULL;
-                        g.launches = st.total_launches;
+                    PlayStatistics st;
+                    if (playStatistics(g.id, m_user, st)) {
+                        g.lastPlayed = st.last;
+                        // (play time and launches come from the event log, read by the stats
+                        // job a few seconds on, off the screen's thread: the statistics call's differ)
+                        if (!st.perUser) {
+                            g.playSeconds = st.seconds;
+                            g.launches = st.launches;
+                        }
                     }
                 }
         if (m_backTo && (m_settings.sort == 0 || m_settings.sort == 2)) { // sorted by them: in its new place, still chosen
@@ -1015,6 +1019,12 @@ void CardsActivity::setUser(AccountUidLike uid) {
     m_settings.user = buf;
     m_settings.save();
     loadAvatar();
+    // Dates, play times and launches are the profile's: ask them again for every game
+    // (known=false below), the old profile's must not stay on the cards or in the sort.
+    for (auto& page : m_pages)
+        for (Game& g : page)
+            if (g.path.empty() && g.action.empty()) g.lastPlayed = g.playSeconds = g.launches = 0;
+    m_statsAsked = false;
 }
 
 // ---------------------------------------------------------------- the workers
@@ -8280,7 +8290,7 @@ void CardsActivity::onUpdate(float dt) {
     // Play times and last played, as the console has them now. Well after
     // HOME has settled: the queries for every game are one IPC each, and the
     // first seconds after a game are busy enough already.
-    if (!m_statsAsked && m_time > 6.f && !m_leaving) {
+    if (!m_statsAsked && !m_statsJob.valid() && m_time > 6.f && !m_leaving) { // (not while the last ask is still out)
         m_statsAsked = true;
         // At the console's start every game's; back from a game, that one's (the
         // rest are as saved: pdm takes one slow call per game).
@@ -8297,19 +8307,46 @@ void CardsActivity::onUpdate(float dt) {
         for (int p : {static_cast<int>(kGames), static_cast<int>(kHomebrew), static_cast<int>(kMedia)})
             for (const Game& g : m_pages[p])
                 if (g.path.empty() && g.action.empty() && (every || g.id == lastGame)) ids.push_back(g.id);
-        m_statsJob = std::async(std::launch::async, [ids]() {
+        const AccountUidLike who = m_user;
+        m_statsUser = who;
+        std::atomic<bool>* const stop = &m_jobsStop; // (the destructor waits for this job)
+        std::atomic<bool>* const failed = &m_totalsFailed;
+        m_statsJob = std::async(std::launch::async, [ids, who, stop, failed]() {
             offScreenCore();
             std::vector<PlayStat> out;
-            const auto last = lastPlayTimes(ids);
+            // The console-wide last-played times count every profile's play: only the
+            // fallback when the profile's own statistics can't be had.
+            std::map<std::uint64_t, std::uint64_t> last;
+            bool lastAsked = false;
+            // Play time and launches as NX Activity Log counts them, from the play-event log
+            // (one pass for all the games; the statistics call's play time differs).
+            // Only once the profile's own statistics worked (the first game's), and not again
+            // this boot after a pass that failed or hit its caps (it took up to 20 s).
+            std::map<std::uint64_t, PlayTotal> totals;
+            bool haveTotals = false, totalsAsked = failed->load();
             for (const std::uint64_t id : ids) {
-                PdmPlayStatistics st{};
-                if (R_FAILED(pdmqryQueryPlayStatisticsByApplicationId(id, false, &st))) continue;
+                PlayStatistics st;
+                if (!playStatistics(id, who, st)) continue;
+                if (!st.perUser && !lastAsked) {
+                    last = lastPlayTimes(ids);
+                    lastAsked = true;
+                }
                 PlayStat s;
                 s.id = id;
                 const auto it = last.find(id);
-                s.last = it != last.end() ? it->second : st.last_timestamp_user;
-                s.seconds = st.playtime / 1000000000ULL;
-                s.launches = st.total_launches;
+                s.last = !st.perUser && it != last.end() ? it->second : st.last;
+                s.seconds = st.seconds;
+                s.launches = st.launches;
+                if (st.perUser && !totalsAsked) {
+                    totalsAsked = true;
+                    haveTotals = playTotals(who, totals, stop);
+                    if (!haveTotals) failed->store(true);
+                }
+                if (haveTotals && st.perUser) {
+                    const auto t = totals.find(id);
+                    s.seconds = t != totals.end() ? t->second.seconds : 0;
+                    s.launches = t != totals.end() ? t->second.launches : 0;
+                }
                 out.push_back(s);
             }
             threadDone();
@@ -8318,43 +8355,49 @@ void CardsActivity::onUpdate(float dt) {
     }
     if (m_statsJob.valid() && m_statsJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const std::vector<PlayStat> stats = m_statsJob.get();
-        const std::uint64_t chosen = !games().empty() && sel() < static_cast<int>(games().size()) ? games()[(size_t)sel()].id : 0;
-        for (auto& page : m_pages)
-            for (Game& g : page)
-                for (const PlayStat& s : stats)
-                    if (s.id == g.id && g.path.empty()) {
-                        g.lastPlayed = s.last;
-                        g.playSeconds = s.seconds;
-                        g.launches = s.launches;
-                    }
-        if (m_settings.sort == 0 || m_settings.sort == 2) { // sorted by them: in the new order, the same one chosen
-            sortGames(m_settings.sort, false);
-            if (chosen) selectById(chosen);
+        // Asked for a profile that's been left since: not its values (they'd make the next
+        // ask think the dates are known, and ask only one game). Ask again for this one.
+        if (m_statsUser.uid[0] != m_user.uid[0] || m_statsUser.uid[1] != m_user.uid[1]) {
+            m_statsAsked = false;
+        } else {
+            const std::uint64_t chosen = !games().empty() && sel() < static_cast<int>(games().size()) ? games()[(size_t)sel()].id : 0;
+            for (auto& page : m_pages)
+                for (Game& g : page)
+                    for (const PlayStat& s : stats)
+                        if (s.id == g.id && g.path.empty()) {
+                            g.lastPlayed = s.last;
+                            g.playSeconds = s.seconds;
+                            g.launches = s.launches;
+                        }
+            if (m_settings.sort == 0 || m_settings.sort == 2) { // sorted by them: in the new order, the same one chosen
+                sortGames(m_settings.sort, false);
+                if (chosen) selectById(chosen);
+            }
+            // Achievements: what these stats reach, and what the daemon kept during a game. Only
+            // games count: a media app's time (YouTube...) isn't play, for the daemon either.
+            std::map<std::uint64_t, std::string> names;
+            for (const auto& page : m_pages)
+                for (const Game& g : page)
+                    if (g.path.empty() && g.action.empty()) names[g.id] = g.name;
+            std::set<std::uint64_t> gameIds, media;
+            for (const Game& g : m_pages[kGames])
+                if (g.path.empty() && g.action.empty() && !g.homebrew) gameIds.insert(g.id);
+            for (const Game& g : m_pages[kMedia])
+                if (g.path.empty() && g.action.empty()) media.insert(g.id);
+            std::vector<PlayStat> played;
+            for (const PlayStat& s : stats)
+                if (gameIds.count(s.id)) played.push_back(s);
+            const auto installed = static_cast<std::uint32_t>(gameIds.size());
+            const bool every = m_statsEvery;
+            const long long seenAt = m_settings.achSeenAt;
+            m_achJob = std::async(std::launch::async, [played, names, every, seenAt, installed, media]() {
+                offScreenCore();
+                switchu::achievements::saveSkipped(media);
+                Achieved got = collectAchievements(played, names, every, seenAt, installed);
+                threadDone();
+                return got;
+            });
         }
-        // Achievements: what these stats reach, and what the daemon kept during a game. Only
-        // games count: a media app's time (YouTube...) isn't play, for the daemon either.
-        std::map<std::uint64_t, std::string> names;
-        for (const auto& page : m_pages)
-            for (const Game& g : page)
-                if (g.path.empty() && g.action.empty()) names[g.id] = g.name;
-        std::set<std::uint64_t> gameIds, media;
-        for (const Game& g : m_pages[kGames])
-            if (g.path.empty() && g.action.empty() && !g.homebrew) gameIds.insert(g.id);
-        for (const Game& g : m_pages[kMedia])
-            if (g.path.empty() && g.action.empty()) media.insert(g.id);
-        std::vector<PlayStat> played;
-        for (const PlayStat& s : stats)
-            if (gameIds.count(s.id)) played.push_back(s);
-        const auto installed = static_cast<std::uint32_t>(gameIds.size());
-        const bool every = m_statsEvery;
-        const long long seenAt = m_settings.achSeenAt;
-        m_achJob = std::async(std::launch::async, [played, names, every, seenAt, installed, media]() {
-            offScreenCore();
-            switchu::achievements::saveSkipped(media);
-            Achieved got = collectAchievements(played, names, every, seenAt, installed);
-            threadDone();
-            return got;
-        });
     }
     if (m_achJob.valid() && m_achJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const Achieved got = m_achJob.get();
