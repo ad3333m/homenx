@@ -1452,6 +1452,10 @@ SidebarManager::Order WiiUMenuApp::sidebarOrder() const {
     std::array<bool, SidebarManager::kButtonCount> seen{};
     for (std::size_t i = 0; i < order.size(); ++i) {
         const int id = m_config.sidebarOrder[i];
+        if (id == SidebarManager::kButtonNone) { // (any number of empty spots)
+            order[i] = id;
+            continue;
+        }
         if (id < 0 || id >= SidebarManager::kButtonCount || seen[(std::size_t)id])
             return SidebarManager::kDefaultOrder;
         seen[(std::size_t)id] = true;
@@ -7017,9 +7021,11 @@ std::vector<WiiUMenuApp::ActionHint> WiiUMenuApp::buildActionHints() {
     if (m_openFolderId != 0)
         add(buttonGlyph(nxui::Button::B), i18n.tr("hint.back", "Back"));
     else {
-        if (m_discord.started()) add(buttonGlyph(nxui::Button::L), i18n.tr("sidebar.discord", "Discord"));
-        add(buttonGlyph(nxui::Button::R),
-            i18n.tr("quicksettings.hint_shortcut", "Quick Settings"));
+        // L and R: what Settings > HomeNX has them open (Discord, Quick Settings or nothing).
+        for (const auto& [button, choice] : {std::pair{nxui::Button::L, m_config.lButton}, std::pair{nxui::Button::R, m_config.rButton}}) {
+            if (choice == 0 && m_discord.started()) add(buttonGlyph(button), i18n.tr("sidebar.discord", "Discord"));
+            if (choice == 1) add(buttonGlyph(button), i18n.tr("quicksettings.hint_shortcut", "Quick Settings"));
+        }
     }
 
     nxui::Widget* cur = focusManager().current();

@@ -1677,20 +1677,17 @@ void WiiUMenuApp::wireGlobalActions() {
             closeFolder(false, true);
     });
 
-    // HomeNX: Quick Settings is on R.
-    root.addAction(static_cast<uint64_t>(nxui::Button::R), [this]() {
+    // HomeNX: L and R open Discord (it slides in from the left, straight to the chat of an alert
+    // that's on screen) or Quick Settings, as Settings > HomeNX has them; at first L Discord, R Quick Settings.
+    auto shoulder = [this](int choice) {
         if (m_editMode || m_navigator.route() != switchu::navigation::Route::Home ||
             focusRoot() != &rootBox())
             return;
-        openQuickSettings();
-    });
-
-    // HomeNX: Discord is on L (it slides in from the left), straight to the
-    // chat of an alert that's on screen.
-    root.addAction(static_cast<uint64_t>(nxui::Button::L), [this]() {
-        if (m_editMode || m_navigator.route() != switchu::navigation::Route::Home ||
-            focusRoot() != &rootBox())
+        if (choice == 1) {
+            openQuickSettings();
             return;
+        }
+        if (choice != 0) return;
         const bool toAlert = m_discordBanner && m_discordBanner->shown() && m_bannerIsDiscord;
         openDiscordPanel();
         if (toAlert && m_discordPanel && m_discordPanel->isOpen()) {
@@ -1698,7 +1695,9 @@ void WiiUMenuApp::wireGlobalActions() {
                                      m_shownAlert.chatAvatar);
             m_discordBanner->slideOut();
         }
-    });
+    };
+    root.addAction(static_cast<uint64_t>(nxui::Button::R), [this, shoulder]() { shoulder(m_config.rButton); });
+    root.addAction(static_cast<uint64_t>(nxui::Button::L), [this, shoulder]() { shoulder(m_config.lButton); });
 
     root.addAction(static_cast<uint64_t>(nxui::Button::LStick), [this]() {
         if (m_navigator.route() == switchu::navigation::Route::ControllerTest)

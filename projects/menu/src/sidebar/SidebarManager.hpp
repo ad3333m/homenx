@@ -28,6 +28,7 @@ public:
         kButtonHekate = 15,   // HomeNX: restarts into hekate
         kButtonUpdater = 16,  // HomeNX: opens HomeNX Updater (updates the SD card's .nro apps)
         kButtonCount = 17,
+        kButtonNone = kButtonCount, // an empty spot (Settings > HomeNX: "None")
         kSlotCount = 10,
     };
     using Order = std::array<int, kSlotCount>; // left column top-down, then right

@@ -468,13 +468,19 @@ void WiiUMenuApp::createSettings() {
             i18n.tr("sidebar.custom", "Custom button"), i18n.tr("sidebar.social", "Social"),
             "Nextendo", i18n.tr("sidebar.music", "Music"), i18n.tr("sidebar.storage", "Storage"),
             i18n.tr("sidebar.mii_maker", "Mii Maker"), i18n.tr("sidebar.toggle", "HomeNX Toggle"), i18n.tr("sidebar.hekate", "Reboot to Hekate"),
-            i18n.tr("sidebar.updater", "Homebrew Manager"),
+            i18n.tr("sidebar.updater", "Homebrew Manager"), i18n.tr("sidebar.none", "None"), // (None: kButtonNone, last)
         });
     }
     m_settings->onSidebarOrderChange([this](std::vector<int> order) {
         m_config.sidebarOrder = std::move(order);
         m_config.save();
         rebuildSidebar(); // at once, not after a restart
+    });
+    m_settings->setShoulderState(m_config.lButton, m_config.rButton);
+    m_settings->onShoulderChange([this](int l, int r) {
+        m_config.lButton = l;
+        m_config.rButton = r;
+        m_config.save();
     });
     m_settings->onCustomButtonApp([this]() { openCustomButtonAppPicker(); });
     m_settings->onCustomButtonIcon([this]() { openCustomButtonIconPicker(); });

@@ -916,6 +916,7 @@ void CardsActivity::onDestroy() {
     }
     stopPairing();
     if (m_friendCodeJob.valid()) m_friendCodeJob.wait();
+    if (m_keyCheckJob.valid()) m_keyCheckJob.wait();
     if (m_newsJob.valid()) m_newsJob.wait();
     if (m_updateJob.valid()) m_updateJob.wait();
     // Discord's threads use the sockets: they stop before the sockets go.
@@ -1615,15 +1616,16 @@ void CardsActivity::takeArt() {
 
 }
 
-void CardsActivity::forgetAllArt() {
+void CardsActivity::forgetAllArt(bool files) {
     {
         std::lock_guard<std::mutex> lk(m_mu);
         m_jobs.clear();
         m_done.clear();
     }
     app().gpu().waitIdle(); // they may still be drawing
-    for (auto& page : m_pages)
-        for (const Game& g : page) forgetArt(g.id);
+    if (files)
+        for (auto& page : m_pages)
+            for (const Game& g : page) forgetArt(g.id);
     m_art.clear();
     m_thumbs.clear(); // (the small copies of the old pictures)
     ++m_artGen;
@@ -3295,9 +3297,12 @@ void CardsActivity::openGallery(int mode) {
     auto all = std::make_shared<std::vector<AlbumShot>>();
     m_galleryAll = all;
     m_galleryPage = 0;
-    m_pickJob = std::async(std::launch::async, [all, mode, current = m_galleryCurrent]() {
+    const std::uint64_t app = mode == 3 ? m_galleryApp : 0;
+    m_galleryApp = 0;
+    m_pickJob = std::async(std::launch::async, [all, mode, app, current = m_galleryCurrent]() {
         offScreenCore();
         *all = listAlbum();
+        if (app) all->erase(std::remove_if(all->begin(), all->end(), [app](const AlbumShot& s) { return s.app != app; }), all->end());
         if (mode != 3) {
             std::vector<AlbumShot> pictures;
             if (mode != 4) pictures.emplace_back(); // (no key: no picture of its own)
@@ -3675,6 +3680,7 @@ void CardsActivity::updateIntro(float dt) {
         m_settings.introDone = true;
         m_settings.save();
         m_audio.play("hide_modal");
+        openFirstSetup();
         return;
     }
     if (next) {
@@ -3861,6 +3867,8 @@ void CardsActivity::openOptions() {
         items.push_back(action("Title picture", [this, g]() { openTitlePicker(g); }));
         items.back().glyph = "tag";
         if (game) {
+            items.push_back(action("About this game", [this, g]() { openGameInfo(g); }));
+            items.back().glyph = "dots";
             items.push_back(action("Achievements", [this, g]() { openAchievements(g); }));
             items.back().glyph = "trophy";
         }
@@ -6160,6 +6168,8 @@ void CardsActivity::buildSettings() {
     storage.rows.push_back(info("microSD card", [this]() { return m_storageSummary[1]; }));
     storage.rows.push_back(action("Move software between console and microSD", [this]() { openStorage(); }));
     storage.rows.back().detail = "Move installed game data; save data stays on the console";
+    storage.rows.push_back(action("Delete save data", [this]() { openSaveData(); }));
+    storage.rows.back().detail = "A game's saved progress, for good. Back it up first (JKSV)";
     m_sheet.push_back(std::move(storage));
     // The console's own settings.
     Section net{"Internet", "wifi", {}};
@@ -6433,7 +6443,18 @@ void CardsActivity::buildSettings() {
                 m_key = k;
             }
             setSteamGridDbKey(k);
-            say(k.empty() ? "SteamGridDB key removed." : "Saved: covers, backgrounds and the pickers use SteamGridDB now.");
+            if (k.empty()) {
+                say("SteamGridDB key removed.");
+                return;
+            }
+            say("Checking the key with SteamGridDB...");
+            if (!m_keyCheckJob.valid())
+                m_keyCheckJob = std::async(std::launch::async, [k]() {
+                    offScreenCore();
+                    const long status = steamGridDbCheck(k);
+                    threadDone();
+                    return status;
+                });
         });
     });
     sgdb.value = [this]() { return m_key.empty() ? std::string("None") : std::string("Set"); };
@@ -6492,6 +6513,21 @@ void CardsActivity::buildSettings() {
     about.rows.push_back(info("Homebrew", [this]() { return std::to_string(m_pages[kHomebrew].size()); }));
     about.rows.push_back(info("Free on the SD card", [this]() { return m_free; }));
     about.rows.push_back(info("Terms, privacy, licenses", []() { return std::string("homenx.pages.dev/legal"); }));
+    MenuItem report = action("Make a bug report", [this]() {
+        std::string info = "CardsNX build " + std::string(HOMENX_BUILD) + "\nSystem " + m_console.firmware + "\nAtmosphere "
+                           + m_console.atmosphere + "\nLanguage " + (m_settings.language.empty() ? std::string("console's") : m_settings.language)
+                           + "\nGames " + std::to_string(m_pages[kGames].size()) + ", homebrew " + std::to_string(m_pages[kHomebrew].size())
+                           + "\nFree on the SD card " + m_free + "\n";
+#ifdef SWITCHU_MENU
+        info += "Running as HOME\n";
+#else
+        info += "Running as a homebrew app\n";
+#endif
+        say(makeBugReport(info).empty() ? "The bug report couldn't be written."
+                                        : "Bug report saved: HomeNX-bug-report.zip on the SD card. Attach it to your GitHub issue.");
+    });
+    report.detail = "The logs in one file on the SD card, to attach to a GitHub issue";
+    about.rows.push_back(std::move(report));
     MenuItem tabs = action("Settings tab order", [this]() {
         m_sheetOpen = false;
         openSheetOrder();
@@ -8192,6 +8228,17 @@ void CardsActivity::onUpdate(float dt) {
     if (m_friendCodeJob.valid() && m_friendCodeJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         m_friendCode = m_friendCodeJob.get();
 #endif
+    if (m_keyCheckJob.valid() && m_keyCheckJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const long status = m_keyCheckJob.get();
+        if (status == 200) {
+            say("The key works: pictures from SteamGridDB load now.");
+            forgetAllArt(false); // (the cards shown now came without it)
+        } else if (status == 401 || status == 403) {
+            say("SteamGridDB refused this key. Copy it again from steamgriddb.com > Preferences > API.");
+        } else {
+            say("SteamGridDB didn't answer. Check the internet connection and try again.");
+        }
+    }
     if (m_returnTex) { // the game's last picture: shown while HOME starts (the loading
                        // lag stays behind a still frame of the game), then it shrinks
                        // into its card while the cards rise in, as one movement.
@@ -9481,6 +9528,10 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
     const bool cardsFocused = m_zone == Zone::Cards;
     const float pageAlpha = easeOut(m_pageIn);
     const float making = othersAlpha(); // launching: the others fade
+    if (m_page >= kPageCount) { // a page of your own: its name over the cards
+        const std::string name = fit(m_fBody, pageName(m_page), 640.f);
+        textMid(r, m_fBody, name, kCardFirstX + 4.f, 100.f, kMuted.withAlpha(0.95f * pageAlpha * making), 0.9f);
+    }
     for (int i = 0; i < static_cast<int>(page.size()); ++i) {
         if (launchDrawsCard() && i == m_leaveIndex) continue; // drawn on top (drawLaunch)
         nxui::Rect card;
@@ -10367,6 +10418,111 @@ CardsActivity::MenuItem CardsActivity::friendCodeRow() {
     });
 }
 #endif
+
+// The saves on the console, by game, then each one (a user's, or the console's own): deleted
+// after a second "for good". A game that's open is left alone.
+void CardsActivity::openSaveData(std::uint64_t only) {
+    struct Save {
+        std::uint64_t id, app, size;
+        bool device;
+        AccountUid uid;
+    };
+    std::vector<Save> saves;
+    FsSaveDataInfoReader reader;
+    if (R_FAILED(fsOpenSaveDataInfoReader(&reader, FsSaveDataSpaceId_User))) {
+        say("Save data can't be read here.");
+        return;
+    }
+    FsSaveDataInfo got[32];
+    s64 n = 0;
+    while (R_SUCCEEDED(fsSaveDataInfoReaderRead(&reader, got, 32, &n)) && n > 0)
+        for (s64 i = 0; i < n && i < 32; ++i) {
+            const FsSaveDataInfo& s = got[i];
+            if (s.save_data_type != FsSaveDataType_Account && s.save_data_type != FsSaveDataType_Device) continue;
+            if (only && s.application_id != only) continue;
+            saves.push_back({s.save_data_id, s.application_id, s.size, s.save_data_type == FsSaveDataType_Device, s.uid});
+        }
+    fsSaveDataInfoReaderClose(&reader);
+    auto nameOf = [this](std::uint64_t app) {
+        for (const auto& page : m_pages)
+            for (const Game& g : page)
+                if (g.id == app) return g.name;
+        return idText(app);
+    };
+    auto sizeText = [](std::uint64_t bytes) {
+        char buf[32];
+        if (bytes >= (1ull << 30)) std::snprintf(buf, sizeof(buf), "%.1f GB", static_cast<double>(bytes) / (1ull << 30));
+        else std::snprintf(buf, sizeof(buf), "%.1f MB", static_cast<double>(bytes) / (1ull << 20));
+        return std::string(buf);
+    };
+    std::vector<MenuItem> items;
+    if (!only) { // the games with saves
+        std::map<std::uint64_t, std::uint64_t> total;
+        for (const Save& s : saves) total[s.app] += s.size;
+        for (const auto& [app, bytes] : total) {
+            items.push_back(action(nameOf(app), [this, app = app]() { openSaveData(app); }));
+            items.back().value = [text = sizeText(bytes)]() { return text; };
+        }
+        std::sort(items.begin(), items.end(), [](const MenuItem& a, const MenuItem& b) { return a.label < b.label; });
+        if (items.empty()) items.push_back(info("No save data.", nullptr));
+        openMenu("Delete save data", std::move(items));
+        return;
+    }
+    const std::vector<User> users = listUsers();
+    for (const Save& s : saves) {
+        std::string who = tr("Every user (the console's own save)");
+        if (!s.device)
+            for (const User& u : users)
+                if (u.uid.uid[0] == s.uid.uid[0] && u.uid.uid[1] == s.uid.uid[1]) who = u.name;
+        const std::string game = nameOf(s.app);
+        const std::uint64_t id = s.id, app = s.app;
+        items.push_back(action(who, [this, id, app, game, who]() {
+            openMenu(trf("Delete {game}'s save for {user}?", {game, who}), {
+                info("This can't be undone.", nullptr),
+                action("Delete for good", [this, id, app]() {
+                    if (runningId() == app) {
+                        say("Close the game first.");
+                        return;
+                    }
+                    say(R_SUCCEEDED(fsDeleteSaveDataFileSystemBySaveDataSpaceId(FsSaveDataSpaceId_User, id)) ? "Deleted."
+                                                                                                            : "That didn't delete.");
+                }, true),
+                action("Keep it", []() {}),
+            });
+        }));
+        items.back().value = [text = sizeText(s.size)]() { return text; };
+    }
+    if (items.empty()) items.push_back(info("No save data.", nullptr));
+    openMenu(nameOf(only), std::move(items));
+}
+
+// + > About this game: its play time and the rest, its pictures in the Album and its saves.
+void CardsActivity::openGameInfo(const Game& g) {
+    std::vector<MenuItem> items;
+    items.push_back(info("Played", [s = g.playSeconds]() { return playTime(s); }));
+    items.push_back(info("Launches", [n = g.launches]() { return std::to_string(n); }));
+    items.push_back(info(lastPlayed(g.lastPlayed), nullptr));
+    if (!g.version.empty()) items.push_back(info("Version", [v = g.version]() { return v; }));
+    items.push_back(info("Title ID", [id = g.id]() { return idText(id); }));
+    items.push_back(action("Screenshots and videos", [this, id = g.id]() {
+        m_galleryApp = id;
+        openGallery(3);
+    }));
+    items.push_back(action("Save data", [this, id = g.id]() { openSaveData(id); }));
+    openMenu(g.name, std::move(items));
+}
+
+// After the intro (once): Settings' own rows for the few choices worth making first.
+void CardsActivity::openFirstSetup() {
+    buildSettings();
+    std::vector<MenuItem> items;
+    for (const char* label : {"Language", "Clock", "Music", "Lock screen", "SteamGridDB key"})
+        for (const Section& s : m_sheet)
+            for (const MenuItem& row : s.rows)
+                if (row.kind != MenuItem::Header && row.label == label && items.size() < 8) items.push_back(row);
+    items.push_back(action("Done", []() {}));
+    openMenu("Set up CardsNX", std::move(items));
+}
 
 std::string CardsActivity::pageName(int page) const {
     if (page >= 0 && page < kPageCount) return tr(kPageNames[page]);

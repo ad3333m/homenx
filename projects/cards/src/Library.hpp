@@ -154,11 +154,17 @@ struct AlbumShot {
     std::array<std::uint8_t, 0x18> id{}; // its CapsAlbumFileId
     bool inService = false, video = false;
     std::uint64_t bytes = 0;
+    std::uint64_t app = 0;               // the software it was taken in (the Album service's; 0: not known)
 };
 std::vector<AlbumShot> listAlbum();                                          // all of it, newest first
 std::vector<std::uint8_t> albumBytes(const AlbumShot& shot, bool thumbnail); // the whole JPEG, or its thumbnail
 std::string albumPictureFile(const AlbumShot& shot);                         // a file to use (console memory: copied to the SD card)
 bool deleteAlbumShot(const AlbumShot& shot);
+// The HTTP status SteamGridDB answers this key with (200: it works; 401: refused; 0: no answer).
+long steamGridDbCheck(const std::string& key);
+// The logs, the newest crash reports and `info` in one .zip on the SD card, for a GitHub issue.
+// No settings files (they hold sign-ins and keys). Its path, or "" if it couldn't be written.
+std::string makeBugReport(const std::string& info);
 // The console's clock: automatic (from the internet), or set by hand (HOME only).
 bool autoClock();
 bool darkTheme();

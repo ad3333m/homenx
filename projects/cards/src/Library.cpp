@@ -499,7 +499,27 @@ bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out, co
     std::vector<PdmPlayEvent> events(kChunk);
     const std::uint64_t t0 = armGetSystemTick();
     bool open = false, mine = false, saw = false, focused = false;
-    std::uint64_t title = 0, focusAt = 0, played = 0, offset = 0;
+    std::uint64_t title = 0, focusAt = 0, focusUser = 0, played = 0, offset = 0;
+    // Asleep isn't play (pdm counts it): the spans the daemon writes in sleep.log come off.
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> slept;
+    {
+        std::ifstream in("sdmc:/config/SwitchU/sleep.log");
+        char what = 0;
+        unsigned long long at = 0, from = 0;
+        while (in >> what >> at) {
+            if (what == 'S') from = at;
+            else if (what == 'W' && from && at > from) {
+                slept.emplace_back(from, at);
+                from = 0;
+            }
+        }
+    }
+    auto sleptIn = [&slept](std::uint64_t a, std::uint64_t b) {
+        std::uint64_t s = 0;
+        for (const auto& span : slept)
+            if (span.first < b && span.second > a) s += std::min(b, span.second) - std::max(a, span.first);
+        return s;
+    };
     auto close = [&]() {
         if (open && mine && saw) {
             PlayTotal& t = out[title];
@@ -555,13 +575,17 @@ bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out, co
                         if (open) { saw = true; close(); }
                         break;
                     case PdmAppletEventType_InFocus:
-                        if (open) { saw = true; focused = true; focusAt = e.timestamp_steady; }
+                        if (open) { saw = true; focused = true; focusAt = e.timestamp_steady; focusUser = e.timestamp_user; }
                         break;
                     case PdmAppletEventType_OutOfFocus:
                     case PdmAppletEventType_OutOfFocus4:
                         if (open) {
                             saw = true;
-                            if (focused && e.timestamp_steady > focusAt) played += e.timestamp_steady - focusAt;
+                            if (focused && e.timestamp_steady > focusAt) {
+                                const std::uint64_t d = e.timestamp_steady - focusAt;
+                                const std::uint64_t z = e.timestamp_user > focusUser ? sleptIn(focusUser, e.timestamp_user) : 0;
+                                played += d > z ? d - z : 0;
+                            }
                             focused = false;
                         }
                         break;
@@ -1001,6 +1025,86 @@ unsigned char* decodePicture(const unsigned char* data, int size, int& w, int& h
     return px;
 }
 
+long steamGridDbCheck(const std::string& key) {
+    std::string body;
+    return get(std::string(kSteamGridDb) + "/search/autocomplete/mario", body,
+               {"Authorization: Bearer " + key, "Accept: application/json"});
+}
+
+namespace {
+void put16(std::string& s, unsigned v) {
+    s += static_cast<char>(v & 0xFF);
+    s += static_cast<char>((v >> 8) & 0xFF);
+}
+void put32(std::string& s, std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) s += static_cast<char>((v >> (8 * i)) & 0xFF);
+}
+// The newest files in a folder (crash reports are named by their time: by name, newest first).
+std::vector<std::string> newestFiles(const char* dir, size_t count) {
+    std::vector<std::string> out;
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+        if (e.is_regular_file(ec)) out.push_back(e.path().string());
+    std::sort(out.begin(), out.end(), std::greater<>());
+    if (out.size() > count) out.resize(count);
+    return out;
+}
+} // namespace
+
+std::string makeBugReport(const std::string& info) {
+    std::vector<std::pair<std::string, std::string>> files{{"info.txt", info}}; // the name in the .zip, its bytes
+    auto add = [&files](const std::string& path, const std::string& name) {
+        std::ifstream in(path, std::ios::binary | std::ios::ate);
+        if (!in) return;
+        const std::streamoff size = in.tellg(), most = 4 << 20;
+        if (size <= 0) return;
+        in.seekg(size > most ? size - most : 0); // (a long log's end: its newest lines)
+        std::string data(static_cast<size_t>(std::min(size, most)), '\0');
+        if (in.read(data.data(), static_cast<std::streamsize>(data.size()))) files.emplace_back(name, std::move(data));
+    };
+    for (const char* log : {"daemon", "menu"}) add(std::string("sdmc:/config/SwitchU/") + log + ".log", std::string(log) + ".log");
+    for (const char* log : {"start", "perf", "perf.old", "net"})
+        add(std::string("sdmc:/config/CardsNX/") + log + ".log", std::string("cardsnx-") + log + ".log");
+    add("sdmc:/config/SwitchU/sleep.log", "sleep.log");
+    for (const std::string& p : newestFiles("sdmc:/atmosphere/crash_reports", 4))
+        add(p, "crash_reports/" + std::filesystem::path(p).filename().string());
+    for (const std::string& p : newestFiles("sdmc:/atmosphere/fatal_errors", 3))
+        add(p, "fatal_errors/" + std::filesystem::path(p).filename().string());
+    // A plain (stored) .zip: zlib's crc32, no compression needed for a few MB of logs.
+    constexpr unsigned kDate = (46u << 9) | (1u << 5) | 1u; // (1 Jan 2026: the entries' date)
+    std::string zip, central;
+    for (const auto& file : files) {
+        const std::string& name = file.first;
+        const std::string& data = file.second;
+        const std::uint32_t crc = crc32(crc32(0L, Z_NULL, 0), reinterpret_cast<const Bytef*>(data.data()), static_cast<uInt>(data.size()));
+        const std::uint32_t at = static_cast<std::uint32_t>(zip.size());
+        auto head = [&](std::string& s) {
+            put16(s, 20); put16(s, 0); put16(s, 0); put16(s, 0); put16(s, kDate);
+            put32(s, crc); put32(s, static_cast<std::uint32_t>(data.size())); put32(s, static_cast<std::uint32_t>(data.size()));
+            put16(s, static_cast<unsigned>(name.size())); put16(s, 0);
+        };
+        put32(zip, 0x04034b50);
+        head(zip);
+        zip += name;
+        zip += data;
+        put32(central, 0x02014b50);
+        put16(central, 20);
+        head(central);
+        put16(central, 0); put16(central, 0); put16(central, 0); put32(central, 0); put32(central, at);
+        central += name;
+    }
+    const std::uint32_t centralAt = static_cast<std::uint32_t>(zip.size());
+    zip += central;
+    put32(zip, 0x06054b50);
+    put16(zip, 0); put16(zip, 0);
+    put16(zip, static_cast<unsigned>(files.size())); put16(zip, static_cast<unsigned>(files.size()));
+    put32(zip, static_cast<std::uint32_t>(central.size())); put32(zip, centralAt); put16(zip, 0);
+    const std::string path = "sdmc:/HomeNX-bug-report.zip";
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(zip.data(), static_cast<std::streamsize>(zip.size()));
+    return out ? path : std::string();
+}
+
 static_assert(sizeof(CapsAlbumFileId) == sizeof(AlbumShot::id));
 
 // The files (both Albums under emuMMC, and Extra's), then what the Album service knows:
@@ -1033,6 +1137,7 @@ std::vector<AlbumShot> listAlbum() {
                 std::memcpy(shot.id.data(), &id, sizeof(id));
                 shot.inService = true;
                 shot.bytes = entries[i].size;
+                shot.app = id.application_id;
                 shot.video = id.content == CapsAlbumFileContents_Movie || id.content == CapsAlbumFileContents_ExtraMovie;
             }
         }

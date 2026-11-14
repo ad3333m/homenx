@@ -154,6 +154,12 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
         it.onChange = [&screen, slot, slotLabel](SettingItem& self) {
             auto& order = screen.m_sidebarOrder;
             const int previous = order[(std::size_t)slot];
+            const int none = static_cast<int>(screen.m_sidebarNames.size()) - 1; // ("None": the list's last)
+            if (self.intVal == none) { // an empty spot: nothing else moves
+                order[(std::size_t)slot] = none;
+                if (screen.m_sidebarOrderCb) screen.m_sidebarOrderCb(order);
+                return;
+            }
             const auto other = std::find(order.begin(), order.end(), self.intVal);
             if (other != order.end() && other - order.begin() == slot) return;
             if (other != order.end()) { // it was in another spot: they swap
@@ -169,6 +175,20 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
             } // else it wasn't on the sidebar (Nextendo): it replaces this spot's button
             order[(std::size_t)slot] = self.intVal;
             if (screen.m_sidebarOrderCb) screen.m_sidebarOrderCb(order);
+        };
+        t.items.push_back(std::move(it));
+    }
+    for (int which = 0; which < 2; ++which) { // what L and R open on HOME
+        SettingItem it;
+        it.label = which == 0 ? i18n.tr("settings.homenx.l_button", "L button") : i18n.tr("settings.homenx.r_button", "R button");
+        it.description = i18n.tr("settings.homenx.shoulder_desc", "What it opens on HOME");
+        it.type = ItemType::Selector;
+        it.options = {i18n.tr("sidebar.discord", "Discord"), i18n.tr("quicksettings.hint_shortcut", "Quick Settings"),
+                      i18n.tr("sidebar.none", "None")};
+        it.intVal = which == 0 ? screen.m_lButton : screen.m_rButton;
+        it.onChange = [&screen, which](SettingItem& self) {
+            (which == 0 ? screen.m_lButton : screen.m_rButton) = self.intVal;
+            if (screen.m_shoulderCb) screen.m_shoulderCb(screen.m_lButton, screen.m_rButton);
         };
         t.items.push_back(std::move(it));
     }

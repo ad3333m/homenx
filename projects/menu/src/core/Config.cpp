@@ -79,6 +79,8 @@ bool AppConfig::load() {
     readJsonOpt(j, "cursorMotionMode", cursorMotionMode);
     readJsonOpt(j, "homenxGlassEffects", glassEffects);
     readJsonOpt(j, "homenxSidebarOrder", sidebarOrder);
+    readJsonOpt(j, "homenxLButton", lButton);
+    readJsonOpt(j, "homenxRButton", rButton);
     readJsonOpt(j, "homenxCustomButtonPath", customButtonPath);
     readJsonOpt(j, "homenxCustomButtonIcon", customButtonIcon);
     readJsonOpt(j, "homenxNextendoPath", nextendoPath);
@@ -204,6 +206,8 @@ bool AppConfig::save() const {
     j["cursorMotionMode"] = std::clamp(cursorMotionMode, 0, 1);
     j["homenxGlassEffects"] = glassEffects;
     j["homenxSidebarOrder"] = sidebarOrder;
+    j["homenxLButton"] = std::clamp(lButton, 0, 2);
+    j["homenxRButton"] = std::clamp(rButton, 0, 2);
     j["homenxCustomButtonPath"] = customButtonPath;
     j["homenxCustomButtonIcon"] = customButtonIcon;
     j["homenxNextendoPath"] = nextendoPath;

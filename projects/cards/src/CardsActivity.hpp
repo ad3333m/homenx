@@ -193,7 +193,12 @@ private:
     void worker(int index);
     void wantArt();
     void takeArt();
-    void forgetAllArt();
+    void forgetAllArt(bool files = true); // files: the cached pictures go too (else they're only shown again)
+    std::future<long> m_keyCheckJob;      // Settings > Look > SteamGridDB key: does SteamGridDB take it?
+    void openSaveData(std::uint64_t only = 0); // Settings > Storage > Delete save data (only: one game's)
+    void openGameInfo(const Game& g);     // + > About this game
+    void openFirstSetup();                // after the intro: the choices worth making first
+    std::uint64_t m_galleryApp = 0;       // the Album opened from a game's page: its pictures only
     void select(int index);
     void switchPage(int dir);     // the next / previous page in your order
     void goToPage(int page, int dir = 0);

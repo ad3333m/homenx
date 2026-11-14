@@ -64,6 +64,9 @@ public:
         m_sidebarNames = std::move(names);
     }
     void onSidebarOrderChange(std::function<void(std::vector<int>)> cb) { m_sidebarOrderCb = std::move(cb); }
+    // L and R on HOME: 0 Discord, 1 Quick Settings, 2 nothing.
+    void setShoulderState(int l, int r) { m_lButton = l; m_rButton = r; }
+    void onShoulderChange(std::function<void(int, int)> cb) { m_shoulderCb = std::move(cb); }
     void setGlassEffectsState(bool on) { m_glassEffects = on; }
     using SoftwareDeleteCb = std::function<void(uint64_t, const std::string&)>;
     void onSoftwareDelete(SoftwareDeleteCb cb) { m_softwareDeleteCb = std::move(cb); }
@@ -171,6 +174,8 @@ private:
     std::vector<int> m_sidebarOrder;
     std::vector<std::string> m_sidebarNames;
     std::function<void(std::vector<int>)> m_sidebarOrderCb;
+    int m_lButton = 0, m_rButton = 1;
+    std::function<void(int, int)> m_shoulderCb;
     bool m_glassEffects = false;
     SoftwareDeleteCb m_softwareDeleteCb;
     VoidCb m_sleepCb;

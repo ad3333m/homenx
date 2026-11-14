@@ -68,8 +68,8 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     };
 
     auto column = [&](std::vector<std::shared_ptr<AppletButton>>& col, float x,
-                      std::shared_ptr<AppletButton> btn) {
-        btn->setRect({x, startY + static_cast<float>(col.size()) * (btnSize + gap), btnSize, btnSize});
+                      std::shared_ptr<AppletButton> btn, int row = -1) { // (row: its spot, an empty one above it stays empty)
+        btn->setRect({x, startY + static_cast<float>(row < 0 ? static_cast<int>(col.size()) : row) * (btnSize + gap), btnSize, btnSize});
         AppletButton* raw = btn.get();
         col.push_back(std::move(btn));
         return raw;
@@ -99,13 +99,14 @@ void SidebarManager::build(nxui::GpuDevice& gpu, nxui::Renderer& ren,
     };
     m_byId.fill(nullptr);
     for (int slot = 0; slot < kSlotCount; ++slot) {
+        if (order[(std::size_t)slot] == kButtonNone) continue; // an empty spot
         const Def& d = defs[order[(std::size_t)slot]];
         auto btn = makeBtn(&m_icons[(std::size_t)d.id], d.key, d.fallback, d.action);
         m_byId[(std::size_t)d.id] = btn.get();
         if (slot < kSidebarRows)
-            column(m_leftButtons, leftX, std::move(btn));
+            column(m_leftButtons, leftX, std::move(btn), slot);
         else
-            column(m_rightButtons, rightX, std::move(btn));
+            column(m_rightButtons, rightX, std::move(btn), slot - kSidebarRows);
     }
     m_albumButton = m_byId[kButtonSphaira];
     m_settingsButton = m_byId[kButtonSettings];

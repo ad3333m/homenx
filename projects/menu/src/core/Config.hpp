@@ -23,6 +23,7 @@ struct AppConfig {
     int cursorMotionMode = 0;
     bool glassEffects = false; // HomeNX: off = 60 FPS mode (frosted panels, no blur)
     std::vector<int> sidebarOrder;     // HomeNX: button ids, left column then right (empty = default)
+    int lButton = 0, rButton = 1;      // HomeNX: what L and R open on HOME: 0 Discord, 1 Quick Settings, 2 nothing
     std::string customButtonPath;      // HomeNX: .nro the custom sidebar button launches
     std::string customButtonIcon;      // HomeNX: image for it; empty = the .nro's own icon
     std::string nextendoPath = "sdmc:/switch/prelude.nro"; // HomeNX: what the Nextendo button opens

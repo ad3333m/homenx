@@ -1005,6 +1005,22 @@ static void requestPowerStateChange(const char* source, bool reboot) {
 // does need a handoff before the console stops responding. Left on its own it
 // keeps submitting frames, playing music and running its per-frame work for the
 // whole sleep, which is what flattened the battery in sleep mode.
+// When the console slept and woke (the user clock, POSIX seconds). pdm counts a game's time
+// asleep as play; CardsNX takes these spans off (Library.cpp, playTotals).
+static void noteSleep(char what) {
+    switchu::timebudget::FullScope time;
+    u64 now = 0;
+    if (R_FAILED(timeGetCurrentTime(TimeType_UserSystemClock, &now)) || now == 0) return;
+    constexpr const char* kPath = "sdmc:/config/SwitchU/sleep.log";
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(kPath, ec);
+    if (!ec && size > 64 * 1024) std::filesystem::remove(kPath, ec); // (years of sleeps; only recent ones matter much)
+    if (std::FILE* f = std::fopen(kPath, "a")) {
+        std::fprintf(f, "%c %llu\n", what, static_cast<unsigned long long>(now));
+        std::fclose(f);
+    }
+}
+
 static void startSleepSequence(const char* source) {
     switchu::FileLog::logCommit("[power] sleep requested source=%s menuActive=%d",
                                 source, daemon::menu_la::isActive() ? 1 : 0);
@@ -1017,6 +1033,7 @@ static void startSleepSequence(const char* source) {
         g_wakeCovered = R_SUCCEEDED(coverRc);
         g_wakeCoverDeadline = 0; // the recovery timer starts on wake
     }
+    noteSleep('S');
     pushNotification(smi::MenuMessage::SleepSequence);
     switchu::commitSdCard("sleep");
     svcSleepThread(50'000'000ULL);
@@ -1297,6 +1314,7 @@ static bool handleAppletMessages() {
         case 26:
         {
         switchu::FileLog::log("[ae] -> Wakeup");
+        noteSleep('W');
         if (g_wakeCovered) g_wakeCoverDeadline = armGetSystemTick() + armNsToTicks(8'000'000'000ULL);
         if (lock_screen::enabled()) {
             const Result captureRc = appletInvalidateTransitionLayer();
