@@ -1,5 +1,18 @@
 # CardsNX's words: the English, then a column per language. Empty = English. tools/check_cards_lang.py checks it.
 en	es	pt	ru	fr	de	it	ja	zh
+Game card inserted: {game}	Tarjeta insertada: {game}	Cartão inserido: {game}	Картридж вставлен: {game}	Cartouche insérée : {game}	Spielkarte eingesteckt: {game}	Cartuccia inserita: {game}	挿入中のゲームカード: {game}	已插入游戏卡：{game}
+Game card inserted	Tarjeta insertada	Cartão inserido	Картридж вставлен	Cartouche insérée	Spielkarte eingesteckt	Cartuccia inserita	ゲームカード挿入中	已插入游戏卡
+No game card inserted	Ninguna tarjeta insertada	Nenhum cartão inserido	Картридж не вставлен	Aucune cartouche insérée	Keine Spielkarte eingesteckt	Nessuna cartuccia inserita	ゲームカード未挿入	未插入游戏卡
+Checking game card...	Comprobando tarjeta...	Verificando cartão...	Проверка картриджа...	Vérification de la cartouche...	Spielkarte wird geprüft...	Verifica cartuccia in corso...	ゲームカードを確認中...	正在检查游戏卡...
+Game card read error	Error al leer la tarjeta	Erro ao ler o cartão	Ошибка чтения картриджа	Erreur de lecture de la cartouche	Spielkarte konnte nicht gelesen werden	Errore di lettura della cartuccia	ゲームカードの読み取りエラー	游戏卡读取错误
+Nothing	Nada	Nada	Ничего	Rien	Nichts	Niente	なし	无
+Game card icons	Iconos de tarjeta	Ícones de cartucho	Значки картриджей	Icônes de cartouche	Spielkarten-Symbole	Icone cartuccia	ゲームカードのアイコン	游戏卡图标
+Inserted game card only	Solo tarjeta insertada	Apenas cartucho inserido	Только вставленный картридж	Cartouche insérée uniquement	Nur eingesteckte Spielkarte	Solo cartuccia inserita	挿入中のゲームカードのみ	仅已插入的游戏卡
+Inserted and required game cards	Tarjetas insertadas y requeridas	Cartuchos inseridos e necessários	Вставленные и требуемые картриджи	Cartouches insérées et requises	Eingesteckte und benötigte Spielkarten	Cartucce inserite e richieste	挿入中と必要なゲームカード	已插入及需要插入的游戏卡
+Game in first position	Juego en primera posición	Jogo na primeira posição	Игра на первом месте	Jeu en première position	Spiel an erster Stelle	Gioco in prima posizione	ゲームを先頭に表示	游戏置于首位
+Title bar	Barra del título	Barra do título	Панель названия	Barre du titre	Titelleiste	Barra del titolo	タイトルバー	标题栏
+First position and title	Primera posición y título	Primeira posição e título	Первое место и название	Première position et titre	Erste Stelle und Titel	Prima posizione e titolo	先頭表示とタイトル	首位和标题
+Selected	Seleccionada	Selecionada	Выбрано	Sélectionnée	Ausgewählt	Selezionata	選択中	已选择
 Games	Juegos	Jogos	Игры	Jeux	Spiele	Giochi	ゲーム	游戏
 Homebrew	Homebrew	Homebrew	Homebrew	Homebrew	Homebrew	Homebrew	自作ソフト	自制软件
 Media	Multimedia	Mídia	Медиа	Médias	Medien	Media	メディア	媒体
@@ -731,3 +744,4 @@ Language and time	Idioma y hora	Idioma e hora	Язык и время	Langue et h
 Screen and sleep	Pantalla y suspensión	Tela e suspensão	Экран и сон	Écran et veille	Bildschirm und Standby	Schermo e standby	画面とスリープ	屏幕和休眠
 CardsNX started in safe mode	CardsNX se inició en modo seguro	CardsNX iniciou no modo de segurança	CardsNX запущен в безопасном режиме	CardsNX a démarré en mode sans échec	CardsNX wurde im abgesicherten Modus gestartet	CardsNX avviato in modalità provvisoria	CardsNXをセーフモードで起動しました	CardsNX 已以安全模式启动
 It crashed while starting. Music and online pictures are off until the console restarts.	Falló al iniciarse. La música y las imágenes en línea están desactivadas hasta que reinicies la consola.	Travou ao iniciar. A música e as imagens on-line ficam desligadas até reiniciar o console.	Сбой при запуске. Музыка и картинки из сети отключены до перезагрузки консоли.	Il a planté au démarrage. La musique et les images en ligne sont désactivées jusqu'au redémarrage de la console.	Beim Start abgestürzt. Musik und Online-Bilder sind bis zum Neustart der Konsole aus.	Si è bloccato all'avvio. Musica e immagini online sono disattivate fino al riavvio della console.	起動中にクラッシュしました。本体を再起動するまで音楽とオンライン画像はオフです。	启动时崩溃。音乐和在线图片将关闭,直到主机重启。
+Game cards	Tarjetas de juego	Cartões de jogo	Картриджи	Cartes de jeu	Spielkarten	Schede di gioco	ゲームカード	游戏卡带

@@ -74,6 +74,22 @@ inline Game forLookup(Game g) {
 // Installed games in the system's order, names and versions from HOME's cache
 // (sdmc:/config/SwitchU/control_cache) or the system, with play time from pdm.
 std::vector<Game> listGames();
+enum class GameCardStatus { Checking, Absent, Ready, Error };
+struct GameCardState {
+    GameCardStatus status = GameCardStatus::Checking;
+    Game game;
+    std::vector<Game> games;
+    std::uint32_t error = 0;
+    std::vector<std::uint8_t> icon;
+    bool contains(std::uint64_t id) const {
+        for (const Game& title : games)
+            if (title.id == id) return true;
+        return false;
+    }
+};
+enum class GameCardMarker { None, Required, Inserted };
+GameCardMarker gameCardMarker(const Game& game, const GameCardState& state);
+GameCardState readGameCard(std::uint64_t knownTitle = 0, const std::vector<Game>& knownGames = {});
 // The .nro apps in sdmc:/switch (and one folder below), Sphaira, Discord
 // (SwitchCord) and the Homebrew Manager first.
 std::vector<Game> listHomebrew();

@@ -50,6 +50,10 @@ struct Settings {
     bool boxArt = true;       // box covers on cards (off: the eShop banner)
     int accent = 0;           // the focus colour (see kAccents)
     int glass = 1;            // 0 clear, 1 frosted, 2 dark
+    int gameCardDisplay = 0;
+    int gameCardIcons = 0;
+    bool showInsertedGameCardIcon() const { return gameCardIcons >= 1; }
+    bool showRequiredGameCardIcon() const { return gameCardIcons == 2; }
     int launchStyle = 0;      // starting a game: 0 simple fade, 1 splash, 2 card zoom, 3 card flip, 4 dive in, 5 off
     bool clock24 = true;
     bool showFree = true;     // free space in the status pill
@@ -104,6 +108,9 @@ struct Settings {
 
     static constexpr const char* kPath = "sdmc:/config/CardsNX/settings.json";
 
+    bool pinGameCard() const { return (gameCardDisplay & 1) != 0; }
+    bool showGameCardTitle() const { return (gameCardDisplay & 2) != 0; }
+
     void load() {
         try {
             std::ifstream in(kPath);
@@ -143,6 +150,8 @@ struct Settings {
             boxArt = j.value("boxArt", boxArt);
             accent = j.value("accent", accent);
             glass = j.value("glass", glass);
+            gameCardDisplay = std::clamp(j.value("gameCardDisplay", gameCardDisplay), 0, 3);
+            gameCardIcons = std::clamp(j.value("gameCardIcons", gameCardIcons), 0, 2);
             launchStyle = j.value("launchStyle", launchStyle);
             clock24 = j.value("clock24", clock24);
             showFree = j.value("showFree", showFree);
@@ -201,6 +210,8 @@ struct Settings {
         j["lastPage"] = lastPage;
         j["lockGameBanner"] = lockGameBanner;
         j["lockGameTitle"] = lockGameTitle;
+        j["gameCardDisplay"] = gameCardDisplay;
+        j["gameCardIcons"] = gameCardIcons;
         writeLater(kPath, j.dump(2));
     }
 };
