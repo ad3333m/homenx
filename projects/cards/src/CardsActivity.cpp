@@ -917,6 +917,7 @@ void CardsActivity::onDestroy() {
     stopPairing();
     if (m_friendCodeJob.valid()) m_friendCodeJob.wait();
     if (m_keyCheckJob.valid()) m_keyCheckJob.wait();
+    if (m_reportJob.valid()) m_reportJob.wait();
     if (m_newsJob.valid()) m_newsJob.wait();
     if (m_updateJob.valid()) m_updateJob.wait();
     // Discord's threads use the sockets: they stop before the sockets go.
@@ -6506,20 +6507,8 @@ void CardsActivity::buildSettings() {
     about.rows.push_back(info("Homebrew", [this]() { return std::to_string(m_pages[kHomebrew].size()); }));
     about.rows.push_back(info("Free on the SD card", [this]() { return m_free; }));
     about.rows.push_back(info("Terms, privacy, licenses", []() { return std::string("homenx.pages.dev/legal"); }));
-    MenuItem report = action("Make a bug report", [this]() {
-        std::string info = "CardsNX build " + std::string(HOMENX_BUILD) + "\nSystem " + m_console.firmware + "\nAtmosphere "
-                           + m_console.atmosphere + "\nLanguage " + (m_settings.language.empty() ? std::string("console's") : m_settings.language)
-                           + "\nGames " + std::to_string(m_pages[kGames].size()) + ", homebrew " + std::to_string(m_pages[kHomebrew].size())
-                           + "\nFree on the SD card " + m_free + "\n";
-#ifdef SWITCHU_MENU
-        info += "Running as HOME\n";
-#else
-        info += "Running as a homebrew app\n";
-#endif
-        say(makeBugReport(info).empty() ? "The bug report couldn't be written."
-                                        : "Bug report saved: HomeNX-bug-report.zip on the SD card. Attach it to your GitHub issue.");
-    });
-    report.detail = "The logs in one file on the SD card, to attach to a GitHub issue";
+    MenuItem report = action("Make a bug report", [this]() { openBugReport(); });
+    report.detail = "The logs go to the HomeNX Discord's #log-reports, with your note";
     about.rows.push_back(std::move(report));
     MenuItem tabs = action("Settings tab order", [this]() {
         m_sheetOpen = false;
@@ -8221,6 +8210,12 @@ void CardsActivity::onUpdate(float dt) {
     if (m_friendCodeJob.valid() && m_friendCodeJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         m_friendCode = m_friendCodeJob.get();
 #endif
+    if (m_reportJob.valid() && m_reportJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const long status = m_reportJob.get();
+        say(status == 200   ? "Sent. Thank you! The HomeNX team sees it in #log-reports."
+            : status == 429 ? "One report a minute: try again in a moment."
+                            : "It couldn't be sent. It's on the SD card: HomeNX-bug-report.zip");
+    }
     if (m_keyCheckJob.valid() && m_keyCheckJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const long status = m_keyCheckJob.get();
         if (status == 200) {
@@ -10515,6 +10510,64 @@ void CardsActivity::openFirstSetup() {
                 if (row.kind != MenuItem::Header && row.label == label && items.size() < 8) items.push_back(row);
     items.push_back(action("Done", []() {}));
     openMenu("Set up CardsNX", std::move(items));
+}
+
+// The bug report: the logs, the console's versions, the Switch user's name and the Discord one,
+// sent to #log-reports (with a note), or only kept on the SD card. It says what goes, first.
+void CardsActivity::openBugReport() {
+    openMenu("Make a bug report", {
+        info("Sends your logs, Switch user and Discord name", nullptr),
+        action("Write what went wrong, then send", [this]() {
+            askText("What went wrong?", "A few words help a lot", "", 500,
+                    [this](const std::string& note) { makeAndSendReport(note, true); });
+        }),
+        action("Send without a note", [this]() { makeAndSendReport("", true); }),
+        action("Only save it on the SD card", [this]() { makeAndSendReport("", false); }),
+    });
+}
+
+void CardsActivity::makeAndSendReport(const std::string& note, bool send) {
+    if (m_reportJob.valid()) {
+        say("The last report is still on its way.");
+        return;
+    }
+    std::string switchUser = "?";
+    for (const User& u : listUsers())
+        if (u.uid.uid[0] == m_user.uid[0] && u.uid.uid[1] == m_user.uid[1]) switchUser = u.name;
+    std::string discordUser = "not signed in";
+#ifdef SWITCHU_MENU
+    if (!m_discord.myUsername().empty()) discordUser = m_discord.myUsername();
+    else if (!m_discord.accounts().empty()) discordUser = m_discord.accounts().front().username;
+    const std::string home = "HOME";
+#else
+    const std::string home = "homebrew app";
+#endif
+    const std::string info = "CardsNX build " + std::string(HOMENX_BUILD) + "\nRunning as " + home + "\nSystem " + m_console.firmware
+                             + "\nAtmosphere " + m_console.atmosphere + "\nSwitch user " + switchUser + "\nDiscord " + discordUser
+                             + "\nLanguage " + (m_settings.language.empty() ? std::string("console's") : m_settings.language)
+                             + "\nGames " + std::to_string(m_pages[kGames].size()) + ", homebrew "
+                             + std::to_string(m_pages[kHomebrew].size()) + "\nFree on the SD card " + m_free
+                             + (note.empty() ? std::string() : "\nNote: " + note) + "\n";
+    const std::string path = makeBugReport(info);
+    if (path.empty()) {
+        say("The bug report couldn't be written.");
+        return;
+    }
+    if (!send) {
+        say("Bug report saved: HomeNX-bug-report.zip on the SD card. Attach it to your GitHub issue.");
+        return;
+    }
+    const std::vector<std::pair<std::string, std::string>> fields = {
+        {"build", HOMENX_BUILD}, {"home", home}, {"firmware", m_console.firmware}, {"atmosphere", m_console.atmosphere},
+        {"switch_user", switchUser}, {"discord_user", discordUser}, {"note", note},
+    };
+    m_reportJob = std::async(std::launch::async, [path, fields]() {
+        offScreenCore();
+        const long status = sendBugReport(path, fields);
+        threadDone();
+        return status;
+    });
+    say("Sending the bug report...");
 }
 
 std::string CardsActivity::pageName(int page) const {

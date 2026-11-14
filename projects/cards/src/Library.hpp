@@ -165,6 +165,10 @@ long steamGridDbCheck(const std::string& key);
 // The logs, the newest crash reports and `info` in one .zip on the SD card, for a GitHub issue.
 // No settings files (they hold sign-ins and keys). Its path, or "" if it couldn't be written.
 std::string makeBugReport(const std::string& info);
+// Sends that .zip, and who it's from, to #log-reports on the HomeNX Discord, through
+// homenx.pages.dev/api/report (it holds the webhook: the app can't, anyone could post with it).
+// The HTTP status (200: posted; 429: one a minute; 0: no answer).
+long sendBugReport(const std::string& zipPath, const std::vector<std::pair<std::string, std::string>>& fields);
 // The console's clock: automatic (from the internet), or set by hand (HOME only).
 bool autoClock();
 bool darkTheme();

@@ -1070,23 +1070,39 @@ std::string makeBugReport(const std::string& info) {
         add(p, "crash_reports/" + std::filesystem::path(p).filename().string());
     for (const std::string& p : newestFiles("sdmc:/atmosphere/fatal_errors", 3))
         add(p, "fatal_errors/" + std::filesystem::path(p).filename().string());
-    // A plain (stored) .zip: zlib's crc32, no compression needed for a few MB of logs.
+    // A .zip, each file deflated with zlib (logs shrink ~10x: a report fits Discord's attachment limit).
     constexpr unsigned kDate = (46u << 9) | (1u << 5) | 1u; // (1 Jan 2026: the entries' date)
+    auto deflated = [](const std::string& in) {
+        z_stream z{};
+        if (deflateInit2(&z, 6, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK) return std::string();
+        std::string out(deflateBound(&z, static_cast<uLong>(in.size())), '\0');
+        z.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(in.data()));
+        z.avail_in = static_cast<uInt>(in.size());
+        z.next_out = reinterpret_cast<Bytef*>(out.data());
+        z.avail_out = static_cast<uInt>(out.size());
+        const int rc = deflate(&z, Z_FINISH);
+        out.resize(z.total_out);
+        deflateEnd(&z);
+        return rc == Z_STREAM_END ? out : std::string();
+    };
     std::string zip, central;
     for (const auto& file : files) {
         const std::string& name = file.first;
         const std::string& data = file.second;
         const std::uint32_t crc = crc32(crc32(0L, Z_NULL, 0), reinterpret_cast<const Bytef*>(data.data()), static_cast<uInt>(data.size()));
         const std::uint32_t at = static_cast<std::uint32_t>(zip.size());
+        std::string packed = deflated(data);
+        const bool squeezed = !packed.empty() && packed.size() < data.size();
+        const std::string& body = squeezed ? packed : data;
         auto head = [&](std::string& s) {
-            put16(s, 20); put16(s, 0); put16(s, 0); put16(s, 0); put16(s, kDate);
-            put32(s, crc); put32(s, static_cast<std::uint32_t>(data.size())); put32(s, static_cast<std::uint32_t>(data.size()));
+            put16(s, 20); put16(s, 0); put16(s, squeezed ? 8 : 0); put16(s, 0); put16(s, kDate);
+            put32(s, crc); put32(s, static_cast<std::uint32_t>(body.size())); put32(s, static_cast<std::uint32_t>(data.size()));
             put16(s, static_cast<unsigned>(name.size())); put16(s, 0);
         };
         put32(zip, 0x04034b50);
         head(zip);
         zip += name;
-        zip += data;
+        zip += body;
         put32(central, 0x02014b50);
         put16(central, 20);
         head(central);
@@ -1103,6 +1119,47 @@ std::string makeBugReport(const std::string& info) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out.write(zip.data(), static_cast<std::streamsize>(zip.size()));
     return out ? path : std::string();
+}
+
+long sendBugReport(const std::string& zipPath, const std::vector<std::pair<std::string, std::string>>& fields) {
+    std::ifstream in(zipPath, std::ios::binary | std::ios::ate);
+    const std::streamoff size = in ? static_cast<std::streamoff>(in.tellg()) : 0;
+    if (size <= 0 || size > (8 << 20)) return 413;
+    std::string zip(static_cast<size_t>(size), '\0');
+    in.seekg(0);
+    if (!in.read(zip.data(), size)) return 0;
+    if (!t_curl) t_curl = curl_easy_init();
+    CURL* c = t_curl;
+    if (!c) return 0;
+    curl_easy_reset(c);
+    curl_mime* form = curl_mime_init(c);
+    for (const auto& field : fields) {
+        curl_mimepart* part = curl_mime_addpart(form);
+        curl_mime_name(part, field.first.c_str());
+        curl_mime_data(part, field.second.c_str(), CURL_ZERO_TERMINATED);
+    }
+    curl_mimepart* file = curl_mime_addpart(form);
+    curl_mime_name(file, "report");
+    curl_mime_filename(file, "HomeNX-bug-report.zip");
+    curl_mime_type(file, "application/zip");
+    curl_mime_data(file, zip.data(), zip.size());
+    const std::string url = "https://homenx.pages.dev/api/report";
+    std::string out;
+    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(c, CURLOPT_USERAGENT, "CardsNX");
+    curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(c, CURLOPT_MIMEPOST, form);
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, toString);
+    curl_easy_setopt(c, CURLOPT_WRITEDATA, &out);
+    long status = 0;
+    const CURLcode rc = switchu::tls::perform(c, url, std::string(kAssets) + "certs/", [&out]() { out.clear(); });
+    if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+    else switchu::tls::noteFailure(url, rc, "sdmc:/config/CardsNX/net.log");
+    curl_mime_free(form);
+    curl_easy_reset(c); // (the form it pointed at is gone)
+    return status;
 }
 
 static_assert(sizeof(CapsAlbumFileId) == sizeof(AlbumShot::id));
