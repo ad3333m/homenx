@@ -1216,9 +1216,11 @@ void CardsActivity::worker(int index) {
             if (index == 0 && m_netUp && !asleep && m_wantPlayers.load() && now >= countsAt) {
                 countsAt = now + 180000; // (a connection each time: every 3 minutes is plenty)
                 std::map<std::uint64_t, int> counts;
-                if (nextendoOnline(counts)) {
+                std::vector<NextendoGame> games;
+                if (nextendoOnline(counts, games)) {
                     std::lock_guard<std::mutex> lk(m_mu);
                     m_playersIn = std::move(counts);
+                    m_nextendoIn = std::move(games);
                     m_playersFresh = true;
                 }
             }
@@ -1464,11 +1466,18 @@ void CardsActivity::takeArt() {
         for (size_t i = 0; i < n; ++i) done.push_back(std::move(m_done[i]));
         m_done.erase(m_done.begin(), m_done.begin() + static_cast<std::ptrdiff_t>(n));
         if (m_playersFresh) {
-            m_players = m_playersIn;
+            m_players = std::move(m_playersIn);
+            m_nextendoGames = std::move(m_nextendoIn);
             m_playersFresh = false;
             app().requestRedraw();
+            // One count per game. Adding every title id counted Scarlet and
+            // Violet (one lobby) as two games.
             m_playersTotal = 0;
-            for (const auto& p : m_players) m_playersTotal += p.second;
+            if (!m_nextendoGames.empty()) {
+                for (const NextendoGame& g : m_nextendoGames) m_playersTotal += std::max(0, g.players);
+            } else {
+                for (const auto& p : m_players) m_playersTotal += p.second;
+            }
         }
         if (m_statusFresh) {
             m_statusFresh = false;
@@ -7706,6 +7715,87 @@ void CardsActivity::drawNews(nxui::Renderer& r) {
 
 // ---------------------------------------------------------------- top bar and panel
 
+void CardsActivity::openPlayerList() {
+    if (m_playersTotal < 0) {
+        say("Counting Nextendo players...");
+        return;
+    }
+    struct Row {
+        std::string name;
+        int players = 0;
+        std::vector<std::uint64_t> titles;
+    };
+    std::vector<Row> rows;
+    rows.reserve(m_nextendoGames.size());
+    for (const NextendoGame& g : m_nextendoGames) {
+        if (g.titles.empty()) continue;
+        std::string name = g.name;
+        if (name.empty()) {
+            for (int p = 0; p < pageCount() && name.empty(); ++p)
+                for (const Game& game : pageGames(p))
+                    if (!game.name.empty()
+                        && std::find(g.titles.begin(), g.titles.end(), game.id) != g.titles.end())
+                        name = game.name;
+        }
+        if (name.empty()) continue; // a count with no name is not a row anyone can read
+        int n = std::max(0, g.players);
+        for (std::uint64_t id : g.titles) {
+            const auto it = m_players.find(id);
+            if (it != m_players.end()) n = std::max(n, it->second);
+        }
+        rows.push_back(Row{std::move(name), n, g.titles});
+    }
+    std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+        if (a.players != b.players) return a.players > b.players;
+        return a.name < b.name;
+    });
+    std::vector<MenuItem> items;
+    items.reserve(rows.size());
+    for (const Row& row : rows) {
+        const auto titles = row.titles;
+        MenuItem item = action(row.name, [this, titles]() {
+            int page = -1, index = -1;
+            auto consider = [&](int p) {
+                const auto& list = pageGames(p);
+                for (size_t i = 0; i < list.size(); ++i)
+                    for (std::uint64_t id : titles)
+                        if (list[i].id == id) {
+                            page = p;
+                            index = static_cast<int>(i);
+                            return true;
+                        }
+                return false;
+            };
+            if (!consider(m_page)) {
+                for (int p = 0; p < pageCount(); ++p)
+                    if (!pageHidden(p) && consider(p)) break;
+                if (page < 0)
+                    for (int p = 0; p < pageCount(); ++p)
+                        if (consider(p)) break;
+            }
+            if (page < 0) {
+                say("This game isn't on the console.");
+                return;
+            }
+            m_menu.clear();
+            if (page != m_page) {
+                m_sels[page] = index; // goToPage reads the selection after the page changes
+                goToPage(page, 0);
+            } else {
+                select(index);
+            }
+        });
+        item.stay = true; // a game that isn't installed leaves the list up
+        item.value = [n = row.players]() { return std::to_string(n); };
+        items.push_back(std::move(item));
+    }
+    if (items.empty()) {
+        say("Nextendo's game list didn't come through.");
+        return;
+    }
+    openMenu(trf("Nextendo · {n} online", {std::to_string(m_playersTotal)}), std::move(items));
+}
+
 void CardsActivity::activateTop(int index) {
     press(0, index);
     switch (index) {
@@ -7724,10 +7814,7 @@ void CardsActivity::activateTop(int index) {
             }
             break;
         case kTopUser: openUsers(); break;
-        case kTopPlayers:
-            say(m_playersTotal < 0 ? "Counting Nextendo players..."
-                                   : trf("{n} players online in Nextendo.", {std::to_string(m_playersTotal)}));
-            break;
+        case kTopPlayers: openPlayerList(); break;
         case kTopBell: openNotifications(); break;
         case kTopMusic: openMusic(); break;
         case kTopPower: openPower(); break;
