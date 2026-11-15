@@ -608,6 +608,21 @@ std::vector<Game> listHomebrew() {
         g.id = 0xFF00000000000000ULL | (std::hash<std::string>{}(g.path) & 0x00FFFFFFFFFFFFFFULL);
         apps.push_back(std::move(g));
     }
+    { // The user's own homebrew menu (sdmc:/hbmenu.nro): from HOME it opens in a game's place, with all the memory.
+        HomebrewApp menu;
+        std::error_code ec;
+        const bool own = readHomebrew("sdmc:/hbmenu.nro", menu, false) && menu.name != "HomeNX-Loader";
+        if (own || std::filesystem::exists("sdmc:/hbmenu.nro.homenx-original", ec)) { // (put aside while HomeNX's Loader is in)
+            Game g;
+            g.path = "sdmc:/hbmenu.nro";
+            g.name = "Homebrew Menu";
+            g.author = own ? menu.author : std::string();
+            g.version = own ? menu.version : std::string();
+            g.homebrew = true;
+            g.id = 0xFF00000000000000ULL | (std::hash<std::string>{}(g.path) & 0x00FFFFFFFFFFFFFFULL);
+            apps.push_back(std::move(g));
+        }
+    }
     auto pin = [](const Game& g) {
         std::string n = g.name;
         for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));

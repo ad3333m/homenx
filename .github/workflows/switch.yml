@@ -96,6 +96,17 @@ jobs:
           gh release edit cardsnx -R "$GITHUB_REPOSITORY" --title "CardsNX (build $HOMENX_BUILD)" --notes-file .github/cardsnx-release.md || true
           gh release upload cardsnx out/CardsNX.nro -R "$GITHUB_REPOSITORY" --clobber
 
+      # Other branches: a beta for testers, so a bug is found before everyone gets the build.
+      - name: Publish beta
+        if: github.ref != 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release view beta -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create beta -R "$GITHUB_REPOSITORY" --prerelease --latest=false --title "HomeNX beta" --notes "Test builds from before a release. They can break: use the latest release unless you are testing. Found a bug? Settings > About > Make a bug report." || true
+          gh release upload beta out/HomeNX.nro out/NXToggle.nro out/CardsNX.nro -R "$GITHUB_REPOSITORY" --clobber
+
   frontend:
     runs-on: ubuntu-latest
     container: devkitpro/devkita64
@@ -217,6 +228,18 @@ jobs:
           gh release upload latest out/HomeNX-full.zip -R "$R" --clobber
           # Title last: HomeNX Toggle treats "HomeNX build N" as "zip N is ready".
           gh release edit latest -R "$GITHUB_REPOSITORY" --title "HomeNX build $HOMENX_BUILD"
+
+      # Other branches: a beta for testers, so a bug is found before everyone gets the build.
+      - name: Publish beta
+        if: github.ref != 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (type gh >/dev/null 2>&1) || (apt-get -y install gh || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list && apt-get update && apt-get -y install gh))
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release view beta -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create beta -R "$GITHUB_REPOSITORY" --prerelease --latest=false --title "HomeNX beta" --notes "Test builds from before a release. They can break: use the latest release unless you are testing. Found a bug? Settings > About > Make a bug report." || true
+          gh release upload beta out/HomeNX-full.zip -R "$GITHUB_REPOSITORY" --clobber
+          gh release edit beta -R "$GITHUB_REPOSITORY" --prerelease --title "HomeNX beta (build $HOMENX_BUILD, $GITHUB_REF_NAME)"
 
   # Discord: "build N is out" and the update log, once both jobs published the
   # build (webhooks in the repo's Actions secrets; none set, nothing is sent).

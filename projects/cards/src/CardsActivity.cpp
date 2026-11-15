@@ -2469,7 +2469,8 @@ void CardsActivity::openNro(const std::string& path) {
     m_settings.hbHost = idText(host);
     leave(index, 0.85f, [this, path, host]() {
         m_discord.beginShutdown();
-        if (!m_launcher.launchNro(path, host, launchUid())) {
+        // (The homebrew menu itself: the Loader puts the user's own back and starts that.)
+        if (!m_launcher.launchNro(path == "sdmc:/hbmenu.nro" ? std::string("hbmenu") : path, host, launchUid())) {
             comeBack();
             const std::string why = AppletLauncher::loaderError();
             say(why.empty() ? std::string("That app didn't start.") : why);
@@ -3882,7 +3883,7 @@ void CardsActivity::openOptions() {
         up.value = [source]() { return source; };
         items.insert(items.begin() + 1, std::move(up));
     }
-    if (!g.path.empty() && g.action.empty()) { // a .nro: off the SD card
+    if (!g.path.empty() && g.action.empty() && g.path != "sdmc:/hbmenu.nro") { // a .nro: off the SD card (not the homebrew menu: the Album needs it)
         const std::string path = g.path, name = g.name;
         const std::uint64_t id = g.id;
         const int pg = m_page;

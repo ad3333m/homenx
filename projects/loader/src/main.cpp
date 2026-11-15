@@ -117,7 +117,12 @@ int main(int argc, char** argv) {
     const std::string next = readLine(kNext);
     if (!next.empty()) {
         std::remove(kNext);
-        if (next == "sphaira" ? chainSphaira() : chain(next)) return 0;
+        if (next == "hbmenu") { // the user's own homebrew menu, in the game HomeNX borrowed (all the memory)
+            if (exists(kOriginal)) {
+                restoreHbmenu();
+                if (R_SUCCEEDED(envSetNextLoad(kHbmenu, "\"sdmc:/hbmenu.nro\""))) return 0;
+            }
+        } else if (next == "sphaira" ? chainSphaira() : chain(next)) return 0;
     }
     // A forwarder's app closed: back to HOME, not into Sphaira.
     if (inForwarder()) svcExitProcess();
