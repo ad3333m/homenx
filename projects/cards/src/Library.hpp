@@ -257,8 +257,17 @@ void forgetPicture(std::uint64_t id, bool background); // that one comes again
 bool keptBack(std::uint64_t id, const char* ext);      // the one put aside by forgetArt, back in the cache
 
 
-// Players online in Nextendo (nextendo.network) by title, as its site counts them.
-bool nextendoOnline(std::map<std::uint64_t, int>& out);
+// One game Nextendo plays online. Several title ids can be one game (Scarlet and
+// Violet share a count); `players` is that game's count, not a sum of its ids.
+struct NextendoGame {
+    std::string name; // empty when the site gave a count and no name
+    int players = 0;
+    std::vector<std::uint64_t> titles;
+};
+
+// Players online in Nextendo (nextendo.network), as its site counts them.
+// `out` is by title id (the badge on a card). `games` is one row per game.
+bool nextendoOnline(std::map<std::uint64_t, int>& out, std::vector<NextendoGame>& games);
 
 // Starts a game once this app has closed: as an application, through the
 // system; as an applet (from the homebrew menu), HomeNX's HOME starts it

@@ -1806,9 +1806,11 @@ bool removedNotice(const std::uint8_t* rgba, int w, int h) {
 
 // As nextendo.network's own pages count them (assets/js/*-counts.js): the
 // service's list, Nintendo Classics from its catalogue, and the games with
-// their own servers.
-bool nextendoOnline(std::map<std::uint64_t, int>& out) {
+// their own servers. `jeux` is the site's list: one name, one count, and every
+// title id that count belongs to.
+bool nextendoOnline(std::map<std::uint64_t, int>& out, std::vector<NextendoGame>& games) {
     std::string body;
+    std::map<std::uint64_t, std::string> noms;
     auto readCounts = [&out](const nlohmann::json& counts, bool onlyNew) {
         if (!counts.is_object()) return;
         for (auto it = counts.begin(); it != counts.end(); ++it) {
@@ -1817,11 +1819,46 @@ bool nextendoOnline(std::map<std::uint64_t, int>& out) {
             if (id && (!onlyNew || !out.count(id))) out[id] = it.value().get<int>();
         }
     };
+    auto readNoms = [&noms](const nlohmann::json& root) {
+        if (!root.contains("noms") || !root["noms"].is_object()) return;
+        for (auto it = root["noms"].begin(); it != root["noms"].end(); ++it) {
+            if (!it.value().is_string()) continue;
+            const std::uint64_t id = std::strtoull(it.key().c_str(), nullptr, 16);
+            const std::string name = it.value().get<std::string>();
+            if (id && !name.empty()) noms[id] = name;
+        }
+    };
+    auto listed = [&games](std::uint64_t id) {
+        for (const NextendoGame& g : games)
+            if (std::find(g.titles.begin(), g.titles.end(), id) != g.titles.end()) return true;
+        return false;
+    };
     out.clear();
+    games.clear();
     bool any = false;
     if (get(std::string(kNextendo) + "/api/online-counts", body) == 200) {
         try {
-            readCounts(nlohmann::json::parse(body).value("counts", nlohmann::json::object()), false);
+            const auto root = nlohmann::json::parse(body);
+            readCounts(root.value("counts", nlohmann::json::object()), false);
+            readNoms(root);
+            if (root.contains("jeux") && root["jeux"].is_array()) {
+                for (const auto& row : root["jeux"]) {
+                    if (!row.is_object()) continue;
+                    NextendoGame g;
+                    g.name = row.value("nom", "");
+                    if (row.contains("joueurs") && row["joueurs"].is_number_integer())
+                        g.players = row["joueurs"].get<int>();
+                    if (row.contains("titres") && row["titres"].is_array()) {
+                        for (const auto& t : row["titres"]) {
+                            if (!t.is_string()) continue;
+                            const std::uint64_t id = std::strtoull(t.get<std::string>().c_str(), nullptr, 16);
+                            if (id && !listed(id)) g.titles.push_back(id);
+                        }
+                    }
+                    if (g.name.empty() || g.titles.empty()) continue;
+                    games.push_back(std::move(g));
+                }
+            }
             any = true;
         } catch (...) {
         }
@@ -1833,13 +1870,15 @@ bool nextendoOnline(std::map<std::uint64_t, int>& out) {
         } catch (...) {
         }
     }
-    static const struct { const char* path; std::uint64_t id; bool needsOnline; } kOwn[] = {
-        {"/game-stats/sm3dw", 0x010028600EBDA000ULL, false},
-        {"/game-stats/jamboree", 0x0100965017338000ULL, true},
-        {"/game-stats/stardew", 0x0100E65002BB8000ULL, true},
-        {"/game-stats/kirby", 0x0100A8E016236000ULL, true},
-        {"/game-stats/justdance22", 0x0100EA6014BB8000ULL, true},
-        {"/game-stats/uno-count", 0x0100B6E012EBE000ULL, false},
+    // A few games report on their own page. The name is only used when the
+    // site's list didn't already include that title.
+    static const struct { const char* path; std::uint64_t id; bool needsOnline; const char* name; } kOwn[] = {
+        {"/game-stats/sm3dw", 0x010028600EBDA000ULL, false, "Super Mario 3D World + Bowser's Fury"},
+        {"/game-stats/jamboree", 0x0100965017338000ULL, true, "Super Mario Party Jamboree"},
+        {"/game-stats/stardew", 0x0100E65002BB8000ULL, true, "Stardew Valley"},
+        {"/game-stats/kirby", 0x0100A8E016236000ULL, true, "Kirby's Dream Buffet"},
+        {"/game-stats/justdance22", 0x0100EA6014BB8000ULL, true, "Just Dance 2022"},
+        {"/game-stats/uno-count", 0x0100B6E012EBE000ULL, false, "UNO"},
     };
     for (const auto& own : kOwn) {
         if (get(std::string(kNextendo) + own.path, body) != 200) continue;
@@ -1849,9 +1888,28 @@ bool nextendoOnline(std::map<std::uint64_t, int>& out) {
             if (j.contains("connected") && j["connected"].is_number_integer()) {
                 out[own.id] = j["connected"].get<int>();
                 any = true;
+                if (!listed(own.id)) games.push_back(NextendoGame{own.name, out[own.id], {own.id}});
             }
         } catch (...) {
         }
+    }
+    for (const auto& [id, count] : out) {
+        if (listed(id)) continue;
+        const auto name = noms.find(id);
+        games.push_back(NextendoGame{name == noms.end() ? std::string() : name->second, count, {id}});
+    }
+    for (NextendoGame& g : games) {
+        // The same count is stored on every title of a shared game, so the
+        // larger one is the game's count. Adding them would count one lobby twice.
+        int n = 0;
+        bool saw = false;
+        for (std::uint64_t id : g.titles) {
+            const auto it = out.find(id);
+            if (it == out.end()) continue;
+            saw = true;
+            n = std::max(n, it->second);
+        }
+        if (saw) g.players = n;
     }
     return any;
 }

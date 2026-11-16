@@ -695,6 +695,7 @@ private:
     bool m_statusFresh = false;
     int m_unread = 0;
     std::map<std::uint64_t, int> m_players; // Nextendo, by title
+    std::vector<NextendoGame> m_nextendoGames; // one row per game (the list)
     int m_playersTotal = -1;                 // -1: not known yet
     nxui::Rect m_userHit{}, m_playersHit{};  // in the pill, for touch
     std::future<bool> m_browserJob;          // BrowseNX downloading
@@ -774,6 +775,7 @@ private:
     void readFactsLater();
     void takeFacts(bool wait); // wait: a row is about to change them, so the real ones first
     void openNextendo(int mode); // Prelude, Nextendo's app, which switches it (-1: just open it)
+    void openPlayerList();       // every game Nextendo supports, and who is on it now
     std::future<bool> m_nxGetJob; // Prelude being downloaded (it wasn't on the SD card)
     int m_nxGetMode = -1;
     std::shared_ptr<NetTest> m_netTest;
@@ -823,6 +825,7 @@ private:
     std::deque<Job> m_jobs;
     std::vector<Done> m_done;
     std::map<std::uint64_t, int> m_playersIn;
+    std::vector<NextendoGame> m_nextendoIn;
     bool m_playersFresh = false;
     bool m_quit = false;
     // The console sleeps (set under m_mu, then m_cv told): the workers stop
