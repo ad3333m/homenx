@@ -977,10 +977,24 @@ bool CardsActivity::wantsFullRate() const {
     return false;
 }
 
+void CardsActivity::refreshStatusNow() {
+    m_statusNow = true;
+    m_cv.notify_all();
+}
+
+void CardsActivity::onIdleDeep(bool deep) {
+    m_deepIdleNow = deep; // (the workers skip Nextendo's counts meanwhile)
+    if (!deep && m_changesIn > 5.f) m_changesIn = 5.f; // back: look for installs soon
+}
+
 // Deep idle (only drawn on request, the decorations still) is not for what
 // changes by itself without saying so: a countdown, a scan, a transfer.
 bool CardsActivity::supportsDeepIdle() const {
-    if (m_btScanning || m_storageJob.valid() || m_sdTestJob.valid() || m_mtp.on()) return false;
+    // (USB file transfer left on with no cable: it only waits for one, and
+    // kept HOME out of deep idle for as long as it stayed on. The cable
+    // coming is drawn through m_mtpShown.)
+    const bool mtpBusy = m_mtp.on() && m_mtp.state() != Mtp::State::Waiting;
+    if (m_btScanning || m_storageJob.valid() || m_sdTestJob.valid() || mtpBusy) return false;
 #ifdef SWITCHU_MENU
     if (m_update.load() == static_cast<int>(Update::Installing)) return false; // HomeNX's update: its bar
     if (m_pairing) return false;
@@ -1137,14 +1151,21 @@ void CardsActivity::worker(int index) {
                 std::ofstream("sdmc:/config/CardsNX/perf.log", std::ios::app) << out;
             }
         }
+        if (index == 1 && m_statusNow.exchange(false)) statusAt = 0; // (the clock was just changed)
         if (index == 1 && !asleep && now >= statusAt) {
-            statusAt = now + 1000;
+            // Every 5 s, and just after the minute changes for the clock: 4-5
+            // IPC calls (time, psm twice, nifm) every second kept a core busy for
+            // a clock that only shows minutes. The battery's changes also come
+            // from the daemon (BatteryStatusChanged) as they happen.
+            statusAt = now + 1000; // (when the time can't be read: try again soon)
             Status s;
             TimeCalendarTime t{};
             TimeCalendarAdditionalInfo info{};
             u64 posix = 0;
             if (R_SUCCEEDED(timeGetCurrentTime(TimeType_Default, &posix))
                 && R_SUCCEEDED(timeToCalendarTimeWithMyRule(posix, &t, &info))) {
+                const std::uint64_t toNextMinute = (60u - std::min<std::uint32_t>(t.second, 59u)) * 1000u + 50u;
+                statusAt = now + std::min<std::uint64_t>(5000, toNextMinute);
                 char buf[16];
                 if (m_clock24) std::snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
                 else std::snprintf(buf, sizeof(buf), "%d:%02d %s", (t.hour + 11) % 12 + 1, t.minute, t.hour < 12 ? "AM" : "PM");
@@ -1199,11 +1220,30 @@ void CardsActivity::worker(int index) {
         bool haveJob = false;
         {
             std::unique_lock<std::mutex> lk(m_mu);
+            // Each worker sleeps until its own next task (a job, the wake, quitting
+            // or the console's sleep wake it sooner): worker 1 the bar's numbers
+            // and the log, worker 0 Nextendo's counts, worker 2 jobs only. They
+            // used to tick every 0.5-1 s with nothing to do.
+            const auto wakeAt = [&]() -> std::uint64_t {
+                const std::uint64_t cap = now + 30'000; // (flags read without a notify: looked at again)
+                if (index == 1) return std::min({statusAt, logAt, cap});
+                if (index == 0) return countsAt > now ? std::min(countsAt, cap) : cap; // (due but not wanted now)
+                return 0;
+            };
+            const auto ready = [this]() { return m_quit || !m_jobs.empty() || m_workersAsleep.load(); };
             if (asleep) // nothing to show: no timeout, the wake (or a job) tells us
                 m_cv.wait(lk, [this]() { return m_quit || !m_jobs.empty() || !m_workersAsleep.load(); });
-            else
-                m_cv.wait_for(lk, std::chrono::milliseconds(index == 1 ? 500 : 1000),
-                              [this]() { return m_quit || !m_jobs.empty() || m_workersAsleep.load(); });
+            else if (index == 2)
+                m_cv.wait(lk, ready);
+            else {
+                const std::uint64_t at = wakeAt();
+                const std::uint64_t nowMs = armTicksToNs(armGetSystemTick()) / 1000000ULL;
+                const std::uint64_t waitMs = at > nowMs + 20 ? at - nowMs : 20;
+                if (index == 1)
+                    m_cv.wait_for(lk, std::chrono::milliseconds(waitMs), [&]() { return ready() || m_statusNow.load(); });
+                else
+                    m_cv.wait_for(lk, std::chrono::milliseconds(waitMs), ready);
+            }
             if (m_quit) break;
             asleep = m_workersAsleep.load(); // (the console may have gone to sleep meanwhile)
             if (!m_jobs.empty()) {
@@ -1214,7 +1254,10 @@ void CardsActivity::worker(int index) {
             }
         }
         if (!haveJob) { // pictures first; Nextendo's players every 3 minutes, when they're shown and awake
-            if (index == 0 && m_netUp && !asleep && m_wantPlayers.load() && now >= countsAt) {
+            // (Not in deep idle, 30 s without a press: nobody is looking, and it
+            // was ~10 HTTPS requests every 3 minutes for as long as HOME stayed
+            // up. Fetched within 30 s of the next press once due.)
+            if (index == 0 && m_netUp && !asleep && m_wantPlayers.load() && !m_deepIdleNow.load() && now >= countsAt) {
                 countsAt = now + 180000; // (a connection each time: every 3 minutes is plenty)
                 std::map<std::uint64_t, int> counts;
                 if (nextendoOnline(counts)) {
@@ -1459,11 +1502,13 @@ void CardsActivity::wantArt() {
 
 void CardsActivity::takeArt() {
     std::vector<Done> done;
+    bool roomFreed = false;
     {
         std::lock_guard<std::mutex> lk(m_mu);
         const size_t n = std::min<size_t>(3, m_done.size()); // a few a frame (uploads don't wait any more)
         for (size_t i = 0; i < n; ++i) done.push_back(std::move(m_done[i]));
         m_done.erase(m_done.begin(), m_done.begin() + static_cast<std::ptrdiff_t>(n));
+        roomFreed = n > 0;
         if (m_playersFresh) {
             m_players = m_playersIn;
             m_playersFresh = false;
@@ -1490,7 +1535,10 @@ void CardsActivity::takeArt() {
             if (m_statusIn.temperature >= 0) m_temp = m_statusIn.temperature;
         }
     }
-    m_cv.notify_all();
+    // Only a worker waiting for room in m_done needs waking here. Notifying on
+    // every loop turn woke the three workers ~180 times a second, deep idle
+    // included, for them to find nothing to do.
+    if (roomFreed) m_cv.notify_all();
     const Game* cur = current();
     const std::uint64_t selected = cur ? cur->id : 0;
     const std::uint64_t until = armGetSystemTick() + armNsToTicks(4'000'000ULL);
@@ -1623,6 +1671,7 @@ void CardsActivity::forgetAllArt(bool files) {
         m_jobs.clear();
         m_done.clear();
     }
+    m_cv.notify_all(); // (a worker waiting for room in m_done has it now)
     app().gpu().waitIdle(); // they may still be drawing
     if (files)
         for (auto& page : m_pages)
@@ -2902,6 +2951,9 @@ AccountUid CardsActivity::launchUid() const {
 }
 
 void CardsActivity::pumpDaemon() {
+    // (Popping is an IPC call to am, and it ran every loop turn, ~60 a second
+    // in deep idle too, nearly always for nothing: the queue's event first.)
+    if (!nxui::Application::inDataMayBeWaiting()) return;
     AppletStorage st;
     while (R_SUCCEEDED(appletPopInteractiveInData(&st))) {
         switchu::smi::DaemonNotification n{};
@@ -6017,6 +6069,7 @@ void CardsActivity::buildSettings() {
         [this, save](int) {
             m_settings.clock24 = !m_settings.clock24;
             m_clock24 = m_settings.clock24;
+            refreshStatusNow();
             save();
         }));
     look.rows.push_back(toggle("Free space in the bar", [this]() { return m_settings.showFree; },
@@ -6319,8 +6372,10 @@ void CardsActivity::buildSettings() {
     // Changed by the daemon, as HomeNX's Settings does it: HOME's own changes didn't stick.
     m_autoClock = autoClock();
     console.rows.push_back(toggle("Set the time automatically", [this]() { return m_autoClock; }, [this]() {
-        if (R_SUCCEEDED(switchu::menu::smi_cmd::setInternetTimeSync(!m_autoClock))) m_autoClock = !m_autoClock;
-        else say("That didn't change.");
+        if (R_SUCCEEDED(switchu::menu::smi_cmd::setInternetTimeSync(!m_autoClock))) {
+            m_autoClock = !m_autoClock;
+            refreshStatusNow();
+        } else say("That didn't change.");
     }, "From the internet. Changing the time below turns this off"));
     auto shiftClock = [this](long long by) {
         if (m_autoClock) { // changing it by hand is turning that off
@@ -6338,6 +6393,7 @@ void CardsActivity::buildSettings() {
             const switchu::smi::ManualDateTimeArgs when{t.year, t.month, t.day, t.hour, t.minute};
             if (R_SUCCEEDED(switchu::menu::smi_cmd::setManualDateTime(when))) {
                 __libnx_init_time(); // HOME's clock and these rows count from this: they show the new time now
+                refreshStatusNow();
                 return;
             }
         }
@@ -8324,6 +8380,10 @@ void CardsActivity::onUpdate(float dt) {
 #ifdef SWITCHU_MENU
     std::uint64_t t = armGetSystemTick();
     pumpDaemon();
+    if (m_mtp.state() != m_mtpShown) { // (plugged in, unplugged: shown even in deep idle)
+        m_mtpShown = m_mtp.state();
+        app().requestRedraw();
+    }
     m_perfPumpMs = ticksMs(armGetSystemTick() - t);
     if (m_asleep) return;
     if (m_discordTokenEntryPending) { // Discord > Sign in with a user session token
@@ -8506,7 +8566,9 @@ void CardsActivity::onUpdate(float dt) {
         m_changesIn = 6.f;
         startListRefresh(true);
     } else if (!m_listsStale && (m_changesIn -= dt) <= 0.f) {
-        m_changesIn = 30.f;
+        // (Every 5 minutes in deep idle: nobody is looking; the first press
+        // brings the next check within 5 s, see onIdleDeep.)
+        m_changesIn = app().deepIdle() ? 300.f : 30.f;
         if (!m_changesJob.valid() && !m_listJob.valid() && !m_leaving && m_time - m_lastActivity > 3.f) {
             const bool nros = m_changesChecks == 5;
             m_changesChecks = 0;

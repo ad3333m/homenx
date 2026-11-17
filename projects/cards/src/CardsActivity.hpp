@@ -67,6 +67,8 @@ public:
     // its own; the decorations (pulses, drifts) stand still in deep idle.
     bool wantsFullRate() const override;
     bool supportsDeepIdle() const override;
+    void onIdleDeep(bool deep) override;
+    void refreshStatusNow(); // the bar's clock changed: worker 1 reads it at once
     nxui::Widget* focusRoot() override; // HomeNX's screens when one is open; else it reads the buttons itself
 
 private:
@@ -808,6 +810,7 @@ private:
     std::array<std::uint8_t, 6> m_btConnectAddr{};
     std::string m_btConnectName, m_btAudioName; // the one being connected; the one connected
     Mtp m_mtp; // Settings > Console > Connect to a computer: USB file transfer from HOME itself
+    Mtp::State m_mtpShown = Mtp::State::Off; // its state when last drawn (a change is drawn even in deep idle)
 
 
     // Settings: sections on the left, their rows on the right.
@@ -829,6 +832,8 @@ private:
     // reading the bar's state and asking Nextendo, and only wait for jobs.
     std::atomic<bool> m_workersAsleep{false};
     unsigned m_wakeGen = 0;                 // (under m_mu) +1 at each wake: the bar is read again at once
+    std::atomic<bool> m_statusNow{false};   // the bar's numbers to read again at once (the clock was changed)
+    std::atomic<bool> m_deepIdleNow{false}; // the deep idle tier (read by the workers)
     std::atomic<bool> m_wantPlayers{true};  // Nextendo's counts are shown (Settings > players)
     std::string m_key;        // SteamGridDB
     std::atomic<bool> m_netUp{false};    // worker 0 starts the network

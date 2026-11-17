@@ -33,6 +33,10 @@ std::mutex g_vizMu;
 std::array<std::array<float, Audio::kBands>, kSlices> g_viz{};
 int g_vizCount = 0;
 unsigned long long g_vizTick = 0;
+// When the bars were last asked for (spectrum()). The four FFTs run only while
+// something shows them: done on every mix, ~43 FFTs a second whatever was on
+// screen, music or silence, they were the audio thread's main work at idle.
+std::atomic<unsigned long long> g_vizWantedTick{0};
 
 void fft(std::vector<std::complex<float>>& a) { // in place, radix 2
     const size_t n = a.size();
@@ -58,6 +62,11 @@ void fft(std::vector<std::complex<float>>& a) { // in place, radix 2
 }
 
 void onMixed(void*, Uint8* stream, int len) {
+    if (armGetSystemTick() - g_vizWantedTick.load(std::memory_order_relaxed) > armNsToTicks(500'000'000ULL)) {
+        std::lock_guard<std::mutex> lk(g_vizMu);
+        g_vizCount = 0; // (nothing old shown when the bars come back)
+        return;
+    }
     static std::vector<std::complex<float>> buf(kFft);
     static std::vector<float> window;
     static std::array<int, Audio::kBands + 1> edges{};
@@ -439,6 +448,7 @@ void Audio::togglePause() {
 }
 
 void Audio::spectrum(float* out) const {
+    g_vizWantedTick.store(armGetSystemTick(), std::memory_order_relaxed);
     std::lock_guard<std::mutex> lk(g_vizMu);
     if (!m_open || g_vizCount == 0) {
         std::fill(out, out + kBands, 0.f);

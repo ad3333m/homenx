@@ -4,6 +4,7 @@
 #include <switch.h>
 #include "services/ClockService.hpp"
 #include <nxui/core/Renderer.hpp>
+#include <algorithm>
 #include <cstdio>
 
 void DateTimeWidget::setUse12HourClock(bool enabled) {
@@ -12,23 +13,32 @@ void DateTimeWidget::setUse12HourClock(bool enabled) {
 
     m_use12HourClock = enabled;
     m_timeStr.clear();
-    m_timer = 1.f;
+    m_nextReadTick = 0;
 }
 
-void DateTimeWidget::onContentUpdate(float dt) {
-    m_timer += dt;
-    if (m_timer < 1.f && !m_timeStr.empty()) return;
-    m_timer = 0.f;
+// The clock shows minutes: it reads the time just after the minute changes
+// (2 IPC calls), not every second, and at once when the clock service was
+// invalidated (a wake, the time set by hand). The deadline is in system
+// ticks, not summed frame times: nxui caps a long frame's dt, so a stall
+// would otherwise leave the old minute up for as long.
+void DateTimeWidget::onContentUpdate(float) {
+    const bool changed = m_clockService && m_clockService->generation() != m_clockGeneration;
+    if (armGetSystemTick() < m_nextReadTick && !m_timeStr.empty() && !changed) return;
     refreshTime();
 }
 
 void DateTimeWidget::refreshTime() {
     if (!m_clockService)
         return;
+    m_clockGeneration = m_clockService->generation();
+    const u64 now = armGetSystemTick();
+    m_nextReadTick = now + armNsToTicks(1'000'000'000ULL); // (not read: try again in a second)
     const auto snapshot = m_clockService->refresh();
     if (!snapshot.valid)
         return;
     const auto& calendar = snapshot.calendar;
+    const u64 toNextMinuteMs = (60u - std::min<unsigned>(calendar.second, 59u)) * 1000u + 50u;
+    m_nextReadTick = now + armNsToTicks(toNextMinuteMs * 1'000'000ULL);
 
     char buf[64];
     if (m_use12HourClock) {

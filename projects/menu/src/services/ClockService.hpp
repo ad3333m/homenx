@@ -16,10 +16,14 @@ struct CalendarSnapshot {
 class ClockService final {
 public:
     CalendarSnapshot refresh();
-    void invalidate() { m_valid = false; }
+    // (The clock changed under us: a wake, the time set by hand. Readers
+    // that only ask once a minute look at the generation to ask at once.)
+    void invalidate() { m_valid = false; ++m_generation; }
+    unsigned generation() const { return m_generation; }
 
 private:
     bool m_valid = false;
+    unsigned m_generation = 0;
     CalendarSnapshot m_snapshot{};
 };
 
