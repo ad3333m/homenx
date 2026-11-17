@@ -19,7 +19,10 @@ public:
     static constexpr const char* LOG_EXTENSION = ".log";
     static constexpr size_t MAX_LOG_FILES = 5;
     static constexpr size_t MAX_ARCHIVED_LOGS = MAX_LOG_FILES - 1;
-    static constexpr size_t MAX_PENDING_LINES = 2048;
+    // Lines waiting for the writer (the oldest go first past this). Up to ~540 B
+    // each: 2048 of them, when the SD card stalls, came to ~1.1 MB of the
+    // daemon's small heap; 512 is still minutes of normal logging.
+    static constexpr size_t MAX_PENDING_LINES = 512;
 
     static void open(const char* tag) {
         auto& self = inst();

@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <system_error>
 
 using namespace switchu;
@@ -217,12 +218,15 @@ static std::atomic<bool> g_eventGcMountFailure{false};
 static std::atomic<bool> g_batteryRefreshPending{true};
 static std::atomic<Result> g_eventGcMountRc{0};
 static bool g_initialEventSkipped = false;
-static int  g_eventPollCountdown  = 0;
+static uint64_t g_eventPollAt = 0; // the next view poll (system tick)
 static int  g_eventPollsRemaining = 0;
 // Polling application views touches enough NS state to stutter the menu. Keep
 // the settling window, but spread a small number of probes over twelve seconds
-// instead of hammering it fifty times in ten seconds.
-static constexpr int kViewPollIntervalTicks = 200;
+// instead of hammering it fifty times in ten seconds. (A deadline: counting
+// 200 passes of the 10 ms tick kept the main loop spinning ~100 times a second
+// for those twelve seconds, after every game, while the menu started.)
+static constexpr uint64_t kViewPollIntervalNs = 2'000'000'000ULL;
+static uint64_t nextViewPollTick() { return armGetSystemTick() + armNsToTicks(kViewPollIntervalNs); }
 static constexpr int kViewPollAttempts = 6;
 static int  g_menuRelaunchCooldown = 0;
 static int  g_menuFastExitCount = 0;
@@ -427,7 +431,49 @@ static bool popControlCacheTitle(uint64_t& outTitleId) {
     return true;
 }
 
-static bool writeAppCatalogFile() {
+// FNV-1a of the bytes last written to applist.bin (0: not known yet).
+static uint64_t g_appCatalogWrittenHash = 0;
+static uint64_t catalogHash(const std::string& bytes) {
+    uint64_t h = 1469598103934665603ULL;
+    for (unsigned char c : bytes) h = (h ^ c) * 1099511628211ULL;
+    return h | 1; // (never 0)
+}
+
+static bool writeAppCatalogFile(bool* outSkipped = nullptr) {
+    if (outSkipped) *outSkipped = false;
+    // The whole file in memory first: after a game the titles, names and view
+    // flags are usually what is already on the SD card (the same game played
+    // again keeps the same order), and the write below is 6 FAT operations.
+    std::string bytes;
+    {
+        const uint32_t count = static_cast<uint32_t>(g_appCatalog.size());
+        bytes.append(reinterpret_cast<const char*>(&count), sizeof(count));
+        for (const auto& ent : g_appCatalog) {
+            smi::AppEntryHeader eh{};
+            eh.title_id = ent.titleId;
+            eh.name_len = static_cast<uint32_t>(ent.name.size());
+            eh.icon_data_len = 0;
+            eh.view_flags = ent.viewFlags;
+            eh.startup_user_account = ent.startupUserAccount;
+            eh.startup_user_account_option = ent.startupUserAccountOption;
+            eh.startup_user_known = ent.startupUserKnown ? 1 : 0;
+            bytes.append(reinterpret_cast<const char*>(&eh), sizeof(eh));
+            bytes.append(ent.name);
+        }
+    }
+    const uint64_t hash = catalogHash(bytes);
+    if (g_appCatalogWrittenHash == 0) { // (the first time since boot: what the card holds)
+        std::ifstream in(kAppCatalogPath, std::ios::binary);
+        if (in) {
+            std::string old((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            g_appCatalogWrittenHash = catalogHash(old);
+        }
+    }
+    if (hash == g_appCatalogWrittenHash) {
+        if (outSkipped) *outSkipped = true;
+        return true;
+    }
+
     std::error_code fsEc;
     std::filesystem::create_directory("sdmc:/config", fsEc);
     fsEc.clear();
@@ -439,25 +485,7 @@ static bool writeAppCatalogFile() {
         return false;
     }
 
-    uint32_t count = static_cast<uint32_t>(g_appCatalog.size());
-    bool ok = static_cast<bool>(f.write(reinterpret_cast<const char*>(&count), sizeof(count)));
-    for (const auto& ent : g_appCatalog) {
-        if (!ok) break;
-
-        smi::AppEntryHeader eh{};
-        eh.title_id = ent.titleId;
-        eh.name_len = static_cast<uint32_t>(ent.name.size());
-        eh.icon_data_len = 0;
-        eh.view_flags = ent.viewFlags;
-        eh.startup_user_account = ent.startupUserAccount;
-        eh.startup_user_account_option = ent.startupUserAccountOption;
-        eh.startup_user_known = ent.startupUserKnown ? 1 : 0;
-
-        ok = static_cast<bool>(f.write(reinterpret_cast<const char*>(&eh), sizeof(eh)));
-        if (ok && eh.name_len > 0)
-            ok = static_cast<bool>(f.write(ent.name.data(), static_cast<std::streamsize>(eh.name_len)));
-    }
-
+    bool ok = static_cast<bool>(f.write(bytes.data(), static_cast<std::streamsize>(bytes.size())));
     f.close();
     ok = ok && static_cast<bool>(f);
     if (!ok) {
@@ -500,6 +528,7 @@ static bool writeAppCatalogFile() {
 
     fsEc.clear();
     std::filesystem::remove(kAppCatalogBackupPath, fsEc);
+    g_appCatalogWrittenHash = hash;
     return true;
 }
 
@@ -600,9 +629,11 @@ static bool rebuildAppCatalog(const char* reason, bool* outChanged = nullptr) {
         g_lastViewFlags[i] = 0;
     }
 
-    const bool ok = writeAppCatalogFile();
-    switchu::FileLog::log("[catalog] rebuilt %d/%d apps reason=%s write=%d",
-                          (int)g_appCatalog.size(), (int)count, reason, ok ? 1 : 0);
+    bool skipped = false;
+    const bool ok = writeAppCatalogFile(&skipped);
+    switchu::FileLog::log("[catalog] rebuilt %d/%d apps reason=%s write=%s",
+                          (int)g_appCatalog.size(), (int)count, reason,
+                          !ok ? "0" : skipped ? "same" : "1");
     g_appCatalog.clear();
     g_appCatalog.shrink_to_fit();
     if (outChanged)
@@ -618,7 +649,7 @@ static void cancelViewPolling(const char* reason) {
                               hadPendingEvent ? 1 : 0,
                               g_eventPollsRemaining);
     }
-    g_eventPollCountdown = 0;
+    g_eventPollAt = 0;
     g_eventPollsRemaining = 0;
 }
 
@@ -2229,7 +2260,7 @@ static void mainLoop() {
     bool didWork = false;
 
     if (g_eventRefreshPending.load() && shouldDeferViewPolling()) {
-        g_eventPollCountdown = kViewPollIntervalTicks;
+        g_eventPollAt = nextViewPollTick();
         g_eventPollsRemaining = 1;
     } else if (g_eventRefreshPending.exchange(false)) {
         if (!g_initialEventSkipped) {
@@ -2239,7 +2270,7 @@ static void mainLoop() {
             switchu::FileLog::log("[views] skipping initial catch-up event");
         } else {
             switchu::FileLog::log("[views] app record event — starting poll");
-            g_eventPollCountdown  = kViewPollIntervalTicks;
+            g_eventPollAt         = nextViewPollTick();
             g_eventPollsRemaining = kViewPollAttempts;
         }
     }
@@ -2269,8 +2300,8 @@ static void mainLoop() {
         didWork = true;
     }
     if (g_eventPollsRemaining > 0 && shouldDeferViewPolling()) {
-        g_eventPollCountdown = kViewPollIntervalTicks;
-    } else if (g_eventPollsRemaining > 0 && --g_eventPollCountdown == 0) {
+        g_eventPollAt = nextViewPollTick();
+    } else if (g_eventPollsRemaining > 0 && armGetSystemTick() >= g_eventPollAt) {
         bool needFullReload = sendViewFlagsUpdates();
         if (needFullReload) {
             if (daemon::menu_la::isActive())
@@ -2281,7 +2312,7 @@ static void mainLoop() {
         } else {
             --g_eventPollsRemaining;
             if (g_eventPollsRemaining > 0)
-                g_eventPollCountdown = kViewPollIntervalTicks;
+                g_eventPollAt = nextViewPollTick();
         }
     }
     if (g_eventGcMountFailure.exchange(false)) {
@@ -2429,10 +2460,9 @@ static bool mainLoopNeedsFastTick() {
     if (shouldDeferViewPolling()) {
         return g_menuRelaunchCooldown > 0 || !g_actionQueue.empty();
     }
-    return g_eventPollsRemaining > 0
-        || g_appCatalogRefreshPending.load()
-        || g_controlCacheRefreshPending.load()
-        || g_menuRelaunchCooldown > 0
+    // (View polls, the catalogue hold and the control-cache coalescing are
+    // deadlines in mainLoopTimeoutNs() now, not passes of this tick.)
+    return g_menuRelaunchCooldown > 0
         || !g_actionQueue.empty();
 }
 
@@ -2443,8 +2473,8 @@ static bool mainLoopNeedsFastTick() {
 // here, each with its deadline. Anything not proven to be signalled is covered
 // by the long fallback instead of an infinite wait.
 static u64 mainLoopTimeoutNs() {
-    // Tick-counted work (view polls, menu relaunch cooldown, queued actions,
-    // catalogue and control-cache coalescing) keeps the 10 ms tick.
+    // Tick-counted work (menu relaunch cooldown, queued actions) keeps the
+    // 10 ms tick.
     if (mainLoopNeedsFastTick())
         return 10'000'000ULL;
 
@@ -2477,6 +2507,21 @@ static u64 mainLoopTimeoutNs() {
         const uint64_t holdStart = g_controlCacheHoldStartTick.load();
         if (holdStart != 0)
             until(holdStart + armNsToTicks(kControlCacheCoalesceNs));
+    }
+    // View polls after a record event, and the catalogue rebuild held back
+    // after HOME or a menu launch. (Nothing is due while a game is in front:
+    // they wait for it, as before, and the menu coming back wakes the loop.)
+    // (Not once a power-off or reboot has begun: mainLoop() returns early then
+    // and never clears these flags, so they would wake it every 1 ms.)
+    if (!g_powerSequenceStarted.load() && !shouldDeferViewPolling()) {
+        if (g_eventPollsRemaining > 0)
+            until(g_eventPollAt);
+        if (g_appCatalogRefreshPending.load()) {
+            const uint64_t holdNs = catalogHoldRemainingNs();
+            atMost(holdNs ? holdNs + 1'000'000ULL : 1'000'000ULL);
+        }
+        if (g_controlCacheRefreshPending.load() && g_controlCacheHoldStartTick.load() == 0)
+            atMost(1'000'000ULL);
     }
     // syncBootTime() retries every 2 s until the time service answers.
     if (!g_bootTimeSynced)
