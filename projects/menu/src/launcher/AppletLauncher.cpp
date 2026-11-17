@@ -337,10 +337,43 @@ void AppletLauncher::installBundledApps() {
         std::filesystem::remove("sdmc:/switch/.overlays/homenx-discord.ovl", ec);
         std::filesystem::remove("sdmc:/switch/SwitchU/bin/homenx-discord.ovl", ec);
     }
+    // Comparing every byte read ~26 MB (CardsNX.nro twice) and held each console
+    // start 2.6-3 s before HOME. Once a copy is known to match, the size and write
+    // time of both files are kept: while neither changed, it still matches. An
+    // update replaces the source and a file put there by hand changes the target,
+    // and either one gets the full comparison again. Without write times (0), always.
+    constexpr const char* kStamp = "sdmc:/config/SwitchU/bundled_apps.stamp";
+    auto stampLine = [](const char* source, const char* target) {
+        struct stat src{}, dst{};
+        if (stat(source, &src) != 0 || stat(target, &dst) != 0 || src.st_mtime == 0 || dst.st_mtime == 0)
+            return std::string();
+        char line[192];
+        std::snprintf(line, sizeof(line), "%s %lld %lld %lld %lld\n", target, (long long)src.st_size,
+                      (long long)src.st_mtime, (long long)dst.st_size, (long long)dst.st_mtime);
+        return std::string(line);
+    };
+    std::string stampsWere, stamps;
+    if (FILE* f = std::fopen(kStamp, "rb")) {
+        char buf[1024];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) stampsWere.append(buf, n);
+        std::fclose(f);
+    }
+    auto known = [&stampsWere](const std::string& line) {
+        const size_t at = stampsWere.find(line);
+        return !line.empty() && at != std::string::npos && (at == 0 || stampsWere[at - 1] == '\n');
+    };
     for (const auto& app : kApps) {
         std::error_code ec;
         if (!std::filesystem::exists(app.source, ec)) continue;
-        if (sameFile(app.source, app.target)) continue;
+        if (const std::string line = stampLine(app.source, app.target); known(line)) {
+            stamps += line;
+            continue;
+        }
+        if (sameFile(app.source, app.target)) {
+            stamps += stampLine(app.source, app.target);
+            continue;
+        }
         std::filesystem::create_directories(app.dir, ec);
         // A plain read/write copy (std::filesystem::copy_file left an empty
         // file on the console, which nx-ovlloader then failed on: 2347-0004),
@@ -367,7 +400,23 @@ void AppletLauncher::installBundledApps() {
         } else {
             std::filesystem::remove(tmp, ec);
         }
+        if (ok) stamps += stampLine(app.source, app.target);
         DebugLog::log("[launcher] installed %s ok=%d", app.target, ok ? 1 : 0);
+    }
+    if (stamps != stampsWere) { // (through a temporary file, like the copies)
+        const std::string tmp = std::string(kStamp) + ".tmp";
+        bool ok = false;
+        if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
+            ok = std::fwrite(stamps.data(), 1, stamps.size(), f) == stamps.size();
+            ok = std::fclose(f) == 0 && ok;
+        }
+        std::error_code ec;
+        if (ok) {
+            std::filesystem::remove(kStamp, ec);
+            std::filesystem::rename(tmp, kStamp, ec);
+        } else {
+            std::filesystem::remove(tmp, ec);
+        }
     }
 
     // Achievements are off for now (2026-11-14): their overlay goes from the console too.
