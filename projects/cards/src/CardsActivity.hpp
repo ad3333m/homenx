@@ -211,6 +211,14 @@ private:
     void sortGames(int sort, bool keepChoice = true);
     void selectById(std::uint64_t id); // its page and card, straight away
     std::uint64_t m_backTo = 0;        // back from this game: it stays chosen until you move
+    struct BackStats {
+        std::uint64_t id = 0;
+        bool ok = false;
+        PlayStatistics st;
+        float ms = 0.f;
+    };
+    std::future<BackStats> m_backStatsJob; // m_backTo's play statistics, read at start off the screen's thread
+    void takeBackStats();
     void takeLists(Lists lists);
     // The Media page: your media apps off the Homebrew page, and the ones
     // GitHub has that aren't on the SD card yet ("Get").
