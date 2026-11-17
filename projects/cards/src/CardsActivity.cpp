@@ -3292,7 +3292,6 @@ bool CardsActivity::showGalleryPage(int page) {
 
 // Every picture and video, in pages. To use as a picture: the user's own first, then the Album's with a file.
 void CardsActivity::openGallery(int mode) {
-    if (m_pickJob.valid()) m_pickJob.wait();
     m_pickWall = mode;
     if (mode == 4) m_lockPlaylist = switchu::lockpicture::playlist();
     m_pickCover = false;
@@ -3308,7 +3307,7 @@ void CardsActivity::openGallery(int mode) {
     m_galleryPage = 0;
     const std::uint64_t app = mode == 3 ? m_galleryApp : 0;
     m_galleryApp = 0;
-    m_pickJob = std::async(std::launch::async, [all, mode, app, current = m_galleryCurrent]() {
+    startPickJob([all, mode, app, current = m_galleryCurrent]() {
         offScreenCore();
         *all = listAlbum();
         if (app) all->erase(std::remove_if(all->begin(), all->end(), [app](const AlbumShot& s) { return s.app != app; }), all->end());
@@ -4121,8 +4120,19 @@ void CardsActivity::welcomeBack(const Game& g) {
     if (e.when.emplace(ach::key(g.id, "back"), now).second) ach::save(e);
 }
 
+// The picker's search, or the one before still finishing (closed during a search
+// and opened again): after it. Waiting for it here froze the screen for the rest
+// of that search (seconds, up to the internet's time-outs).
+void CardsActivity::startPickJob(std::function<std::vector<TitleChoice>()> work) {
+    if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        m_pickNext = std::move(work); // (drawPicker starts it; its pictures aren't this picker's)
+        return;
+    }
+    m_pickNext = nullptr;
+    m_pickJob = std::async(std::launch::async, std::move(work));
+}
+
 void CardsActivity::openTitlePicker(const Game& g, bool cover, const std::string& query, bool hero) {
-    if (m_pickJob.valid()) m_pickJob.wait(); // (only one: the last one's still finishing)
     m_pickCover = cover && !hero;
     m_pickHero = hero;
     m_pickWall = 0;
@@ -4132,7 +4142,7 @@ void CardsActivity::openTitlePicker(const Game& g, bool cover, const std::string
     m_pickTex.clear();
     m_pickSel = 0;
     const std::string key = m_key;
-    m_pickJob = std::async(std::launch::async, [g, key, cover, query, hero]() {
+    startPickJob([g, key, cover, query, hero]() {
         offScreenCore();
         const Game look = forLookup(g);
         std::vector<TitleChoice> choices = hero    ? heroChoices(look, key, 11, query)
@@ -4413,9 +4423,14 @@ bool CardsActivity::pickerTouch() {
 void CardsActivity::drawPicker(nxui::Renderer& r) {
     if (!m_pickOpen) return;
     // The pictures arrived: shown from now on (their pixels aren't needed after).
+    if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready && m_pickNext) {
+        m_pickJob.get(); // the last picker's: this one's search now
+        startPickJob(std::move(m_pickNext));
+    }
     if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_pickChoices = m_pickJob.get();
         m_pickTex.clear();
+
         for (TitleChoice& c : m_pickChoices) {
             auto tex = std::make_unique<nxui::Texture>();
             if (c.rgba.empty() || !tex->loadFromPixels(app().gpu(), app().renderer(), c.rgba.data(), c.w, c.h)) tex.reset();
