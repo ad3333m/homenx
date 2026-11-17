@@ -8415,6 +8415,7 @@ void CardsActivity::onUpdate(float dt) {
     }
     perfMark("pictures");
     m_audio.update();
+    if (std::string note = m_audio.takeNote(); !note.empty()) perfLine(note); // the device paused or woke
     perfMark("music");
     const bool motion = m_settings.motion;
     // A lagged frame doesn't skip through the animations: they take real time

@@ -29,6 +29,7 @@ void onTrackEnded() { g_trackEnded = true; } // SDL_mixer's thread: just a flag
 // slices, each one's levels per band kept; the screen shows the slice that's
 // being heard now, so they move 43 times a second. SDL's audio thread.
 constexpr int kFft = 1024, kRate = 44100, kSlices = 4;
+constexpr float kQuietSecondsBeforeSleep = 8.f;
 std::mutex g_vizMu;
 std::array<std::array<float, Audio::kBands>, kSlices> g_viz{};
 int g_vizCount = 0;
@@ -210,6 +211,15 @@ std::vector<unsigned char> readAll(const std::string& path) {
     return data;
 }
 
+// SDL_mixer opens its device with SDL_OpenAudioDevice (IDs from 2): the old
+// SDL_PauseAudio/SDL_LockAudio only reach device 1. This process opens one
+// device, so it's the first ID that isn't stopped (0 = none).
+SDL_AudioDeviceID findMixerDevice() {
+    for (SDL_AudioDeviceID id = 2; id <= 17; ++id)
+        if (SDL_GetAudioDeviceStatus(id) != SDL_AUDIO_STOPPED) return id;
+    return 0;
+}
+
 // Off the screen's core, below its priority (std::async threads start on its).
 void offTheScreensCore() {
     nxui::moveToWorkerCores();
@@ -236,7 +246,7 @@ bool Audio::start() {
     // a game, and on the screen's thread a stall of up to 80 ms (perf.log).
     m_openJob = std::async(std::launch::async, []() {
         offTheScreensCore();
-        return SDL_InitSubSystem(SDL_INIT_AUDIO) >= 0 && Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096) >= 0;
+        return SDL_InitSubSystem(SDL_INIT_AUDIO) >= 0 && Mix_OpenAudio(kRate, MIX_DEFAULT_FORMAT, 2, 4096) >= 0;
     });
     return true;
 }
@@ -244,6 +254,11 @@ bool Audio::start() {
 void Audio::opened() {
     Mix_AllocateChannels(8);
     m_open = true;
+    m_deviceId = findMixerDevice();
+    if (!m_deviceId) m_note = "audio: mixer's device not found, never paused";
+    m_asleep = false;
+    m_quietFor = 0.f;
+    m_quietCheckTick = armGetSystemTick();
     Mix_Volume(-1, MIX_MAX_VOLUME * m_soundVolume / 100);
     Mix_HookMusicFinished(onTrackEnded);
     Mix_SetPostMix(onMixed, nullptr);
@@ -285,6 +300,40 @@ void Audio::stop() {
     m_chunks.clear();
     Mix_CloseAudio();
     m_open = false;
+    m_asleep = false;
+    m_deviceId = 0;
+}
+
+// With the music off or paused, SDL's audio thread still ran the mixer (and
+// the bars' FFT) ~12 times a second over silence. Once nothing has been heard
+// for a few seconds the device is paused: SDL then hands the renderer silence
+// without calling the mixer. Everything that makes a sound wakes it first
+// (all on the screen's thread, like the check); unpausing is a flag, so the
+// first sound isn't late.
+void Audio::wake() {
+    if (!m_asleep) return;
+    SDL_PauseAudioDevice(m_deviceId, 0);
+    m_asleep = false;
+    m_note = "audio: device woken";
+    m_quietFor = 0.f;
+    m_quietCheckTick = armGetSystemTick();
+}
+
+void Audio::sleepWhenQuiet(unsigned long long now) {
+    if (m_asleep || !m_deviceId) return;
+    // Once a second: asking the mixer takes the lock its thread mixes under.
+    const float elapsed = static_cast<float>(armTicksToNs(now - m_quietCheckTick)) / 1e9f;
+    if (elapsed < 1.f) return;
+    m_quietCheckTick = now;
+    SDL_LockAudioDevice(m_deviceId);
+    const bool audible = Mix_Playing(-1) > 0 || (Mix_PlayingMusic() && !Mix_PausedMusic());
+    m_quietFor = audible ? 0.f : m_quietFor + elapsed;
+    if (m_quietFor >= kQuietSecondsBeforeSleep) {
+        SDL_PauseAudioDevice(m_deviceId, 1);
+        m_asleep = true;
+        m_note = "audio: device paused (nothing heard for 8 s)";
+    }
+    SDL_UnlockAudioDevice(m_deviceId);
 }
 
 void Audio::setMusic(bool on, int volume) {
@@ -367,12 +416,14 @@ void Audio::update() {
             m_position = 0.f;
             if (m_current) {
                 Mix_VolumeMusic(MIX_MAX_VOLUME * m_volume / 100);
+                wake();
                 Mix_FadeInMusic(m_current, 1, 600);
                 if (m_sysPaused) Mix_PauseMusic();
             }
         }
         loadWanted(); // one asked for while this was read
     }
+    sleepWhenQuiet(now);
     if (!m_music || m_tracks.empty() || !g_trackEnded.exchange(false)) return;
     m_isPlaying = false;
     if (m_repeat && m_playing >= 0) startTrack(static_cast<size_t>(m_playing));
@@ -412,6 +463,7 @@ void Audio::play(const char* sound) {
     if (!m_open || !m_sounds) return;
     for (auto& [name, c] : m_chunks)
         if (name == sound) {
+            wake();
             Mix_PlayChannel(-1, c, 0);
             return;
         }
@@ -435,7 +487,10 @@ void Audio::togglePause() {
     }
     m_userPaused = !m_userPaused;
     if (m_userPaused) Mix_PauseMusic();
-    else if (!m_sysPaused) Mix_ResumeMusic();
+    else if (!m_sysPaused) {
+        wake();
+        Mix_ResumeMusic();
+    }
 }
 
 void Audio::spectrum(float* out) const {
@@ -467,7 +522,10 @@ void Audio::pause() {
 
 void Audio::resume() {
     m_sysPaused = false;
-    if (m_open && !m_userPaused) Mix_ResumeMusic();
+    if (m_open && !m_userPaused) {
+        wake();
+        Mix_ResumeMusic();
+    }
 }
 
 } // namespace cards
