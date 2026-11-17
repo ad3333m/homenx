@@ -132,13 +132,32 @@ std::vector<std::string> Label::wrappedLines(float maxWidth) const {
     return lines;
 }
 
+const std::vector<Label::WrappedLine>& Label::cachedWrappedLines(float maxWidth) const {
+    if (m_wrapValid && m_wrapFont == m_font && m_wrapFontRevision == m_font->revision()
+        && m_wrapWidth == maxWidth && m_wrapScale == m_textScale && m_wrapText == m_text)
+        return m_wrapLines;
+
+    m_wrapLines.clear();
+    for (auto& line : wrappedLines(maxWidth)) {
+        const float w = m_font->measure(line).x * m_textScale;
+        m_wrapLines.push_back({std::move(line), w});
+    }
+    m_wrapText = m_text;
+    m_wrapFont = m_font;
+    m_wrapFontRevision = m_font->revision();
+    m_wrapWidth = maxWidth;
+    m_wrapScale = m_textScale;
+    m_wrapValid = true;
+    return m_wrapLines;
+}
+
 Vec2 Label::measureWrappedText(float maxWidth) const {
     if (!m_font || m_text.empty()) return {0, 0};
 
-    auto lines = wrappedLines(maxWidth);
+    const auto& lines = cachedWrappedLines(maxWidth);
     float maxLineW = 0.f;
     for (const auto& line : lines)
-        maxLineW = std::max(maxLineW, m_font->measure(line).x * m_textScale);
+        maxLineW = std::max(maxLineW, line.width);
 
     float lineH = m_font->measure("Ag").y * m_textScale;
     float step  = lineH * std::max(0.1f, m_lineSpacing);
@@ -184,7 +203,7 @@ void Label::onRender(Renderer& ren) {
         return;
     }
 
-    auto lines = wrappedLines(cr.width);
+    const auto& lines = cachedWrappedLines(cr.width);
     float lineH = m_font->measure("Ag").y * m_textScale;
     float step  = lineH * std::max(0.1f, m_lineSpacing);
     float totalH = lineH;
@@ -200,7 +219,7 @@ void Label::onRender(Renderer& ren) {
 
     Color color = m_textColor.withAlpha(m_opacity);
     for (const auto& line : lines) {
-        float drawW = m_font->measure(line).x * m_textScale;
+        float drawW = line.width;
         float tx = cr.x;
         switch (m_hAlign) {
             case HAlign::Left:   tx = cr.x; break;
@@ -208,7 +227,7 @@ void Label::onRender(Renderer& ren) {
             case HAlign::Right:  tx = cr.x + cr.width - drawW; break;
         }
 
-        ren.drawText(line, {tx, ty}, m_font, color, m_textScale);
+        ren.drawText(line.text, {tx, ty}, m_font, color, m_textScale);
         ty += step;
     }
 }
