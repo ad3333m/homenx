@@ -1524,6 +1524,7 @@ void WiiUMenuApp::activateNextendo() {
     if ((path.empty() || !std::filesystem::exists(path, ec)) && !m_nextendoGet.valid()) {
         m_nextendoProgress = 0.f;
         m_nextendoGet = std::async(std::launch::async, [this, kNextendoNro]() {
+            nxui::moveToWorkerCores(); // a download: off the render core
             std::string error;
             return updater::downloadFile(
                 "https://github.com/NextendoNetwork/Prelude-Nextendo/releases/latest/download/nextendo.nro", kNextendoNro,
@@ -5331,7 +5332,9 @@ void WiiUMenuApp::buildGrid() {
             focusManager().setFocus(m_steamGridDbPicker.get());
             m_steamGridDbBrowseFuture = std::async(std::launch::async,
                 [apiKey = m_config.steamGridDbApiKey, browse, match]() {
+                    nxui::moveToWorkerCores(); // a network fetch: off the render core
                     return SteamGridDbManager::browseGame(
+
                         apiKey, browse.titleId, browse.title, browse.query,
                         browse.kind, match.id, match.name);
                 });

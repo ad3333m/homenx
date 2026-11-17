@@ -1163,6 +1163,7 @@ void WiiUMenuApp::openSteamGridDbPickerForTitle(std::uint64_t titleId,
     focusManager().setFocus(m_steamGridDbPicker.get());
     m_steamGridDbBrowseFuture = std::async(std::launch::async,
         [apiKey = m_config.steamGridDbApiKey, titleId, title, query, managerKind]() {
+            nxui::moveToWorkerCores(); // a network search: off the render core
             return SteamGridDbManager::browse(apiKey, titleId, title, query, managerKind);
         });
 }
@@ -1249,7 +1250,9 @@ void WiiUMenuApp::applySteamGridDbCandidate(
         focusManager().setFocus(m_progressDialog.get());
     }
     m_steamGridDbApplyFuture = std::async(std::launch::async, [browse, candidate, progress]() {
+        nxui::moveToWorkerCores(); // a download and a decode: off the render core
         return SteamGridDbManager::applyCandidate(browse, candidate,
+
             [progress](const std::string& message, float value) {
                 std::lock_guard<std::mutex> lock(progress->mutex);
                 progress->message = message;
