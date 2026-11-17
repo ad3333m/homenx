@@ -730,24 +730,24 @@ bool CardsActivity::onCreate() {
         const bool lastWasNro = (last >> 56) == 0xFF;
         m_backTo = m_startSuspended && !lastWasNro ? m_startSuspended : last;
         if (m_backTo) selectById(m_backTo);
-        // Its play time now (the rest of the lists stay as they were).
-        for (auto& page : m_pages)
-            for (Game& g : page)
-                if (m_backTo && g.id == m_backTo && g.path.empty() && g.action.empty()) {
-                    PlayStatistics st;
-                    if (playStatistics(g.id, m_user, st)) {
-                        g.lastPlayed = st.last;
-                        // (play time and launches come from the event log, read by the stats
-                        // job a few seconds on, off the screen's thread: the statistics call's differ)
-                        if (!st.perUser) {
-                            g.playSeconds = st.seconds;
-                            g.launches = st.launches;
-                        }
-                    }
-                }
-        if (m_backTo && (m_settings.sort == 0 || m_settings.sort == 2)) { // sorted by them: in its new place, still chosen
-            sortGames(m_settings.sort, false);
-            selectById(m_backTo);
+        // Its play time now (the rest of the lists stay as they were): asked on a thread and
+        // put in by takeBackStats, at the latest when the game's still frame lets go. With
+        // the game open behind HOME, pdm's answer held the first frame ~95 ms.
+        bool isGame = false;
+        for (const auto& page : m_pages)
+            for (const Game& g : page) isGame |= m_backTo && g.id == m_backTo && g.path.empty() && g.action.empty();
+        if (isGame) {
+            const std::uint64_t id = m_backTo;
+            const AccountUidLike who = m_user;
+            m_backStatsJob = std::async(std::launch::async, [id, who]() {
+                nxui::moveToWorkerCores(); // (at the screen's priority: it's waited for)
+                BackStats out;
+                out.id = id;
+                const std::uint64_t t0 = armGetSystemTick();
+                out.ok = playStatistics(id, who, out.st);
+                out.ms = ticksMs(armGetSystemTick() - t0);
+                return out;
+            });
         }
     }
 #endif
@@ -889,6 +889,7 @@ void CardsActivity::onDestroy() {
     if (m_storageJob.valid()) m_storageJob.wait();
     if (m_storageReadJob.valid()) m_storageReadJob.wait();
     if (m_statsJob.valid()) m_statsJob.wait();
+    if (m_backStatsJob.valid()) m_backStatsJob.wait();
     if (m_achJob.valid()) m_achJob.wait();
     if (m_searchJob.valid()) m_searchJob.wait();
     if (m_galleryJob.valid()) m_galleryJob.wait();
@@ -1392,14 +1393,25 @@ bool CardsActivity::reserveArtwork(std::uint64_t bytes) {
 void CardsActivity::wantArt() {
     auto& page = games();
     std::vector<Job> jobs;
+    // Everything wanted, in this order, also what an earlier call queued: that
+    // stays where it was, behind what's asked now. Back from a game sorted next
+    // to the first card, the start's first call (the first card chosen) had
+    // queued it, and its picture came after both neighbours' full-screen ones
+    // (509-578 ms instead of ~150).
+    std::vector<std::pair<std::uint64_t, int>> order;
     auto add = [&](int i, int what) {
         if (i < 0 || i >= static_cast<int>(page.size())) return;
         Art& a = m_art[page[(size_t)i].id];
         a.lastAccess = ++m_artAccess;
         bool& asked = what == kBackground ? a.bgAsked : what == kIcon ? a.iconAsked : a.cardAsked;
-        if (asked || m_time < a.retryAt) return;
+        if (asked) {
+            order.emplace_back(page[(size_t)i].id, what);
+            return;
+        }
+        if (m_time < a.retryAt) return;
         if (what == kBackground && page[(size_t)i].action == "get") return; // a download glyph isn't a background
         asked = true;
+        order.emplace_back(page[(size_t)i].id, what);
         jobs.push_back({page[(size_t)i], what, m_artGen});
     };
     const int s = sel();
@@ -1443,10 +1455,25 @@ void CardsActivity::wantArt() {
             } else ++it;
         }
     }
-    if (jobs.empty()) return;
     {
         std::lock_guard<std::mutex> lk(m_mu); // what's near the selection now goes first
-        for (auto it = jobs.rbegin(); it != jobs.rend(); ++it) m_jobs.push_front(std::move(*it));
+        std::vector<Job> first;
+        size_t fresh = 0;
+        for (const auto& [id, what] : order) {
+            if (fresh < jobs.size() && jobs[fresh].game.id == id && jobs[fresh].what == what) {
+                first.push_back(std::move(jobs[fresh++]));
+                continue;
+            }
+            const auto queued = std::find_if(m_jobs.begin(), m_jobs.end(),
+                                             [&](const Job& j) { return j.game.id == id && j.what == what; });
+            if (queued == m_jobs.end()) continue; // being made now, or here already
+            first.push_back(std::move(*queued));
+            m_jobs.erase(queued);
+        }
+        if (first.empty()) return;
+        auto at = m_jobs.begin(); // (behind a launch's picture: that one's waited for)
+        while (at != m_jobs.end() && at->what == kLaunch) ++at;
+        m_jobs.insert(at, std::make_move_iterator(first.begin()), std::make_move_iterator(first.end()));
         while (m_jobs.size() > 40) {
             const auto& job = m_jobs.back();
             auto& a = m_art[job.game.id];
@@ -1654,6 +1681,43 @@ void CardsActivity::selectById(std::uint64_t id) {
             }
 }
 
+// The game you came back from: its play statistics (asked in onCreate) on its card,
+// and in its new place when the games are sorted by them, still chosen.
+void CardsActivity::takeBackStats() {
+    const BackStats r = m_backStatsJob.get();
+    char line[96];
+    std::snprintf(line, sizeof(line), "the game's statistics read in %.0f ms (off the screen's thread)", r.ms);
+    perfLine(line);
+    if (!r.ok) return;
+    for (auto& page : m_pages)
+        for (Game& g : page)
+            if (g.id == r.id && g.path.empty() && g.action.empty()) {
+                g.lastPlayed = r.st.last;
+                // (play time and launches come from the event log, read by the stats
+                // job a few seconds on, off the screen's thread: the statistics call's differ)
+                if (!r.st.perUser) {
+                    g.playSeconds = r.st.seconds;
+                    g.launches = r.st.launches;
+                }
+            }
+    // Sorted again only when it moved (as sortGames orders them). The pictures stay as
+    // asked: requeueArt let go of what was being read and asked for it again, and the
+    // game's card and background were read twice (the workers had them already).
+    // wantArt moves what's queued to its new place and drops what's now far.
+    const auto first = [this](const Game& a, const Game& b) {
+        if (m_settings.sort == 2) return a.playSeconds != b.playSeconds ? a.playSeconds > b.playSeconds : a.order < b.order;
+        return a.lastPlayed != b.lastPlayed ? a.lastPlayed > b.lastPlayed : a.order < b.order;
+    };
+    const auto& list = m_pages[kGames];
+    const bool moved = std::adjacent_find(list.begin(), list.end(),
+                                          [&](const Game& a, const Game& b) { return first(b, a); }) != list.end();
+    if (moved && m_backTo == r.id && (m_settings.sort == 0 || m_settings.sort == 2)) {
+        sortGames(m_settings.sort, false, false);
+        selectById(m_backTo);
+        wantArt();
+    }
+}
+
 void CardsActivity::select(int index) {
     m_backTo = 0; // you've moved on
     m_artRadius = 12; // browsing: the covers are wanted at once now
@@ -1788,7 +1852,7 @@ void CardsActivity::requeueArt() {
     wantArt();
 }
 
-void CardsActivity::sortGames(int sort, bool keepChoice) {
+void CardsActivity::sortGames(int sort, bool keepChoice, bool requeue) {
     LibraryEdit edit(*this);
     auto& page = m_pages[kGames];
     const std::uint64_t keep = page.empty() ? 0 : page[(size_t)std::clamp(m_sels[kGames], 0, (int)page.size() - 1)].id;
@@ -1808,7 +1872,7 @@ void CardsActivity::sortGames(int sort, bool keepChoice) {
     for (size_t i = 0; keepChoice && i < page.size(); ++i)
         if (page[i].id == keep) m_sels[kGames] = static_cast<int>(i);
     if (m_page == kGames) m_scroll = static_cast<float>(m_sels[kGames]);
-    requeueArt();
+    if (requeue) requeueArt();
 }
 
 // My order (Plus > Move): the saved ids first, in their order; the rest after
@@ -8228,6 +8292,11 @@ void CardsActivity::onUpdate(float dt) {
             say("SteamGridDB didn't answer. Check the internet connection and try again.");
         }
     }
+    // The game you came back from in its place before anything shows where it is: at once
+    // without the game's still frame, else when it lets go (waited for if it's not in yet).
+    if (m_backStatsJob.valid() && (!m_returnTex || m_time > 0.25f
+                                   || m_backStatsJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready))
+        takeBackStats();
     if (m_returnTex) { // the game's last picture: shown while HOME starts (the loading
                        // lag stays behind a still frame of the game), then it shrinks
                        // into its card while the cards rise in, as one movement.
