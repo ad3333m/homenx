@@ -29,6 +29,12 @@ std::atomic<bool> g_runtimeReady{false};
 
 constexpr int kRequestAttemptCount = 2;
 
+// Failures a second try cannot fix: the server answered (404, 401...) or the
+// console has no connection. They are reported at once instead of retried.
+struct FinalRequestError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
 std::string resultToString(Result rc) {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "0x%08X", (unsigned int)rc);
@@ -106,7 +112,7 @@ void ensureInternetConnectionReady(const std::string& url) {
         throw std::runtime_error("nifmGetInternetConnectionStatus failed: " + resultToString(rc));
     }
     if (status != NifmInternetConnectionStatus_Connected) {
-        throw std::runtime_error("Internet connection is not ready for " + url);
+        throw FinalRequestError("Internet connection is not ready for " + url);
     }
 }
 
@@ -173,8 +179,11 @@ std::vector<std::uint8_t> performRequestBytes(const std::string& url,
         std::string detail = body.substr(0, 240);
         std::replace(detail.begin(), detail.end(), '\n', ' ');
         std::replace(detail.begin(), detail.end(), '\r', ' ');
-        throw std::runtime_error("HTTP error " + std::to_string(statusCode)
-                                 + (detail.empty() ? std::string() : ": " + detail));
+        const std::string message = "HTTP error " + std::to_string(statusCode)
+                                    + (detail.empty() ? std::string() : ": " + detail);
+        // A 5xx may be a passing server hiccup: worth the second try.
+        if (statusCode >= 500) throw std::runtime_error(message);
+        throw FinalRequestError(message);
     }
 
     return std::vector<std::uint8_t>(body.begin(), body.end());
@@ -201,6 +210,11 @@ std::vector<std::uint8_t> performBytes(const std::string& url,
                 DebugLog::log("[themeshop] request recovered on retry %d: %s", attempt, url.c_str());
             }
             return bytes;
+        } catch (const FinalRequestError& ex) {
+            if (isAbortRequested(shouldAbort))
+                throw std::runtime_error("Cancelled");
+            DebugLog::log("[themeshop] request failed: %s -> %s", url.c_str(), ex.what());
+            throw std::runtime_error(ex.what());
         } catch (const std::exception& ex) {
             lastError = ex.what();
             if (lastError == "Cancelled" || isAbortRequested(shouldAbort))
@@ -219,10 +233,11 @@ std::vector<std::uint8_t> performBytes(const std::string& url,
                           kRequestAttemptCount,
                           url.c_str());
         }
-
-        if (attempt < kRequestAttemptCount) {
-            shutdownRuntimeLocked();
-        }
+        // No runtime teardown between tries: the sockets, nifm and curl are
+        // shared by the whole menu (the Discord gateway, the image and API
+        // pools, CardsNX's network, the updater). Shutting them down here cut
+        // Discord off and broke transfers running on other threads each time
+        // a single request failed.
     }
 
     throw std::runtime_error(lastError);
