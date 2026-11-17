@@ -7220,6 +7220,23 @@ void CardsActivity::flipMtp() {
     }
 }
 
+// Left on with no computer, USB file transfer polls USB for good: it turns
+// itself off after 10 minutes of waiting (never while a computer is there).
+void CardsActivity::updateMtp() {
+    if (!m_mtp.on() || m_mtp.state() != Mtp::State::Waiting) {
+        m_mtpWaitingTick = 0;
+        return;
+    }
+    const std::uint64_t now = armGetSystemTick();
+    if (!m_mtpWaitingTick) {
+        m_mtpWaitingTick = now;
+    } else if (armTicksToNs(now - m_mtpWaitingTick) >= 600'000'000'000ULL) {
+        m_mtpWaitingTick = 0;
+        flipMtp();
+        say("USB file transfer is off: no computer for 10 minutes.");
+    }
+}
+
 CardsActivity::TaskView CardsActivity::taskView() {
     TaskView v;
     switch (m_task) {
@@ -8521,6 +8538,7 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
     updateBluetoothAudio(dt);
+    updateMtp();
     if (m_changesJob.valid() && m_changesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const Changes c = m_changesJob.get();
         const bool nros = c.nroHash != m_settings.nroHash, titles = c.titles != m_settings.titles;
