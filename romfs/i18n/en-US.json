@@ -648,7 +648,8 @@
     "en-GB": "British English",
     "fr-CA": "French (Canada)",
     "es-419": "Spanish (Latin America)",
-    "pt-BR": "Brazilian Portuguese"
+    "pt-BR": "Brazilian Portuguese",
+    "tr-TR": "Turkish"
   },
   "error": {
     "title": "Cannot Launch",

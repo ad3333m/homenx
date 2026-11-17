@@ -9,7 +9,11 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
+#include <nlohmann/json.hpp>
+
+#include <fstream>
 #include <memory>
+#include <string>
 
 extern "C" {
     size_t __nx_heap_size = 0x06000000;
@@ -38,6 +42,16 @@ int main(int, char**) {
     TTF_Init();
     nxui::Renderer::setShaderBasePath("romfs:/shaders/");
     nxui::I18n::instance().initialize("romfs:/i18n", "en-US");
+    // The UI language chosen in HomeNX's Settings > System (for a language the
+    // console itself doesn't have, like Turkish).
+    {
+        std::ifstream in("sdmc:/config/SwitchU/settings.json");
+        const auto j = nlohmann::json::parse(in, nullptr, false);
+        if (j.is_object() && j.contains("uiLanguageOverride") && j["uiLanguageOverride"].is_string()) {
+            const std::string tag = j["uiLanguageOverride"].get<std::string>();
+            if (!tag.empty() && tag != "auto") nxui::I18n::instance().setLanguage(tag);
+        }
+    }
 
     nxui::Application application;
     application.setActivity(std::make_unique<switchu::manager::ManagerActivity>());
