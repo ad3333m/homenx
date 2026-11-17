@@ -452,7 +452,6 @@ private:
     std::future<Pixels> m_galleryJob;
     void openTitlePicker(const Game& g, bool cover = false, const std::string& query = {}, bool hero = false);
     void startPickJob(std::function<std::vector<TitleChoice>()> work);
-
     void searchPicker();
     // Text typed in: HomeNX's keyboard as HOME, the system's as an app.
     void askText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,

@@ -1571,9 +1571,11 @@ void CardsActivity::takeArt() {
         } else if (d.what == kIcon) {
             it->second.icon = std::move(tex);
             it->second.iconKind = d.kind;
-            if (d.again) { // asked again in a moment, for its title picture
+            if (d.again) { // asked again in a while, for its title picture
+                // (another picture thread's search: those take seconds, and every
+                // ask meanwhile read, decoded and uploaded the plain icon again)
                 it->second.iconAsked = false;
-                it->second.retryAt = m_time + 3.f;
+                it->second.retryAt = m_time + 10.f;
             }
         } else if (d.what == kBackground) {
             it->second.bg = std::move(tex);
@@ -4424,13 +4426,12 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
     if (!m_pickOpen) return;
     // The pictures arrived: shown from now on (their pixels aren't needed after).
     if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready && m_pickNext) {
-        m_pickJob.get(); // the last picker's: this one's search now
+        m_pickJob = {}; // the last picker's, dropped unread (an error it ended with isn't this one's)
         startPickJob(std::move(m_pickNext));
     }
     if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_pickChoices = m_pickJob.get();
         m_pickTex.clear();
-
         for (TitleChoice& c : m_pickChoices) {
             auto tex = std::make_unique<nxui::Texture>();
             if (c.rgba.empty() || !tex->loadFromPixels(app().gpu(), app().renderer(), c.rgba.data(), c.w, c.h)) tex.reset();
