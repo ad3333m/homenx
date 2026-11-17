@@ -1227,8 +1227,11 @@ void CardsActivity::worker(int index) {
         }
         // Bound transient compressed/decoded/scaling memory independently of
         // the completed-result queue. Never held by the rendering thread.
+        // Held for the SD copy and the decode/scale/save only, not while a
+        // picture is fetched (GameTDB, SteamGridDB: up to 30 s each): the three
+        // workers queued behind one slow download, cached cards included.
         static std::mutex artworkDecodeMutex;
-        std::unique_lock<std::mutex> decodeLock(artworkDecodeMutex);
+        std::unique_lock<std::mutex> decodeLock(artworkDecodeMutex, std::defer_lock);
         Done done;
         done.id = job.game.id;
         done.what = job.what;
@@ -1256,7 +1259,9 @@ void CardsActivity::worker(int index) {
             done.sh = done.h;
             shrink(done.small, done.sw, done.sh, 64);
         };
-        if (!shown.empty() && readShown(shown, done.rgba, done.w, done.h, done.kind)) {
+        const bool cached = !shown.empty() && (decodeLock.lock(), readShown(shown, done.rgba, done.w, done.h, done.kind));
+        if (!cached && decodeLock.owns_lock()) decodeLock.unlock(); // (the fetches below run without it)
+        if (cached) {
             // (ready as it is; a cover kept before the small copies existed gets its own now)
             if (job.what == kCard) {
                 makeSmall();
@@ -1284,6 +1289,7 @@ void CardsActivity::worker(int index) {
         }
         const auto readFinished = armGetSystemTick();
         if (!data.empty()) {
+            if (!decodeLock.owns_lock()) decodeLock.lock();
             int w = 0, h = 0;
             stbi_uc* px = decodePicture(data.data(), static_cast<int>(data.size()), w, h);
             if (px) {
@@ -1337,7 +1343,7 @@ void CardsActivity::worker(int index) {
                       static_cast<unsigned long long>(done.id), done.what, ticksMs(readFinished - jobStart),
                       data.size(), ticksMs(armGetSystemTick() - readFinished), done.rgba.capacity());
         perfLine(artDiagnostic);
-        decodeLock.unlock();
+        if (decodeLock.owns_lock()) decodeLock.unlock();
         const float took = ticksMs(armGetSystemTick() - jobStart);
         if (took > 800.f) { // a picture that took long (the internet, mostly)
             char line[160];
