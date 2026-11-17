@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <mutex>
-#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -28,6 +27,12 @@ bool g_curlInitialized = false;
 std::atomic<bool> g_runtimeReady{false};
 
 constexpr int kRequestAttemptCount = 2;
+
+// HomeNX: the body is written straight into the buffer that is returned. It
+// went through an ostringstream, a string and a vector (and a string again for
+// getText): a 5-8 MB theme file or SteamGridDB hero was in memory ~4 times.
+// Larger answers are stopped: they'd use up HOME's memory.
+constexpr std::size_t kMaxBodyBytes = 32u << 20;
 
 std::string resultToString(Result rc) {
     char buf[32];
@@ -114,9 +119,11 @@ bool isAbortRequested(const themeshop::http::AbortCheck& shouldAbort) {
     return shouldAbort && shouldAbort();
 }
 
+template <class Body>
 void configureRequest(curlpp::Easy& request,
                       const std::string& url,
-                      std::ostringstream& response,
+                      Body& response,
+                      bool& tooLarge,
                       const std::list<std::string>& headers,
                       const themeshop::http::ProgressCallback& onProgress = {},
                       const themeshop::http::AbortCheck& shouldAbort = {}) {
@@ -130,7 +137,24 @@ void configureRequest(curlpp::Easy& request,
     if (!headers.empty()) {
         request.setOpt<curlpp::options::HttpHeader>(headers);
     }
-    request.setOpt<curlpp::options::WriteStream>(&response);
+    CURL* handle = request.getHandle();
+    request.setOpt<curlpp::options::WriteFunction>(
+        [&response, &tooLarge, handle](char* data, std::size_t size, std::size_t count) -> std::size_t {
+            const std::size_t bytes = size * count;
+            if (response.empty()) {
+                // Its announced size at once, instead of doubling up to it.
+                curl_off_t total = -1;
+                if (curl_easy_getinfo(handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &total) == CURLE_OK
+                    && total > 0 && static_cast<std::uint64_t>(total) <= kMaxBodyBytes)
+                    response.reserve(static_cast<std::size_t>(total));
+            }
+            if (bytes > kMaxBodyBytes - response.size()) {
+                tooLarge = true;
+                return 0; // fewer bytes than given: curl stops the transfer
+            }
+            response.insert(response.end(), data, data + bytes);
+            return bytes;
+        });
     if (onProgress || shouldAbort) {
         request.setOpt<curlpp::options::NoProgress>(false);
         request.setOpt<curlpp::options::ProgressFunction>(
@@ -146,21 +170,25 @@ void configureRequest(curlpp::Easy& request,
     }
 }
 
-std::vector<std::uint8_t> performRequestBytes(const std::string& url,
-                                              const std::list<std::string>& headers,
-                                              const themeshop::http::ProgressCallback& onProgress,
-                                              const themeshop::http::AbortCheck& shouldAbort) {
+template <class Body>
+Body performRequestBytes(const std::string& url,
+                         const std::list<std::string>& headers,
+                         const themeshop::http::ProgressCallback& onProgress,
+                         const themeshop::http::AbortCheck& shouldAbort) {
     if (isAbortRequested(shouldAbort))
         throw std::runtime_error("Cancelled");
 
-    std::ostringstream response;
+    Body response;
+    bool tooLarge = false;
     curlpp::Easy request;
-    configureRequest(request, url, response, headers, onProgress, shouldAbort);
+    configureRequest(request, url, response, tooLarge, headers, onProgress, shouldAbort);
     try {
         request.perform();
     } catch (...) {
         if (isAbortRequested(shouldAbort))
             throw std::runtime_error("Cancelled");
+        if (tooLarge)
+            throw std::runtime_error("Response larger than " + std::to_string(kMaxBodyBytes >> 20) + " MB");
         throw;
     }
 
@@ -168,7 +196,10 @@ std::vector<std::uint8_t> performRequestBytes(const std::string& url,
         throw std::runtime_error("Cancelled");
 
     long statusCode = curlpp::infos::ResponseCode::get(request);
-    std::string body = response.str();
+    // (the start of an error page, for the message)
+    std::string body = statusCode < 200 || statusCode >= 300
+        ? std::string(reinterpret_cast<const char*>(response.data()), std::min<std::size_t>(response.size(), 240))
+        : std::string();
     if (statusCode < 200 || statusCode >= 300) {
         std::string detail = body.substr(0, 240);
         std::replace(detail.begin(), detail.end(), '\n', ' ');
@@ -177,13 +208,14 @@ std::vector<std::uint8_t> performRequestBytes(const std::string& url,
                                  + (detail.empty() ? std::string() : ": " + detail));
     }
 
-    return std::vector<std::uint8_t>(body.begin(), body.end());
+    return response;
 }
 
-std::vector<std::uint8_t> performBytes(const std::string& url,
-                                       const std::list<std::string>& headers,
-                                       const themeshop::http::ProgressCallback& onProgress = {},
-                                       const themeshop::http::AbortCheck& shouldAbort = {}) {
+template <class Body>
+Body performBytes(const std::string& url,
+                  const std::list<std::string>& headers,
+                  const themeshop::http::ProgressCallback& onProgress = {},
+                  const themeshop::http::AbortCheck& shouldAbort = {}) {
     std::lock_guard<std::mutex> lk(g_themeHttpMutex);
 
     std::string lastError = "Theme Shop HTTP request failed";
@@ -196,7 +228,7 @@ std::vector<std::uint8_t> performBytes(const std::string& url,
             }
 
             ensureInternetConnectionReady(url);
-            auto bytes = performRequestBytes(url, headers, onProgress, shouldAbort);
+            auto bytes = performRequestBytes<Body>(url, headers, onProgress, shouldAbort);
             if (attempt > 1) {
                 DebugLog::log("[themeshop] request recovered on retry %d: %s", attempt, url.c_str());
             }
@@ -253,14 +285,13 @@ std::vector<std::uint8_t> getBytes(const std::string& url,
                                    const std::list<std::string>& headers,
                                    const ProgressCallback& onProgress,
                                    const AbortCheck& shouldAbort) {
-    return performBytes(url, headers, onProgress, shouldAbort);
+    return performBytes<std::vector<std::uint8_t>>(url, headers, onProgress, shouldAbort);
 }
 
 std::string getText(const std::string& url,
                     const std::list<std::string>& headers,
                     const AbortCheck& shouldAbort) {
-    auto bytes = performBytes(url, headers, {}, shouldAbort);
-    return std::string(bytes.begin(), bytes.end());
+    return performBytes<std::string>(url, headers, {}, shouldAbort);
 }
 
 } // namespace themeshop::http
