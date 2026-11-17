@@ -101,15 +101,17 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
 {
     m_gpu = &gpu;
     m_renderer = &ren;
+
+    // Reloading in place is the same hazard as destruction: the old image and
+    // its descriptor belong to the frames in flight until the GPU is done with
+    // them. Waiting for it here stalled a frame or two each time (recycled
+    // icon slots while scrolling, a new Spotify cover), so they are retired
+    // like a destroyed texture's instead, and the picture gets new memory and
+    // a new slot below.
+    if (m_slot >= 0 || m_mem)
+        retireGpuResources();
     int oldSlot = m_slot;
     uint32_t oldAllocSize = m_allocSize;
-
-    // Reloading in place is the same hazard as destruction: below, the old
-    // MemBlock is dropped when a bigger one is needed, and the descriptor at
-    // oldSlot is rewritten to point at the new image. Both belong to the frame
-    // in flight until the GPU says otherwise.
-    if (m_valid && (oldSlot >= 0 || m_mem))
-        gpu.waitIdle();
 
     m_valid = false;
     m_slot  = -1;
