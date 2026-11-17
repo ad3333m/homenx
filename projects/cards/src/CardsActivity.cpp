@@ -1309,11 +1309,15 @@ void CardsActivity::worker(int index) {
                 // icon: its title picture, or the plain icon when there won't be one (title
                 // pictures off, an app) -- a plain icon kept while the search was busy or
                 // offline stayed for good, and the title pictures never came (build 174).
+                // Homebrew icons are the final artwork for ordinary app cards
+                // and backgrounds, rather than temporary network fallbacks.
+                const bool homebrewIcon = job.game.homebrew && done.kind == ArtKind::Icon;
                 const bool forGood = job.what == kCard ? done.kind == ArtKind::Grid || done.kind == ArtKind::Box
+                                                             || (homebrewIcon && !job.game.fullCard)
                                                              || (done.kind == ArtKind::Banner && !m_boxArt.load())
                                        : job.what == kIcon ? !done.again && (done.kind == ArtKind::Title || !m_titleArt
                                                                              || job.game.homebrew)
-                                                           : done.kind == ArtKind::Banner;
+                                                           : done.kind == ArtKind::Banner || homebrewIcon;
                 if (!shown.empty() && forGood) {
                     writeShown(shown, done.rgba, w, h, done.kind);
                     if (job.what == kCard) {
@@ -1667,14 +1671,16 @@ void CardsActivity::select(int index) {
     m_detailIn = m_settings.motion ? 0.f : 1.f;
     m_sheen = m_settings.motion ? 0.f : 1.f;
     const std::uint64_t id = page[(size_t)index].id;
-    auto it = m_art.find(id);
-    m_art[id].lastAccess = ++m_artAccess;
-    m_art[id].selectedTick = armGetSystemTick();
+    // Insert before obtaining the entry: insertion can rehash the map and
+    // invalidate an iterator saved by find(), including the old end().
+    auto& art = m_art[id];
+    art.lastAccess = ++m_artAccess;
+    art.selectedTick = armGetSystemTick();
     char cacheLine[100];
     std::snprintf(cacheLine, sizeof(cacheLine), "[ART] title=%016llX cache=%s",
-                  static_cast<unsigned long long>(id), it != m_art.end() && it->second.bg ? "HIT" : "MISS");
+                  static_cast<unsigned long long>(id), art.bg ? "HIT" : "MISS");
     perfLine(cacheLine);
-    if (it != m_art.end() && it->second.bg && m_bgId != id) {
+    if (art.bg && m_bgId != id) {
         m_bgPrevId = m_bgId;
         m_bgId = id;
         m_bgFade = 0.f;

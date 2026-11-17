@@ -386,11 +386,17 @@ bool ApplicationSession::checkFinished() {
 
     appletApplicationJoin(&m_application);
     m_lastExitReason = appletApplicationGetExitReason(&m_application);
-    switchu::FileLog::log("[app] session=%lu finished reason=%d",
+    // libnx's Join reduces GetResult to an exit-reason category. Keep the
+    // original result too, before resetToIdle closes the accessor.
+    serviceAssumeDomain(&m_application.s);
+    const Result exitResult = serviceDispatch(&m_application.s, 30); // GetResult
+    switchu::FileLog::log("[app] session=%lu title=0x%016lX finished reason=%d result=0x%X module=%u desc=%u",
                           static_cast<unsigned long>(m_sessionId),
-                          static_cast<int>(m_lastExitReason));
+                          static_cast<unsigned long>(m_titleId),
+                          static_cast<int>(m_lastExitReason), exitResult,
+                          R_MODULE(exitResult), R_DESCRIPTION(exitResult));
     resetToIdle();
-    m_lastResult = 0;
+    m_lastResult = exitResult;
     return true;
 }
 
