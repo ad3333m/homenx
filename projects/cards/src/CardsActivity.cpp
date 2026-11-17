@@ -1700,8 +1700,10 @@ void CardsActivity::takeBackStats() {
                     g.launches = r.st.launches;
                 }
             }
-    // Sorted again only when it moved (as sortGames orders them): that asks for the
-    // pictures again, and the ones on their way now would be read twice.
+    // Sorted again only when it moved (as sortGames orders them). The pictures stay as
+    // asked: requeueArt let go of what was being read and asked for it again, and the
+    // game's card and background were read twice (the workers had them already).
+    // wantArt moves what's queued to its new place and drops what's now far.
     const auto first = [this](const Game& a, const Game& b) {
         if (m_settings.sort == 2) return a.playSeconds != b.playSeconds ? a.playSeconds > b.playSeconds : a.order < b.order;
         return a.lastPlayed != b.lastPlayed ? a.lastPlayed > b.lastPlayed : a.order < b.order;
@@ -1710,7 +1712,7 @@ void CardsActivity::takeBackStats() {
     const bool moved = std::adjacent_find(list.begin(), list.end(),
                                           [&](const Game& a, const Game& b) { return first(b, a); }) != list.end();
     if (moved && m_backTo == r.id && (m_settings.sort == 0 || m_settings.sort == 2)) {
-        sortGames(m_settings.sort, false);
+        sortGames(m_settings.sort, false, false);
         selectById(m_backTo);
         wantArt();
     }
@@ -1850,7 +1852,7 @@ void CardsActivity::requeueArt() {
     wantArt();
 }
 
-void CardsActivity::sortGames(int sort, bool keepChoice) {
+void CardsActivity::sortGames(int sort, bool keepChoice, bool requeue) {
     LibraryEdit edit(*this);
     auto& page = m_pages[kGames];
     const std::uint64_t keep = page.empty() ? 0 : page[(size_t)std::clamp(m_sels[kGames], 0, (int)page.size() - 1)].id;
@@ -1870,7 +1872,7 @@ void CardsActivity::sortGames(int sort, bool keepChoice) {
     for (size_t i = 0; keepChoice && i < page.size(); ++i)
         if (page[i].id == keep) m_sels[kGames] = static_cast<int>(i);
     if (m_page == kGames) m_scroll = static_cast<float>(m_sels[kGames]);
-    requeueArt();
+    if (requeue) requeueArt();
 }
 
 // My order (Plus > Move): the saved ids first, in their order; the rest after

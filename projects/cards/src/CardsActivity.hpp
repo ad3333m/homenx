@@ -208,7 +208,7 @@ private:
     int pagePos(int page) const;  // where it is in your order
     bool pageHidden(int page) const; // Settings > Home > Pages to show
     int firstShownPage() const;
-    void sortGames(int sort, bool keepChoice = true);
+    void sortGames(int sort, bool keepChoice = true, bool requeue = true);
     void selectById(std::uint64_t id); // its page and card, straight away
     std::uint64_t m_backTo = 0;        // back from this game: it stays chosen until you move
     struct BackStats {
