@@ -3819,6 +3819,12 @@ void WiiUMenuApp::createWidget(int targetSlot, switchu::widgets::WidgetType type
     if (size.columns <= 0 || size.rows <= 0) return;
     if (!canPlaceWidget(targetSlot, size)) return;
     const std::uint32_t id = m_widgetStore.create(type, size, assetRef);
+    // Without such a widget, starts don't ask pdm for the play time any more:
+    // the new one shows pdm's total, not the last session's minutes.
+    if (id != 0 && m_widgetStore.recentActivity().titleId != 0
+        && (type == switchu::widgets::WidgetType::RecentlyPlayed
+            || type == switchu::widgets::WidgetType::RecentPlaytime))
+        refreshRecentActivityDuration();
     if (id == 0 || !saveWidgetsOrReport("create")) return;
     m_layoutSlots[static_cast<std::size_t>(targetSlot)] =
         switchu::widgets::widgetTitleId(id);
