@@ -627,10 +627,18 @@ void Renderer::applyBlur(float radius, int passes) {
     constexpr float offW = (float)(GpuDevice::FB_WIDTH / 2);
     constexpr float offH = (float)(GpuDevice::FB_HEIGHT / 2);
 
+    // Each pass's quad covers its whole target and writes alpha 1, so the
+    // result is the same without blending (no read-back of the target) and
+    // without clearing it first. Blending is the frame's default, restored
+    // below.
+    if (passes > 0) {
+        flush();
+        m_gpu.cmdBuf().bindColorState(dk::ColorState{}.setBlendEnable(0, false));
+    }
+
     for (int p = 0; p < passes; ++p) {
         // H blur: off0 -> off1
         bindRenderTarget(1);
-        m_gpu.cmdBuf().clearColor(0, DkColorMask_RGBA, 0.f, 0.f, 0.f, 0.f);
         useShader(ShaderProgram::BlurH);
         FsUniforms fs = {};
         fs.useTexture = 1;
@@ -641,18 +649,23 @@ void Renderer::applyBlur(float radius, int passes) {
         bindTexture(m_offDescSlot[0]);
         addQuad(-1.f, -1.f, 1.f, 1.f, 0, 0, 1, 1, Color::white());
         flush();
-        m_gpu.cmdBuf().barrier(DkBarrier_Full, DkInvalidateFlags_Image);
+        // Only draws touch the targets here: waiting for their fragments
+        // (and dropping stale texture cache lines) is enough before the
+        // next pass samples what this one wrote.
+        m_gpu.cmdBuf().barrier(DkBarrier_Fragments, DkInvalidateFlags_Image);
 
         // V blur: off1 -> off0
         bindRenderTarget(0);
-        m_gpu.cmdBuf().clearColor(0, DkColorMask_RGBA, 0.f, 0.f, 0.f, 0.f);
         useShader(ShaderProgram::BlurV);
         pushFsUniforms(fs);
         bindTexture(m_offDescSlot[1]);
         addQuad(-1.f, -1.f, 1.f, 1.f, 0, 0, 1, 1, Color::white());
         flush();
-        m_gpu.cmdBuf().barrier(DkBarrier_Full, DkInvalidateFlags_Image);
+        m_gpu.cmdBuf().barrier(DkBarrier_Fragments, DkInvalidateFlags_Image);
     }
+
+    if (passes > 0)
+        m_gpu.cmdBuf().bindColorState(dk::ColorState{}.setBlendEnable(0, true));
 
     restoreRenderTarget();
     useShader(ShaderProgram::Basic);
