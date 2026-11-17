@@ -1,6 +1,7 @@
 #pragma once
 #include <nxui/widgets/Box.hpp>
 #include <nxui/core/I18n.hpp>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,10 @@ protected:
 private:
     void refreshLocalizedText();
     std::vector<std::string> wrappedLines(float maxWidth) const;
+    // wrappedLines, kept until the text, width, scale or font changes: a
+    // multiline label is drawn every frame and wrapping measures every word.
+    struct WrappedLine { std::string text; float width; };
+    const std::vector<WrappedLine>& cachedWrappedLines(float maxWidth) const;
 
     std::string m_text;
     std::string m_textSource;
@@ -75,6 +80,14 @@ private:
     float       m_lineSpacing = 1.15f;
     HAlign      m_hAlign = HAlign::Left;
     VAlign      m_vAlign = VAlign::Top;
+
+    mutable std::vector<WrappedLine> m_wrapLines;
+    mutable std::string   m_wrapText;
+    mutable const Font*   m_wrapFont = nullptr;
+    mutable std::uint64_t m_wrapFontRevision = 0;
+    mutable float         m_wrapWidth = -1.f;
+    mutable float         m_wrapScale = 0.f;
+    mutable bool          m_wrapValid = false;
 };
 
 } // namespace nxui

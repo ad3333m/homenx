@@ -3,6 +3,11 @@
 #include <nxui/core/Renderer.hpp>
 
 #include <nxui/core/ImageDecode.hpp> // before the implementation below
+// stb_image only uses its NEON loops (JPEG IDCT, YCbCr->RGB, upsampling)
+// when asked to; without this every icon and cover decodes in plain C.
+#if defined(__aarch64__)
+#define STBI_NEON
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -63,8 +68,9 @@ Texture& Texture::operator=(Texture&& o) noexcept {
 // drawing. The user's file was never corrupt -- both default covers are the
 // same 1280x720 JPEG, and his copy is byte-for-byte the right size.
 //
-// The wait only happens when there is something live to retire, which is a
-// theme change or a cache eviction, not every frame.
+// So both are retired instead of returned: the renderer frees them once no
+// frame in flight can read them. Only a texture without a renderer waits for
+// the GPU.
 void Texture::retireGpuResources() {
     const bool holdsMemory = m_gpu && m_mem && m_allocSize > 0;
     if (m_slot < 0 && !holdsMemory)
@@ -96,15 +102,17 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
 {
     m_gpu = &gpu;
     m_renderer = &ren;
-    int oldSlot = m_slot;
-    uint32_t oldAllocSize = m_allocSize;
 
-    // Reloading in place is the same hazard as destruction: below, the old
-    // MemBlock is dropped when a bigger one is needed, and the descriptor at
-    // oldSlot is rewritten to point at the new image. Both belong to the frame
-    // in flight until the GPU says otherwise.
-    if (m_valid && (oldSlot >= 0 || m_mem))
-        gpu.waitIdle();
+    // Reloading in place is the same hazard as destruction: the old image and
+    // its descriptor belong to the frames in flight until the GPU is done with
+    // them. Waiting for it here stalled a frame or two each time (recycled
+    // icon slots while scrolling, a new Spotify cover), so they are retired
+    // like a destroyed texture's instead, and the picture gets new memory and
+    // a new slot below. Never write the new pixels into the old block or point
+    // the old slot at them without that wait: the GPU may still be reading
+    // both.
+    if (m_slot >= 0 || m_mem)
+        retireGpuResources();
 
     m_valid = false;
     m_slot  = -1;
@@ -134,49 +142,24 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
         .initialize(layout);
 
     uint32_t needed = layout.getSize();
-    uint32_t alignedNeeded = (needed + kGpuAlign - 1) & ~(kGpuAlign - 1);
-    uint32_t alignedOld    = (oldAllocSize + kGpuAlign - 1) & ~(kGpuAlign - 1);
 
-    if (m_mem && alignedOld >= alignedNeeded) {
-        // Reuse existing MemBlock — avoids kernel free+alloc round-trip.
-        // Keep the original allocSize so the budget stays accurate.
-        m_allocSize = oldAllocSize;
-    } else {
-        // Need a bigger block — free the old one first.
-        if (m_mem && oldAllocSize > 0)
-            gpu.freeImageMemory(oldAllocSize);
-
-        m_mem = gpu.allocImageMemory(needed);
-        if (!m_mem) {
-            if (oldSlot >= 0)
-                ren.releaseTextureSlot(oldSlot);
-            std::printf("[Texture] allocImageMemory FAILED (%dx%d) — GPU budget exhausted\n", w, h);
-            // Two things had to be put right here, and both of them showed up
-            // as a crash rather than as a missing texture.
-            //
-            // The old block is gone: it was destroyed by the assignment above,
-            // and freeImageMemory already gave its bytes back. m_image still
-            // described it, and m_valid still said true from the load that
-            // succeeded before, so the next frame drew a texture whose memory
-            // no longer existed -- deko3d answers that with svcBreak, which is
-            // the User Break in the crash reports.
-            //
-            // m_allocSize still held the old size too, so the next attempt
-            // would hand those same bytes back a second time. The budget walks
-            // downwards from there and stops bounding anything, which is how a
-            // console with enough icons reaches real exhaustion.
-            m_valid = false;
-            m_slot = -1;
-            m_allocSize = 0;
-            return false;
-        }
-        m_allocSize = needed;
+    m_mem = gpu.allocImageMemory(needed);
+    if (!m_mem) {
+        std::printf("[Texture] allocImageMemory FAILED (%dx%d) — GPU budget exhausted\n", w, h);
+        // Not drawable and holding nothing: m_image still describes the old
+        // block, which is retired, and a stale m_allocSize would give bytes
+        // back to the budget twice. Both once showed up as crashes (svcBreak
+        // drawing freed memory, then real exhaustion), not as a missing icon.
+        m_valid = false;
+        m_slot = -1;
+        m_allocSize = 0;
+        return false;
     }
+    m_allocSize = needed;
 
     m_image.initialize(layout, m_mem, 0);
 
     if (!gpu.uploadTexture(m_image, rgba, w * h * 4, w, h)) {
-        m_slot = oldSlot;
         std::printf("[Texture] uploadTexture FAILED (%dx%d)\n", w, h);
         // Half a texture is worse than none: it can still be bound and drawn.
         m_valid = false;
@@ -185,18 +168,12 @@ bool Texture::loadFromPixels(GpuDevice& gpu, Renderer& ren,
 
     noteUploaded();
     dk::ImageView view{m_image};
-    if (oldSlot >= 0) {
-        // Reuse the same descriptor slot — avoids slot exhaustion
-        ren.updateTexture(oldSlot, view);
-        m_slot = oldSlot;
-    } else {
-        m_slot = ren.registerTexture(view);
-        if (m_slot < 0) {
-            std::printf("[Texture] registerTexture FAILED (%dx%d) — descriptor pool full\n", w, h);
-            // Half a texture is worse than none: it can still be bound and drawn.
-            m_valid = false;
-            return false;
-        }
+    m_slot = ren.registerTexture(view);
+    if (m_slot < 0) {
+        std::printf("[Texture] registerTexture FAILED (%dx%d) — descriptor pool full\n", w, h);
+        // Half a texture is worse than none: it can still be bound and drawn.
+        m_valid = false;
+        return false;
     }
     m_valid = true;
     return true;

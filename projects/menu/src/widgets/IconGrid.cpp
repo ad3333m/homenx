@@ -853,7 +853,11 @@ void IconGrid::renderLayoutMorph(nxui::Renderer& ren) {
 void IconGrid::render(nxui::Renderer& ren) {
     if (!m_visible || m_opacity <= 0.f) return;
 
-    if (!m_children.empty() && ren.gpu().offscreenReady())
+    // The icons' glass reads this capture only with glass effects on; in
+    // performance mode it would be a full-screen blit and two full barriers
+    // per frame that nobody samples.
+    if (!m_children.empty() && ren.gpu().offscreenReady()
+        && !nxui::GlassPanel::performanceMode())
         ren.captureToOffscreen(true);
 
     if (m_layoutMorphing) {
