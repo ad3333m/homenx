@@ -52,6 +52,7 @@ enum class SystemMessage : uint32_t {
     IsApplicationValid    = 32,
     SetManualDateTime     = 33,
     SetInternetTimeSync   = 34,
+    ApplyIdlePolicy       = 35, // HomeNX: am re-reads the auto-sleep plans the menu just wrote to setsys
 
     MenuReady             = 40,
     MenuClosing           = 41,

@@ -1305,9 +1305,18 @@ static bool handleAppletMessages() {
         openMenuFromHome("ae");
         break;
 
-        case 22:
-        case 29:
-        case 32:
+        case 22: // DetectShortPressingPowerButton
+        case 27: // SleepRequiredByHighTemperature
+        case 28: // SleepRequiredByLowBattery
+        case 29: // AutoPowerDown
+        case 32: // DetectReceivingCecSystemStandby
+        // 27 and 28 are the system asking HOME to sleep when the battery is
+        // nearly empty or the console is too hot. Ignoring them left the
+        // console on until the hardware cut the power, with the SD mounted.
+        if (g_powerSequenceStarted.load()) {
+            switchu::FileLog::log("[ae] sleep msg=%u ignored: power sequence running", msg);
+            break;
+        }
         switchu::FileLog::log("[ae] -> Sleep (msg=%u)", msg);
         // Keep the application accessor; reacquire its screen only after wake.
         daemon::app::onHomeSuspend();
@@ -1980,6 +1989,15 @@ static bool handleMenuCommand() {
         result = setInternetTimeSync(args.enabled != 0);
         pushCommandResult(requestId, result, "SetInternetTimeSync");
         return true;
+    }
+
+    case smi::SystemMessage::ApplyIdlePolicy: {
+        // The menu changed the auto-sleep plans in setsys. am only applies
+        // them when the system applet asks; the menu (a library applet) gets
+        // 0x1159 from the same call.
+        const Result rc = appletLoadAndApplyIdlePolicySettings();
+        switchu::FileLog::log("[smi] apply idle policy rc=0x%X", rc);
+        break;
     }
 
     case smi::SystemMessage::LockFramePresented:
