@@ -110,9 +110,20 @@ public:
     void setSfxVolume(float vol);
     float sfxVolume() const { return m_sfxVolume; }
 
+    /// Plays a chunk once on a free channel, waking the audio device first if
+    /// it was paused for being quiet (TTS uses it too). Returns the channel.
+    static int playChunk(Mix_Chunk* chunk);
+
 private:
     static std::atomic<AudioManager*> s_instance;
     static void onTrackFinished();
+    // HomeNX: the device is paused after a while with nothing to hear (one
+    // device for the whole process, hence static); see sleepWhenQuiet().
+    static std::atomic<bool> s_deviceAsleep;
+    static std::atomic<unsigned> s_deviceId; // SDL_mixer's device (0 = not found: never paused)
+    static bool wakeDeviceLocked();          // true if it was asleep
+    void sleepWhenQuiet(float dt);
+    float m_quietCheck = 0.f, m_quietFor = 0.f;
 
     void applyMusicVolume();
     void playCurrentInternal(bool fromStart);

@@ -1,4 +1,5 @@
 #include "AudioManager.hpp"
+#include "DebugLog.hpp"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cstdio>
@@ -185,6 +186,16 @@ void extractApicCover(const char* payload, int frameSize, std::vector<uint8_t>& 
     out.assign(payload + i, payload + frameSize);
 }
 
+// SDL_mixer opens its device with SDL_OpenAudioDevice (IDs from 2): the old
+// SDL_PauseAudio/SDL_LockAudio only reach device 1. This process opens one
+// device, so it's the first ID that isn't stopped (0 = none).
+SDL_AudioDeviceID findMixerDevice() {
+    for (SDL_AudioDeviceID id = 2; id <= 17; ++id)
+        if (SDL_GetAudioDeviceStatus(id) != SDL_AUDIO_STOPPED)
+            return id;
+    return 0;
+}
+
 } // namespace
 
 AudioManager::~AudioManager() { shutdown(); }
@@ -198,6 +209,14 @@ bool AudioManager::initialize() {
         std::fprintf(stderr, "[Audio] Mix_OpenAudio failed: %s\n", Mix_GetError());
         return false;
     }
+    // Opened again (the tutorial's player): the device may still be paused.
+    s_deviceId.store(findMixerDevice());
+    if (s_deviceId.load())
+        SDL_PauseAudioDevice(s_deviceId.load(), 0);
+    else
+        DebugLog::log("[audio] mixer's device not found: it won't be paused when quiet");
+    s_deviceAsleep.store(false);
+    m_quietCheck = m_quietFor = 0.f;
     Mix_AllocateChannels(8);
     m_initialized = true;
     setVolume(m_volume);
@@ -498,6 +517,64 @@ std::string AudioManager::currentDisplayTitle() const {
 }
 
 std::atomic<AudioManager*> AudioManager::s_instance{nullptr};
+std::atomic<bool> AudioManager::s_deviceAsleep{false};
+std::atomic<unsigned> AudioManager::s_deviceId{0};
+
+namespace {
+constexpr float kQuietSecondsBeforeSleep = 8.f;
+}
+
+// HomeNX: with the music off or paused (or on the lock screen), SDL's audio
+// thread still ran the mixer ~12 times a second over 8 silent channels. Once
+// nothing has been heard for a few seconds the device is paused: SDL then
+// hands the renderer silence without calling the mixer. Anything that makes a
+// sound wakes it first, under the audio lock, so the check below can't pause
+// it between the wake and the sound. Unpausing is a flag: the first sound
+// isn't late.
+bool AudioManager::wakeDeviceLocked() {
+    if (!s_deviceAsleep.exchange(false))
+        return false;
+    SDL_PauseAudioDevice(s_deviceId.load(), 0);
+    return true;
+}
+
+int AudioManager::playChunk(Mix_Chunk* chunk) {
+    const SDL_AudioDeviceID dev = s_deviceId.load();
+    if (!dev)
+        return Mix_PlayChannel(-1, chunk, 0);
+    SDL_LockAudioDevice(dev);
+    const bool woke = wakeDeviceLocked();
+    const int channel = Mix_PlayChannel(-1, chunk, 0);
+    SDL_UnlockAudioDevice(dev);
+    if (woke)
+        DebugLog::log("[audio] device woken (sound)");
+    return channel;
+}
+
+void AudioManager::sleepWhenQuiet(float dt) {
+    const SDL_AudioDeviceID dev = s_deviceId.load();
+    if (!m_initialized || !dev || s_deviceAsleep.load())
+        return;
+    // Once a second: asking the mixer takes the lock its thread mixes under.
+    m_quietCheck += dt;
+    if (m_quietCheck < 1.f)
+        return;
+    const float elapsed = m_quietCheck;
+    m_quietCheck = 0.f;
+    bool slept = false;
+    SDL_LockAudioDevice(dev);
+    const bool audible = Mix_Playing(-1) > 0 || (Mix_PlayingMusic() && !Mix_PausedMusic());
+    m_quietFor = audible ? 0.f : m_quietFor + elapsed;
+    if (m_quietFor >= kQuietSecondsBeforeSleep) {
+        SDL_PauseAudioDevice(dev, 1);
+        s_deviceAsleep.store(true);
+        m_quietFor = 0.f;
+        slept = true;
+    }
+    SDL_UnlockAudioDevice(dev);
+    if (slept)
+        DebugLog::log("[audio] device paused (nothing heard for %.0f s)", kQuietSecondsBeforeSleep);
+}
 
 // Runs on SDL's audio thread, inside the mixer: SDL_mixer must not be called
 // from here (starting the next song here, and opening its file, could leave the
@@ -572,6 +649,18 @@ void AudioManager::playCurrentInternal(bool fromStart) {
     }
     m_suppressFinishedHook = true;
     Mix_PlayMusic(music, 1);
+    // Woken after Mix_PlayMusic, not around it: it waits (lock released,
+    // 100 ms sleeps) for a fade-out to end, which a held lock would never let
+    // happen. After, so a quiet check on the main thread (this runs on the
+    // worker when HOME comes back) can't pause it between the wake and the song.
+    if (const SDL_AudioDeviceID dev = s_deviceId.load()) {
+        SDL_LockAudioDevice(dev);
+        const bool woke = wakeDeviceLocked();
+        m_quietFor = 0.f;
+        SDL_UnlockAudioDevice(dev);
+        if (woke)
+            DebugLog::log("[audio] device woken (music)");
+    }
     if (!fromStart && m_positionSeconds > 0.25f)
         Mix_SetMusicPosition(static_cast<double>(m_positionSeconds));
     else
@@ -705,6 +794,7 @@ void AudioManager::setRepeatMode(MusicRepeatMode mode) {
 }
 
 void AudioManager::update(float dt) {
+    sleepWhenQuiet(dt);
     if (m_trackEnded.exchange(false) && m_initialized) {
         if (m_repeat == MusicRepeatMode::One) {
             std::lock_guard<std::mutex> lk(m_trackMutex);
@@ -852,7 +942,7 @@ void AudioManager::playSfx(Sfx id) {
     std::lock_guard<std::mutex> lk(m_sfxMutex);
     auto it = m_sfx.find(static_cast<int>(id));
     if (it != m_sfx.end()) {
-        Mix_PlayChannel(-1, it->second, 0);
+        playChunk(it->second);
     }
 }
 
@@ -878,7 +968,7 @@ void AudioManager::playNamedSfx(const std::string& id) {
     std::lock_guard<std::mutex> lk(m_sfxMutex);
     auto it = m_namedSfx.find(id);
     if (it != m_namedSfx.end()) {
-        Mix_PlayChannel(-1, it->second, 0);
+        playChunk(it->second);
     }
 }
 

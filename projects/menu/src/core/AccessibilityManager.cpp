@@ -1,4 +1,5 @@
 #include "AccessibilityManager.hpp"
+#include "AudioManager.hpp"
 #include "DebugLog.hpp"
 
 #include <algorithm>
@@ -373,7 +374,7 @@ void AccessibilityManager::playSynthBuffer() {
     }
 
     Mix_VolumeChunk(m_ttsChunk, MIX_MAX_VOLUME);
-    m_ttsChannel = Mix_PlayChannel(-1, m_ttsChunk, 0);
+    m_ttsChannel = AudioManager::playChunk(m_ttsChunk); // wakes a quiet (paused) device
     if (m_ttsChannel < 0)
         DebugLog::log("[accessibility] Mix_PlayChannel failed: %s", Mix_GetError());
 }

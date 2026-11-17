@@ -39,6 +39,12 @@ public:
     static constexpr int kBands = 48;
     void spectrum(float* out) const;
     void playTrack(size_t index);
+    // "audio: device paused/woken" once since the last call ("" = nothing).
+    std::string takeNote() {
+        std::string n;
+        n.swap(m_note);
+        return n;
+    }
 
 private:
     void opened(); // the device opened (start's thread): the rest of starting
@@ -46,6 +52,13 @@ private:
     void startTrack(size_t index);
     void loadWanted();
     size_t shuffled() const; // a random song, not the one playing (2+ songs)
+    void wake();             // before any sound: the device was paused for being quiet
+    void sleepWhenQuiet(unsigned long long now);
+    unsigned m_deviceId = 0; // SDL_mixer's device (0 = not found: never paused)
+    bool m_asleep = false;
+    std::string m_note;      // the last pause/wake, for perf.log (takeNote)
+    float m_quietFor = 0.f;
+    unsigned long long m_quietCheckTick = 0;
 
     bool m_open = false, m_sounds = true, m_music = true, m_shuffle = false, m_repeat = false;
     int m_volume = 60, m_soundVolume = 80;
