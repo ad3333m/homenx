@@ -239,7 +239,10 @@ public:
                 packet = speed == UsbDeviceSpeed_Super ? 0x400 : speed == UsbDeviceSpeed_Full ? 0x40 : 0x200;
                 return true;
             }
-            eventWait(usbDsGetStateChangeEvent(), 100'000'000ULL);
+            // (A cable wakes it through the event; the timeout is only for
+            // turning it off (stop() joins on the screen's thread): 10 a second with
+            // an IPC each, for hours if left on, now 4.)
+            eventWait(usbDsGetStateChangeEvent(), 250'000'000ULL);
             eventClear(usbDsGetStateChangeEvent());
         }
         return false;

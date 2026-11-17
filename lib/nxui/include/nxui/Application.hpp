@@ -81,6 +81,12 @@ public:
     static constexpr float kDeepAfter = 30.f;
     /// Draw the next turn even if the screen is idle (something changed).
     void requestRedraw() { m_redrawRequested = true; }
+    /// Whether the applet's interactive in-data queue may hold something:
+    /// its event, polled without waiting (a syscall, not an IPC). Popping the
+    /// queue itself is an IPC call to am; activities that drain it every
+    /// turn ask this first. Always true where there is no event, and once a
+    /// second anyway, so a message is never stuck behind a missed signal.
+    static bool inDataMayBeWaiting();
     /// In the deep idle tier: freeze decorations (also told by onIdleDeep).
     bool deepIdle() const { return m_deepIdle; }
     /// Calm or deep idle: turns are paced on purpose (one in three takes

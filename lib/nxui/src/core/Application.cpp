@@ -49,6 +49,25 @@ void waitWhileAsleep() {
 
 } // namespace
 
+bool Application::inDataMayBeWaiting() {
+#ifndef NXUI_BACKEND_SDL2
+    static uint64_t s_lastFullCheck = 0;
+    const uint64_t now = armGetSystemTick();
+    if (now - s_lastFullCheck >= armNsToTicks(1'000'000'000ULL)) {
+        s_lastFullCheck = now;
+        return true;
+    }
+    if (!g_inDataEventTried) {
+        g_inDataEventTried = true;
+        g_inDataEventOk = R_SUCCEEDED(appletGetPopInteractiveInDataEvent(&g_inDataEvent));
+    }
+    if (!g_inDataEventOk) return true;
+    return R_SUCCEEDED(eventWait(&g_inDataEvent, 0));
+#else
+    return true;
+#endif
+}
+
 Application::~Application() {
     shutdown();
 }

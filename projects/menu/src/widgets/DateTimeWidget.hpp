@@ -3,6 +3,7 @@
 #include <nxui/core/Font.hpp>
 #include <nxui/core/Texture.hpp>
 #include <nxui/core/Types.hpp>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -35,7 +36,8 @@ protected:
 private:
     nxui::Font* m_font = nullptr;
     nxui::Font* m_smallFont = nullptr;
-    float m_timer = 0.f;
+    std::uint64_t m_nextReadTick = 0;         // the next read (system ticks): just after the minute changes
+    unsigned m_clockGeneration = 0; // the clock service's, when last read
     std::string m_timeStr;
     std::string m_dateStr;
     bool m_use12HourClock = false;

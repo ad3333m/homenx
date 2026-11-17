@@ -6477,7 +6477,8 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
     }
 
 #ifdef SWITCHU_MENU
-    {
+    // (Popping is an IPC call to am, every loop turn: the queue's event first.)
+    if (nxui::Application::inDataMayBeWaiting()) {
         AppletStorage notifySt;
         while (R_SUCCEEDED(appletPopInteractiveInData(&notifySt))) {
             switchu::smi::DaemonNotification notif{};
