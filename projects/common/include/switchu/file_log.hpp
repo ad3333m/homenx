@@ -135,7 +135,6 @@ private:
     }
 
     static void writer_loop(FileLog& self) {
-
         std::vector<std::string> batch;
         for (;;) {
             size_t droppedLines = 0;

@@ -1252,7 +1252,6 @@ void WiiUMenuApp::applySteamGridDbCandidate(
     m_steamGridDbApplyFuture = std::async(std::launch::async, [browse, candidate, progress]() {
         nxui::moveToWorkerCores(); // a download and a decode: off the render core
         return SteamGridDbManager::applyCandidate(browse, candidate,
-
             [progress](const std::string& message, float value) {
                 std::lock_guard<std::mutex> lock(progress->mutex);
                 progress->message = message;

@@ -5334,7 +5334,6 @@ void WiiUMenuApp::buildGrid() {
                 [apiKey = m_config.steamGridDbApiKey, browse, match]() {
                     nxui::moveToWorkerCores(); // a network fetch: off the render core
                     return SteamGridDbManager::browseGame(
-
                         apiKey, browse.titleId, browse.title, browse.query,
                         browse.kind, match.id, match.name);
                 });

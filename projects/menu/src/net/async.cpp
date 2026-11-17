@@ -133,7 +133,6 @@ void Run(Pool pool, std::function<void()> work) {
         p.jobs.push_back(std::move(work));
         if (!p.stop && p.threads.empty()) p.SpawnLocked();
     }
-
     p.cv.notify_one();
 }
 

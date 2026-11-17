@@ -700,7 +700,6 @@ bool SteamGridDbManager::startSelectNext(const std::string& apiKey,
                         [this, apiKey, titleId, title, kind, direction]() mutable {
                             nxui::moveToWorkerCores(); // a network fetch: off the render core
                             selectNext(std::move(apiKey), titleId, std::move(title), kind,
-
                                        direction < 0 ? -1 : 1);
                         });
     return true;
