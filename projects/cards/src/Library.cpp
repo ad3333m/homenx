@@ -10,6 +10,7 @@
 #include <switchu/tls_roots.hpp>
 #include "homebrew/HomebrewStore.hpp"
 #ifdef SWITCHU_MENU
+#include "smi_commands.hpp"
 #include "themeshop/ThemeHttp.hpp"
 #endif
 #include <curl/curl.h>
@@ -2209,9 +2210,19 @@ void writeConsoleSettings(const ConsoleSettings& s) {
         setsysSetUsbFullKeyEnableFlag(s.proWired);
         SetSysSleepSettings sleep{};
         if (R_SUCCEEDED(setsysGetSleepSettings(&sleep))) {
-            sleep.handheld_sleep_plan = std::clamp(s.handheldSleep, 0, 5);
-            sleep.console_sleep_plan = std::clamp(s.tvSleep, 0, 5);
-            setsysSetSleepSettings(&sleep);
+            const u32 handheld = static_cast<u32>(std::clamp(s.handheldSleep, 0, 5));
+            const u32 tv = static_cast<u32>(std::clamp(s.tvSleep, 0, 5));
+            const bool changed = sleep.handheld_sleep_plan != handheld || sleep.console_sleep_plan != tv;
+            sleep.handheld_sleep_plan = handheld;
+            sleep.console_sleep_plan = tv;
+            // am only takes a new plan when the system applet asks (the daemon
+            // did at boot only): without this the new delay waited for a
+            // reboot. The menu can't ask am itself (0x1159): the daemon does.
+            if (R_SUCCEEDED(setsysSetSleepSettings(&sleep)) && changed) {
+#ifdef SWITCHU_MENU
+                switchu::menu::smi_cmd::applyIdlePolicy();
+#endif
+            }
         }
         setsysExit();
     }

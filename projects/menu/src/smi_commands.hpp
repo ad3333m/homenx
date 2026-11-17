@@ -183,6 +183,7 @@ inline Result shutdown()    { return sendSimple(smi::SystemMessage::Shutdown); }
 inline Result reboot()      { return sendSimple(smi::SystemMessage::Reboot); }
 inline Result rebootToPayload() { return sendSimple(smi::SystemMessage::RebootToPayload); }
 inline Result menuReady()      { return sendSimple(smi::SystemMessage::MenuReady); }
+inline Result applyIdlePolicy() { return sendSimple(smi::SystemMessage::ApplyIdlePolicy); }
 inline Result menuClosing()    { return sendSimple(smi::SystemMessage::MenuClosing); }
 
 struct AppEntry {

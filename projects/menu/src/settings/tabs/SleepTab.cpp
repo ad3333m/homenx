@@ -1,8 +1,19 @@
 #include "TabBuilders.hpp"
+#include "smi_commands.hpp"
 #include <nxui/core/I18n.hpp>
 #include <switch.h>
 #include <algorithm>
 #include <cstdio>
+
+namespace {
+// Writing setsys only stores the plan: am applies it when the system applet
+// asks for it, which the daemon did only at boot, so a new delay waited for a
+// reboot. The menu (a library applet) can't ask am itself: the daemon does.
+void applySleepSettings(const SetSysSleepSettings& s) {
+    if (R_SUCCEEDED(setsysSetSleepSettings(&s)))
+        switchu::menu::smi_cmd::applyIdlePolicy();
+}
+} // namespace
 
 SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
     using Tab = SettingsScreen::Tab;
@@ -111,7 +122,7 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
             SetSysSleepSettings s{};
             setsysGetSleepSettings(&s);
             s.handheld_sleep_plan = std::clamp(self.intVal, 0, 5);
-            setsysSetSleepSettings(&s);
+            applySleepSettings(s);
         };
         t.items.push_back(std::move(it));
     }
@@ -125,7 +136,7 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
             SetSysSleepSettings s{};
             setsysGetSleepSettings(&s);
             s.console_sleep_plan = std::clamp(self.intVal, 0, 5);
-            setsysSetSleepSettings(&s);
+            applySleepSettings(s);
         };
         t.items.push_back(std::move(it));
     }
@@ -143,7 +154,7 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
                 s.flags |= (1u << 0);
             else
                 s.flags &= ~(1u << 0);
-            setsysSetSleepSettings(&s);
+            applySleepSettings(s);
         };
         t.items.push_back(std::move(it));
     }
@@ -161,7 +172,7 @@ SettingsScreen::Tab settings::tabs::SleepTab::build(SettingsScreen& screen) {
                 s.flags |= (1u << 1);
             else
                 s.flags &= ~(1u << 1);
-            setsysSetSleepSettings(&s);
+            applySleepSettings(s);
         };
         t.items.push_back(std::move(it));
     }
