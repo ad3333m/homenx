@@ -204,13 +204,18 @@ inline std::string gameName(std::uint64_t title) {
 }
 
 // The hour on the console's clock, in its time zone (12 when it can't tell).
+// The daemon never calls timeInitialize() and closes the clock and time zone
+// sessions after reading the boot time (time_budget.hpp), so the time service
+// calls always failed here and the "night" milestone never unlocked. time()
+// and localtime_r() only need that boot time, as the log timestamps do. Until
+// the boot time is read, time() counts from 1970 (seconds since boot): treat
+// any date before 2020 as unknown.
 inline int localHour() {
-    u64 now = 0;
-    TimeCalendarTime t{};
-    TimeCalendarAdditionalInfo info{};
-    if (R_FAILED(timeGetCurrentTime(TimeType_UserSystemClock, &now)) || R_FAILED(timeToCalendarTimeWithMyRule(now, &t, &info)))
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+    if (now < static_cast<std::time_t>(1'577'836'800) || !::localtime_r(&now, &local))
         return 12;
-    return t.hour;
+    return local.tm_hour;
 }
 
 // What the game's play reached: kept, and shown. (The first time, when there's no
