@@ -21,6 +21,18 @@ int main() {
     fs::create_directories("sdmc:/config/CardsNX");
     fs::create_directories("sdmc:/config/SwitchU");
 
+    // Replacing the provider must not opt old Spotify users into starting a
+    // new background service. Only an explicit Switube choice persists it.
+    std::ofstream(cards::Settings::kPath) << R"({"spotify":true})";
+    cards::Settings musicProvider;
+    musicProvider.load();
+    assert(!musicProvider.switube);
+    musicProvider.switube = true;
+    musicProvider.save();
+    cards::Settings savedMusicProvider;
+    savedMusicProvider.load();
+    assert(savedMusicProvider.switube);
+
     // Old three-page settings keep their chosen order and gain Media.
     std::ofstream(cards::Settings::kPath) << R"({"pageOrder":[2,0,1],"sortOrder":2})";
     cards::Settings old;

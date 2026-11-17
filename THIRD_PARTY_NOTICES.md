@@ -16,6 +16,11 @@ they were.
 
 ## Code built into HomeNX
 
+- **Switube** 0.1.0 by dl3g0, <https://github.com/dl3g0/Switube>, GPL-3.0. The unmodified IPC protocol header
+  is included at `projects/common/include/switube/ipc_protocol.h`, from source commit
+  `e911311a73838111af3516f843015a9b9987a225`. HomeNX's client uses this protocol to control the separately
+  installed background service. Switube's application, overlay, and service binaries are not bundled.
+
 | Component | Author | License |
 |---|---|---|
 | libnx | switchbrew | ISC |

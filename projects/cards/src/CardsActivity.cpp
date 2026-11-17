@@ -915,6 +915,7 @@ void CardsActivity::onDestroy() {
         std::error_code ec;
         std::filesystem::remove(kCardsStarting, ec); // (it closed as it should)
     }
+    m_switube.stop();
     stopPairing();
     if (m_friendCodeJob.valid()) m_friendCodeJob.wait();
     if (m_keyCheckJob.valid()) m_keyCheckJob.wait();
@@ -967,7 +968,7 @@ bool CardsActivity::wantsFullRate() const {
     if (m_time - m_pictureInAt < 0.4f) return true; // cards fade in 0.35 s, thumbnails 0.2 s
     if (!m_notice.title.empty()) return true;       // it slides in, counts down and fades
     if (m_messageFor > 0.f) return true;
-    if (m_musicOpen && (spotifyOn() ? m_sp.playing : m_settings.music && !m_audio.paused()))
+    if (m_musicOpen && (switubeOn() ? m_sp.playing : m_settings.music && !m_audio.paused()))
         return true; // the spectrum and the spinning record follow the music
 #ifdef SWITCHU_MENU
     if (m_newsIn < 1.f || m_newsDragging) return true;
@@ -2301,6 +2302,7 @@ void CardsActivity::leave(int index, float seconds, std::function<void()> then) 
     m_optOpen = false;
     m_pickOpen = false;
     m_musicOpen = false;
+    m_switubeBrowseOpen = false;
     m_moving = false;
 #ifdef SWITCHU_MENU
     m_newsOpen = false;
@@ -2967,6 +2969,10 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::SleepSequence: // stop drawing (a loop that keeps drawing never lets it sleep)
                 m_asleep = true;
+                // Sleeping stops onUpdate, so suspend polling here rather
+                // than relying on the next updateSwitube call.
+                m_switube.setWatching(false);
+                m_spWatch = false;
                 {
                     std::lock_guard<std::mutex> lk(m_mu);
                     m_workersAsleep = true;
@@ -3026,19 +3032,14 @@ void CardsActivity::pumpDaemon() {
 // Everything open closes; true if something was.
 bool CardsActivity::closeEverything() {
     bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen || m_powerOpen || m_dotsOpen
-            || m_optOpen || m_pickOpen || m_musicOpen || m_spQrOpen || m_task != Task::None;
+            || m_optOpen || m_pickOpen || m_musicOpen || m_task != Task::None;
     closeTask();
-    if (m_spQrOpen) {
-        m_spQrOpen = false;
-#ifdef SWITCHU_MENU
-        m_spotify.cancelLogin();
-#endif
-    }
     m_powerOpen = false;
     m_dotsOpen = false;
     m_optOpen = false;
     m_pickOpen = false;
     m_musicOpen = false;
+    m_switubeBrowseOpen = false;
     if (m_moving) finishMove(false);
     m_menu.clear();
     m_notifOpen = false;
@@ -5094,15 +5095,15 @@ void CardsActivity::openQuick() {
 
 void CardsActivity::quickActivate(int row, int col) {
     takeFacts(true); // (the switches flip what the console has, not what was shown)
-    if (row == kQPlayer && spotifyOn()) { // previous, play / pause, next, repeat, shuffle; the list: the Music screen
-        static constexpr Spotify::Cmd kCmds[5] = {Spotify::Cmd::Previous, Spotify::Cmd::PlayPause, Spotify::Cmd::Next,
-                                                  Spotify::Cmd::Repeat, Spotify::Cmd::Shuffle};
+    if (row == kQPlayer && switubeOn()) { // previous, play / pause, next, repeat, shuffle; the list: the Music screen
+        static constexpr Switube::Cmd kCmds[5] = {Switube::Cmd::Previous, Switube::Cmd::PlayPause, Switube::Cmd::Next,
+                                                  Switube::Cmd::Repeat, Switube::Cmd::Shuffle};
         if (col >= 5) {
             m_quickOpen = false;
             openMusic();
             return;
         }
-        spotifyDo(kCmds[std::max(0, col)]);
+        switubeDo(kCmds[std::max(0, col)]);
         m_audio.play("activation");
         return;
     }
@@ -5159,6 +5160,13 @@ void CardsActivity::quickActivate(int row, int col) {
 void CardsActivity::quickChange(int row, int delta) {
     takeFacts(true);
     if (row == kQMusic) {
+        if (switubeOn()) {
+            const int volume = std::clamp(std::max(0, m_sp.volume) + delta * 10, 0, 100);
+            m_sp.volume = volume;
+            switubeDo(Switube::Cmd::Volume, volume);
+            m_audio.play("navigation");
+            return;
+        }
         m_settings.musicVolume = std::clamp(m_settings.musicVolume + delta * 10, 0, 100);
         m_audio.setMusic(homeMusic(), m_settings.musicVolume);
     } else if (row == kQSounds) {
@@ -5264,7 +5272,7 @@ bool CardsActivity::quickTouch() {
         m_quickRow = kQMusic + i;
         const float barX = row.x + 52.f, barW = row.width - 72.f;
         const int want = static_cast<int>(std::lround(clamp01((x - barX) / barW) * 10.f)) * 10;
-        const int now = i == 0 ? m_settings.musicVolume : i == 1 ? m_settings.soundVolume
+        const int now = i == 0 ? (switubeOn() ? std::max(0, m_sp.volume) : m_settings.musicVolume) : i == 1 ? m_settings.soundVolume
                                                                  : static_cast<int>(std::lround(m_quick.brightness * 100.f));
         if (want != now) quickChange(kQMusic + i, (want - now) / 10);
         return true;
@@ -5305,10 +5313,10 @@ nxui::Rect musicVolume(float dy) { return {kMusicInfoX + 44.f, 402.f + dy, kMusi
 } // namespace
 
 void CardsActivity::musicControl(int col) {
-    if (spotifyOn()) {
-        static constexpr Spotify::Cmd kCmds[5] = {Spotify::Cmd::Shuffle, Spotify::Cmd::Previous, Spotify::Cmd::PlayPause,
-                                                  Spotify::Cmd::Next, Spotify::Cmd::Repeat};
-        spotifyDo(kCmds[std::clamp(col, 0, 4)]);
+    if (switubeOn()) {
+        static constexpr Switube::Cmd kCmds[5] = {Switube::Cmd::Shuffle, Switube::Cmd::Previous, Switube::Cmd::PlayPause,
+                                                  Switube::Cmd::Next, Switube::Cmd::Repeat};
+        switubeDo(kCmds[std::clamp(col, 0, 4)]);
         m_audio.play("activation");
         return;
     }
@@ -5349,7 +5357,8 @@ void CardsActivity::updateMusic() {
         m_audio.play("hide_modal");
         return;
     }
-    const int songs = spotifyOn() ? 0 : static_cast<int>(m_audio.titles().size());
+    if (switubeOn() && in.isDown(B::X)) { openSwitubeBrowse(); return; }
+    const int songs = switubeOn() ? 0 : static_cast<int>(m_audio.titles().size());
     const int zone = m_musicZone;
     if (zone == 0) {
         if (left && m_musicCol > 0) --m_musicCol;
@@ -5359,8 +5368,8 @@ void CardsActivity::updateMusic() {
         if (in.isDown(B::A)) musicControl(m_musicCol);
     } else if (zone == 1) {
         if (up) m_musicZone = 0;
-        if ((left || right) && spotifyOn()) {
-            spotifyDo(Spotify::Cmd::Volume, std::clamp(std::max(0, m_sp.volume) + (right ? 5 : -5), 0, 100));
+        if ((left || right) && switubeOn()) {
+            switubeDo(Switube::Cmd::Volume, std::clamp(std::max(0, m_sp.volume) + (right ? 5 : -5), 0, 100));
         } else if (left || right) {
             m_settings.musicVolume = std::clamp(m_settings.musicVolume + (right ? 5 : -5), 0, 100);
             m_audio.setMusic(homeMusic(), m_settings.musicVolume);
@@ -5389,7 +5398,7 @@ bool CardsActivity::musicTouch() {
         m_musicVolDrag = true;
         m_musicZone = 1;
         const int v = static_cast<int>(std::lround(clamp01((x - vol.x) / vol.width) * 100.f));
-        if (spotifyOn()) {
+        if (switubeOn()) {
             m_sp.volume = v; // sent when the finger lifts
         } else if (v != m_settings.musicVolume) {
             m_settings.musicVolume = v;
@@ -5398,9 +5407,12 @@ bool CardsActivity::musicTouch() {
         return true;
     }
     if (!in.touchUp()) return in.isTouching();
+    if (switubeOn() && x >= kMusicListX && x <= kMusicListX + kMusicListW && y >= kMusicListTop && y <= kMusicListBottom) {
+        openSwitubeBrowse(); return true;
+    }
     if (m_musicVolDrag) {
         m_musicVolDrag = false;
-        if (spotifyOn()) spotifyDo(Spotify::Cmd::Volume, std::max(0, m_sp.volume));
+        if (switubeOn()) switubeDo(Switube::Cmd::Volume, std::max(0, m_sp.volume));
         else m_settings.save();
         return true;
     }
@@ -5413,7 +5425,7 @@ bool CardsActivity::musicTouch() {
             return true;
         }
     }
-    const int songs = spotifyOn() ? 0 : static_cast<int>(m_audio.titles().size());
+    const int songs = switubeOn() ? 0 : static_cast<int>(m_audio.titles().size());
     if (x >= kMusicListX && x <= kMusicListX + kMusicListW && y >= kMusicListTop && y <= kMusicListBottom) {
         const int row = static_cast<int>((y - kMusicListTop + m_musicListScroll) / kMusicRowH);
         if (row >= 0 && row < songs) {
@@ -5464,151 +5476,128 @@ void CardsActivity::drawReturn(nxui::Renderer& r) {
     drawCover(r, m_returnTex.get(), at, kCardRadius * e, kWhite.withAlpha(1.f - easeIn(t)));
 }
 
-bool CardsActivity::spotifyOn() const {
-    return false; // Spotify was taken out (2026-10-31): HOME music only
-}
-
-bool CardsActivity::spotifySignedIn() const {
+bool CardsActivity::switubeOn() const {
 #ifdef SWITCHU_MENU
-    return m_spotify.signedIn();
+    return m_settings.switube;
 #else
     return false;
 #endif
 }
 
-void CardsActivity::spotifyDo(Spotify::Cmd c, int value) {
+void CardsActivity::switubeDo(Switube::Cmd c, int value) {
 #ifdef SWITCHU_MENU
-    if (!m_spotify.signedIn()) { // the sign-in, straight away
-        signInSpotify();
-        return;
-    }
-    m_spotify.command(c, value);
-    m_sp = m_spotify.now(); // its guess, at once
+    m_switube.command(c, value);
 #else
-    (void)c;
-    (void)value;
+    (void)c; (void)value;
 #endif
 }
 
-float CardsActivity::spotifyPos() const {
+float CardsActivity::switubePos() const {
     float s = static_cast<float>(m_sp.progressMs) / 1000.f;
     if (m_sp.playing && m_sp.at) s += static_cast<float>(armTicksToNs(armGetSystemTick() - m_sp.at)) / 1e9f;
     return m_sp.durationMs > 0 ? std::min(s, static_cast<float>(m_sp.durationMs) / 1000.f) : s;
 }
 
-void CardsActivity::updateSpotify() {
+void CardsActivity::updateSwitube() {
 #ifdef SWITCHU_MENU
-    const bool watch = spotifyOn() && (m_musicOpen || m_quickOpen) && !m_leaving && !m_asleep;
+    if (m_switubeBrowseOpen && m_menu.empty() && !(m_textEntry && m_textEntry->isActive())) m_switubeBrowseOpen = false;
+    const bool watch = switubeOn() && (m_musicOpen || m_quickOpen || m_switubeBrowseOpen) && !m_leaving && !m_asleep;
     if (watch != m_spWatch) {
         m_spWatch = watch;
-        if (watch) m_spotify.start();
-        m_spotify.setWatching(watch);
+        if (watch) m_switube.start();
+        m_switube.setWatching(watch);
     }
     if (!m_spWatch) return;
     const int dragged = m_sp.volume;
-    m_sp = m_spotify.now();
+    const auto previousTick = m_sp.at;
+    m_sp = m_switube.now();
+    if (m_sp.at != previousTick) app().requestRedraw();
     if (m_musicVolDrag) m_sp.volume = dragged;
-    std::vector<std::uint8_t> px;
-    int w = 0, h = 0;
-    if (m_spotify.takeCover(px, w, h) && !px.empty()) m_spCover.loadFromPixels(app().gpu(), app().renderer(), px.data(), w, h);
-    const std::string error = m_spotify.takeError();
+    const std::string error = m_switube.takeError();
     if (!error.empty()) say(error);
+    Switube::Page page;
+    if (m_switube.takePage(page) && m_switubeBrowseOpen && !m_menu.empty()) showSwitubePage(page);
 #endif
 }
 
-void CardsActivity::signInSpotify() {
+void CardsActivity::openSwitubeBrowse() {
 #ifdef SWITCHU_MENU
-    m_spotify.start();
-    std::string error;
-    const std::string link = m_spotify.beginLogin(readConsoleSettings().ip, error);
-    if (link.empty()) {
-        say(error);
-        return;
-    }
-    const qrcodegen::QrCode qr = qrcodegen::QrCode::encodeText(link.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
-    m_spQrText = link;
-    m_spQrSize = qr.getSize();
-    m_spQr.assign(static_cast<size_t>(m_spQrSize * m_spQrSize), 0);
-    for (int y = 0; y < m_spQrSize; ++y)
-        for (int x = 0; x < m_spQrSize; ++x) m_spQr[static_cast<size_t>(y * m_spQrSize + x)] = qr.getModule(x, y) ? 1 : 0;
-    m_spQrOpen = true;
-    m_audio.play("show_modal");
+    m_musicOpen = false;
+    m_quickOpen = false;
+    m_switubeBrowseOpen = true;
+    m_switube.start();
+    m_switube.setWatching(true);
+    m_spWatch = true;
+    Switube::Page page;
+    page.loading = true;
+    page.title = "Switube";
+    showSwitubePage(page);
+    m_switube.browse(Switube::Browse::Home);
 #endif
 }
 
-void CardsActivity::closeSpotifyQr() {
-    if (!m_spQrOpen) return;
-    m_spQrOpen = false;
+void CardsActivity::showSwitubePage(const Switube::Page& page) {
 #ifdef SWITCHU_MENU
-    m_spotify.cancelLogin();
-#endif
-    m_audio.play("hide_modal");
-}
-
-void CardsActivity::updateSpotifyQr() {
-#ifdef SWITCHU_MENU
-    const Spotify::Login state = m_spotify.login();
-    if (state == Spotify::Login::Done) {
-        m_spQrOpen = false;
-        m_settings.spotify = true; // signed in: the music player shows it
-        m_audio.setMusic(homeMusic(), m_settings.musicVolume);
-        m_settings.save();
-        m_audio.play("activation");
-        say("Signed in: Spotify is in the music player now");
-        return;
-    }
-    auto& in = app().input();
-    using B = nxui::Button;
-    if (in.isDown(B::B) || in.isDown(B::Plus) || (state == Spotify::Login::Failed && in.isDown(B::A))) closeSpotifyQr();
-#endif
-}
-
-void CardsActivity::drawSpotifyQr(nxui::Renderer& r) {
-#ifdef SWITCHU_MENU
-    if (!m_spQrOpen) return;
-    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f));
-    const nxui::Rect card{330.f, 110.f, 620.f, 490.f};
-    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.92f));
-    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f), 34.f, 1.5f);
-    icon(r, "music", card.x + 46.f, card.y + 46.f, 28.f, kWhite);
-    textMid(r, m_fTitle, "Sign in to Spotify", card.x + 72.f, card.y + 46.f, kWhite);
-    const std::string hint = "B Close";
-    textMid(r, m_fBody, hint, card.x + card.width - 36.f - measured(m_fBody, hint).x, card.y + 46.f, kMuted.withAlpha(0.8f));
-    // The code: dark squares on white, each row's runs as one rect.
-    const nxui::Rect qa{640.f - 140.f, card.y + 96.f, 280.f, 280.f};
-    r.drawRoundedRect(qa, kWhite, 16.f);
-    if (m_spQrSize > 0) {
-        const float cell = std::floor(qa.width / (static_cast<float>(m_spQrSize) + 6.f));
-        const float ox = qa.x + std::floor((qa.width - cell * m_spQrSize) * 0.5f);
-        const float oy = qa.y + std::floor((qa.height - cell * m_spQrSize) * 0.5f);
-        for (int y = 0; y < m_spQrSize; ++y) {
-            int run = -1;
-            for (int x = 0; x <= m_spQrSize; ++x) {
-                const bool on = x < m_spQrSize && m_spQr[static_cast<size_t>(y * m_spQrSize + x)];
-                if (on && run < 0) run = x;
-                if (!on && run >= 0) {
-                    r.drawRect({ox + run * cell, oy + y * cell, (x - run) * cell, cell}, nxui::Color(0.f, 0.f, 0.f, 1.f));
-                    run = -1;
-                }
+    std::vector<MenuItem> items;
+    auto browse = [this](Switube::Browse cmd, std::uint64_t gen = 0, unsigned index = 0, std::string query = {}) {
+        m_switube.browse(cmd, gen, index, std::move(query));
+        Switube::Page loading;
+        loading.loading = true;
+        loading.title = "Switube";
+        showSwitubePage(loading);
+    };
+    auto add = [&](std::string label, std::function<void()> run) {
+        auto item = action(std::move(label), std::move(run));
+        item.stay = true;
+        items.push_back(std::move(item));
+    };
+    add("Now playing", [this] {
+        m_menu.clear();
+        m_switubeBrowseOpen = false;
+        m_musicOpen = true;
+        m_musicIn = 0.f;
+    });
+    add("YouTube Music home", [browse] { browse(Switube::Browse::Home); });
+    add("Downloads", [browse] { browse(Switube::Browse::Library); });
+    add("Search YouTube Music", [this, browse] {
+        askText("Search YouTube Music", "Song or artist", "", 127,
+            [browse](const std::string& query) { if (!query.empty()) browse(Switube::Browse::Search, 0, 0, query); });
+    });
+    if (page.depth) add("Back to previous collection", [browse, gen = page.generation] { browse(Switube::Browse::Back, gen); });
+    if (page.loading) {
+        add("Loading...", [] {});
+    } else {
+        if (!page.message.empty()) add(page.message, [] {});
+        for (const auto& entry : page.items) {
+            const std::string name(entry.name, strnlen(entry.name, sizeof(entry.name)));
+            if (entry.kind == SwitubeBrowseItemKind_Section) {
+                auto item = action(name, [] {});
+                item.kind = MenuItem::Header;
+                items.push_back(std::move(item));
+                continue;
             }
+            add(name, [this, browse, gen = page.generation, entry] {
+                if (entry.kind == SwitubeBrowseItemKind_Track) {
+                    m_switube.browse(Switube::Browse::Play, gen, entry.index);
+                    m_menu.clear();
+                    m_switubeBrowseOpen = false;
+                    m_musicOpen = true;
+                    m_musicIn = 0.f;
+                } else browse(Switube::Browse::Open, gen, entry.index);
+            });
+            items.back().detail = std::string(entry.subtitle, strnlen(entry.subtitle, sizeof(entry.subtitle)));
         }
     }
-    const Spotify::Login state = m_spotify.login();
-    std::string line = "Scan it with your phone, on the same Wi-Fi as this Switch";
-    nxui::Color tone = kMuted;
-    if (state == Spotify::Login::Exchanging) {
-        line = "Signing in...";
-        tone = kWhite;
-    } else if (state == Spotify::Login::Failed) {
-        line = m_spotify.loginError();
-        tone = kRed;
-    }
-    line = fit(m_fBody, line, card.width - 60.f);
-    textMid(r, m_fBody, line, 640.f - measured(m_fBody, line).x * 0.5f, qa.y + qa.height + 34.f, tone);
-    textMid(r, m_fBody, m_spQrText, 640.f - measured(m_fBody, m_spQrText).x * 0.425f, qa.y + qa.height + 70.f,
-            kMuted.withAlpha(0.7f), 0.85f);
+    // Refresh without replaying the popup sound or resetting selection on every
+    // asynchronous page update. The worker publishes complete snapshots only.
+    const int selection = m_menuSel;
+    m_menuTitle = page.title.empty() ? "Switube" : page.title;
+    m_menu = std::move(items);
+    m_menuSel = std::clamp(selection, 0, static_cast<int>(m_menu.size()) - 1);
+    m_menuIn = 1.f;
+    app().requestRedraw();
 #else
-    (void)r;
+    (void)page;
 #endif
 }
 
@@ -5616,7 +5605,7 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     if (!m_musicOpen) return;
     const float a = easeOut(m_musicIn);
     const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
-    const bool spot = spotifyOn(); // Spotify plays somewhere else: its song, and a made-up beat
+    const bool spot = switubeOn(); // Background audio uses its status for the visualizer.
     const bool playing = spot ? m_sp.playing : m_settings.music && !m_audio.paused();
     // The bars: what's heard now, up quickly and down slowly.
     float target[Audio::kBands];
@@ -5670,24 +5659,22 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     r.drawCircle(dot, 4.f, nxui::Color(1.f, 1.f, 1.f, 0.6f * a), 16);
     icon(r, "music", c.x, c.y, 34.f, kWhite.withAlpha(a));
     r.drawCircle(c, 4.f, nxui::Color(0.03f, 0.03f, 0.05f, a), 16);
-    if (spot && m_spCover.valid() && !m_sp.coverUrl.empty()) // Spotify's cover, over the record
-        r.drawTextureRounded(&m_spCover, {c.x - R, c.y - R, R * 2.f, R * 2.f}, 22.f, nxui::Color(1.f, 1.f, 1.f, a));
 
     // The song.
     const long now = m_audio.playing();
     const auto& titles = m_audio.titles();
     std::string song = m_settings.music && !m_audio.trackName().empty() ? m_audio.trackName() : std::string("Not playing");
-    if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? "Nothing on Spotify" : "A signs in to Spotify";
+    if (spot) song = !m_sp.track.empty() ? m_sp.track : m_sp.connected ? "Nothing playing" : "Connecting to Switube...";
     const float ts = fitScale(m_fTitle, song, kMusicInfoW, 0.7f);
     r.drawText(fit(m_fTitle, song, kMusicInfoW, ts), {kMusicInfoX, 150.f + dy}, &m_fTitle, kWhite.withAlpha(a), ts);
     std::string sub = tr("HOME music");
     if (now >= 0 && !titles.empty())
         sub += "    " + trf("Song {n} of {total}", {std::to_string(now + 1), std::to_string(titles.size())});
     if (!m_settings.music) sub = "Music is off: play to start it";
-    if (spot) sub = m_sp.active ? m_sp.artist : std::string("Play something in Spotify first");
+    if (spot) sub = m_sp.active ? m_sp.artist : std::string("Choose music in Switube (X)");
     r.drawText(fit(m_fBody, sub, kMusicInfoW), {kMusicInfoX, 194.f + dy}, &m_fBody, kMuted.withAlpha(a));
     const float length = spot ? m_sp.durationMs / 1000.f : m_audio.duration();
-    const float songAt = spot ? spotifyPos() : m_settings.music ? m_audio.position() : 0.f;
+    const float songAt = spot ? switubePos() : m_settings.music ? m_audio.position() : 0.f;
     const float done = length > 0.f && (spot || m_settings.music) ? clamp01(songAt / length) : 0.f;
     const nxui::Rect bar{kMusicInfoX, 252.f + dy, kMusicInfoW, 6.f};
     r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 3.f);
@@ -5725,12 +5712,12 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     // The playlist.
     r.drawRect({kMusicListX - 22.f, 112.f + dy, 1.f, kMusicListBottom - 100.f}, nxui::Color(1.f, 1.f, 1.f, 0.10f * a));
     icon(r, "playlist", kMusicListX + 10.f, 106.f + dy, 20.f, kMuted.withAlpha(a));
-    textMid(r, m_fPill, spot ? "Spotify" : "Playlist", kMusicListX + 30.f, 106.f + dy, kMuted.withAlpha(a), 0.9f);
+    textMid(r, m_fPill, spot ? "Switube" : "Playlist", kMusicListX + 30.f, 106.f + dy, kMuted.withAlpha(a), 0.9f);
     const int songs = spot ? 0 : static_cast<int>(titles.size());
     if (spot) { // where it plays, instead of the songs
-        const std::string where = m_sp.device.empty() ? std::string("No device playing") : trf("Playing on {device}", {m_sp.device});
+        const std::string where = m_sp.connected ? "Playing on this Switch" : "Switube service unavailable";
         textMid(r, m_fBody, fit(m_fBody, where, kMusicListW - 10.f, 0.9f), kMusicListX + 10.f, 152.f + dy, kWhite.withAlpha(a), 0.9f);
-        textMid(r, m_fBody, "The buttons need Spotify Premium", kMusicListX + 10.f, 184.f + dy, kMuted.withAlpha(0.8f * a), 0.85f);
+        textMid(r, m_fBody, "X  Browse / search music", kMusicListX + 10.f, 184.f + dy, kMuted.withAlpha(0.8f * a), 0.85f);
     }
     const float want = std::clamp(m_musicRow * kMusicRowH - (kMusicListBottom - kMusicListTop) * 0.5f + kMusicRowH * 0.5f, 0.f,
                                   std::max(0.f, songs * kMusicRowH - (kMusicListBottom - kMusicListTop)));
@@ -6122,6 +6109,21 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(lockTab));
 
     Section sound{"Sound", "music", {}};
+#ifdef SWITCHU_MENU
+    sound.rows.push_back(choice("Music player", [this]() { return std::string(m_settings.switube ? "Switube" : "HOME music"); },
+        [this, save](int) {
+            m_settings.switube = !m_settings.switube;
+            m_audio.setMusic(homeMusic(), m_settings.musicVolume);
+            save();
+        }, "Switube plays YouTube Music on this Switch through its background service"));
+    sound.rows.push_back(action("Browse Switube", [this, save]() {
+        m_settings.switube = true;
+        m_audio.setMusic(homeMusic(), m_settings.musicVolume);
+        save();
+        m_sheetOpen = false;
+        openSwitubeBrowse();
+    }));
+#endif
     sound.rows.push_back(toggle("Music", [this]() { return m_settings.music; }, [this, save]() {
         m_settings.music = !m_settings.music;
         m_audio.setMusic(homeMusic(), m_settings.musicVolume);
@@ -7940,11 +7942,6 @@ bool CardsActivity::updateSheet(float) {
 bool CardsActivity::handleTouch() {
     auto& in = app().input();
     if (m_pickOpen) return pickerTouch(); // (over Settings too)
-    if (m_spQrOpen) { // a tap closes the Spotify sign-in
-        if (!in.touchUp()) return in.isTouching();
-        closeSpotifyQr();
-        return true;
-    }
     const float x = in.touchX(), y = in.touchY();
     auto inCircle = [&](float cx, float cy, float r) { return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r; };
     // Where a row was tapped: a toggle flips, a choice steps (left half back,
@@ -8194,7 +8191,7 @@ void CardsActivity::onUpdate(float dt) {
     app().input().mergeRightStick();
     static const bool firstUpdate = (startStep("first update"), true);
     (void)firstUpdate;
-    updateSpotify();
+    updateSwitube();
 #ifdef SWITCHU_MENU
     switchu::timebudget::poll(); // the clock, once the time service has a session to spare
     if (!m_startedOk && m_time > 3.f) {
@@ -9039,10 +9036,6 @@ void CardsActivity::onUpdate(float dt) {
         }
         return;
     }
-    if (m_spQrOpen) { // over Settings
-        updateSpotifyQr();
-        return;
-    }
     if (m_sheetOpen) {
         updateSheet(dt);
         return;
@@ -9236,7 +9229,6 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawLog(r);
     drawMusic(r);
     drawPower(r);
-    drawSpotifyQr(r);
 #ifdef SWITCHU_MENU
     drawNews(r);
 #endif
@@ -10198,12 +10190,12 @@ void CardsActivity::drawQuick(nxui::Renderer& r) {
     // The music player: the song, its buttons, how far it is.
     const nxui::Rect player{x0, p.y + kQPlayerY, w, kQPlayerH};
     box(player, false);
-    const bool spot = spotifyOn();
+    const bool spot = switubeOn();
     std::string song = m_settings.music && !m_audio.trackName().empty() ? m_audio.trackName() : std::string("Not playing");
-    if (spot) song = !m_sp.track.empty() ? m_sp.track : spotifySignedIn() ? "Nothing on Spotify" : "Play signs in to Spotify";
+    if (spot) song = !m_sp.track.empty() ? m_sp.track : m_sp.connected ? "Nothing playing" : "Connecting to Switube...";
     const float ss = fitScale(m_fPill, song, w - 36.f, 0.8f);
     textMid(r, m_fPill, fit(m_fPill, song, w - 36.f, ss), player.x + 18.f, player.y + 26.f, kWhite.withAlpha(a), ss);
-    const std::string from = !spot ? tr("HOME music") : m_sp.artist.empty() ? std::string("Spotify") : "Spotify    " + m_sp.artist;
+    const std::string from = !spot ? tr("HOME music") : m_sp.artist.empty() ? std::string("Switube") : "Switube    " + m_sp.artist;
     textMid(r, m_fBody, fit(m_fBody, from, w - 36.f, 0.9f), player.x + 18.f, player.y + 50.f, kMuted.withAlpha(0.8f * a), 0.9f);
     const bool playing = spot ? m_sp.playing : m_settings.music && !m_audio.paused();
     const char* buttons[kQPlayerButtons] = {"prev", playing ? "pause" : "play", "next", "repeat", "shuffle", "playlist"};
@@ -10219,7 +10211,7 @@ void CardsActivity::drawQuick(nxui::Renderer& r) {
         icon(r, buttons[i], c.x, c.y, i == 1 ? 24.f : 22.f, i == 1 ? nxui::Color(0.f, 0.f, 0.f, a) : kWhite.withAlpha(a));
     }
     const float length = spot ? m_sp.durationMs / 1000.f : m_audio.duration();
-    const float songAt = spot ? spotifyPos() : m_audio.position();
+    const float songAt = spot ? switubePos() : m_audio.position();
     if (length > 0.f && (spot || m_settings.music)) {
         const float done = clamp01(songAt / length);
         const float by = player.y + kQPlayerH - 18.f;
@@ -10234,7 +10226,7 @@ void CardsActivity::drawQuick(nxui::Renderer& r) {
     // Music, Sound Effects, Brightness: a label, the value, a bar to slide.
     struct Slider { const char* name; const char* glyph; int value; };
     const Slider sliders[3] = {
-        {"Music", "music", m_settings.musicVolume},
+        {"Music", "music", spot ? m_sp.volume : m_settings.musicVolume},
         {"Sound Effects", "speaker", m_settings.soundVolume},
         {"Brightness", "sun", m_quick.brightness < 0.f ? -1 : static_cast<int>(std::lround(m_quick.brightness * 100.f))},
     };

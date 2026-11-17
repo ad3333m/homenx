@@ -75,7 +75,7 @@ struct Settings {
     std::map<std::string, std::string> hiddenCards; // cards hidden with + (their ids and names): still installed
     int sheetBack = -1, sheetBackRow = 0; // Settings' tab and row while one of Nintendo's screens is open (HOME only)
     std::vector<int> hiddenPages; // pages not shown (ZL / ZR skip them; one always stays)
-    bool spotify = false;       // the music player shows Spotify, not HOME music (HOME only)
+    bool switube = false;       // Switube background player instead of HOME music (HOME only)
     long long picturesAt = 0;   // when every game's pictures were last made sure of (seconds)
     long long achSeenAt = 0;    // the newest achievement HOME has said (seconds; 0: none said yet)
     bool introDone = false;     // the first-time intro was shown
@@ -175,7 +175,7 @@ struct Settings {
             sheetBack = j.value("sheetBack", sheetBack);
             sheetBackRow = j.value("sheetBackRow", sheetBackRow);
             hiddenPages = j.value("hiddenPages", hiddenPages);
-            spotify = j.value("spotify", spotify);
+            switube = j.value("switube", switube);
             picturesAt = j.value("picturesAt", picturesAt);
             achSeenAt = j.value("achSeenAt", achSeenAt);
             introDone = j.value("introDone", introDone);
@@ -200,7 +200,7 @@ struct Settings {
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
                             {"glass", glass}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
-                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
+                            {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"switube", switube}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"introDone", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},
                             {"orderMedia", order[3]}};
