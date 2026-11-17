@@ -3,6 +3,11 @@
 #include <nxui/core/Renderer.hpp>
 
 #include <nxui/core/ImageDecode.hpp> // before the implementation below
+// stb_image only uses its NEON loops (JPEG IDCT, YCbCr->RGB, upsampling)
+// when asked to; without this every icon and cover decodes in plain C.
+#if defined(__aarch64__)
+#define STBI_NEON
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
