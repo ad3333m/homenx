@@ -61,10 +61,11 @@ constexpr float kCardMidY = 309.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCar
 const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
 constexpr float kPanelRadius = 35.f;
 // The top bar: menu, Discord and sort on the left; the pill (you,
-// the time, battery, free space, Nextendo) ends at kPillRight; then the bell,
+// the time, battery, free space, Nextendo) is centered between sort and the bell;
 // music, power and settings.
-constexpr float kMenuX = 134.f, kDiscordX = 219.f, kSortX = 304.f, kPillRight = 872.f;
+constexpr float kMenuX = 134.f, kDiscordX = 219.f, kSortX = 304.f;
 constexpr float kBellX = 908.f, kMusicX = 976.f, kPowerX = 1061.f, kGearX = 1146.f;
+constexpr float kPillCenterX = (kSortX + kCircle * 0.5f + kBellX - 26.f) * 0.5f;
 // Settings: sections on the left, rows on the right.
 const nxui::Rect kSheet{120.f, 52.f, 1040.f, 616.f};
 constexpr float kSecX = 142.f, kSecW = 236.f, kSecH = 54.f, kSheetTop = 146.f;
@@ -9393,7 +9394,8 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     const float wTemp = showTemp ? 24.f + measured(m_fPill, temp).x + 6.f + 26.f : 0.f;
     const float width = 9.f + face + 14.f + wClock + gap + bolt + wBattery + (showTemp ? gap + wTemp : 0.f)
                       + (showFree ? gap + 26.f + wFree : 0.f) + (m_settings.players ? gap + wPlayers : 0.f) + 18.f;
-    const nxui::Rect pill{kPillRight - width, y - 26.f, width, 52.f};
+    // Keep the center fixed as optional items and measured text widths change.
+    const nxui::Rect pill{kPillCenterX - width * 0.5f, y - 26.f, width, 52.f};
     frost(r, pill, 26.f, glassTint(a));
     r.drawRoundedRectOutline(pill, kGlassEdge.withAlpha(kGlassEdge.a * a), 26.f, 1.5f);
     float x = pill.x + 9.f;
