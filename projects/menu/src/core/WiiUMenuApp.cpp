@@ -989,9 +989,23 @@ bool WiiUMenuApp::onCreate() {
     if (!m_widgetStore.load())
         DebugLog::log("[widgets] store unavailable; continuing with an empty widget list");
     normalizeWidgetPlacements();
+    // widgets.json was written (with a pdm call) at every start once any game had
+    // been launched: only when something changed now, and the play time asked for
+    // only when a widget shows it. The session's length is still kept without
+    // one, once, or the next start would count it again up to then.
     if (m_widgetStore.recentActivity().titleId != 0) {
-        refreshRecentActivityDuration();
-        if (!m_widgetStore.save(false))
+        const switchu::widgets::RecentActivity before = m_widgetStore.recentActivity();
+        const bool shown = std::any_of(
+            m_widgetStore.all().begin(), m_widgetStore.all().end(),
+            [](const switchu::widgets::Widget& widget) {
+                return widget.type == switchu::widgets::WidgetType::RecentlyPlayed
+                    || widget.type == switchu::widgets::WidgetType::RecentPlaytime;
+            });
+        if (shown)
+            refreshRecentActivityDuration();
+        else
+            m_widgetStore.updateRecentDuration(static_cast<std::int64_t>(std::time(nullptr)));
+        if (!(m_widgetStore.recentActivity() == before) && !m_widgetStore.save(false))
             DebugLog::log("[widgets] recent activity duration could not be saved");
     }
     loadCustomNames();

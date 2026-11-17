@@ -52,6 +52,8 @@ struct RecentActivity {
     std::int64_t sessionMeasuredAt = 0;
     std::uint64_t recentSeconds = 0;
     std::uint64_t totalSeconds = 0;
+
+    bool operator==(const RecentActivity&) const = default;
 };
 
 inline constexpr std::uint64_t kWidgetTitleIdPrefix = 0xF200000000000000ULL;
