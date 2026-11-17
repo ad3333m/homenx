@@ -109,13 +109,21 @@ inline CURLcode perform(CURL* c, const std::string& url, const std::string& cert
     return rc;
 }
 
-// The first failure per host, kept for the next bug report (a few lines at most).
+// The first failure per host, kept for the next bug report (a few lines at most
+// per session, but every session adds its own: past 64 KB the log moves to .old
+// once, so the two never take more than ~128 KB of the SD).
 inline void noteFailure(const std::string& url, CURLcode rc, const char* logPath) {
     static std::mutex mu;
     static std::set<std::string> noted;
     const std::string key = hostOf(url) + "#" + std::to_string(static_cast<int>(rc));
     std::lock_guard<std::mutex> lk(mu);
     if (!noted.insert(key).second) return;
+    struct stat st;
+    if (stat(logPath, &st) == 0 && st.st_size > 64 * 1024) {
+        const std::string old = std::string(logPath) + ".old";
+        std::remove(old.c_str());
+        std::rename(logPath, old.c_str());
+    }
     if (std::FILE* f = std::fopen(logPath, "a")) {
         std::fprintf(f, "%s: curl error %d (%s)\n", hostOf(url).c_str(), static_cast<int>(rc), curl_easy_strerror(rc));
         std::fclose(f);
