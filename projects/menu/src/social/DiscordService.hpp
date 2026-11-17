@@ -164,4 +164,6 @@ private:
     std::deque<Gateway::Event> m_events; // waiting to be applied (a few ms of them per frame)
     std::string m_savedLists;    // what discord_lists.json holds
     uint64_t m_listsNextTick = 0;
+    Snowflake m_openedChannel = 0; // the chat last opened, kept when the caches are trimmed
+    uint64_t m_trimNextTick = 0;
 };

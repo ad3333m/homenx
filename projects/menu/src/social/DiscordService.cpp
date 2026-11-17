@@ -333,6 +333,12 @@ void DiscordService::update() {
                 next = State::Ready;
                 if (!m_rememberedMe) rememberMe();
                 if (armGetSystemTick() >= m_listsNextTick) saveListsForOverlay();
+                // Chats left open (or loaded) keep receiving messages: cut them
+                // back now and then, not only when another chat is opened.
+                if (armGetSystemTick() >= m_trimNextTick) {
+                    m_store->TrimCaches(m_openedChannel);
+                    m_trimNextTick = armGetSystemTick() + armNsToTicks(60'000'000'000ULL);
+                }
             }
             break;
         case Gateway::State::AuthFailed: {
@@ -602,6 +608,10 @@ void DiscordService::openChannel(Snowflake channelId) {
     const Snowflake guildId = ch ? ch->guildId : 0;
     // A server channel only sends live messages once it's subscribed to.
     if (guildId && m_gateway) m_gateway->Subscribe(guildId, channelId);
+    // Only the last chats opened stay loaded (live messages kept arriving in
+    // every chat opened since HOME started).
+    m_openedChannel = channelId;
+    m_store->TrimCaches(channelId);
     ChannelMessages& cm = m_store->Messages(channelId);
     if (cm.loaded || cm.loading) return;
     cm.loading = true;

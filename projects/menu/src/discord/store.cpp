@@ -1004,9 +1004,11 @@ void Store::TrimCaches(Snowflake keepChannel) {
         if (kv.first != keepChannel) used.push_back({kv.second.lastUsedMs, kv.first});
     std::sort(used.begin(), used.end(), std::greater<>());
     for (size_t i = 8; i < used.size(); i++) messages.erase(used[i].second);
+    // The open chat too: the panel shows its newest 50 and never loads older
+    // pages, and a busy channel left open for hours grew without end.
     for (auto& kv : messages) {
         auto& list = kv.second.list;
-        if (kv.first != keepChannel && list.size() > 150) {
+        if (list.size() > 150) {
             list.erase(list.begin(), list.end() - 100);
             kv.second.reachedStart = false;
         }
