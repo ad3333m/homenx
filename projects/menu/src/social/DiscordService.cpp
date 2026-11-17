@@ -16,6 +16,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <cctype>
@@ -218,11 +219,27 @@ void DiscordService::activate() {
     Async::Start();
     // The Discord overlay can't look addresses up itself (the console answers
     // "busy" in an overlay): HOME saves the addresses it needs, "host address"
-    // a line, in sdmc:/config/SwitchU/discord_hosts.txt.
+    // a line, in sdmc:/config/SwitchU/discord_hosts.txt. Looked up again once
+    // a day, not at every HOME start (7 lookups and a write each time).
     Async::Run(Async::Pool::Api, [] {
+        constexpr const char* kHostsPath = "sdmc:/config/SwitchU/discord_hosts.txt";
+        static const char* const kHosts[] = {"discord.com", "gateway.discord.gg", "cdn.discordapp.com",
+                                             "media.discordapp.net", "cdn.jsdelivr.net", "media.tenor.com",
+                                             "media.giphy.com"};
+        struct stat st{};
+        if (stat(kHostsPath, &st) == 0) {
+            // (either way round: the SD card's dates may be in local time)
+            const std::time_t age = std::time(nullptr) - st.st_mtime;
+            int saved = 0; // a host that wasn't found last time is looked up again
+            if (FILE* f = std::fopen(kHostsPath, "r")) {
+                for (int c; (c = std::fgetc(f)) != EOF;)
+                    if (c == '\n') ++saved;
+                std::fclose(f);
+            }
+            if (age > -86400 && age < 86400 && saved >= (int)std::size(kHosts)) return;
+        }
         std::string lines;
-        for (const char* host : {"discord.com", "gateway.discord.gg", "cdn.discordapp.com", "media.discordapp.net",
-                                 "cdn.jsdelivr.net", "media.tenor.com", "media.giphy.com"}) {
+        for (const char* host : kHosts) {
             addrinfo hints{};
             hints.ai_family = AF_INET;
             hints.ai_socktype = SOCK_STREAM;
@@ -235,7 +252,8 @@ void DiscordService::activate() {
             if (res) freeaddrinfo(res);
         }
         if (lines.empty()) return; // offline: keep the last ones
-        if (FILE* f = std::fopen("sdmc:/config/SwitchU/discord_hosts.txt", "w")) {
+        // Written even when unchanged: its date is when the addresses were checked.
+        if (FILE* f = std::fopen(kHostsPath, "w")) {
             std::fputs(lines.c_str(), f);
             std::fclose(f);
         }
