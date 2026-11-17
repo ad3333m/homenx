@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cmath>
 #include <fstream>
+#include <map>
 
 namespace nxui {
 
@@ -81,7 +82,15 @@ bool Renderer::initialize() {
 }
 
 bool Renderer::loadShaders() {
+    // Programs share vertex shaders (basic_vsh three times, pass_vsh and
+    // blur_pass_vsh twice): each file is read from the SD card once and its
+    // code shared, not opened again for another copy at every start.
+    std::map<std::string, dk::Shader> loaded;
     auto loadDksh = [&](dk::Shader& out, const std::string& path) {
+        if (const auto it = loaded.find(path); it != loaded.end()) {
+            out = it->second;
+            return true;
+        }
         auto tryLoad = [&](const std::string& candidatePath) {
             std::printf("[Renderer] Loading shader: %s\n", candidatePath.c_str());
             std::ifstream f(candidatePath, std::ios::binary | std::ios::ate);
@@ -113,8 +122,10 @@ bool Renderer::loadShaders() {
             return true;
         };
 
-        if (tryLoad(path))
+        if (tryLoad(path)) {
+            loaded.emplace(path, out);
             return true;
+        }
 
         static constexpr const char* kRomfsShaderBase = "romfs:/shaders/";
         if (path.rfind(kRomfsShaderBase, 0) == 0)
@@ -127,7 +138,10 @@ bool Renderer::loadShaders() {
 
         std::string fallbackPath = std::string(kRomfsShaderBase) + fileName;
         std::printf("[Renderer] Retrying shader from fallback path: %s\n", fallbackPath.c_str());
-        return tryLoad(fallbackPath);
+        if (!tryLoad(fallbackPath))
+            return false;
+        loaded.emplace(path, out);
+        return true;
     };
 
     bool ok = true;
