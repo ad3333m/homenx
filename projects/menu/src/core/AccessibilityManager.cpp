@@ -237,6 +237,8 @@ std::string AccessibilityManager::voiceForLanguageTag(const std::string& languag
         {"pt", "pt"},
         {"ru-ru", "ru"},
         {"ru", "ru"},
+        {"tr-tr", "tr"},
+        {"tr", "tr"},
     };
 
     if (auto it = kVoiceByTag.find(tag); it != kVoiceByTag.end())

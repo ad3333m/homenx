@@ -2661,7 +2661,8 @@ void setLanguage(const std::string& tag) {
 
 std::vector<std::pair<std::string, std::string>> languages() {
     return {{"en", "English"}, {"es", "Español"},  {"pt", "Português (Brasil)"}, {"ru", "Русский"}, {"fr", "Français"},
-            {"de", "Deutsch"}, {"it", "Italiano"}, {"ja", "日本語"},             {"zh", "简体中文"}};
+            {"de", "Deutsch"}, {"it", "Italiano"}, {"ja", "日本語"},             {"zh", "简体中文"},
+            {"tr", "Türkçe"}};
 }
 
 int languageGeneration() { return g_langGen; }
