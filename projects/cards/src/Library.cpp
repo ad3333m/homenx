@@ -260,13 +260,20 @@ bool clearEdges(const unsigned char* px, int w, int h) {
 // icon with no background). answered: the list came.
 std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const std::string& query,
                                bool clear = false, bool* answered = nullptr, size_t tries = 6) {
+    // One look at a time: the picture workers download at the same time, and
+    // each look is the whole picture decoded (MBs for a big one).
+    static std::mutex lookMu;
     std::string body;
     for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(game.name, key), key, kind, query, tries, answered)) {
         if (url.empty() || get(url, body) != 200 || !isPicture(body)) continue;
         int w = 0, h = 0, ch = 0;
-        stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()), w, h);
-        const bool good = px && (clear ? clearEdges(px, w, h) : !removedNotice(px, w, h));
-        stbi_image_free(px);
+        bool good = false;
+        {
+            std::lock_guard<std::mutex> lk(lookMu);
+            stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()), w, h);
+            good = px && (clear ? clearEdges(px, w, h) : !removedNotice(px, w, h));
+            stbi_image_free(px);
+        }
         if (good) return body;
     }
     return {};
@@ -316,20 +323,21 @@ std::string nameKey(const std::string& name) {
 }
 
 // GameTDB's box covers: the index CI builds (romfs:/gametdb.tsv), then the
-// cover in the region that has it first. Only the worker thread asks.
+// cover in the region that has it first. The picture workers ask at the same
+// time (and "save every game's pictures"): the index is read once, by the
+// first, and the others wait for it (a static's initialisation).
 std::string gametdbCover(const Game& game) {
-    static std::unordered_map<std::string, std::pair<std::string, char>> index;
-    static bool loaded = false;
-    if (!loaded) {
-        loaded = true;
+    static const std::unordered_map<std::string, std::pair<std::string, char>> index = [] {
+        std::unordered_map<std::string, std::pair<std::string, char>> read;
         std::ifstream in(std::string(kAssets) + "gametdb.tsv");
         std::string line;
         while (std::getline(in, line)) {
             const size_t a = line.find('\t'), b = a == std::string::npos ? a : line.find('\t', a + 1);
             if (b == std::string::npos || b + 1 >= line.size()) continue;
-            index[line.substr(0, a)] = {line.substr(a + 1, b - a - 1), line[b + 1]};
+            read[line.substr(0, a)] = {line.substr(a + 1, b - a - 1), line[b + 1]};
         }
-    }
+        return read;
+    }();
     auto it = index.find(nameKey(game.name));
     if (it == index.end()) return {};
     const char region = it->second.second;

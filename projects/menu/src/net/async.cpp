@@ -24,9 +24,18 @@ struct WorkerPool {
     std::vector<std::thread> threads;
     std::atomic<int> live{0};
     bool stop = false;
+    int want = 0;
 
+    // HomeNX: the threads start with the pool's first job, not with Discord:
+    // the image workers (and their stacks) waited unused until the panel opened.
     void Start(int n) {
+        std::lock_guard<std::mutex> lk(mu);
         stop = false;
+        want = n;
+    }
+
+    void SpawnLocked() {
+        const int n = want;
         live += n;
         for (int i = 0; i < n; i++) {
             threads.emplace_back([this] {
@@ -122,6 +131,7 @@ void Run(Pool pool, std::function<void()> work) {
     {
         std::lock_guard<std::mutex> lk(p.mu);
         p.jobs.push_back(std::move(work));
+        if (!p.stop && p.threads.empty()) p.SpawnLocked();
     }
     p.cv.notify_one();
 }

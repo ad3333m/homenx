@@ -1227,8 +1227,11 @@ void CardsActivity::worker(int index) {
         }
         // Bound transient compressed/decoded/scaling memory independently of
         // the completed-result queue. Never held by the rendering thread.
+        // Held for the SD copy and the decode/scale/save only, not while a
+        // picture is fetched (GameTDB, SteamGridDB: up to 30 s each): the three
+        // workers queued behind one slow download, cached cards included.
         static std::mutex artworkDecodeMutex;
-        std::unique_lock<std::mutex> decodeLock(artworkDecodeMutex);
+        std::unique_lock<std::mutex> decodeLock(artworkDecodeMutex, std::defer_lock);
         Done done;
         done.id = job.game.id;
         done.what = job.what;
@@ -1256,7 +1259,9 @@ void CardsActivity::worker(int index) {
             done.sh = done.h;
             shrink(done.small, done.sw, done.sh, 64);
         };
-        if (!shown.empty() && readShown(shown, done.rgba, done.w, done.h, done.kind)) {
+        const bool cached = !shown.empty() && (decodeLock.lock(), readShown(shown, done.rgba, done.w, done.h, done.kind));
+        if (!cached && decodeLock.owns_lock()) decodeLock.unlock(); // (the fetches below run without it)
+        if (cached) {
             // (ready as it is; a cover kept before the small copies existed gets its own now)
             if (job.what == kCard) {
                 makeSmall();
@@ -1284,6 +1289,7 @@ void CardsActivity::worker(int index) {
         }
         const auto readFinished = armGetSystemTick();
         if (!data.empty()) {
+            if (!decodeLock.owns_lock()) decodeLock.lock();
             int w = 0, h = 0;
             stbi_uc* px = decodePicture(data.data(), static_cast<int>(data.size()), w, h);
             if (px) {
@@ -1337,7 +1343,7 @@ void CardsActivity::worker(int index) {
                       static_cast<unsigned long long>(done.id), done.what, ticksMs(readFinished - jobStart),
                       data.size(), ticksMs(armGetSystemTick() - readFinished), done.rgba.capacity());
         perfLine(artDiagnostic);
-        decodeLock.unlock();
+        if (decodeLock.owns_lock()) decodeLock.unlock();
         const float took = ticksMs(armGetSystemTick() - jobStart);
         if (took > 800.f) { // a picture that took long (the internet, mostly)
             char line[160];
@@ -1565,9 +1571,11 @@ void CardsActivity::takeArt() {
         } else if (d.what == kIcon) {
             it->second.icon = std::move(tex);
             it->second.iconKind = d.kind;
-            if (d.again) { // asked again in a moment, for its title picture
+            if (d.again) { // asked again in a while, for its title picture
+                // (another picture thread's search: those take seconds, and every
+                // ask meanwhile read, decoded and uploaded the plain icon again)
                 it->second.iconAsked = false;
-                it->second.retryAt = m_time + 3.f;
+                it->second.retryAt = m_time + 10.f;
             }
         } else if (d.what == kBackground) {
             it->second.bg = std::move(tex);
@@ -3286,7 +3294,6 @@ bool CardsActivity::showGalleryPage(int page) {
 
 // Every picture and video, in pages. To use as a picture: the user's own first, then the Album's with a file.
 void CardsActivity::openGallery(int mode) {
-    if (m_pickJob.valid()) m_pickJob.wait();
     m_pickWall = mode;
     if (mode == 4) m_lockPlaylist = switchu::lockpicture::playlist();
     m_pickCover = false;
@@ -3302,7 +3309,7 @@ void CardsActivity::openGallery(int mode) {
     m_galleryPage = 0;
     const std::uint64_t app = mode == 3 ? m_galleryApp : 0;
     m_galleryApp = 0;
-    m_pickJob = std::async(std::launch::async, [all, mode, app, current = m_galleryCurrent]() {
+    startPickJob([all, mode, app, current = m_galleryCurrent]() {
         offScreenCore();
         *all = listAlbum();
         if (app) all->erase(std::remove_if(all->begin(), all->end(), [app](const AlbumShot& s) { return s.app != app; }), all->end());
@@ -4115,8 +4122,19 @@ void CardsActivity::welcomeBack(const Game& g) {
     if (e.when.emplace(ach::key(g.id, "back"), now).second) ach::save(e);
 }
 
+// The picker's search, or the one before still finishing (closed during a search
+// and opened again): after it. Waiting for it here froze the screen for the rest
+// of that search (seconds, up to the internet's time-outs).
+void CardsActivity::startPickJob(std::function<std::vector<TitleChoice>()> work) {
+    if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        m_pickNext = std::move(work); // (drawPicker starts it; its pictures aren't this picker's)
+        return;
+    }
+    m_pickNext = nullptr;
+    m_pickJob = std::async(std::launch::async, std::move(work));
+}
+
 void CardsActivity::openTitlePicker(const Game& g, bool cover, const std::string& query, bool hero) {
-    if (m_pickJob.valid()) m_pickJob.wait(); // (only one: the last one's still finishing)
     m_pickCover = cover && !hero;
     m_pickHero = hero;
     m_pickWall = 0;
@@ -4126,7 +4144,7 @@ void CardsActivity::openTitlePicker(const Game& g, bool cover, const std::string
     m_pickTex.clear();
     m_pickSel = 0;
     const std::string key = m_key;
-    m_pickJob = std::async(std::launch::async, [g, key, cover, query, hero]() {
+    startPickJob([g, key, cover, query, hero]() {
         offScreenCore();
         const Game look = forLookup(g);
         std::vector<TitleChoice> choices = hero    ? heroChoices(look, key, 11, query)
@@ -4407,6 +4425,10 @@ bool CardsActivity::pickerTouch() {
 void CardsActivity::drawPicker(nxui::Renderer& r) {
     if (!m_pickOpen) return;
     // The pictures arrived: shown from now on (their pixels aren't needed after).
+    if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready && m_pickNext) {
+        m_pickJob = {}; // the last picker's, dropped unread (an error it ended with isn't this one's)
+        startPickJob(std::move(m_pickNext));
+    }
     if (m_pickJob.valid() && m_pickJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         m_pickChoices = m_pickJob.get();
         m_pickTex.clear();

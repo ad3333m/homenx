@@ -380,6 +380,8 @@ private:
     bool m_pickOpen = false;
     Game m_pickGame;
     std::future<std::vector<TitleChoice>> m_pickJob;
+    // A picker opened while the last one's search still ran: started when that one ends.
+    std::function<std::vector<TitleChoice>()> m_pickNext;
     std::vector<TitleChoice> m_pickChoices;                 // (their pixels go once they're shown)
     std::vector<std::unique_ptr<nxui::Texture>> m_pickTex;
     int m_pickSel = 0;
@@ -449,6 +451,7 @@ private:
     std::unique_ptr<nxui::Texture> m_galleryTex;
     std::future<Pixels> m_galleryJob;
     void openTitlePicker(const Game& g, bool cover = false, const std::string& query = {}, bool hero = false);
+    void startPickJob(std::function<std::vector<TitleChoice>()> work);
     void searchPicker();
     // Text typed in: HomeNX's keyboard as HOME, the system's as an app.
     void askText(const std::string& title, const std::string& guide, const std::string& initial, int maxLength,

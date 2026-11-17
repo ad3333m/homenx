@@ -3,6 +3,7 @@
 #include "ArtworkCache.hpp"
 #include "core/DebugLog.hpp"
 #include "themeshop/ThemeHttp.hpp"
+#include <nxui/core/ThreadPool.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -368,26 +369,32 @@ SteamGridDbManager::BrowseResult SteamGridDbManager::browse(
 
         // Probe each ranked game for the requested artwork kind so empty
         // SteamGridDB entries (no icons/heroes/logos) never reach the picker.
+        // Four at a time: twelve at once were twelve threads (128 KB stacks)
+        // and twelve curl+TLS handshakes in one go.
         {
-            std::vector<std::future<bool>> probes;
-            probes.reserve(ranked.size());
-            for (const auto& match : ranked) {
-                probes.push_back(std::async(std::launch::async,
-                    [apiKey, kind, id = match.id]() {
-                        return probeGameHasArtwork(apiKey, id, kind);
-                    }));
-            }
+            constexpr std::size_t kProbesAtOnce = 4;
+            std::vector<std::future<bool>> probes(ranked.size());
             std::vector<GameMatch> withArt;
             withArt.reserve(ranked.size());
-            for (std::size_t i = 0; i < ranked.size(); ++i) {
-                bool keep = true;
-                try {
-                    keep = probes[i].get();
-                } catch (...) {
-                    keep = true;
+            for (std::size_t first = 0; first < ranked.size(); first += kProbesAtOnce) {
+                const std::size_t last = std::min(ranked.size(), first + kProbesAtOnce);
+                for (std::size_t i = first; i < last; ++i) {
+                    probes[i] = std::async(std::launch::async,
+                        [apiKey, kind, id = ranked[i].id]() {
+                            nxui::moveToWorkerCores(); // off the render core
+                            return probeGameHasArtwork(apiKey, id, kind);
+                        });
                 }
-                if (keep)
-                    withArt.push_back(std::move(ranked[i]));
+                for (std::size_t i = first; i < last; ++i) {
+                    bool keep = true;
+                    try {
+                        keep = probes[i].get();
+                    } catch (...) {
+                        keep = true;
+                    }
+                    if (keep)
+                        withArt.push_back(std::move(ranked[i]));
+                }
             }
             ranked = std::move(withArt);
         }
@@ -661,7 +668,10 @@ bool SteamGridDbManager::start(const std::string& apiKey,
         m_status.revision = nextRevision;
     }
     m_task = std::async(std::launch::async,
-                        [this, apiKey, apps]() mutable { scrape(std::move(apiKey), std::move(apps)); });
+                        [this, apiKey, apps]() mutable {
+                            nxui::moveToWorkerCores(); // a network scan: off the render core
+                            scrape(std::move(apiKey), std::move(apps));
+                        });
     return true;
 }
 
@@ -688,6 +698,7 @@ bool SteamGridDbManager::startSelectNext(const std::string& apiKey,
     }
     m_task = std::async(std::launch::async,
                         [this, apiKey, titleId, title, kind, direction]() mutable {
+                            nxui::moveToWorkerCores(); // a network fetch: off the render core
                             selectNext(std::move(apiKey), titleId, std::move(title), kind,
                                        direction < 0 ? -1 : 1);
                         });
