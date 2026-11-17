@@ -51,7 +51,10 @@ public:
             self.m_writerBusy = false;
             self.m_droppedLines = 0;
         }
-        self.m_writer = std::thread([&self]() { writer_loop(self); });
+        self.m_writer = std::thread([&self]() {
+            off_render_core();
+            writer_loop(self);
+        });
     }
 
     
@@ -119,7 +122,20 @@ public:
     }
 
 private:
+    // A new thread starts on the process's default core. In the menu (and the
+    // homebrew) that's core 0, the render thread's: the writer and its SD
+    // flushes go to cores 1-2 there. The daemon's default core is 3: kept.
+    static void off_render_core() {
+        s32 core = 0;
+        u64 affinity = 0, processCores = 0;
+        if (R_SUCCEEDED(svcGetThreadCoreMask(&core, &affinity, CUR_THREAD_HANDLE)) && core == 0
+            && R_SUCCEEDED(svcGetInfo(&processCores, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0))
+            && (processCores & 0x6) == 0x6)
+            svcSetThreadCoreMask(CUR_THREAD_HANDLE, 2, 0x6);
+    }
+
     static void writer_loop(FileLog& self) {
+
         std::vector<std::string> batch;
         for (;;) {
             size_t droppedLines = 0;
