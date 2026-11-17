@@ -9374,7 +9374,12 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     glassCircle(r, kMenuX, y, kCircle, top && m_topSel == kTopMenu, "dots", 34.f, a, pressedOf(kTopMenu));
     glassCircle(r, kDiscordX, y, kCircle, top && m_topSel == kTopDiscord, "discord", 40.f, a, pressedOf(kTopDiscord));
 #ifdef SWITCHU_MENU
-    const int dms = m_discord.started() ? m_discord.unreadDms() : 0;
+    // Counting walks every DM: only when Discord's store changed, not every frame.
+    if (m_discord.version() != m_unreadDmsVersion) {
+        m_unreadDmsVersion = m_discord.version();
+        m_unreadDms = m_discord.unreadDms();
+    }
+    const int dms = m_discord.started() ? m_unreadDms : 0;
     if (dms > 0) badge(kDiscordX + 14.f, y - 40.f, dms);
 #endif
     glassCircle(r, kSortX, y, kCircle, top && m_topSel == kTopSort, "sort", 34.f, a, pressedOf(kTopSort));
