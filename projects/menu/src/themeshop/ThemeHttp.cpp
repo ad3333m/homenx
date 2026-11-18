@@ -33,6 +33,9 @@ constexpr int kRequestAttemptCount = 2;
 // getText): a 5-8 MB theme file or SteamGridDB hero was in memory ~4 times.
 // Larger answers are stopped: they'd use up HOME's memory.
 constexpr std::size_t kMaxBodyBytes = 32u << 20;
+struct BodyTooLarge : std::runtime_error { // not retried: it would be as large again
+    using std::runtime_error::runtime_error;
+};
 
 std::string resultToString(Result rc) {
     char buf[32];
@@ -188,7 +191,7 @@ Body performRequestBytes(const std::string& url,
         if (isAbortRequested(shouldAbort))
             throw std::runtime_error("Cancelled");
         if (tooLarge)
-            throw std::runtime_error("Response larger than " + std::to_string(kMaxBodyBytes >> 20) + " MB");
+            throw BodyTooLarge("Response larger than " + std::to_string(kMaxBodyBytes >> 20) + " MB");
         throw;
     }
 
@@ -237,6 +240,8 @@ Body performBytes(const std::string& url,
             lastError = ex.what();
             if (lastError == "Cancelled" || isAbortRequested(shouldAbort))
                 throw std::runtime_error("Cancelled");
+            if (dynamic_cast<const BodyTooLarge*>(&ex))
+                throw std::runtime_error(lastError);
             DebugLog::log("[themeshop] request failed (%d/%d): %s -> %s",
                           attempt,
                           kRequestAttemptCount,
