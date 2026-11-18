@@ -344,7 +344,10 @@
       "pair_connect": "Associer et connecter",
       "device_actions": "Actions de l'appareil",
       "connected": "Connected",
-      "not_connected": "Not connected"
+      "not_connected": "Not connected",
+      "connecting": "Connexion",
+      "connect_failed": "Connexion impossible",
+      "connect_timeout": "Pas connecté, essayez le mode association"
     },
     "sleep": {
       "1min": "1 min",

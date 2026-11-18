@@ -6945,6 +6945,7 @@ void CardsActivity::updateBluetoothAudio(float dt) {
                 say(trf("{device} is connected.", {m_btConnectName}));
             } else if (m_btConnectIn <= 0.f) {
                 m_btConnectIn = 0.f;
+                perfLine("bluetooth audio: " + m_btConnectName + " not connected after 20 s");
                 say(trf("{device} didn't connect. Put it in pairing mode and try again.", {m_btConnectName}));
             }
         }
@@ -6969,8 +6970,11 @@ void CardsActivity::connectAudio(const std::array<std::uint8_t, 6>& address, con
     if (!bluetoothAudio()) return;
     const Result rc = btmsysConnectAudioDevice(btAddress(address));
     btmsysExit();
-    if (R_FAILED(rc)) {
-        say(trf("{device} didn't connect. Put it in pairing mode and try again.", {name}));
+    char code[16];
+    std::snprintf(code, sizeof(code), "0x%X", rc);
+    perfLine("bluetooth audio: connect " + name + " rc=" + code);
+    if (R_FAILED(rc)) { // (the code, so a report says why the service refused)
+        say(trf("{device} didn't connect. Put it in pairing mode and try again.", {name}) + " (" + code + ")");
         return;
     }
     m_btConnectName = name;
