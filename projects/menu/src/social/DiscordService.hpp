@@ -151,6 +151,12 @@ private:
     std::string m_current;  // account id ("" until Discord says who a new token is)
     std::string m_token;
     uint64_t m_accountsVersion = 0;
+    // A cleared or new store counts from 0 again: its old count goes into
+    // m_accountsVersion first, so version() never comes back to a value it had
+    // (the badges keep their count until it moves).
+    void keepStoreVersion() {
+        if (m_store) m_accountsVersion += m_store->version + 1;
+    }
     bool m_rememberedMe = false;
     State m_state = State::SignedOut;
     State m_tokenLoginReturnState = State::SignedOut;

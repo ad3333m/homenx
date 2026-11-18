@@ -2936,6 +2936,7 @@ void CardsActivity::pumpDaemon() {
                 break;
             }
             case M::ApplicationSuspended:
+                m_mtpWaitingTick = 0; // (nor the game's time in front)
                 m_launcher.setAppRunning(true);
                 m_launcher.setAppHasForeground(false);
                 m_launcher.setSuspendedTitleId(n.app_id);
@@ -2975,6 +2976,7 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::WakeUp:
                 m_asleep = false;
+                m_mtpWaitingTick = 0; // (the sleep doesn't count towards turning USB file transfer off)
                 {
                     std::lock_guard<std::mutex> lk(m_mu);
                     m_workersAsleep = false;
@@ -7220,6 +7222,27 @@ void CardsActivity::flipMtp() {
     }
 }
 
+// Left on with no computer, USB file transfer polls USB for good: it turns
+// itself off after 10 minutes of waiting (never while a computer is there).
+void CardsActivity::updateMtp() {
+    if (!m_mtp.on() || m_mtp.state() != Mtp::State::Waiting) {
+        m_mtpWaitingTick = 0;
+        return;
+    }
+    const std::uint64_t now = armGetSystemTick();
+    // Only HOME's awake time counts: no frame for 5 s (asleep, a game or an
+    // applet in front) starts the 10 minutes again.
+    const bool gap = armTicksToNs(now - m_mtpSeenTick) > 5'000'000'000ULL;
+    m_mtpSeenTick = now;
+    if (!m_mtpWaitingTick || gap) {
+        m_mtpWaitingTick = now;
+    } else if (armTicksToNs(now - m_mtpWaitingTick) >= 600'000'000'000ULL) {
+        m_mtpWaitingTick = 0;
+        flipMtp();
+        say("USB file transfer is off: no computer for 10 minutes.");
+    }
+}
+
 CardsActivity::TaskView CardsActivity::taskView() {
     TaskView v;
     switch (m_task) {
@@ -8521,6 +8544,7 @@ void CardsActivity::onUpdate(float dt) {
         }
     }
     updateBluetoothAudio(dt);
+    updateMtp();
     if (m_changesJob.valid() && m_changesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         const Changes c = m_changesJob.get();
         const bool nros = c.nroHash != m_settings.nroHash, titles = c.titles != m_settings.titles;
@@ -9374,7 +9398,12 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     glassCircle(r, kMenuX, y, kCircle, top && m_topSel == kTopMenu, "dots", 34.f, a, pressedOf(kTopMenu));
     glassCircle(r, kDiscordX, y, kCircle, top && m_topSel == kTopDiscord, "discord", 40.f, a, pressedOf(kTopDiscord));
 #ifdef SWITCHU_MENU
-    const int dms = m_discord.started() ? m_discord.unreadDms() : 0;
+    // Counting walks every DM: only when Discord's store changed, not every frame.
+    if (m_discord.version() != m_unreadDmsVersion) {
+        m_unreadDmsVersion = m_discord.version();
+        m_unreadDms = m_discord.unreadDms();
+    }
+    const int dms = m_discord.started() ? m_unreadDms : 0;
     if (dms > 0) badge(kDiscordX + 14.f, y - 40.f, dms);
 #endif
     glassCircle(r, kSortX, y, kCircle, top && m_topSel == kTopSort, "sort", 34.f, a, pressedOf(kTopSort));

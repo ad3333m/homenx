@@ -808,6 +808,9 @@ private:
     std::array<std::uint8_t, 6> m_btConnectAddr{};
     std::string m_btConnectName, m_btAudioName; // the one being connected; the one connected
     Mtp m_mtp; // Settings > Console > Connect to a computer: USB file transfer from HOME itself
+    std::uint64_t m_mtpWaitingTick = 0; // since when it has waited for a computer (0: it isn't waiting)
+    std::uint64_t m_mtpSeenTick = 0;    // the frame updateMtp() last ran in
+    void updateMtp();
 
 
     // Settings: sections on the left, their rows on the right.
@@ -894,6 +897,8 @@ private:
     bool m_hxFonts = false;
     void ensureHxFonts();
     DiscordService m_discord;
+    std::uint64_t m_unreadDmsVersion = ~std::uint64_t{0}; // m_discord.version() m_unreadDms was counted at
+    int m_unreadDms = 0;
     std::shared_ptr<DiscordPanel> m_discordPanel;
     std::shared_ptr<TextEntryScreen> m_textEntry;
     std::shared_ptr<SocialScreen> m_social;   // Friends, your profile, Mii Maker (HomeNX's, not Nintendo's)
