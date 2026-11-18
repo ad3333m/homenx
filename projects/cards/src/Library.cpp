@@ -169,14 +169,16 @@ std::string nameKey(const std::string& name);
 
 // The game on SteamGridDB, found once per name (pictures ask several times).
 // The one named as asked (case, accents, punctuation aside), else its first
-// hit: the first alone was another game's for some titles.
+// hit: the first alone was another game's for some titles. strict: the one named
+// as asked or none (a forwarder of an app: Moonlight's first hit is Moonlighter).
 // 0: no answer (asked again later), -1: no such game.
-long long steamGridDbGame(const std::string& name, const std::string& key) {
+long long steamGridDbGame(const std::string& name, const std::string& key, bool strict = false) {
     static std::mutex foundMu;
     static std::map<std::string, long long> found;
+    const std::string asked = strict ? "strict:" + name : name;
     {
         std::lock_guard<std::mutex> lk(foundMu);
-        auto it = found.find(name);
+        auto it = found.find(asked);
         if (it != found.end()) return it->second;
     }
     const std::vector<std::string> headers = {"Authorization: Bearer " + key, "Accept: application/json"};
@@ -186,7 +188,7 @@ long long steamGridDbGame(const std::string& name, const std::string& key) {
     try {
         const auto j = nlohmann::json::parse(body);
         if (j.contains("data") && j["data"].is_array() && !j["data"].empty()) {
-            gameId = j["data"][0].value("id", -1LL);
+            if (!strict) gameId = j["data"][0].value("id", -1LL);
             const std::string want = nameKey(name);
             if (!want.empty()) { // (a name with no Latin letters or digits matches nothing: the first stays)
                 for (const auto& g : j["data"])
@@ -199,7 +201,7 @@ long long steamGridDbGame(const std::string& name, const std::string& key) {
     } catch (...) {
     }
     std::lock_guard<std::mutex> lk(foundMu);
-    found[name] = gameId;
+    found[asked] = gameId;
     return gameId;
 }
 
@@ -257,11 +259,12 @@ bool clearEdges(const unsigned char* px, int w, int h) {
 
 // The first picture SteamGridDB has of `kind` for the game that came and isn't
 // the notice for one taken down. clear: only one with see-through edges (an
-// icon with no background). answered: the list came.
+// icon with no background). answered: the list came. strict: see steamGridDbGame.
 std::string steamGridDbPicture(const Game& game, const std::string& key, const char* kind, const std::string& query,
-                               bool clear = false, bool* answered = nullptr, size_t tries = 6) {
+                               bool clear = false, bool* answered = nullptr, size_t tries = 6, bool strict = false) {
     std::string body;
-    for (const auto& [url, thumb] : steamGridDbAssets(steamGridDbGame(game.name, key), key, kind, query, tries, answered)) {
+    for (const auto& [url, thumb] :
+         steamGridDbAssets(steamGridDbGame(game.name, key, strict), key, kind, query, tries, answered)) {
         if (url.empty() || get(url, body) != 200 || !isPicture(body)) continue;
         int w = 0, h = 0, ch = 0;
         stbi_uc* px = decodePicture(reinterpret_cast<const stbi_uc*>(body.data()), static_cast<int>(body.size()), w, h);
@@ -1458,7 +1461,7 @@ std::vector<std::uint8_t> chosenTitleArt(const Game& game) {
     return std::filesystem::exists(path, ec) ? readFile(path) : std::vector<std::uint8_t>();
 }
 
-std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy) {
+std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy, bool strict) {
     const std::string base = std::string(kCacheDir) + "/" + hexId(game.id);
     std::error_code ec;
     // Chosen by hand (+ > Title picture): kept for good; empty = its own icon.
@@ -1511,9 +1514,10 @@ std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, boo
     bool answered = false;
     std::string got;
     for (const Game& g : names) {
-        got = steamGridDbPicture(g, key, "icons", query + "&dimensions=512,256,192,180,160,152,150,144,128", true, &answered);
-        if (got.empty()) got = steamGridDbPicture(g, key, "icons", query + "&dimensions=1024,768", true, &answered, 3);
-        if (got.empty()) got = steamGridDbPicture(g, key, "logos", query, true, &answered, 4);
+        got = steamGridDbPicture(g, key, "icons", query + "&dimensions=512,256,192,180,160,152,150,144,128", true, &answered,
+                                 6, strict);
+        if (got.empty()) got = steamGridDbPicture(g, key, "icons", query + "&dimensions=1024,768", true, &answered, 3, strict);
+        if (got.empty()) got = steamGridDbPicture(g, key, "logos", query, true, &answered, 4, strict);
         if (!got.empty()) break;
     }
     if (got.empty() && keptBack(game.id, ".title2")) return readFile(path); // taken down since: the one saved

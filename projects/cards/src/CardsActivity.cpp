@@ -1244,7 +1244,7 @@ void CardsActivity::worker(int index) {
                                                  : 1280;
         // An NRO forwarder (an installed 05... title, no .nro path) looks up title pictures as
         // games do; ".if": its plain icon was kept for good under ".it" before (#13).
-        const bool forwarder = job.game.homebrew && job.game.path.empty();
+        const bool forwarder = job.game.homebrew && job.game.path.empty() && job.game.action.empty();
         const std::string shown =
             (job.what == kCard || job.what == kBackground || job.what == kIcon) && job.game.action.empty()
                 ? shownPath(job.game.id, std::string(job.what == kCard ? (m_boxArt.load() ? "c1" : "c0")
@@ -1278,8 +1278,9 @@ void CardsActivity::worker(int index) {
             done.kind = ArtKind::Title;
             bool busy = false;
             // (A .nro: only one chosen by hand, + > Title picture: its name finds other games' online.
-            // A forwarder has its game's name: searched like one.)
-            if (m_titleArt) data = job.game.homebrew && !forwarder ? chosenTitleArt(job.game) : titleArt(look, key, &busy);
+            // A forwarder has its game's name: searched like one, but only a game named as it is.)
+            if (m_titleArt)
+                data = job.game.homebrew && !forwarder ? chosenTitleArt(job.game) : titleArt(look, key, &busy, forwarder);
             done.again = busy; // another search is running: its plain icon now, the title picture later
             if (data.empty()) {
                 done.kind = ArtKind::Icon;
