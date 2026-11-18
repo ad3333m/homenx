@@ -29,7 +29,8 @@ inline Doc ParseInSitu(std::string&& s) {
     if (s.capacity() - len < YYJSON_PADDING_SIZE) return Parse(s);
     auto* buf = new std::string(std::move(s));
     buf->append(YYJSON_PADDING_SIZE, '\0');
-    yyjson_doc* d = yyjson_read(buf->data(), len, YYJSON_READ_INSITU);
+    // (yyjson_read() drops YYJSON_READ_INSITU and copies: it takes const data)
+    yyjson_doc* d = yyjson_read_opts(buf->data(), len, YYJSON_READ_INSITU, nullptr, nullptr);
     if (!d) {
         delete buf;
         return nullptr;
