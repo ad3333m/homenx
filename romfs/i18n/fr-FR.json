@@ -162,6 +162,10 @@
     "sort_recent": "Récents"
   },
   "settings": {
+    "homenx": {
+      "hidden": "Icônes masquées",
+      "hidden_desc": "Les logiciels masqués du menu HOME avec Masquer (+ sur leur icône). Ils sont toujours installés : choisissez-en un pour le remettre."
+    },
     "tabs": {
       "system": "Système",
       "accessibility": "Accessibilité",
@@ -471,6 +475,8 @@
     "title_id": "ID du titre",
     "delete_software": "Effacer le logiciel",
     "delete_software_desc": "Efface le logiciel. Les sauvegardes sont conservées.",
+    "hide_title": "Masquer du menu HOME",
+    "hide_desc": "Retire cette icône du menu HOME. Rien n'est effacé. Paramètres > HomeNX > Icônes masquées la fait revenir.",
     "delete_gamecard_unavailable": "Le logiciel d'une carte de jeu ne peut pas être effacé de la console.",
     "delete_confirmation": "Le logiciel va être effacé. Les données de sauvegarde seront conservées.",
     "close_desc": "Ferme le logiciel en cours. La progression non sauvegardée peut être perdue.",
@@ -491,6 +497,12 @@
       "icon": "Icône de remplacement",
       "icon_desc": "Ouvre la galerie des icônes pour remplacer celle du jeu."
     }
+  },
+  "hidden": {
+    "body": "Masqué du menu HOME. Il est toujours installé.",
+    "show_hint": "Appuyez sur A pour le remettre dans le menu HOME",
+    "shown": " est de retour dans le menu HOME.",
+    "none": "Rien n'est masqué. Appuyez sur + sur une icône et choisissez Masquer pour la masquer."
   },
   "folder": {
     "create": "Créer un dossier",
@@ -623,6 +635,8 @@
     "cannot_launch": "Ce jeu ne peut pas être lancé."
   },
   "button": {
+    "hide": "Masquer",
+    "show": "Afficher",
     "ok": "OK",
     "cancel": "Annuler",
     "delete": "Supprimer",

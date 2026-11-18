@@ -106,6 +106,19 @@ void GameOptionsScreen::buildTabs() {
         data.items.push_back(std::move(close));
     }
 
+    if (!m_game.suspended) {
+        // HomeNX: off HOME without uninstalling (forwarders, games you don't play).
+        // Not the open software: HOME resumes and closes it through its icon.
+        SettingItem hide;
+        hide.label = i18n.tr("game.hide_title", "Hide from HOME");
+        hide.buttonLabel = i18n.tr("button.hide", "Hide");
+        hide.description = i18n.tr("game.hide_desc",
+            "Remove this icon from HOME. Nothing is deleted. Settings > HomeNX > Hidden icons brings it back.");
+        hide.type = ItemType::Action;
+        hide.onChange = [this](SettingItem&) { if (m_hideCb) m_hideCb(); };
+        data.items.push_back(std::move(hide));
+    }
+
     SettingItem erase;
     erase.label = i18n.tr("game.delete_software", "Delete Software");
     erase.buttonLabel = i18n.tr("button.uninstall", "Uninstall");

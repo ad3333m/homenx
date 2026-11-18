@@ -1493,6 +1493,9 @@ int WiiUMenuApp::findTitleIndex(uint64_t titleId) const {
 bool WiiUMenuApp::focusTitle(uint64_t titleId, bool instantFocus) {
     if (!m_grid)
         return false;
+    // Not on the grid: looking for it would open its folder on an empty cell.
+    if (isAppHidden(titleId))
+        return false;
 
     int idx = findTitleIndex(titleId);
     if (idx < 0 && titleId != 0) {
@@ -1894,6 +1897,15 @@ void WiiUMenuApp::showGameContextMenu(GlossyIcon* icon) {
             });
     });
     m_gameOptions->onCloseSoftware([this]() { m_launcher.terminateApplication(); });
+    m_gameOptions->onHide([this, titleId, title]() {
+        // Nothing to confirm: Settings > HomeNX > Hidden icons undoes it.
+        m_hiddenApps[titleId] = title;
+        saveHiddenApps();
+        m_audio.playSfx(Sfx::ConfirmPositive);
+        if (m_gameOptions) m_gameOptions->hide();
+        m_refreshQueued = true; // the list is composed again without it
+        m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 2);
+    });
     m_gameOptions->onDeleteSoftware([this, titleId, title]() {
         auto& localI18n = nxui::I18n::instance();
         m_dialogReturnFocus = m_gameOptions.get();
@@ -1930,7 +1942,7 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
     FolderOptionsScreen::FolderInfo info;
     info.id = folder->id;
     info.name = folder->name;
-    info.itemCount = static_cast<int>(folder->titleCount());
+    info.itemCount = visibleTitleCount(*folder);
     info.colorIndex = folder->colorIndex;
     info.sizeIndex = folder->sizeIndex;
     info.styleIndex = m_config.folderStyle;
@@ -1938,7 +1950,7 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
     info.hasCustomIcon = SteamGridDbManager::hasIcon(folderTitleId(folderId));
     const std::uint64_t coverTitleId = info.hasCustomIcon
         ? folderTitleId(folderId)
-        : switchu::folders::firstCoverTitleId(*folder);
+        : folderCoverTitleId(*folder);
     info.cover = folderCoverTexture(coverTitleId);
     m_folderOptions->setFolder(info);
     m_folderOptions->onOpen([this, folderId]() {
@@ -2016,14 +2028,14 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
             if (const auto* folder = m_folderStore.find(folderId)) {
                 info.id = folder->id;
                 info.name = folder->name;
-                info.itemCount = static_cast<int>(folder->titleCount());
+                info.itemCount = visibleTitleCount(*folder);
                 info.colorIndex = folder->colorIndex;
                 info.sizeIndex = folder->sizeIndex;
                 info.styleIndex = m_config.folderStyle;
                 info.showCover = m_config.folderShowCover;
                 info.hasCustomIcon = false;
                 info.cover = folderCoverTexture(
-                    switchu::folders::firstCoverTitleId(*folder));
+                    folderCoverTitleId(*folder));
                 m_folderOptions->setFolder(info);
             }
         }
