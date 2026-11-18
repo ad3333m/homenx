@@ -99,6 +99,7 @@ private:
     uint64_t m_kHeld = 0;
     float m_lx = 0, m_ly = 0;
     float m_rx = 0, m_ry = 0;
+    bool  m_stickMoved = false; // a stick moved since the last update (see hasUserActivity)
     bool  m_hasHandheldSixAxis = false;
     bool  m_hasFullKeySixAxis  = false;
     bool  m_hasJoyDualSixAxis  = false;
