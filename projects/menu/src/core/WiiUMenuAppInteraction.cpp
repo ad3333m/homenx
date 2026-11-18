@@ -1493,6 +1493,9 @@ int WiiUMenuApp::findTitleIndex(uint64_t titleId) const {
 bool WiiUMenuApp::focusTitle(uint64_t titleId, bool instantFocus) {
     if (!m_grid)
         return false;
+    // Not on the grid: looking for it would open its folder on an empty cell.
+    if (isAppHidden(titleId))
+        return false;
 
     int idx = findTitleIndex(titleId);
     if (idx < 0 && titleId != 0) {
@@ -1939,7 +1942,7 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
     FolderOptionsScreen::FolderInfo info;
     info.id = folder->id;
     info.name = folder->name;
-    info.itemCount = static_cast<int>(folder->titleCount());
+    info.itemCount = visibleTitleCount(*folder);
     info.colorIndex = folder->colorIndex;
     info.sizeIndex = folder->sizeIndex;
     info.styleIndex = m_config.folderStyle;
@@ -2025,7 +2028,7 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
             if (const auto* folder = m_folderStore.find(folderId)) {
                 info.id = folder->id;
                 info.name = folder->name;
-                info.itemCount = static_cast<int>(folder->titleCount());
+                info.itemCount = visibleTitleCount(*folder);
                 info.colorIndex = folder->colorIndex;
                 info.sizeIndex = folder->sizeIndex;
                 info.styleIndex = m_config.folderStyle;

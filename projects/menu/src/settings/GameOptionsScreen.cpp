@@ -106,8 +106,9 @@ void GameOptionsScreen::buildTabs() {
         data.items.push_back(std::move(close));
     }
 
-    {
+    if (!m_game.suspended) {
         // HomeNX: off HOME without uninstalling (forwarders, games you don't play).
+        // Not the open software: HOME resumes and closes it through its icon.
         SettingItem hide;
         hide.label = i18n.tr("game.hide_title", "Hide from HOME");
         hide.buttonLabel = i18n.tr("button.hide", "Hide");

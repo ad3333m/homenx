@@ -512,6 +512,9 @@ constexpr const char* kHiddenAppsPath = "sdmc:/config/SwitchU/homenx_hidden.json
 void WiiUMenuApp::loadHiddenApps() {
     m_hiddenApps.clear();
     std::ifstream in(kHiddenAppsPath);
+    // Power lost between saveHiddenApps' remove and rename: the new list is
+    // still complete in the staging file.
+    if (!in) in.open(std::string(kHiddenAppsPath) + ".part");
     if (!in) return;
     auto j = nlohmann::json::parse(in, nullptr, false);
     if (!j.is_object()) return;
@@ -555,6 +558,11 @@ std::uint64_t WiiUMenuApp::folderCoverTitleId(const switchu::folders::Folder& fo
         if (titleId != 0 && !isAppHidden(titleId))
             return titleId;
     return 0;
+}
+
+int WiiUMenuApp::visibleTitleCount(const switchu::folders::Folder& folder) const {
+    return static_cast<int>(std::count_if(folder.titleIds.begin(), folder.titleIds.end(),
+        [this](std::uint64_t titleId) { return titleId != 0 && !isAppHidden(titleId); }));
 }
 
 void WiiUMenuApp::leaveThen(std::function<void()> fn) {
@@ -2276,7 +2284,7 @@ void WiiUMenuApp::composeRootPending(std::vector<PendingApp>& apps) {
         item.titleId = folderTitleId(folder.id);
         item.kind = GridEntryKind::Folder;
         item.folderId = folder.id;
-        item.folderPreviewCount = static_cast<int>(folder.titleCount());
+        item.folderPreviewCount = visibleTitleCount(folder);
         item.folderColorIndex = folder.colorIndex;
         item.folderCoverTitleId = SteamGridDbManager::hasIcon(folderTitleId(folder.id))
             ? folderTitleId(folder.id)
@@ -2449,7 +2457,7 @@ GridModel WiiUMenuApp::buildRootFolderModel() {
         entry.titleId = folderTitleId(folder.id);
         entry.kind = GridEntryKind::Folder;
         entry.folderId = folder.id;
-        entry.folderPreviewCount = static_cast<int>(folder.titleCount());
+        entry.folderPreviewCount = visibleTitleCount(folder);
         entry.folderColorIndex = folder.colorIndex;
         entry.folderCoverTitleId = SteamGridDbManager::hasIcon(folderTitleId(folder.id))
             ? folderTitleId(folder.id)
@@ -6560,6 +6568,11 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 m_sysMsg.pushAction(SysAction::HomeDismiss);
                 break;
             case switchu::smi::MenuMessage::ApplicationExited:
+                // A hidden title showed while it was open: off the grid again.
+                if (m_hiddenApps.count(m_launcher.suspendedTitleId())) {
+                    m_refreshQueued = true;
+                    m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 3);
+                }
                 m_launcher.setAppRunning(false);
                 m_launcher.setAppHasForeground(false);
                 m_launcher.setSuspendedTitleId(0);
@@ -6569,6 +6582,10 @@ void WiiUMenuApp::onUpdateAwake(float dt) {
                 m_launcher.setAppRunning(true);
                 m_launcher.setAppHasForeground(false);
                 m_launcher.setSuspendedTitleId(notif.app_id);
+                if (m_hiddenApps.count(notif.app_id)) { // it shows while it is open
+                    m_refreshQueued = true;
+                    m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 3);
+                }
                 m_sysMsg.pushAction(SysAction::HomeButton);
                 break;
             case switchu::smi::MenuMessage::AppRecordsChanged:

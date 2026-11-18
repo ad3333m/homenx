@@ -1335,7 +1335,7 @@ void WiiUMenuApp::syncSteamGridDb() {
                             FolderOptionsScreen::FolderInfo info;
                             info.id = folder->id;
                             info.name = folder->name;
-                            info.itemCount = static_cast<int>(folder->titleCount());
+                            info.itemCount = visibleTitleCount(*folder);
                             info.colorIndex = folder->colorIndex;
                             info.sizeIndex = folder->sizeIndex;
                             info.styleIndex = m_config.folderStyle;
