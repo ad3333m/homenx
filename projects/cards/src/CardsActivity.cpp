@@ -1009,6 +1009,14 @@ nxui::Color CardsActivity::accent(float a) const {
     return kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].color.withAlpha(a);
 }
 
+// White text on the accent vanished with the light accents (White, the
+// default, and Gold): the task window's button was a blank white pill.
+nxui::Color CardsActivity::onAccent(float a) const {
+    const nxui::Color c = accent();
+    const float luma = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+    return luma > 0.75f ? nxui::Color(0.08f, 0.09f, 0.12f, a) : kWhite.withAlpha(a);
+}
+
 nxui::Color CardsActivity::glassTint(float a) const {
     switch (m_settings.glass) {
         case 0: return nxui::Color(0.20f, 0.23f, 0.30f, 0.16f * a);
@@ -4520,7 +4528,7 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
         }
         if (ticked) { // chosen for the shuffle
             r.drawRoundedRect({tile.x + tile.width - 44.f, tile.y + 10.f, 34.f, 34.f}, accent(ta), 17.f);
-            icon(r, "shuffle", tile.x + tile.width - 27.f, tile.y + 27.f, 20.f, kWhite.withAlpha(ta));
+            icon(r, "shuffle", tile.x + tile.width - 27.f, tile.y + 27.f, 20.f, onAccent(ta));
         }
         if (label)
             textMid(r, m_fBody, label, tile.x + (tile.width - measured(m_fBody, label).x * 0.8f) * 0.5f,
@@ -7392,7 +7400,7 @@ void CardsActivity::drawTask(nxui::Renderer& r) {
     if (!v.button.empty()) {
         const nxui::Rect b = taskButtonRect(box);
         r.drawRoundedRect(b, accent(a), 18.f);
-        textMid(r, m_fPill, v.button, b.x + (b.width - measured(m_fPill, v.button).x) * 0.5f, b.y + b.height * 0.5f, kWhite.withAlpha(a));
+        textMid(r, m_fPill, v.button, b.x + (b.width - measured(m_fPill, v.button).x) * 0.5f, b.y + b.height * 0.5f, onAccent(a));
     }
     const char* back = m_task == Task::Pairing ? "Stop" : "Back";
     const float hintX = box.x + box.width - 30.f, hintY = box.y + box.height - 52.f;
@@ -10095,7 +10103,7 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
             r.drawRoundedRect(card, nxui::Color(1.f, 1.f, 1.f, 0.06f * a), 16.f);
             const nxui::Rect tile{card.x + 10.f, card.y + 17.f, 34.f, 34.f};
             r.drawRoundedRect(tile, accent(0.85f * a), 10.f);
-            icon(r, "bell", tile.x + 17.f, tile.y + 17.f, 19.f, kWhite.withAlpha(a));
+            icon(r, "bell", tile.x + 17.f, tile.y + 17.f, 19.f, onAccent(a));
             const float tx = tile.x + tile.width + 12.f, room = card.x + card.width - 12.f - tx;
             textMid(r, m_fPill, fit(m_fPill, m_notifRows[i].first, room), tx, card.y + 22.f, kWhite.withAlpha(a));
             textMid(r, m_fBody, fit(m_fBody, m_notifRows[i].second, room), tx, card.y + 48.f, kMuted.withAlpha(a));
