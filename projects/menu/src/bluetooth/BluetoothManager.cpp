@@ -239,7 +239,12 @@ Result ConnectAudioDevice(const BtmAudioDevice& device) {
     g_connectedChanged = true;
     g_discoveredChanged = true;
     g_pairedChanged = true;
-    return btmsysConnectAudioDevice(device.addr);
+    // The radio can't look for devices and connect at once: a connect sent
+    // while the search runs may never complete (CardsNX stops it first too).
+    if (g_discovering) StopDiscovery();
+    Result rc = btmsysConnectAudioDevice(device.addr);
+    DebugLog::log("[bt] connect %s rc=0x%x", SanitizedDeviceName(device).c_str(), rc);
+    return rc;
 }
 
 Result DisconnectAudioDevice(const BtmAudioDevice& device) {

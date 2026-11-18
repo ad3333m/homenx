@@ -362,7 +362,10 @@
       "connect": "Connect",
       "unpair": "Unpair",
       "pair_connect": "Pair & Connect",
-      "device_actions": "Device Actions"
+      "device_actions": "Device Actions",
+      "connecting": "Connecting",
+      "connect_failed": "Couldn't connect",
+      "connect_timeout": "Didn't connect, try pairing mode"
     },
     "sleep": {
       "1min": "1 min",

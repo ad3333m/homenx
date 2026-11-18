@@ -1,11 +1,67 @@
 #include "TabBuilders.hpp"
 #include "bluetooth/BluetoothManager.hpp"
+#include "core/DebugLog.hpp"
 #include <nxui/core/I18n.hpp>
 #include <switch.h>
 #include <cstdio>
 #include <vector>
 
 namespace {
+
+// The connect call only starts the connection: the device shows up as
+// connected (or never does) seconds later, so the tab waits for it and says
+// which, instead of leaving the user with no answer at all. The toast is
+// one line cut to fit: the status (and code) go first, the name last.
+constexpr u64 kConnectWaitNs = 20'000'000'000ull;
+BtdrvAddress g_connectAddr = {};
+std::string g_connectName;
+u64 g_connectDeadline = 0; // 0 = not waiting
+u64 g_connectLastPoll = 0; // tick of the last check, to see the tab was left
+
+void connectDevice(const BtmAudioDevice& dev, TabbedOverlayScreen& screen) {
+    auto& i = nxui::I18n::instance();
+    const std::string name = bluetooth::DeviceName(dev);
+    Result rc = bluetooth::ConnectAudioDevice(dev);
+    if (R_FAILED(rc)) {
+        g_connectDeadline = 0;
+        char code[24];
+        std::snprintf(code, sizeof(code), " (0x%X)", rc);
+        screen.requestToast(i.tr("settings.bluetooth.connect_failed", "Couldn't connect") + code + ": " + name, 5.f);
+        return;
+    }
+    g_connectAddr = dev.addr;
+    g_connectName = name;
+    g_connectLastPoll = armGetSystemTick();
+    g_connectDeadline = g_connectLastPoll + armNsToTicks(kConnectWaitNs);
+    screen.requestToast(i.tr("settings.bluetooth.connecting", "Connecting") + ": " + name,
+                        static_cast<float>(kConnectWaitNs / 1'000'000'000ull));
+}
+
+void checkPendingConnect(TabbedOverlayScreen& screen) {
+    if (g_connectDeadline == 0) return;
+    // This only runs while the tab is shown: if the user left it (other tab,
+    // settings closed) the wait is dropped silently, or reopening it much
+    // later would pop a stale "Connected"/"Didn't connect".
+    const u64 now = armGetSystemTick();
+    const u64 lastPoll = g_connectLastPoll;
+    g_connectLastPoll = now;
+    if (now - lastPoll > armNsToTicks(1'000'000'000ull)
+        || now > g_connectDeadline + armNsToTicks(2'000'000'000ull)) {
+        g_connectDeadline = 0;
+        return;
+    }
+    auto& i = nxui::I18n::instance();
+    auto connected = bluetooth::GetConnectedAudioDevice();
+    if (bluetooth::IsDeviceValid(connected) && bluetooth::AddressesEqual(connected.addr, g_connectAddr)) {
+        g_connectDeadline = 0;
+        screen.requestToast(i.tr("settings.bluetooth.connected", "Connected") + ": " + g_connectName);
+    } else if (now >= g_connectDeadline) {
+        g_connectDeadline = 0;
+        DebugLog::log("[bt] %s not connected after 20 s", g_connectName.c_str());
+        screen.requestToast(i.tr("settings.bluetooth.connect_timeout", "Didn't connect, try pairing mode")
+                            + ": " + g_connectName, 5.f);
+    }
+}
 
 void rebuildDynamicItems(SettingsScreen::Tab& t, TabbedOverlayScreen& screen) {
     using SettingItem = SettingsScreen::SettingItem;
@@ -54,8 +110,8 @@ void rebuildDynamicItems(SettingsScreen::Tab& t, TabbedOverlayScreen& screen) {
                             bluetooth::DisconnectAudioDevice(dev);
                         }});
                     } else {
-                        buttons.push_back({i.tr("settings.bluetooth.connect", "Connect"), [dev]() {
-                            bluetooth::ConnectAudioDevice(dev);
+                        buttons.push_back({i.tr("settings.bluetooth.connect", "Connect"), [dev, &screen]() {
+                            connectDevice(dev, screen);
                         }});
                     }
                     buttons.push_back({i.tr("settings.bluetooth.unpair", "Unpair"), [dev]() {
@@ -114,8 +170,8 @@ void rebuildDynamicItems(SettingsScreen::Tab& t, TabbedOverlayScreen& screen) {
                     screen.requestDialog(
                         i.tr("settings.bluetooth.device_actions", "Device Actions"),
                         bluetooth::DeviceName(dev),
-                        {{i.tr("settings.bluetooth.pair_connect", "Pair & Connect"), [dev]() {
-                            bluetooth::ConnectAudioDevice(dev);
+                        {{i.tr("settings.bluetooth.pair_connect", "Pair & Connect"), [dev, &screen]() {
+                            connectDevice(dev, screen);
                         }},
                         {i.tr("button.cancel", "Cancel"), []() {}}}
                     );
@@ -187,6 +243,7 @@ SettingsScreen::Tab settings::tabs::BluetoothTab::build(SettingsScreen& screen) 
             rebuildDynamicItems(self, scr);
             scr.refreshCurrentTabWidgets();
         }
+        checkPendingConnect(scr);
     };
 
     return t;
