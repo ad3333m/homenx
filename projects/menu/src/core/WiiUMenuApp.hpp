@@ -240,6 +240,15 @@ private:
     std::map<std::uint64_t, std::string> m_customNames;
     void loadCustomNames();
     void saveCustomNames() const;
+    // HomeNX: software hidden from HOME with Hide (game options), by title id,
+    // with the name it had so Settings can list it. Still installed.
+    std::map<std::uint64_t, std::string> m_hiddenApps;
+    void loadHiddenApps();
+    void saveHiddenApps() const;
+    bool isAppHidden(std::uint64_t titleId) const { return m_hiddenApps.count(titleId) > 0; }
+    // The folder's cover game: its first one that isn't hidden.
+    std::uint64_t folderCoverTitleId(const switchu::folders::Folder& folder) const;
+    void openHiddenAppsPicker();
     std::set<std::string> readNewsReadList() const;
     void markNewsRead(const std::string& id);
     void openFriends(AccountUid forUser = {}); // Social; as this user (default: the active one)

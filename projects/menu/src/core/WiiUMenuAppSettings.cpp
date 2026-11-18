@@ -486,6 +486,7 @@ void WiiUMenuApp::createSettings() {
     m_settings->onCustomButtonIcon([this]() { openCustomButtonIconPicker(); });
     m_settings->onNextendoApp([this]() { openNextendoAppPicker(); });
     m_settings->onHomePages([this]() { openHomePagesPicker(); });
+    m_settings->onHiddenApps([this]() { openHiddenAppsPicker(); });
     m_settings->onDiagnostics([this]() { showDiagnostics(); });
     m_settings->onFontsChange([this]() { m_fontsChanged = true; });
     m_settings->onPointerModeChange([this](int mode) {
@@ -1966,6 +1967,42 @@ void WiiUMenuApp::openHomePagesPicker() {
         entries.push_back(std::move(e));
     }
     showDetailScreen(std::move(entries), i18n.tr("pages.title", "Home pages"), std::string(),
+                     m_settings ? m_settings.get() : nullptr);
+}
+
+// Settings > HomeNX > Hidden icons: A puts one back on HOME.
+void WiiUMenuApp::openHiddenAppsPicker() {
+    auto& i18n = nxui::I18n::instance();
+    std::vector<ListDetailScreen::Entry> entries;
+    for (const auto& [titleId, name] : m_hiddenApps) {
+        ListDetailScreen::Entry e;
+        e.listName = name;
+        e.title = name;
+        e.body = i18n.tr("hidden.body", "Hidden from HOME. It is still installed.");
+        e.lazyImage = [this, titleId = titleId]() -> std::shared_ptr<nxui::Texture> {
+            const std::vector<std::uint8_t> icon = switchu::control_cache::readIcon(titleId);
+            if (icon.empty()) return nullptr;
+            auto tex = std::make_shared<nxui::Texture>();
+            if (!tex->loadFromMemory(app().gpu(), app().renderer(), icon.data(), icon.size(), 256))
+                return nullptr;
+            return tex;
+        };
+        e.actionHint = i18n.tr("hidden.show_hint", "Press A to show it on HOME again");
+        e.onActivate = [this, titleId = titleId, name = name]() {
+            m_hiddenApps.erase(titleId);
+            saveHiddenApps();
+            m_audio.playSfx(Sfx::ConfirmPositive);
+            if (m_detail) m_detail->hide();
+            if (m_settings)
+                m_settings->requestToast(name + nxui::I18n::instance().tr("hidden.shown", " is back on HOME."));
+            // It goes into the first free spot (its old one was given up when it was hidden).
+            m_refreshQueued = true;
+            m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 2);
+        };
+        entries.push_back(std::move(e));
+    }
+    showDetailScreen(std::move(entries), i18n.tr("settings.homenx.hidden", "Hidden icons"),
+                     i18n.tr("hidden.none", "Nothing is hidden. Press + on an icon and choose Hide to hide it."),
                      m_settings ? m_settings.get() : nullptr);
 }
 

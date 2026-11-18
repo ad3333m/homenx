@@ -35,6 +35,7 @@ public:
     void onRename(VoidCb cb) { m_renameCb = std::move(cb); }
     void onResize(IntCb cb) { m_resizeCb = std::move(cb); }
     void onCloseSoftware(VoidCb cb) { m_closeSoftwareCb = std::move(cb); }
+    void onHide(VoidCb cb) { m_hideCb = std::move(cb); }
     void onDeleteSoftware(VoidCb cb) { m_deleteSoftwareCb = std::move(cb); }
     void onSelectArtwork(std::function<void(ArtworkKind)> cb) {
         m_selectArtworkCb = std::move(cb);
@@ -55,6 +56,7 @@ private:
     VoidCb m_renameCb;
     IntCb m_resizeCb;
     VoidCb m_closeSoftwareCb;
+    VoidCb m_hideCb;
     VoidCb m_deleteSoftwareCb;
     std::function<void(ArtworkKind)> m_selectArtworkCb;
     std::function<void(ArtworkKind)> m_clearArtworkCb;

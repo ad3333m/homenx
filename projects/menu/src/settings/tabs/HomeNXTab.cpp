@@ -134,6 +134,16 @@ SettingsScreen::Tab settings::tabs::HomeNXTab::build(SettingsScreen& screen) {
     }
     {
         SettingItem it;
+        it.label = i18n.tr("settings.homenx.hidden", "Hidden icons");
+        it.buttonLabel = i18n.tr("button.show", "Show");
+        it.description = i18n.tr("settings.homenx.hidden_desc",
+            "Software hidden from HOME with Hide (+ on its icon). It is still installed: choose one to put it back.");
+        it.type = ItemType::Action;
+        it.onChange = [&screen](SettingItem&) { if (screen.m_hiddenAppsCb) screen.m_hiddenAppsCb(); };
+        t.items.push_back(std::move(it));
+    }
+    {
+        SettingItem it;
         it.label = i18n.tr("settings.homenx.order", "Sidebar buttons");
         it.type = ItemType::Section;
         t.items.push_back(std::move(it));

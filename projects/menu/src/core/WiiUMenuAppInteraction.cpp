@@ -1894,6 +1894,15 @@ void WiiUMenuApp::showGameContextMenu(GlossyIcon* icon) {
             });
     });
     m_gameOptions->onCloseSoftware([this]() { m_launcher.terminateApplication(); });
+    m_gameOptions->onHide([this, titleId, title]() {
+        // Nothing to confirm: Settings > HomeNX > Hidden icons undoes it.
+        m_hiddenApps[titleId] = title;
+        saveHiddenApps();
+        m_audio.playSfx(Sfx::ConfirmPositive);
+        if (m_gameOptions) m_gameOptions->hide();
+        m_refreshQueued = true; // the list is composed again without it
+        m_deferredRefreshFrames = std::max(m_deferredRefreshFrames, 2);
+    });
     m_gameOptions->onDeleteSoftware([this, titleId, title]() {
         auto& localI18n = nxui::I18n::instance();
         m_dialogReturnFocus = m_gameOptions.get();
@@ -1938,7 +1947,7 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
     info.hasCustomIcon = SteamGridDbManager::hasIcon(folderTitleId(folderId));
     const std::uint64_t coverTitleId = info.hasCustomIcon
         ? folderTitleId(folderId)
-        : switchu::folders::firstCoverTitleId(*folder);
+        : folderCoverTitleId(*folder);
     info.cover = folderCoverTexture(coverTitleId);
     m_folderOptions->setFolder(info);
     m_folderOptions->onOpen([this, folderId]() {
@@ -2023,7 +2032,7 @@ void WiiUMenuApp::showFolderContextMenu(std::uint32_t folderId) {
                 info.showCover = m_config.folderShowCover;
                 info.hasCustomIcon = false;
                 info.cover = folderCoverTexture(
-                    switchu::folders::firstCoverTitleId(*folder));
+                    folderCoverTitleId(*folder));
                 m_folderOptions->setFolder(info);
             }
         }

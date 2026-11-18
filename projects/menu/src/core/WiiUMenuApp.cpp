@@ -502,6 +502,61 @@ void WiiUMenuApp::saveCustomNames() const {
     std::ofstream(kCustomNamesPath) << j.dump(2);
 }
 
+namespace {
+// Its own file rather than a settings.json key: AppConfig::save writes the
+// whole settings file from what it knows, so an older menu would forget every
+// hidden icon at its first save. An older menu leaves this file alone.
+constexpr const char* kHiddenAppsPath = "sdmc:/config/SwitchU/homenx_hidden.json";
+}
+
+void WiiUMenuApp::loadHiddenApps() {
+    m_hiddenApps.clear();
+    std::ifstream in(kHiddenAppsPath);
+    if (!in) return;
+    auto j = nlohmann::json::parse(in, nullptr, false);
+    if (!j.is_object()) return;
+    for (auto& [key, value] : j.items()) {
+        const std::uint64_t titleId = std::strtoull(key.c_str(), nullptr, 16);
+        if (titleId != 0 && value.is_string())
+            m_hiddenApps[titleId] = value.get<std::string>();
+    }
+}
+
+void WiiUMenuApp::saveHiddenApps() const {
+    nlohmann::json j = nlohmann::json::object();
+    char key[17];
+    for (const auto& [titleId, name] : m_hiddenApps) {
+        std::snprintf(key, sizeof(key), "%016lX", static_cast<unsigned long>(titleId));
+        j[key] = name;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
+    // Beside the real file, then swapped in: a half-written list would bring
+    // every hidden icon back.
+    const std::string staging = std::string(kHiddenAppsPath) + ".part";
+    {
+        std::ofstream out(staging, std::ios::trunc);
+        if (!out) return;
+        out << j.dump(2);
+        out.flush();
+        if (!out.good()) {
+            out.close();
+            std::remove(staging.c_str());
+            return;
+        }
+    }
+    std::remove(kHiddenAppsPath);
+    if (std::rename(staging.c_str(), kHiddenAppsPath) != 0)
+        std::remove(staging.c_str());
+}
+
+std::uint64_t WiiUMenuApp::folderCoverTitleId(const switchu::folders::Folder& folder) const {
+    for (const std::uint64_t titleId : folder.titleIds)
+        if (titleId != 0 && !isAppHidden(titleId))
+            return titleId;
+    return 0;
+}
+
 void WiiUMenuApp::leaveThen(std::function<void()> fn) {
     m_discord.beginShutdown(); // closes during the fade (reopening the panel restarts it)
     scheduleLeaveCapture([this, fn = std::move(fn)]() mutable {
@@ -995,6 +1050,7 @@ bool WiiUMenuApp::onCreate() {
             DebugLog::log("[widgets] recent activity duration could not be saved");
     }
     loadCustomNames();
+    loadHiddenApps();
     nxui::GlassPanel::setPerformanceMode(!m_config.glassEffects);
     app().input().setPointerMode(static_cast<nxui::Input::PointerMode>(pointersetting::read()));
     m_appLoader.setPendingTransform([this](std::vector<PendingApp>& apps) {
@@ -2202,7 +2258,10 @@ void WiiUMenuApp::composeRootPending(std::vector<PendingApp>& apps) {
     std::vector<uint64_t> itemOrder;
     itemOrder.reserve(apps.size() + m_folderStore.all().size() + m_widgetStore.all().size());
     for (auto& app : apps) {
-        if (app.titleId != 0 && m_folderStore.folderForTitle(app.titleId) == 0) {
+        // Hidden software stays in m_allApps (homebrew can still borrow it,
+        // Social still names it) and only leaves the grid, like an uninstalled one.
+        if (app.titleId != 0 && m_folderStore.folderForTitle(app.titleId) == 0 &&
+            !isAppHidden(app.titleId)) {
             const auto gameSize = gameGridSize(app.titleId, m_appLayoutMode);
             app.widgetColumns = gameSize.columns;
             app.widgetRows = gameSize.rows;
@@ -2221,7 +2280,7 @@ void WiiUMenuApp::composeRootPending(std::vector<PendingApp>& apps) {
         item.folderColorIndex = folder.colorIndex;
         item.folderCoverTitleId = SteamGridDbManager::hasIcon(folderTitleId(folder.id))
             ? folderTitleId(folder.id)
-            : switchu::folders::firstCoverTitleId(folder);
+            : folderCoverTitleId(folder);
         itemOrder.push_back(item.titleId);
         byId.emplace(item.titleId, std::move(item));
     }
@@ -2375,7 +2434,7 @@ GridModel WiiUMenuApp::buildRootFolderModel() {
     GridModel model;
     std::unordered_map<std::uint64_t, AppEntry> entries;
     for (const auto& app : m_allApps) {
-        if (m_folderStore.folderForTitle(app.titleId) == 0) {
+        if (m_folderStore.folderForTitle(app.titleId) == 0 && !isAppHidden(app.titleId)) {
             AppEntry effective = app;
             const auto size = gameGridSize(app.titleId, m_appLayoutMode);
             effective.widgetColumns = size.columns;
@@ -2394,7 +2453,7 @@ GridModel WiiUMenuApp::buildRootFolderModel() {
         entry.folderColorIndex = folder.colorIndex;
         entry.folderCoverTitleId = SteamGridDbManager::hasIcon(folderTitleId(folder.id))
             ? folderTitleId(folder.id)
-            : switchu::folders::firstCoverTitleId(folder);
+            : folderCoverTitleId(folder);
         entries.emplace(entry.titleId, std::move(entry));
     }
     for (const auto& widget : m_widgetStore.all()) {
@@ -2610,7 +2669,9 @@ GridModel WiiUMenuApp::buildOpenFolderModel(std::uint32_t folderId) const {
 
     for (int index = 0; index < static_cast<int>(slots.size()); ++index) {
         const std::uint64_t titleId = slots[static_cast<std::size_t>(index)];
-        if (titleId == 0) continue;
+        // A hidden one keeps its place in the folder (it comes back there) but
+        // its cell shows empty.
+        if (titleId == 0 || isAppHidden(titleId)) continue;
         auto found = std::find_if(m_allApps.begin(), m_allApps.end(),
             [titleId](const AppEntry& app) { return app.titleId == titleId; });
         if (found == m_allApps.end()) {

@@ -50,6 +50,7 @@ public:
     void onCustomButtonIcon(VoidCb cb) { m_customIconCb = std::move(cb); }
     void onNextendoApp(VoidCb cb) { m_nextendoAppCb = std::move(cb); }
     void onHomePages(VoidCb cb) { m_homePagesCb = std::move(cb); }
+    void onHiddenApps(VoidCb cb) { m_hiddenAppsCb = std::move(cb); }
     void onDiagnostics(VoidCb cb) { m_diagnosticsCb = std::move(cb); }
     void onLockPassword(VoidCb cb) { m_lockPasswordCb = std::move(cb); }
     void onLockPasswordOff(VoidCb cb) { m_lockPasswordOffCb = std::move(cb); }
@@ -165,6 +166,7 @@ private:
     VoidCb m_customIconCb;
     VoidCb m_nextendoAppCb;
     VoidCb m_homePagesCb;
+    VoidCb m_hiddenAppsCb;
     VoidCb m_diagnosticsCb;
     VoidCb m_lockPasswordCb, m_lockPasswordOffCb, m_rescanCb;
     VoidCb m_lockPictureCb;
