@@ -15,8 +15,11 @@
 #include <nxui/core/Renderer.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <filesystem>
 
 namespace {
 
@@ -226,6 +229,62 @@ nxui::Vec2 mediaSize(const DiscordService::Line::Media& m) {
     const float w = m.w > 0 ? (float)m.w : 220.f, h = m.h > 0 ? (float)m.h : 160.f;
     const float sc = std::min(1.f, std::min(300.f / w, 220.f / h));
     return {std::max(24.f, w * sc), std::max(24.f, h * sc)};
+}
+
+// Profile pictures and server icons, kept on the SD card so a HOME start
+// doesn't download them all again. Discord's links name the picture itself
+// (a new picture gets a new link), so a saved one never goes stale.
+constexpr const char* kAvatarDir = "sdmc:/config/SwitchU/discord_avatars";
+constexpr size_t kAvatarCacheMax = 300;   // files (~5-15 KB each at 64 px)
+constexpr size_t kAvatarCacheKeep = 200;  // left after a clean-up
+constexpr size_t kAvatarMaxBytes = 256u << 10;
+
+std::string avatarCachePath(const std::string& url) {
+    uint64_t h = 1469598103934665603ull; // FNV-1a
+    for (unsigned char c : url) h = (h ^ c) * 1099511628211ull;
+    char name[24];
+    std::snprintf(name, sizeof(name), "/%016llx.img", (unsigned long long)h);
+    return std::string(kAvatarDir) + name;
+}
+
+std::string readAvatar(const std::string& path) {
+    std::string body;
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return body;
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof(buf), f)) > 0 && body.size() <= kAvatarMaxBytes;)
+        body.append(buf, n);
+    std::fclose(f);
+    if (body.size() > kAvatarMaxBytes) body.clear();
+    return body;
+}
+
+// Once per HOME start, at the first picture saved: the oldest go beyond
+// kAvatarCacheMax files.
+void trimAvatarCache() {
+    static std::atomic<bool> done{false};
+    if (done.exchange(true)) return;
+    std::error_code ec;
+    std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> files;
+    for (std::filesystem::directory_iterator it(kAvatarDir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code timeError; // (a file without a date sorts first)
+        files.push_back({it->last_write_time(timeError), it->path()});
+    }
+    if (files.size() <= kAvatarCacheMax) return;
+    std::sort(files.begin(), files.end());
+    for (size_t i = 0; i + kAvatarCacheKeep < files.size(); ++i) std::filesystem::remove(files[i].second, ec);
+}
+
+void saveAvatar(const std::string& path, const std::string& body) {
+    if (body.size() > kAvatarMaxBytes) return;
+    std::error_code ec;
+    std::filesystem::create_directories(kAvatarDir, ec);
+    trimAvatarCache();
+    const std::string tmp = path + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "wb");
+    if (!f) return;
+    const bool ok = std::fwrite(body.data(), 1, body.size(), f) == body.size();
+    if (std::fclose(f) != 0 || !ok || std::rename(tmp.c_str(), path.c_str()) != 0) std::remove(tmp.c_str());
 }
 
 }  // namespace
@@ -692,17 +751,27 @@ const nxui::Texture* DiscordPanel::avatar(const std::string& url) {
     m_avatars.emplace(url, nullptr);
     std::weak_ptr<bool> alive = m_alive;
     Async::Run(Async::Pool::Images, [this, url, alive]() {
-        Http::Request req;
-        req.url = url;
-        req.timeoutMs = 15000;
-        req.maxBytes = 2u << 20;
-        Http::Response res = Http::Perform(req);
-        std::string body = res.Ok() ? std::move(res.body) : std::string();
-        Async::Post([this, url, alive, body = std::move(body)]() {
+        const std::string path = avatarCachePath(url);
+        std::string body = readAvatar(path);
+        const bool saved = !body.empty();
+        if (!saved) {
+            Http::Request req;
+            req.url = url;
+            req.timeoutMs = 15000;
+            req.maxBytes = 2u << 20;
+            Http::Response res = Http::Perform(req);
+            if (res.Ok()) body = std::move(res.body);
+        }
+        Async::Post([this, url, alive, path, saved, body = std::move(body)]() {
             if (alive.expired() || body.empty()) return;
             auto tex = std::make_unique<nxui::Texture>();
-            if (tex->loadFromMemory(*m_gpu, *m_ren, reinterpret_cast<const uint8_t*>(body.data()), body.size(), 64))
+            if (tex->loadFromMemory(*m_gpu, *m_ren, reinterpret_cast<const uint8_t*>(body.data()), body.size(), 64)) {
                 m_avatars[url] = std::move(tex);
+                // Kept once it's known to be a picture (on a worker: SD writes).
+                if (!saved) Async::Run(Async::Pool::Images, [path, body]() { saveAvatar(path, body); });
+            } else if (saved) {
+                std::remove(path.c_str()); // damaged: downloaded again next time
+            }
         });
     });
     return nullptr;

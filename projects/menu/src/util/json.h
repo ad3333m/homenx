@@ -20,6 +20,26 @@ inline Doc Parse(const char* data, size_t len) {
     return Doc(d, yyjson_doc_free);
 }
 inline Doc Parse(const std::string& s) { return Parse(s.data(), s.size()); }
+// Parses the text where it is, without the copy yyjson_read() makes (a 2.35 MB
+// READY was in memory twice): the document takes the buffer and frees it with
+// itself. The text's strings are rewritten in place, so `s` is consumed. Falls
+// back to a copying parse when there's no room left for yyjson's padding.
+inline Doc ParseInSitu(std::string&& s) {
+    const size_t len = s.size();
+    if (s.capacity() - len < YYJSON_PADDING_SIZE) return Parse(s);
+    auto* buf = new std::string(std::move(s));
+    buf->append(YYJSON_PADDING_SIZE, '\0');
+    // (yyjson_read() drops YYJSON_READ_INSITU and copies: it takes const data)
+    yyjson_doc* d = yyjson_read_opts(buf->data(), len, YYJSON_READ_INSITU, nullptr, nullptr);
+    if (!d) {
+        delete buf;
+        return nullptr;
+    }
+    return Doc(d, [buf](yyjson_doc* p) {
+        yyjson_doc_free(p);
+        delete buf;
+    });
+}
 inline yyjson_val* Root(const Doc& d) { return d ? yyjson_doc_get_root(d.get()) : nullptr; }
 
 inline yyjson_val* Get(yyjson_val* o, const char* k) { return yyjson_is_obj(o) ? yyjson_obj_get(o, k) : nullptr; }

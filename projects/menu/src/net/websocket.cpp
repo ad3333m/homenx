@@ -238,8 +238,16 @@ bool WebSocket::ParseFrames(std::vector<Message>& out) {
             return false;
         }
         if (rbuf_.size() < pos + len) return true;
-        std::string payload = rbuf_.substr(pos, (size_t)len);
-        rbuf_.erase(0, pos + (size_t)len);
+        // The last frame read (READY's few hundred KB, most often) takes the
+        // buffer itself instead of a copy of it.
+        std::string payload;
+        if (rbuf_.size() == pos + len) {
+            payload.swap(rbuf_);
+            payload.erase(0, pos);
+        } else {
+            payload.assign(rbuf_, pos, (size_t)len);
+            rbuf_.erase(0, pos + (size_t)len);
+        }
         if (masked)
             for (size_t i = 0; i < payload.size(); i++) payload[i] = (char)(payload[i] ^ mask[i & 3]);
 

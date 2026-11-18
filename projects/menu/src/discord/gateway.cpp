@@ -5,8 +5,11 @@
 #include "core/BackgroundThread.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
+#include <mutex>
 
 #include <zlib.h>
 #include <switch.h>
@@ -37,12 +40,22 @@ public:
         memset(&zs_, 0, sizeof(zs_));
         init_ = inflateInit(&zs_) == Z_OK;
         buf_.clear();
+        expect_ = 0;
     }
+    // The next large message (READY) inflates into one buffer of this size
+    // instead of doubling up to it.
+    void ExpectLarge(size_t bytes) { expect_ = bytes; }
     // Buffers until a Z_SYNC_FLUSH suffix, then inflates the whole message.
-    bool Feed(const std::string& in, std::string& out) {
-        buf_ += in;
+    // Takes `in`'s bytes (a whole message arrives in one frame: no copy).
+    bool Feed(std::string& in, std::string& out) {
+        if (buf_.empty()) buf_.swap(in);
+        else buf_ += in;
         if (buf_.size() < 4 || memcmp(buf_.data() + buf_.size() - 4, "\x00\x00\xff\xff", 4) != 0) return false;
         out.clear();
+        if (expect_ && buf_.size() >= 16384) {
+            out.reserve(expect_);
+            expect_ = 0;
+        }
         zs_.next_in = reinterpret_cast<Bytef*>(buf_.data());
         zs_.avail_in = (uInt)buf_.size();
         char chunk[65536];
@@ -53,20 +66,61 @@ public:
             if (rc != Z_OK && rc != Z_BUF_ERROR && rc != Z_STREAM_END) {
                 LOG("gateway: inflate error %d", rc);
                 buf_.clear();
+                if (buf_.capacity() > 65536) std::string().swap(buf_);
                 return false;
             }
             out.append(chunk, sizeof(chunk) - zs_.avail_out);
             if (rc == Z_BUF_ERROR && zs_.avail_in == 0) break;
         } while (zs_.avail_in > 0 || zs_.avail_out == 0);
         buf_.clear();
+        if (buf_.capacity() > 65536) std::string().swap(buf_); // READY's compressed bytes
         return true;
     }
 
 private:
     z_stream zs_{};
     bool init_ = false;
+    size_t expect_ = 0;
     std::string buf_;
 };
+
+// The last READY's size, inflated (2.35 MB with 29 servers): HOME is a new
+// process each time it starts, so it's kept on the SD card. Gateway threads:
+// a retired one (account switch) may still run beside the new one.
+constexpr const char* kReadySizePath = "sdmc:/config/SwitchU/discord_ready_size.txt";
+std::atomic<size_t> g_readySize{0};
+std::atomic<bool> g_readySizeLoaded{false};
+std::mutex g_readySizeFileMu; // one writer of the .tmp file at a time
+
+size_t ReadySize() {
+    if (!g_readySizeLoaded.exchange(true)) {
+        if (FILE* f = std::fopen(kReadySizePath, "r")) {
+            unsigned long long v = 0;
+            if (std::fscanf(f, "%llu", &v) == 1 && v <= (64ull << 20)) g_readySize = (size_t)v;
+            std::fclose(f);
+        }
+    }
+    return g_readySize;
+}
+
+// Written again only when the next READY wouldn't fit (or would leave a
+// quarter of its buffer unused): not at every start.
+void RememberReadySize(size_t bytes) {
+    const size_t known = ReadySize();
+    if (known && bytes <= known + known / 20 && bytes >= known - known / 4) return;
+    g_readySize = bytes;
+    std::lock_guard<std::mutex> lk(g_readySizeFileMu);
+    const std::string tmp = std::string(kReadySizePath) + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "w");
+    if (!f) return;
+    const bool ok = std::fprintf(f, "%llu\n", (unsigned long long)bytes) > 0;
+    if (std::fclose(f) != 0 || !ok) {
+        std::remove(tmp.c_str());
+        return;
+    }
+    std::remove(kReadySizePath); // (a rename doesn't replace a file on the SD card)
+    std::rename(tmp.c_str(), kReadySizePath);
+}
 
 // For intervals (heartbeats, retries): the steady system tick, which a clock
 // change can't move. (Times sent to Discord don't come from here.)
@@ -247,6 +301,9 @@ Gateway::After Gateway::Session(const std::string& url) {
     bool helloSeen = false;
 
     auto sendIdentify = [&] {
+        // A full READY comes next: room for it at once, 5% more than last time
+        // (and yyjson's padding, so it's parsed in place).
+        if (const size_t last = ReadySize()) z.ExpectLarge(last + last / 20 + YYJSON_PADDING_SIZE);
         std::string props = Client::SuperPropertiesJson();
         ws.SendText(Str::Format("{\"op\":2,\"d\":{\"token\":%s,\"capabilities\":%d,\"properties\":%s,"
                                 "\"presence\":{\"status\":\"unknown\",\"since\":0,\"activities\":[],\"afk\":false},"
@@ -273,10 +330,11 @@ Gateway::After Gateway::Session(const std::string& url) {
             } else {
                 text = std::move(m.data);
             }
-            J::Doc doc = J::Parse(text);
+            const size_t textBytes = text.size();
+            J::Doc doc = J::ParseInSitu(std::move(text));
             yyjson_val* root = J::Root(doc);
             if (!root) {
-                LOG("gateway: unparseable payload (%zu bytes)", text.size());
+                LOG("gateway: unparseable payload (%zu bytes)", textBytes);
                 continue;
             }
             int op = (int)J::I(root, "op", -1);
@@ -333,7 +391,8 @@ Gateway::After Gateway::Session(const std::string& url) {
                         reachedReady_ = true;
                         state_ = State::Ready;
                         SetError("");
-                        LOG("gateway: READY (%zu bytes)", text.size());
+                        LOG("gateway: READY (%zu bytes)", textBytes);
+                        RememberReadySize(textBytes);
                     } else if (t == "RESUMED") {
                         ready = true;
                         reachedReady_ = true;
