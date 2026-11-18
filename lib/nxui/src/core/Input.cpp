@@ -148,10 +148,16 @@ void Input::update() {
     // Analog sticks
     HidAnalogStickState ls = padGetStickPos(&m_pad, 0);
     HidAnalogStickState rs = padGetStickPos(&m_pad, 1);
+    const float plx = m_lx, ply = m_ly, prx = m_rx, pry = m_ry;
     m_lx = ls.x / 32767.f;
     m_ly = ls.y / 32767.f;
     m_rx = rs.x / 32767.f;
     m_ry = rs.y / 32767.f;
+    // (A resting stick that drifts reads a steady small value, e.g. 0.11:
+    // only a change counts as a hand on it, see hasUserActivity.)
+    constexpr float kStickMoveThreshold = 0.03f;
+    m_stickMoved = std::abs(m_lx - plx) >= kStickMoveThreshold || std::abs(m_ly - ply) >= kStickMoveThreshold
+                || std::abs(m_rx - prx) >= kStickMoveThreshold || std::abs(m_ry - pry) >= kStickMoveThreshold;
 
     HidTouchScreenState tState = {};
     bool hardwareTouching = hidGetTouchScreenStates(&tState, 1) && tState.count > 0;
@@ -260,9 +266,14 @@ bool Input::isUp(Button b)   const { return m_kUp   & static_cast<uint64_t>(b); 
 bool Input::isHeld(Button b) const { return m_kHeld & static_cast<uint64_t>(b); }
 
 bool Input::hasUserActivity() const {
-    constexpr float kActivityStickThreshold = 0.08f;
+    // A stick counts when it moves, or when it's clearly pushed. A plain
+    // magnitude test (0.08) took a drifting stick at rest (a worn Joy-Con
+    // reads ~0.11 untouched) for a hand on it on every frame: HOME never
+    // reached its calm or deep idle tiers and drew 60 frames a second.
+    constexpr float kActivityStickThreshold = 0.25f;
     return m_kDown != 0 || m_kUp != 0 || m_touching || m_touchDown || m_touchUp
         || m_virtualPointerEnabled
+        || m_stickMoved
         || std::abs(m_lx) >= kActivityStickThreshold
         || std::abs(m_ly) >= kActivityStickThreshold
         || std::abs(m_rx) >= kActivityStickThreshold
