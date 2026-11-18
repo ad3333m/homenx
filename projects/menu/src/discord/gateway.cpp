@@ -5,9 +5,11 @@
 #include "core/BackgroundThread.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 
 #include <zlib.h>
 #include <switch.h>
@@ -64,6 +66,7 @@ public:
             if (rc != Z_OK && rc != Z_BUF_ERROR && rc != Z_STREAM_END) {
                 LOG("gateway: inflate error %d", rc);
                 buf_.clear();
+                if (buf_.capacity() > 65536) std::string().swap(buf_);
                 return false;
             }
             out.append(chunk, sizeof(chunk) - zs_.avail_out);
@@ -82,14 +85,15 @@ private:
 };
 
 // The last READY's size, inflated (2.35 MB with 29 servers): HOME is a new
-// process each time it starts, so it's kept on the SD card. Gateway thread only.
+// process each time it starts, so it's kept on the SD card. Gateway threads:
+// a retired one (account switch) may still run beside the new one.
 constexpr const char* kReadySizePath = "sdmc:/config/SwitchU/discord_ready_size.txt";
-size_t g_readySize = 0;
-bool g_readySizeLoaded = false;
+std::atomic<size_t> g_readySize{0};
+std::atomic<bool> g_readySizeLoaded{false};
+std::mutex g_readySizeFileMu; // one writer of the .tmp file at a time
 
 size_t ReadySize() {
-    if (!g_readySizeLoaded) {
-        g_readySizeLoaded = true;
+    if (!g_readySizeLoaded.exchange(true)) {
         if (FILE* f = std::fopen(kReadySizePath, "r")) {
             unsigned long long v = 0;
             if (std::fscanf(f, "%llu", &v) == 1 && v <= (64ull << 20)) g_readySize = (size_t)v;
@@ -105,6 +109,7 @@ void RememberReadySize(size_t bytes) {
     const size_t known = ReadySize();
     if (known && bytes <= known + known / 20 && bytes >= known - known / 4) return;
     g_readySize = bytes;
+    std::lock_guard<std::mutex> lk(g_readySizeFileMu);
     const std::string tmp = std::string(kReadySizePath) + ".tmp";
     FILE* f = std::fopen(tmp.c_str(), "w");
     if (!f) return;
