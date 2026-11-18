@@ -1242,10 +1242,13 @@ void CardsActivity::worker(int index) {
         const int shownW = job.what == kCard     ? static_cast<int>(300.f * m_pictureScale)
                          : job.what == kIcon     ? static_cast<int>(160.f * m_pictureScale)
                                                  : 1280;
+        // An NRO forwarder (an installed 05... title, no .nro path) looks up title pictures as
+        // games do; ".if": its plain icon was kept for good under ".it" before (#13).
+        const bool forwarder = job.game.homebrew && job.game.path.empty() && job.game.action.empty();
         const std::string shown =
             (job.what == kCard || job.what == kBackground || job.what == kIcon) && job.game.action.empty()
                 ? shownPath(job.game.id, std::string(job.what == kCard ? (m_boxArt.load() ? "c1" : "c0")
-                                             : job.what == kIcon ? (m_titleArt ? "it" : "ip") : "b")
+                                             : job.what == kIcon ? (m_titleArt ? (forwarder ? "if" : "it") : "ip") : "b")
                                              + (key.empty() ? "" : "k") + "." + std::to_string(shownW))
                 : std::string();
         // A cover's very small copy: on the SD card (read for every card at once when HOME
@@ -1274,8 +1277,10 @@ void CardsActivity::worker(int index) {
         } else {
             done.kind = ArtKind::Title;
             bool busy = false;
-            // (Homebrew: only one chosen by hand, + > Title picture: its name finds other games' online.)
-            if (m_titleArt) data = job.game.homebrew ? chosenTitleArt(job.game) : titleArt(look, key, &busy);
+            // (A .nro: only one chosen by hand, + > Title picture: its name finds other games' online.
+            // A forwarder has its game's name: searched like one, but only a game named as it is.)
+            if (m_titleArt)
+                data = job.game.homebrew && !forwarder ? chosenTitleArt(job.game) : titleArt(look, key, &busy, forwarder);
             done.again = busy; // another search is running: its plain icon now, the title picture later
             if (data.empty()) {
                 done.kind = ArtKind::Icon;
@@ -1311,7 +1316,7 @@ void CardsActivity::worker(int index) {
                 const bool forGood = job.what == kCard ? done.kind == ArtKind::Grid || done.kind == ArtKind::Box
                                                              || (done.kind == ArtKind::Banner && !m_boxArt.load())
                                        : job.what == kIcon ? !done.again && (done.kind == ArtKind::Title || !m_titleArt
-                                                                             || job.game.homebrew)
+                                                                             || (job.game.homebrew && !forwarder))
                                                            : done.kind == ArtKind::Banner;
                 if (!shown.empty() && forGood) {
                     writeShown(shown, done.rgba, w, h, done.kind);

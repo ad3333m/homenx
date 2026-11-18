@@ -208,7 +208,8 @@ void forgetShown(std::uint64_t id); // its picture changed (chosen, downloaded a
 // The game's own picture with no background (the Wonder Flower for Super Mario
 // Bros. Wonder): the first SteamGridDB icon with clear edges. Empty: none.
 // busy: another search was running (it's asked again a little later).
-std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy = nullptr);
+// strict: only a game named as it is, never SteamGridDB's first hit (a forwarder).
+std::vector<std::uint8_t> titleArt(const Game& game, const std::string& key, bool* busy = nullptr, bool strict = false);
 std::vector<std::uint8_t> chosenTitleArt(const Game& game); // only + > Title picture's
 // What's installed of a game (its update's version, else its own), and what was seen
 // last (config/CardsNX/versions.txt): a change reads its name and version again.
