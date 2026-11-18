@@ -809,6 +809,7 @@ private:
     std::string m_btConnectName, m_btAudioName; // the one being connected; the one connected
     Mtp m_mtp; // Settings > Console > Connect to a computer: USB file transfer from HOME itself
     std::uint64_t m_mtpWaitingTick = 0; // since when it has waited for a computer (0: it isn't waiting)
+    std::uint64_t m_mtpSeenTick = 0;    // the frame updateMtp() last ran in
     void updateMtp();
 
 

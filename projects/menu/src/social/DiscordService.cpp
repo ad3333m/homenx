@@ -145,7 +145,10 @@ void DiscordService::shutdown() {
     m_oldGateways.clear();
     m_oldAuths.clear();
     if (!Async::StopFor(kBudgetMs)) clean = false;
-    if (!clean) (void)m_store.release(); // callbacks still running may touch it
+    if (!clean) {
+        keepStoreVersion();
+        (void)m_store.release(); // callbacks still running may touch it
+    }
     m_auth.reset();
     m_gateway.reset();
     m_lingering = m_lingering || !clean;
@@ -240,6 +243,7 @@ void DiscordService::activate() {
             std::fclose(f);
         }
     });
+    keepStoreVersion();
     m_store = std::make_unique<Store>();
     loadAccounts();
     if (m_accounts.empty()) {
@@ -255,6 +259,7 @@ void DiscordService::activate() {
 void DiscordService::connect(const Account& account) {
     retire(m_gateway, m_oldGateways);
     m_events.clear(); // the last account's
+    keepStoreVersion();
     m_store->Clear();
     m_token = account.token;
     m_current = account.id;
@@ -479,6 +484,7 @@ std::string DiscordService::qrStatus() const {
 void DiscordService::signOut() {
     cancelQrLogin();
     retire(m_gateway, m_oldGateways);
+    keepStoreVersion();
     if (m_store) m_store->Clear();
     Api::SetToken("");
     const std::string token = m_token;

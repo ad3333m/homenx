@@ -2936,6 +2936,7 @@ void CardsActivity::pumpDaemon() {
                 break;
             }
             case M::ApplicationSuspended:
+                m_mtpWaitingTick = 0; // (nor the game's time in front)
                 m_launcher.setAppRunning(true);
                 m_launcher.setAppHasForeground(false);
                 m_launcher.setSuspendedTitleId(n.app_id);
@@ -2975,6 +2976,7 @@ void CardsActivity::pumpDaemon() {
                 break;
             case M::WakeUp:
                 m_asleep = false;
+                m_mtpWaitingTick = 0; // (the sleep doesn't count towards turning USB file transfer off)
                 {
                     std::lock_guard<std::mutex> lk(m_mu);
                     m_workersAsleep = false;
@@ -7228,7 +7230,11 @@ void CardsActivity::updateMtp() {
         return;
     }
     const std::uint64_t now = armGetSystemTick();
-    if (!m_mtpWaitingTick) {
+    // Only HOME's awake time counts: no frame for 5 s (asleep, a game or an
+    // applet in front) starts the 10 minutes again.
+    const bool gap = armTicksToNs(now - m_mtpSeenTick) > 5'000'000'000ULL;
+    m_mtpSeenTick = now;
+    if (!m_mtpWaitingTick || gap) {
         m_mtpWaitingTick = now;
     } else if (armTicksToNs(now - m_mtpWaitingTick) >= 600'000'000'000ULL) {
         m_mtpWaitingTick = 0;
