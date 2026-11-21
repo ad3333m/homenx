@@ -2954,12 +2954,19 @@ void CardsActivity::pumpDaemon() {
                 if ((n.payload & switchu::ns::AppViewFlag_IsGameCardInserted) || m_gameCard.contains(n.app_id))
                     invalidateGameCard();
                 break;
-            case M::BatteryStatusChanged:
+            case M::BatteryStatusChanged: {
                 m_battery = std::to_string(switchu::smi::batteryPayloadPercentage(n.payload)) + "%";
-                m_charging = switchu::smi::batteryPayloadCharging(n.payload);
+                const bool charging = switchu::smi::batteryPayloadCharging(n.payload);
+                // Plugging or unplugging the cable wakes a sleeping console for a few
+                // seconds (Wakeup comes right after this), then it sleeps again.
+                if (m_asleep && charging != m_charging) m_chargerWhileAsleep = true;
+                m_charging = charging;
                 break;
+            }
             case M::SleepSequence: // stop drawing (a loop that keeps drawing never lets it sleep)
                 m_asleep = true;
+                m_chargerWhileAsleep = false;
+                m_musicOnInput = false;
                 {
                     std::lock_guard<std::mutex> lk(m_mu);
                     m_workersAsleep = true;
@@ -2973,8 +2980,16 @@ void CardsActivity::pumpDaemon() {
                 }
                 app().setSleeping(true);
                 break;
-            case M::WakeUp:
+            case M::WakeUp: {
                 m_asleep = false;
+                // Woken by the cable, not by someone: no music in the bag or on the desk
+                // for the few seconds before it sleeps again. A button or a touch brings it.
+                const bool byCable = m_chargerWhileAsleep;
+                m_chargerWhileAsleep = false;
+                auto resumeMusic = [this, byCable]() {
+                    if (byCable) m_musicOnInput = true;
+                    else m_audio.resume();
+                };
                 {
                     std::lock_guard<std::mutex> lk(m_mu);
                     m_workersAsleep = false;
@@ -2989,15 +3004,16 @@ void CardsActivity::pumpDaemon() {
                     // Slept while locked: the lock screen is quiet (it paused
                     // the music before the sleep; the resume below would play
                     // it over the lock). With the setting on, it keeps playing.
-                    if (m_settings.lockMusic) m_audio.resume();
+                    if (m_settings.lockMusic) resumeMusic();
                     break;
                 }
                 if (m_settings.lockScreen && !m_locked) {
                     lock(); // it pauses the music itself, unless the setting says otherwise
                     break;
                 }
-                m_audio.resume();
+                resumeMusic();
                 break;
+            }
             case M::OperationFailed: {
                 char buf[80];
                 std::snprintf(buf, sizeof(buf), "0x%X", n.payload);
@@ -8185,6 +8201,18 @@ void CardsActivity::onUpdate(float dt) {
     // Either stick moves through the games and every CardsNX menu (HomeNX's screens
     // in CardsNX already read their buttons before this).
     app().input().mergeRightStick();
+    if (m_musicOnInput && !m_asleep) { // woken by the cable: the music comes back with the first button or touch
+        auto& in = app().input();
+        using B = nxui::Button;
+        bool any = in.touchDown();
+        for (B b : {B::A, B::B, B::X, B::Y, B::Plus, B::Minus, B::DLeft, B::DRight, B::DUp, B::DDown, B::L, B::R,
+                    B::ZL, B::ZR, B::LStickL, B::LStickR, B::LStickU, B::LStickD})
+            any = any || in.isDown(b);
+        if (any) {
+            m_musicOnInput = false;
+            if (!m_locked || m_settings.lockMusic) m_audio.resume();
+        }
+    }
     static const bool firstUpdate = (startStep("first update"), true);
     (void)firstUpdate;
     updateSpotify();
