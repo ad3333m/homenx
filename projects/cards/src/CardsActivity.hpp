@@ -324,6 +324,8 @@ private:
     float m_lockIn = 0.f, m_unlockT = -1.f; // opening it: 0 -> 1, then it's gone
     float m_lockIdle = 0.f;                 // locked and ignored for this long
     bool m_musicPausedForLock = false;      // the lock screen paused the music
+    bool m_chargerWhileAsleep = false;      // the cable went in or out during a sleep (the console wakes for it)
+    bool m_musicOnInput = false;            // woken by the cable: the music waits for a button or a touch
     nxui::Font m_fLock, m_fLockDate;
     std::string m_date;
     void lock(bool shuffle = true); // (shuffle: a new wallpaper, if they rotate; not for a preview)
