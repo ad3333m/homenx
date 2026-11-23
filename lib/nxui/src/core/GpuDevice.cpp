@@ -26,9 +26,17 @@ static void dkDebugCallback(void* userData, const char* context, DkResult result
 bool GpuDevice::initialize() {
     m_fbW = s_fbW;
     m_fbH = s_fbH;
-    // A bigger picture than the 1280x720 the window starts with (1080p on a TV).
-    if (m_fbW != FB_WIDTH || m_fbH != FB_HEIGHT)
-        nwindowSetDimensions(nwindowGetDefault(), static_cast<u32>(m_fbW), static_cast<u32>(m_fbH));
+    NWindow* window = s_window ? s_window : nwindowGetDefault();
+    const Result dimensions = nwindowSetDimensions(window, m_fbW, m_fbH);
+    if (R_FAILED(dimensions)) {
+        logGpu("[GpuDevice] window dimensions failed rc=0x%X", dimensions);
+        return false;
+    }
+    const Result crop = nwindowSetCrop(window, 0, 0, m_fbW, m_fbH);
+    if (R_FAILED(crop)) {
+        logGpu("[GpuDevice] window crop failed rc=0x%X", crop);
+        return false;
+    }
     m_dev   = dk::DeviceMaker{}.setCbDebug(dkDebugCallback).create();
     m_queue = dk::QueueMaker{m_dev}.setFlags(DkQueueFlags_Graphics).create();
 
@@ -74,7 +82,7 @@ bool GpuDevice::initialize() {
 
     std::array<DkImage const*, NUM_FB> fbArray;
     for (int i = 0; i < NUM_FB; ++i) fbArray[i] = &m_fbImages[i];
-    m_swapchain = dk::SwapchainMaker{m_dev, nwindowGetDefault(), fbArray}.create();
+    m_swapchain = dk::SwapchainMaker{m_dev, window, fbArray}.create();
 
     return true;
 }

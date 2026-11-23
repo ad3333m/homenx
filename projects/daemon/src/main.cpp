@@ -1,4 +1,3 @@
-
 #include <switch.h>
 #include <switch/applets/friends_la.h>
 #include <cstdlib>
@@ -7,6 +6,7 @@
 #include <switchu/control_cache.hpp>
 #include <switchu/ns_ext.hpp>
 #include <switchu/file_log.hpp>
+#include <switchu/homebrew_playtime.hpp>
 #include <switchu/sd_commit.hpp>
 #include <switchu/time_budget.hpp>
 #include <switchu/lock_screen_policy.hpp>
@@ -16,11 +16,10 @@
 #include "ecs.hpp"
 #include "library_applet_runner.hpp"
 #include "menu_launcher.hpp"
+#include "media_service.hpp"
 #include "system_action_queue.hpp"
 #include <cstdio>
 #include <cstring>
-#include <cctype>
-#include <map>
 #include <atomic>
 #include <mutex>
 #include <vector>
@@ -30,6 +29,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <ctime>
 #include <system_error>
 
 using namespace switchu;
@@ -42,19 +43,7 @@ static bool g_accountReady = false;
 static bool g_nssuReady = false;
 static bool g_avmReady = false;
 static bool g_psmReady = false;
-static bool g_viReady = false;
-static bool g_wakeCovered = false;
-static uint64_t g_wakeCoverDeadline = 0;
-
-static void revealWakeDisplay() {
-    if (!g_viReady || !g_wakeCovered) return;
-    const Result rc = viSetContentVisibility(true);
-    switchu::FileLog::log("[wake-cover] reveal rc=0x%X", rc);
-    if (R_SUCCEEDED(rc)) {
-        g_wakeCovered = false;
-        g_wakeCoverDeadline = 0;
-    }
-}
+static std::atomic<bool> g_sleepInProgress{false};
 
 static bool g_hidReady = false;
 
@@ -149,8 +138,10 @@ extern "C" void __appInit(void) {
         svcOutputDebugString("[SwitchU-daemon] psmInitialize FAIL", 36);
 
     rc = viInitialize(ViServiceType_Manager);
-    g_viReady = R_SUCCEEDED(rc);
-    if (g_viReady) viSetContentVisibility(true); // recover any previous daemon exit
+    if (R_SUCCEEDED(rc)) {
+        viSetContentVisibility(true); // recover upgrades from older builds
+        viExit();
+    }
     // No lbl session here: the daemon never sets the backlight, and lbl has few
     // sessions. Holding one left none for HOME's brightness slider (OutOfSessions).
 
@@ -188,8 +179,6 @@ extern "C" void __appExit(void) {
     switchu::FileLog::close();
 
     if (g_hidReady) hidExit();
-    revealWakeDisplay();
-    if (g_viReady) viExit();
     if (g_psmReady) psmExit();
     if (g_avmReady) avmExit();
     if (g_nssuReady) nssuExit();
@@ -270,9 +259,6 @@ static bool g_pendingForegroundAppletHome = false;
 static bool g_pendingHomeMenuLaunch = false;
 static bool g_systemHasForeground = false; // confirmed by AE messages 1/2
 static smi::MenuStartMode g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
-// HomeNX: a game started in the background while the menu closes; it gets the
-// screen as soon as the menu has exited.
-static bool g_launchForegroundPending = false;
 static const char* g_pendingHomeMenuSource = nullptr;
 static uint64_t g_pendingHomeMenuStartedAt = 0;
 // HomeNX: when the menu asked for something that only happens once it has
@@ -286,7 +272,7 @@ static PsmChargerType g_lastChargerType = (PsmChargerType)0xFF;
 
 static bool shouldDeferViewPolling() {
     // HomeNX: nothing slow on this thread while HOME is being opened.
-    if (g_pendingHomeMenuLaunch) return true;
+    if (g_sleepInProgress.load() || g_pendingHomeMenuLaunch) return true;
     return daemon::app::isRunning() &&
            daemon::app::hasForeground() &&
            !daemon::menu_la::isActive() &&
@@ -896,6 +882,57 @@ static bool takeForegroundFromRunningApp(const char* source) {
     return true;
 }
 
+// The game title borrowed to run homebrew in application mode.
+static uint64_t g_homebrewHostTitleId = 0;
+static std::string g_homebrewPlayPath;
+static uint64_t g_homebrewPlayStarted = 0;
+static bool g_homebrewAppletRunning = false;
+static bool g_homebrewCountLaunch = false;
+
+static void startHomebrewPlayClock() {
+    if (!g_homebrewPlayPath.empty() && !g_homebrewPlayStarted && !g_sleepInProgress)
+        g_homebrewPlayStarted = armGetSystemTick();
+}
+
+static void stopHomebrewPlayClock() {
+    if (!g_homebrewPlayStarted)
+        return;
+    const uint64_t elapsed = armTicksToNs(armGetSystemTick() - g_homebrewPlayStarted);
+    g_homebrewPlayStarted = 0;
+    if (elapsed < 1'000'000'000ULL)
+        return;
+    std::ofstream log(homebrew::kPlayLog, std::ios::app);
+    const auto now = std::max<std::time_t>(0, std::time(nullptr));
+    log << elapsed << ' ' << now << ' ' << g_homebrewCountLaunch
+        << ' ' << std::quoted(g_homebrewPlayPath) << '\n';
+    log.close();
+    if (log)
+        g_homebrewCountLaunch = false;
+}
+
+static void beginHomebrewPlaySession() {
+    g_homebrewPlayPath.clear();
+    std::getline(std::ifstream("sdmc:/config/SwitchU/hbl_next.txt"), g_homebrewPlayPath);
+    if (g_homebrewPlayPath == "hbmenu") {
+        g_homebrewPlayPath = "sdmc:/hbmenu.nro";
+    } else if (g_homebrewPlayPath == "sphaira") {
+        std::string configuredPath;
+        std::getline(std::ifstream("sdmc:/config/SwitchU/sphaira_path.txt"), configuredPath);
+        for (const std::string& path : {std::string("sdmc:/switch/SwitchU/bin/sphaira.nro"),
+                                       configuredPath, std::string("sdmc:/switch/sphaira/sphaira.nro"),
+                                       std::string("sdmc:/switch/sphaira.nro")}) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(path, ec)) {
+                g_homebrewPlayPath = path;
+                break;
+            }
+        }
+    }
+    if (g_homebrewPlayPath.rfind("sdmc:/", 0) != 0)
+        g_homebrewPlayPath.clear();
+    g_homebrewCountLaunch = true;
+}
+
 static Result startControlCacheWorker();
 static void stopControlCacheWorker();
 static Result startEventManager();
@@ -904,19 +941,24 @@ static void stopEventManager();
 static bool closeHomebrewApp(const char* why);
 
 static Result launchPendingHomeMenu() {
-    if (!g_pendingHomeMenuLaunch)
+    if (!g_pendingHomeMenuLaunch || !g_systemHasForeground || g_sleepInProgress
+        || g_foregroundAppletActive || daemon::menu_la::hasHolder())
         return 0;
+    daemon::app::onHomeSuspend();
+    stopHomebrewPlayClock();
     // HomeNX: homebrew running in a borrowed game (Sphaira) stays open on HOME, to
     // resume as a game is, when CardsNX is HOME (it knows which app runs in that
     // game) -- unless its Settings > Home > Keep homebrew open is off (this file).
     // Otherwise it closes, and that game isn't left "open".
-    std::error_code closeEc;
-    std::string frontend;
-    std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), frontend);
     const auto mode = g_pendingHomeMenuMode;
-    if (mode != smi::MenuStartMode::WakeUp && (frontend.rfind("cards", 0) != 0
-        || std::filesystem::exists("sdmc:/config/SwitchU/homebrew_close_on_home", closeEc)))
-        closeHomebrewApp("home");
+    if (g_homebrewHostTitleId && mode != smi::MenuStartMode::WakeUp) {
+        std::error_code closeEc;
+        std::string frontend;
+        std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), frontend);
+        if (frontend.rfind("cards", 0) != 0
+            || std::filesystem::exists("sdmc:/config/SwitchU/homebrew_close_on_home", closeEc))
+            closeHomebrewApp("home");
+    }
 
     const char* source = g_pendingHomeMenuSource ? g_pendingHomeMenuSource : "home";
     const uint64_t startedAt = g_pendingHomeMenuStartedAt;
@@ -933,12 +975,11 @@ static Result launchPendingHomeMenu() {
         source, static_cast<u32>(mode), status.app_running ? 1 : 0, status.suspended_app_id);
     const uint64_t launchStartedAt = armGetSystemTick();
     const Result rc = daemon::menu_la::launch(mode, status);
-    if (R_FAILED(rc) && mode == smi::MenuStartMode::WakeUp) {
+    if (R_FAILED(rc)) {
         g_pendingHomeMenuLaunch = true;
         g_pendingHomeMenuMode = mode;
-        g_pendingHomeMenuSource = "wake-lock-retry";
+        g_pendingHomeMenuSource = source;
         g_pendingHomeMenuStartedAt = armGetSystemTick();
-        appletRequestToGetForeground();
     }
     const uint64_t launchDoneAt = armGetSystemTick();
     switchu::FileLog::log(
@@ -955,7 +996,7 @@ static Result launchPendingHomeMenu() {
 }
 
 static bool menuExitExpected() {
-    return daemon::menu_la::hasHolder() && (g_launchForegroundPending || !g_actionQueue.empty());
+    return daemon::menu_la::hasHolder() && !g_actionQueue.empty();
 }
 
 // HomeNX: the menu said it was closing but its process is still there. Whatever
@@ -965,19 +1006,12 @@ static void forceMenuGone(const char* why) {
     switchu::FileLog::logCommit("[menu] still open %lums after asking to close (%s); closing it",
         static_cast<unsigned long>(g_menuExitExpectedAt
             ? armTicksToNs(armGetSystemTick() - g_menuExitExpectedAt) / 1'000'000ULL : 0), why);
-    daemon::menu_la::terminateWithin(1'000'000'000ULL);
-    g_menuExitExpectedAt = 0;
-    if (g_launchForegroundPending) {
-        g_launchForegroundPending = false;
-        Result fgRc = daemon::app::resume();
-        for (int i = 0; R_FAILED(fgRc) && i < 6 && daemon::app::isRunning(); ++i) {
-            svcSleepThread(40'000'000ULL);
-            fgRc = daemon::app::resume();
-        }
-        switchu::FileLog::logCommit("[menu] early-launched game takes the screen rc=0x%X", fgRc);
-        if (R_FAILED(fgRc))
-            daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
+    const Result rc = daemon::menu_la::terminateWithin(1'000'000'000ULL);
+    if (R_FAILED(rc) && daemon::menu_la::hasHolder()) {
+        g_menuExitExpectedAt = armGetSystemTick();
+        return;
     }
+    g_menuExitExpectedAt = 0;
 }
 
 static void requestPowerStateChange(const char* source, bool reboot) {
@@ -1022,41 +1056,28 @@ static void noteSleep(char what) {
 }
 
 static void startSleepSequence(const char* source) {
-    switchu::FileLog::logCommit("[power] sleep requested source=%s menuActive=%d",
-                                source, daemon::menu_la::isActive() ? 1 : 0);
-    // Do not acquire/lock foreground or create a menu while AM is entering
-    // sleep. Defer an absent menu's locked launch until the Wakeup event.
-    if (g_viReady && lock_screen::enabled() && daemon::app::isRunning()
-        && !daemon::menu_la::isActive()) {
-        const Result coverRc = viSetContentVisibility(false);
-        switchu::FileLog::log("[wake-cover] cover before sleep rc=0x%X", coverRc);
-        g_wakeCovered = R_SUCCEEDED(coverRc);
-        g_wakeCoverDeadline = 0; // the recovery timer starts on wake
-    }
+    if (g_sleepInProgress)
+        return;
+    g_sleepInProgress = true;
+    stopHomebrewPlayClock();
+    switchu::FileLog::log("[power] sleep requested source=%s", source);
     noteSleep('S');
     pushNotification(smi::MenuMessage::SleepSequence);
-    switchu::FileLog::log("[power] menu notified; committing SD before sleep");
-    switchu::commitSdCard("sleep");
-    switchu::FileLog::log("[power] SD commit returned");
-    svcSleepThread(50'000'000ULL);
-    if (lock_screen::enabled() && daemon::app::isRunning()) {
-        // Discard AM's cached game transition image. This changes no foreground
-        // ownership and does not hide the display or require a later unblank.
-        const Result captureRc = appletInvalidateTransitionLayer();
-        switchu::FileLog::log("[power] clear game transition before sleep rc=0x%X", captureRc);
-    }
-    switchu::FileLog::logCommit("[power] calling StartSleepSequence");
+    if (lock_screen::enabled())
+        appletInvalidateTransitionLayer();
+
     const Result rc = appletStartSleepSequence(true);
-    switchu::FileLog::logCommit("[power] StartSleepSequence rc=0x%X", rc);
+    switchu::FileLog::log("[power] StartSleepSequence rc=0x%X", rc);
     if (R_FAILED(rc)) {
-        revealWakeDisplay();
+        g_sleepInProgress = false;
+        noteSleep('W');
+        if (g_homebrewAppletRunning || daemon::app::hasForeground()) startHomebrewPlayClock();
         pushNotification(smi::MenuMessage::WakeUp);
     }
 }
 
 static void startPowerSequence(const char* source, smi::SystemMessage action) {
     cancelViewPolling(source);
-    takeForegroundFromRunningApp(source);
 
     // Sleep keeps the filesystem mounted and the daemon alive. Stopping its
     // workers here would leave notifications and metadata caching disabled
@@ -1066,6 +1087,8 @@ static void startPowerSequence(const char* source, smi::SystemMessage action) {
         return;
     }
 
+    stopHomebrewPlayClock();
+    takeForegroundFromRunningApp(source);
     g_powerSequenceStarted.store(true);
 
     // The menu committed its writers before sending this command. The daemon
@@ -1117,6 +1140,7 @@ static void openMenuFromHome(const char* source) {
     logHomeState(source, "request");
     cancelViewPolling("home");
 
+    if (g_sleepInProgress) return;
     if (g_pendingHomeMenuLaunch) {
         switchu::FileLog::log("[%s] HOME ignored: foreground handoff already pending", source);
         return;
@@ -1133,20 +1157,19 @@ static void openMenuFromHome(const char* source) {
         forceMenuGone(source);
     }
 
-    if (!daemon::menu_la::isActive() && !g_foregroundAppletActive && appMayOwnScreen()) {
-        if (!takeForegroundFromRunningApp(source)) {
-            switchu::FileLog::log("[%s] HOME aborted: foreground request failed", source);
-            return;
-        }
-
-        // appletRequestToGetForeground() only queues the ownership transfer.
-        // Creating an AllForeground library applet before AE confirms message 1
-        // races qlaunch's own foreground transition and can crash the daemon.
+    if (!daemon::menu_la::hasHolder() && !g_foregroundAppletActive) {
+        // AM announces ownership separately from accepting the foreground request.
+        const bool alreadyOwnsForeground = g_systemHasForeground;
         g_pendingHomeMenuLaunch = true;
         g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
         g_pendingHomeMenuSource = source;
         g_pendingHomeMenuStartedAt = homeStartedAt;
-        switchu::FileLog::log("[%s] HOME waiting for ChangeIntoForeground", source);
+        if (alreadyOwnsForeground) {
+            launchPendingHomeMenu();
+        } else {
+            const Result rc = appletRequestToGetForeground();
+            switchu::FileLog::log("[%s] HOME foreground requested rc=0x%X", source, rc);
+        }
         return;
     }
 
@@ -1156,12 +1179,6 @@ static void openMenuFromHome(const char* source) {
     } else if (g_foregroundAppletActive) {
         switchu::FileLog::log("[%s] HOME requested while foreground applet active", source);
         g_pendingForegroundAppletHome = true;
-    } else {
-        switchu::FileLog::log("[%s] HOME no app/menu active; launching MainMenu", source);
-        Result menuRc = daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
-        switchu::FileLog::log("[%s] HOME MainMenu launch rc=0x%X", source, menuRc);
-        if (R_SUCCEEDED(menuRc))
-            armCatalogHold(kCatalogHoldAfterMenuLaunchNs);
     }
 }
 
@@ -1277,6 +1294,53 @@ static bool handleGeneralChannel() {
     return true;
 }
 
+static void finishSleepSequence() {
+    if (g_sleepInProgress.exchange(false))
+        noteSleep('W');
+    switchu::FileLog::log("[power] wake");
+    g_batteryRefreshPending.store(true);
+    const bool lockEnabled = lock_screen::enabled();
+    if (g_foregroundAppletActive && !lockEnabled) {
+        if (g_homebrewAppletRunning) startHomebrewPlayClock();
+        return;
+    }
+
+    if (lockEnabled)
+        appletInvalidateTransitionLayer();
+    const auto target = lock_screen::wakeTarget(lockEnabled,
+        daemon::menu_la::isActive(), daemon::app::isRunning());
+    if (target == lock_screen::WakeTarget::LockedMenu) {
+        g_pendingHomeMenuLaunch = true;
+        g_pendingHomeMenuMode = smi::MenuStartMode::WakeUp;
+        g_pendingHomeMenuSource = "wake-lock";
+        g_pendingHomeMenuStartedAt = armGetSystemTick();
+        if (g_foregroundAppletActive) {
+            g_pendingForegroundAppletHome = true;
+            return;
+        }
+    }
+    if (g_pendingHomeMenuLaunch) {
+        if (g_systemHasForeground)
+            launchPendingHomeMenu();
+        else
+            appletRequestToGetForeground();
+        return;
+    }
+    if (target == lock_screen::WakeTarget::ExistingMenu) {
+        pushNotification(smi::MenuMessage::WakeUp);
+        appletRequestToGetForeground();
+        return;
+    }
+    if (target == lock_screen::WakeTarget::Application) {
+        if (daemon::app::hasForeground() || R_SUCCEEDED(daemon::app::resume())) {
+            g_systemHasForeground = false;
+            startHomebrewPlayClock();
+            return;
+        }
+    }
+    openMenuFromHome("wake");
+}
+
 static bool handleAppletMessages() {
     u32 msg = 0;
     Result rc = appletGetMessage(&msg);
@@ -1284,11 +1348,6 @@ static bool handleAppletMessages() {
         return false;
 
     switchu::FileLog::log("[ae] msg=%u", msg);
-    // The screen hidden for sleep is shown again 8 s after the wake at the latest. A wake that came
-    // without its own message (after a long sleep) left it hidden for good: a black screen until a
-    // restart (#51). Pressing HOME or docking means it's awake.
-    if (g_wakeCovered && !g_wakeCoverDeadline && (msg == 20 || msg == 30)) // (HOME pressed, docked or undocked: awake for sure)
-        g_wakeCoverDeadline = armGetSystemTick() + armNsToTicks(8'000'000'000ULL);
     switch (msg) {
         case 1:
         switchu::FileLog::log("[ae] -> ChangeIntoForeground");
@@ -1305,68 +1364,26 @@ static bool handleAppletMessages() {
         break;
 
         case 20:
-        openMenuFromHome("ae");
+        if (g_sleepInProgress)
+            finishSleepSequence();
+        else
+            openMenuFromHome("ae");
         break;
 
         case 22:
+        case 27: // thermal sleep request
+        case 28: // low battery sleep request
         case 29:
         case 32:
         switchu::FileLog::log("[ae] -> Sleep (msg=%u)", msg);
-        // Keep the application accessor; reacquire its screen only after wake.
-        daemon::app::onHomeSuspend();
         // The console is going under on its own (idle plan or power button):
         // the menu needs the same handoff as a menu-initiated sleep.
         startSleepSequence("applet-sleep");
         break;
 
         case 26:
-        {
-        switchu::FileLog::logCommit("[ae] -> Wakeup");
-        noteSleep('W');
-        if (g_wakeCovered) g_wakeCoverDeadline = armGetSystemTick() + armNsToTicks(8'000'000'000ULL);
-        if (lock_screen::enabled()) {
-            const Result captureRc = appletInvalidateTransitionLayer();
-            switchu::FileLog::log("[wake-lock] clear transition image rc=0x%X", captureRc);
-        }
-        g_batteryRefreshPending.store(true);
-        const auto target = lock_screen::wakeTarget(lock_screen::enabled(),
-            daemon::menu_la::isActive(), daemon::app::isRunning());
-        if (target == lock_screen::WakeTarget::LockedMenu) {
-            // The menu exits when a game starts. Wake therefore needs a fresh
-            // menu with an explicit lock intent, not an automatic app::resume().
-            daemon::app::onHomeSuspend();
-            g_launchForegroundPending = false;
-            g_pendingHomeMenuLaunch = true;
-            g_pendingHomeMenuMode = smi::MenuStartMode::WakeUp;
-            g_pendingHomeMenuSource = "wake-lock";
-            g_pendingHomeMenuStartedAt = armGetSystemTick();
-            const Result rc = appletRequestToGetForeground();
-            switchu::FileLog::log("[ae] wake lock waiting for ChangeIntoForeground rc=0x%X", rc);
-            // Some wake sequences deliver foreground confirmation before
-            // Wakeup. Already-confirmed ownership will not emit another change.
-            if (R_SUCCEEDED(rc) && g_systemHasForeground) launchPendingHomeMenu();
-            break;
-        }
-        // Deliver wake before requesting the menu foreground, so it can put
-        // the lock screen up before its first visible frame.
-        if (daemon::menu_la::isActive())
-            pushNotification(smi::MenuMessage::WakeUp);
-        if (target == lock_screen::WakeTarget::Application) {
-            Result rc = daemon::app::resume();
-            if (R_FAILED(rc)) {
-                switchu::FileLog::log("[ae] wake resume FAIL: 0x%X", rc);
-                appletRequestToGetForeground();
-            } else {
-                switchu::FileLog::log("[ae] wake resume OK");
-            }
-        } else {
-            appletRequestToGetForeground();
-        }
-        if (!daemon::menu_la::isActive() && !daemon::app::isRunning()) {
-            daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
-        }
+        finishSleepSequence();
         break;
-        }
     }
     return true;
 }
@@ -1406,8 +1423,6 @@ static bool consumeForegroundAppletHomeRequest() {
     return true;
 }
 
-// HomeNX: the title currently borrowed to run homebrew as an application.
-static uint64_t g_homebrewHostTitleId = 0;
 static uint64_t g_homebrewLaunchedAt = 0;
 // Settings > HomeNX "Sphaira as an application" off (it writes "settings" in it):
 // the menu uses the Album. Older builds wrote it themselves after one failed
@@ -1430,58 +1445,16 @@ static void clearAutoAppletFlag() {
 // if that fails, back to HOME, never the Album (applet mode).
 static constexpr const char* kApplicationOnlyFlag = "sdmc:/config/SwitchU/homebrew_application_only";
 
-// Atmosphère starts the homebrew loader in place of the Album unless it was set
-// up otherwise (override_config.ini [hbl_config]: other programs, or a key that
-// has to be held). Then the Album fallback only opened the Album.
-static bool albumRunsHbl() {
-    std::FILE* f = std::fopen("sdmc:/atmosphere/config/override_config.ini", "r");
-    if (!f) return true; // Atmosphère's default: the Album, unless R is held
-    std::map<std::string, std::string> programs, keys; // by their suffix: "" or "_0", "_1", ...
-    bool inHbl = false;
-    char line[256];
-    while (std::fgets(line, sizeof(line), f)) {
-        std::string s;
-        for (const char* c = line; *c; ++c)
-            if (!std::isspace(static_cast<unsigned char>(*c))) s += static_cast<char>(std::tolower(static_cast<unsigned char>(*c)));
-        if (s.empty() || s[0] == ';' || s[0] == '#') continue;
-        if (s[0] == '[') {
-            inHbl = s == "[hbl_config]";
-            continue;
-        }
-        const size_t eq = s.find('=');
-        if (!inHbl || eq == std::string::npos) continue;
-        const std::string k = s.substr(0, eq), v = s.substr(eq + 1);
-        for (const char* base : {"program_id", "title_id"})
-            if (k.rfind(base, 0) == 0) programs[k.substr(std::strlen(base))] = v;
-        if (k.rfind("override_key", 0) == 0) keys[k.substr(std::strlen("override_key"))] = v;
-    }
-    std::fclose(f);
-    if (programs.empty()) return true;
-    for (const auto& [suffix, program] : programs)
-        if (program == "010000000000100d" || program == "0x010000000000100d") {
-            const auto key = keys.find(suffix);
-            return key == keys.end() || key->second.empty() || key->second[0] == '!'; // "!R": unless R is held
-        }
-    return false;
-}
-
-static void fallBackToAlbum(const char* why) {
-    bool applicationOnly = false;
-    if (std::FILE* only = std::fopen(kApplicationOnlyFlag, "r")) {
-        std::fclose(only);
-        std::remove(kApplicationOnlyFlag);
-        applicationOnly = true;
-    }
-    if (applicationOnly || !albumRunsHbl()) {
-        switchu::FileLog::log("[homebrew] application mode failed (%s); %s, back to HOME", why,
-                              applicationOnly ? "application only" : "the Album doesn't run homebrew here");
+static void fallBackToHomebrewApplet(const char* why) {
+    if (std::remove(kApplicationOnlyFlag) == 0) {
+        switchu::FileLog::log("[homebrew] application-only launch failed (%s)", why);
         daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
         return;
     }
-    switchu::FileLog::log("[homebrew] application mode failed (%s); using Album this once", why);
-    daemon::SystemAction album{};
-    album.type = daemon::SystemActionType::OpenAlbum;
-    g_actionQueue.enqueue(album);
+    switchu::FileLog::log("[homebrew] application mode failed (%s); using applet mode", why);
+    daemon::SystemAction action{};
+    action.type = daemon::SystemActionType::LaunchHomebrewApplet;
+    g_actionQueue.enqueue(action);
 }
 
 // Games to borrow for homebrew as an application: the menu's pick, then a few
@@ -1490,7 +1463,6 @@ static void fallBackToAlbum(const char* why) {
 static std::vector<uint64_t> homebrewHostCandidates(uint64_t preferred) {
     using namespace switchu::ns;
     std::vector<uint64_t> out;
-    if (preferred && (preferred >> 56) != 0x05) out.push_back(preferred);
     std::vector<ExtApplicationRecord> records;
     std::vector<ExtApplicationView> views;
     if (listApplicationRecords(records, "hbhost") && queryApplicationViews(records, views, "hbhost"))
@@ -1506,6 +1478,8 @@ static std::vector<uint64_t> homebrewHostCandidates(uint64_t preferred) {
 
 static void releaseHomebrewHost() {
     if (g_homebrewHostTitleId == 0) return;
+    stopHomebrewPlayClock();
+    g_homebrewPlayPath.clear();
     const Result rc = daemon::unregisterExternalContent(g_homebrewHostTitleId);
     switchu::FileLog::log("[homebrew] released host 0x%016lX rc=0x%X", g_homebrewHostTitleId, rc);
     g_homebrewHostTitleId = 0;
@@ -1514,6 +1488,7 @@ static void releaseHomebrewHost() {
 static bool closeHomebrewApp(const char* why) {
     if (g_homebrewHostTitleId == 0 || !daemon::app::isRunning())
         return false;
+    stopHomebrewPlayClock();
     const Result rc = daemon::app::kill();
     switchu::FileLog::log("[homebrew] closed on %s rc=0x%X", why, rc);
     releaseHomebrewHost();
@@ -1759,26 +1734,13 @@ static bool handleMenuCommand() {
     Result result = 0;
 
     switch (msg) {
+    case smi::SystemMessage::StartMedia:
+        daemon::media::start();
+        break;
     case smi::SystemMessage::LaunchApplication: {
         auto args = reader.pop<smi::LaunchAppArgs>();
-        // HomeNX: start the game now, while the menu is still closing, instead of
-        // after it has fully shut down. It loads in the background and only gets
-        // the screen once the menu is gone, so it can't fight the menu applet for
-        // the foreground (which is what froze games' own pop-ups upstream).
-        if (daemon::menu_la::hasHolder() && !g_foregroundAppletActive && g_actionQueue.empty()
-            && !daemon::app::isRunning()) {
-            AccountUid uid{};
-            std::memcpy(&uid, args.user_uid, sizeof(uid));
-            result = daemon::app::launch(args.title_id, uid, false);
-            if (R_SUCCEEDED(result)) {
-                g_launchForegroundPending = true;
-                recordOperationResult(requestId, msg, result, args.title_id);
-                switchu::FileLog::log("[smi] launch 0x%016lX started early; foreground when the menu exits",
-                                      args.title_id);
-                break;
-            }
-            switchu::FileLog::log("[smi] early launch 0x%016lX FAIL 0x%X; queueing", args.title_id, result);
-        }
+        // Follow the regular action path so AM starts the title after HOME
+        // has released its applet holder and finished tearing down.
         daemon::SystemAction action{};
         action.type = daemon::SystemActionType::LaunchApplication;
         action.requestId = requestId;
@@ -1818,15 +1780,25 @@ static bool handleMenuCommand() {
         }
         break;
 
+    case smi::SystemMessage::RestartMenuForDisplay: {
+        daemon::SystemAction action{};
+        action.type = daemon::SystemActionType::RestartMenuForDisplay;
+        g_actionQueue.enqueue(action);
+        break;
+    }
+
     case smi::SystemMessage::LaunchAlbum:
+    case smi::SystemMessage::LaunchHomebrewApplet:
         {
             daemon::SystemAction action{};
-            action.type = daemon::SystemActionType::OpenAlbum;
+            action.type = msg == smi::SystemMessage::LaunchAlbum
+                ? daemon::SystemActionType::OpenAlbum : daemon::SystemActionType::LaunchHomebrewApplet;
             action.requestId = requestId;
             result = g_actionQueue.enqueue(action);
             recordOperationResult(requestId, msg, result);
         }
-        switchu::FileLog::log("[smi] queued album launch (actions=%zu)", g_actionQueue.size());
+        switchu::FileLog::log("[smi] queued applet launch msg=%u (actions=%zu)",
+                              static_cast<unsigned>(msg), g_actionQueue.size());
         break;
 
     case smi::SystemMessage::LaunchMiiEditor:
@@ -1986,7 +1958,6 @@ static bool handleMenuCommand() {
     }
 
     case smi::SystemMessage::LockFramePresented:
-        if (g_wakeCoverDeadline) revealWakeDisplay();
         break;
 
     case smi::SystemMessage::MenuReady:
@@ -2014,6 +1985,8 @@ static bool handleMenuCommand() {
 }
 
 static Result relaunchMenuAfterApplet(const char* appletName) {
+    if (g_pendingHomeMenuLaunch)
+        return launchPendingHomeMenu();
     const auto status = buildSystemStatus();
     const Result rc = daemon::menu_la::launch(smi::MenuStartMode::AppletReturn, status);
     switchu::FileLog::log(
@@ -2033,33 +2006,47 @@ static bool handleAction(daemon::SystemAction& action) {
             // Serve hbloader as the host title's code for this launch; released
             // again when the application exits (releaseHomebrewHost). The next
             // game is tried when one can't start.
+            if (g_homebrewHostTitleId) closeHomebrewApp("replace");
             Result rc = MAKERESULT(Module_Libnx, LibnxError_NotFound);
-            for (const uint64_t host : homebrewHostCandidates(action.titleId)) {
+            auto tryHost = [&](uint64_t host) {
                 rc = daemon::registerExternalContent(host, "/switch/SwitchU/bin/hbl");
                 if (R_SUCCEEDED(rc)) {
+                    beginHomebrewPlaySession();
                     g_homebrewHostTitleId = host;
                     g_homebrewLaunchedAt = armGetSystemTick();
                     rc = daemon::app::launch(host, action.uid);
                 }
                 if (R_SUCCEEDED(rc)) {
+                    g_systemHasForeground = false;
+                    startHomebrewPlayClock();
                     action.titleId = host;
-                    break;
+                    return true;
                 }
                 switchu::FileLog::log("[action] homebrew host 0x%016lX FAIL: 0x%X", host, rc);
                 releaseHomebrewHost();
+                return false;
+            };
+            const uint64_t preferred = action.titleId;
+            if (!(preferred && (preferred >> 56) != 0x05 && tryHost(preferred))) {
+                for (const uint64_t host : homebrewHostCandidates(preferred)) {
+                    if (tryHost(host))
+                        break;
+                }
             }
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchHomebrewApp, rc, action.titleId);
             if (R_FAILED(rc)) {
                 switchu::FileLog::log("[action] homebrew app FAIL: 0x%X (no game could be borrowed)", rc);
                 char why[48];
                 std::snprintf(why, sizeof(why), "launch rc=0x%X", rc);
-                fallBackToAlbum(why);
+                fallBackToHomebrewApplet(why);
             }
             return true;
         }
 
         case daemon::SystemActionType::LaunchApplication: {
+            closeHomebrewApp("replace");
             Result rc = daemon::app::launch(action.titleId, action.uid);
+            if (R_SUCCEEDED(rc)) g_systemHasForeground = false;
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchApplication,
                                   rc, action.titleId);
             if (R_FAILED(rc)) {
@@ -2073,6 +2060,10 @@ static bool handleAction(daemon::SystemAction& action) {
         case daemon::SystemActionType::ResumeApplication: {
             switchu::FileLog::log("[action] resume: calling app::resume()");
             Result rc = daemon::app::resume();
+            if (R_SUCCEEDED(rc)) {
+                g_systemHasForeground = false;
+                startHomebrewPlayClock();
+            }
             switchu::FileLog::log("[action] resume: app::resume() -> 0x%X", rc);
             recordOperationResult(action.requestId, smi::SystemMessage::ResumeApplication,
                                   rc, daemon::app::suspendedTitleId());
@@ -2084,13 +2075,47 @@ static bool handleAction(daemon::SystemAction& action) {
             return true;
         }
 
+        case daemon::SystemActionType::RestartMenuForDisplay: {
+            // A resolution restart must preserve the lock requirement.
+            const auto mode = lock_screen::enabled() ? smi::MenuStartMode::WakeUp
+                                                     : smi::MenuStartMode::AppletReturn;
+            daemon::menu_la::launch(mode, buildSystemStatus());
+            return true;
+        }
+
+        case daemon::SystemActionType::LaunchHomebrewApplet: {
+            constexpr uint64_t programId = smi::kMenuTakeoverProgramId;
+            const auto suspendedPath = g_homebrewPlayPath;
+            const bool suspendedLaunch = g_homebrewCountLaunch;
+            Result rc = daemon::registerExternalContent(programId, "/switch/SwitchU/bin/hbl-applet");
+            if (R_SUCCEEDED(rc)) {
+                beginHomebrewPlaySession();
+                g_homebrewAppletRunning = true;
+                startHomebrewPlayClock();
+                rc = launchLibraryApplet(AppletId_LibraryAppletPhotoViewer, "Homebrew");
+                stopHomebrewPlayClock();
+                g_homebrewAppletRunning = false;
+                g_homebrewPlayPath = suspendedPath;
+                g_homebrewCountLaunch = suspendedLaunch;
+                daemon::unregisterExternalContent(programId);
+            }
+            recordOperationResult(action.requestId, smi::SystemMessage::LaunchHomebrewApplet, rc);
+            relaunchMenuAfterApplet("Homebrew");
+            return true;
+        }
+
         case daemon::SystemActionType::OpenAlbum: {
             const u8 albumArg = AlbumLaArg_ShowAllAlbumFilesForHomeMenu;
-            Result rc = launchLibraryApplet(AppletId_LibraryAppletPhotoViewer,
-                                            "Album",
-                                            &albumArg,
-                                            sizeof(albumArg),
-                                            0x10000);
+            // Explicit code source keeps Atmosphère's automatic hbloader
+            // override from replacing the system Album.
+            constexpr uint64_t programId = smi::kMenuTakeoverProgramId;
+            const Result codeRc = daemon::registerSystemAppletCode(programId);
+            if (R_FAILED(codeRc))
+                switchu::FileLog::log("[action] system Album code unavailable rc=0x%X; using normal launch", codeRc);
+            const Result rc = launchLibraryApplet(AppletId_LibraryAppletPhotoViewer,
+                                                  "Album", &albumArg, sizeof(albumArg), 0x10000);
+            if (R_SUCCEEDED(codeRc))
+                daemon::unregisterExternalContent(programId);
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchAlbum, rc);
             if (R_FAILED(rc))
                 switchu::FileLog::log("[action] album FAIL: 0x%X", rc);
@@ -2217,16 +2242,14 @@ static void drainMenuCommands() {
 }
 
 static void mainLoop() {
-    if (g_wakeCovered && g_wakeCoverDeadline && armGetSystemTick() >= g_wakeCoverDeadline)
-        revealWakeDisplay();
     for (int i = 0; i < 16 && handleGeneralChannel(); ++i) {}
     for (int i = 0; i < 16 && handleAppletMessages(); ++i) {}
-    takeLaunchRequests();
+    if (!g_sleepInProgress) takeLaunchRequests();
     drainMenuCommands();
 
     // SPSM terminates the process asynchronously. Do not schedule catalogue,
     // cache or logging work after the power request has begun.
-    if (g_powerSequenceStarted.load())
+    if (g_powerSequenceStarted.load() || g_sleepInProgress)
         return;
 
     bool didWork = false;
@@ -2314,21 +2337,7 @@ static void mainLoop() {
         switchu::FileLog::log("[main] menu exited (reason=%d runtime=%lums)",
             (int)daemon::menu_la::exitReason(),
             static_cast<unsigned long>(runtimeNs / 1'000'000ULL));
-        if (g_launchForegroundPending) {
-            g_launchForegroundPending = false;
-            Result fgRc = daemon::app::resume();
-            // AM can still be taking the screen back from the menu that just
-            // closed; a refusal then used to open HOME instead of the game.
-            for (int i = 0; R_FAILED(fgRc) && i < 6 && daemon::app::isRunning(); ++i) {
-                svcSleepThread(40'000'000ULL);
-                fgRc = daemon::app::resume();
-            }
-            switchu::FileLog::logCommit("[main] early-launched game takes the screen rc=0x%X", fgRc);
-            if (R_FAILED(fgRc))
-                daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
-            g_menuFastExitCount = 0; // a launch, not a crash loop
-            didWork = true;
-        } else if (runtimeNs < 1'000'000'000ULL)
+        if (g_actionQueue.empty() && runtimeNs < 1'000'000'000ULL)
             ++g_menuFastExitCount;
         else
             g_menuFastExitCount = 0;
@@ -2341,22 +2350,14 @@ static void mainLoop() {
         didWork = true;
     }
 
-    // HomeNX: HOME presses are ignored while a handoff is pending; if the
-    // ChangeIntoForeground that finishes it never comes, open HOME anyway.
     if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0
-        && armTicksToNs(armGetSystemTick() - g_pendingHomeMenuStartedAt) > 2'000'000'000ULL) {
-        if (g_pendingHomeMenuMode == smi::MenuStartMode::WakeUp) {
-            // Do not create an AllForeground applet until AE confirms ownership.
-            if (g_systemHasForeground) {
-                launchPendingHomeMenu();
-            } else {
-                const Result rc = appletRequestToGetForeground();
-                g_pendingHomeMenuStartedAt = armGetSystemTick();
-                switchu::FileLog::log("[wake-lock] retry foreground request rc=0x%X", rc);
-            }
-        } else {
-            switchu::FileLog::logCommit("[home] no ChangeIntoForeground 2 s after HOME; opening HOME anyway");
+        && armTicksToNs(armGetSystemTick() - g_pendingHomeMenuStartedAt) >= 2'000'000'000ULL) {
+        if (g_systemHasForeground) {
             launchPendingHomeMenu();
+        } else {
+            const Result rc = appletRequestToGetForeground();
+            g_pendingHomeMenuStartedAt = armGetSystemTick();
+            switchu::FileLog::log("[home] retry foreground request rc=0x%X", rc);
         }
         didWork = true;
     }
@@ -2375,28 +2376,19 @@ static void mainLoop() {
 
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
-        g_launchForegroundPending = false;
         // Homebrew that dies within seconds never really started (bad host
         // title or loader refused the hbl code): open it over the Album instead.
         const bool homebrewDiedEarly = g_homebrewHostTitleId != 0 &&
             armTicksToNs(armGetSystemTick() - g_homebrewLaunchedAt) < 2'500'000'000ULL;
         releaseHomebrewHost();
-        const bool wakeLockPending = g_pendingHomeMenuLaunch && g_pendingHomeMenuMode == smi::MenuStartMode::WakeUp;
-        if (g_pendingHomeMenuLaunch && !wakeLockPending) {
-            switchu::FileLog::log("[main] clearing pending HOME foreground handoff: app exited");
-            g_pendingHomeMenuLaunch = false;
-            g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
-            g_pendingHomeMenuSource = nullptr;
-            g_pendingHomeMenuStartedAt = 0;
-        }
         if (daemon::menu_la::isActive()) {
             pushNotification(smi::MenuMessage::ApplicationExited);
-        } else if (wakeLockPending) {
-            switchu::FileLog::log("[wake-lock] app exited; retaining lock-screen foreground handoff");
+        } else if (g_pendingHomeMenuLaunch) {
+            switchu::FileLog::log("[home] app exited during foreground handoff");
         } else if (homebrewDiedEarly) {
-            fallBackToAlbum("exited early");
+            fallBackToHomebrewApplet("exited early");
         } else {
-            daemon::menu_la::launch(smi::MenuStartMode::MainMenu, buildSystemStatus());
+            openMenuFromHome("app-exit");
         }
         didWork = true;
     }
@@ -2427,7 +2419,7 @@ static void mainLoop() {
 }
 
 static bool mainLoopNeedsFastTick() {
-    if (g_powerSequenceStarted.load())
+    if (g_powerSequenceStarted.load() || g_sleepInProgress)
         return false;
     if (shouldDeferViewPolling()) {
         return g_menuRelaunchCooldown > 0 || !g_actionQueue.empty();
@@ -2446,6 +2438,7 @@ static bool mainLoopNeedsFastTick() {
 // here, each with its deadline. Anything not proven to be signalled is covered
 // by the long fallback instead of an infinite wait.
 static u64 mainLoopTimeoutNs() {
+    if (g_sleepInProgress) return 5'000'000'000ULL;
     // Tick-counted work (view polls, menu relaunch cooldown, queued actions,
     // catalogue and control-cache coalescing) keeps the 10 ms tick.
     if (mainLoopNeedsFastTick())
@@ -2466,10 +2459,7 @@ static u64 mainLoopTimeoutNs() {
             timeout = ns;
     };
 
-    // Wake cover: shown again 8 s after wake at the latest.
-    if (g_wakeCovered && g_wakeCoverDeadline)
-        until(g_wakeCoverDeadline);
-    // HOME waiting for ChangeIntoForeground: opened anyway (or retried) after 2 s.
+    // Retry HOME foreground acquisition if AM has yet to confirm it.
     if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0)
         until(g_pendingHomeMenuStartedAt + armNsToTicks(2'000'000'000ULL));
     // A menu that should be closing: closed by the watchdog after 5 s.
@@ -2499,7 +2489,7 @@ static u64 mainLoopTimeoutNs() {
 }
 
 static void waitForMainWork() {
-    Waiter waiters[6]{};
+    Waiter waiters[6 + daemon::media::MaxWaiters]{};
     s32 waiterCount = 0;
 
     if (Event* messageEvent = appletGetMessageEvent())
@@ -2516,6 +2506,9 @@ static void waitForMainWork() {
     if (Event* appStateEvent = daemon::app::stateChangedEvent())
         waiters[waiterCount++] = waiterForEvent(appStateEvent);
 
+    const s32 firstMediaWaiter = waiterCount;
+    waiterCount += daemon::media::appendWaiters(waiters + waiterCount);
+
     if (waiterCount == 0) {
         svcSleepThread(1'000'000'000ULL);
         return;
@@ -2526,6 +2519,8 @@ static void waitForMainWork() {
     static Result s_lastWaitFailure = 0;
     static uint32_t s_waitFailureRepeatCount = 0;
     const Result rc = waitObjects(&signalledIndex, waiters, waiterCount, timeout);
+    if (R_SUCCEEDED(rc) && signalledIndex >= firstMediaWaiter)
+        daemon::media::poll();
     if (R_FAILED(rc) && rc != KERNELRESULT(TimedOut)) {
         if (rc == s_lastWaitFailure) {
             ++s_waitFailureRepeatCount;
@@ -2845,15 +2840,17 @@ int main(int argc, char* argv[]) {
     // never touched. switchu::daemon::achievements_watch::start() brings them back.
 
     while (g_running.load()) {
-        g_bootTimeSynced = switchu::timebudget::syncBootTime(); // until it has worked once
+        if (!g_sleepInProgress) g_bootTimeSynced = switchu::timebudget::syncBootTime();
         mainLoop();
         waitForMainWork();
     }
 
+    daemon::media::stop();
     switchu::daemon::achievements_watch::stop();
     stopEventManager();
     stopControlCacheWorker();
     daemon::menu_la::terminate();
+    stopHomebrewPlayClock();
     daemon::app::cleanup();
     if (g_generalChannelEventReady) {
         eventClose(&g_generalChannelEvent);

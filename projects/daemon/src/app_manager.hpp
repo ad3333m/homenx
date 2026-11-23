@@ -35,8 +35,7 @@ public:
     ApplicationSession(const ApplicationSession&) = delete;
     ApplicationSession& operator=(const ApplicationSession&) = delete;
 
-    // takeForeground=false: start it in the background (resume() gives it the screen).
-    Result launch(std::uint64_t titleId, AccountUid uid, bool takeForeground = true);
+    Result launch(std::uint64_t titleId, AccountUid uid);
     Result resume();
     Result terminate();
     Result kill(); // HomeNX: terminate now, no graceful-exit wait
@@ -76,7 +75,7 @@ bool hasForeground();
 std::uint64_t suspendedTitleId();
 SessionSnapshot snapshot();
 Event* stateChangedEvent();
-Result launch(std::uint64_t titleId, AccountUid uid, bool takeForeground = true);
+Result launch(std::uint64_t titleId, AccountUid uid);
 Result resume();
 Result terminate();
 Result kill();

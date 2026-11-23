@@ -255,7 +255,7 @@ void Application::run() {
     uint64_t prevTick = armGetSystemTick();
     uint64_t presentTick = prevTick; // the last drawn turn's start (paces the skipped ones)
 
-    while (m_running) {
+    while (m_running && appletMainLoop() && m_running) {
         uint64_t nowTick = armGetSystemTick();
         float dt = static_cast<float>(nowTick - prevTick)
                  / static_cast<float>(armGetSystemTickFreq());
@@ -292,7 +292,7 @@ void Application::run() {
             // The activity may have just entered sleep (e.g. power button
             // pressed). Don't render another frame of the home screen — go
             // straight to the sleep loop so the screen goes dark immediately.
-            if (m_sleeping) continue;
+            if (m_sleeping || !m_running) continue;
             setPhase("changing screens");
             if (!applyPendingActivity()) {
                 m_running = false;
@@ -408,25 +408,8 @@ void Application::setDeepIdle(bool deep) {
 void Application::setSleeping(bool s) {
     if (m_sleeping == s) return;
     m_sleeping = s;
-    if (m_sleeping) {
-        renderSleepFrames();
-    } else {
+    if (!m_sleeping)
         wakeRendering();
-    }
-}
-
-void Application::renderSleepFrames() {
-    if (!m_activity || !m_renderer || !m_renderEnabled) return;
-    setPhase("rendering sleep frames");
-    for (int i = 0; i < GpuDevice::NUM_FB; ++i) {
-        m_activity->m_rootBox->update(0.016f);
-        m_gpu.beginFrame();
-        m_renderer->beginFrame();
-        m_activity->m_rootBox->render(*m_renderer);
-        m_renderer->endFrame();
-        m_gpu.endFrame();
-    }
-    m_gpu.waitIdle();
 }
 
 void Application::shutdown() {

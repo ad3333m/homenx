@@ -8,6 +8,7 @@
 #include <fmt/format.h>
 #ifdef SWITCHU_MENU
 #include "CardsActivity.hpp"
+#include "smi_commands.hpp"
 #include <nxui/core/Renderer.hpp>
 #include <switchu/smi_protocol.hpp>
 #include <switchu/file_log.hpp>
@@ -46,9 +47,6 @@ extern "C" {
     TimeServiceType __nx_time_service_type = TimeServiceType_Menu;
 
     void __libnx_init_time(void);
-
-    void __nx_win_init(void);
-    void __nx_win_exit(void);
 #endif
 }
 
@@ -133,6 +131,26 @@ extern "C" void userAppExit(void) {
     romfsExit();
 }
 #else
+namespace {
+
+ViDisplay g_menuDisplay{};
+ViLayer g_menuLayer{};
+NWindow g_menuWindow{};
+
+void initializeMenuWindow() {
+    Result rc = viInitialize(ViServiceType_Default);
+    if (R_SUCCEEDED(rc)) rc = viOpenDefaultDisplay(&g_menuDisplay);
+    if (R_SUCCEEDED(rc)) rc = viCreateLayer(&g_menuDisplay, &g_menuLayer);
+    if (R_SUCCEEDED(rc)) rc = viSetLayerScalingMode(&g_menuLayer, ViScalingMode_PreserveAspectRatio);
+    if (R_FAILED(rc) && g_menuLayer.initialized)
+        rc = viSetLayerScalingMode(&g_menuLayer, ViScalingMode_FitToLayer);
+    if (R_SUCCEEDED(rc)) rc = nwindowCreateFromLayer(&g_menuWindow, &g_menuLayer);
+    if (R_FAILED(rc)) diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_BadGfxInit));
+    nxui::GpuDevice::setWindow(&g_menuWindow);
+}
+
+} // namespace
+
 extern "C" void __appInit(void) {
     Result rc;
     g_homenxStartTick = armGetSystemTick();
@@ -189,8 +207,8 @@ extern "C" void __appInit(void) {
     else
         DebugLog::log("[menu] nsInitialize OK");
 
-    __nx_win_init();
-    DebugLog::log("[menu] __nx_win_init done");
+    initializeMenuWindow();
+    DebugLog::log("[menu] display window initialized");
 
     svcOutputDebugString("[SwitchU-menu] __appInit done", 29);
 }
@@ -199,7 +217,10 @@ extern "C" void __appExit(void) {
     DebugLog::closeFileLog();
     switchu::FileLog::close();
 
-    __nx_win_exit();
+    nwindowClose(&g_menuWindow);
+    viCloseLayer(&g_menuLayer);
+    viCloseDisplay(&g_menuDisplay);
+    viExit();
 
     nsExit();
     accountExit();
@@ -227,18 +248,25 @@ extern "C" void __appExit(void) {
 static constexpr const char* kResolutionFile = "sdmc:/config/SwitchU/resolution.txt";
 static constexpr const char* kResolutionTry = "sdmc:/config/SwitchU/resolution.try";
 
-static void chooseResolution() {
+static bool displaySupports1080p() {
+    s32 width = 0, height = 0;
+    return appletGetOperationMode() == AppletOperationMode_Console
+        && R_SUCCEEDED(appletGetDefaultDisplayResolution(&width, &height))
+        && width >= 1920 && height >= 1080;
+}
+
+static bool chooseResolution() {
     std::string want;
     std::getline(std::ifstream(kResolutionFile), want);
-    if (want.rfind("1080", 0) != 0) return;
+    if (want.rfind("1080", 0) != 0) return false;
     std::error_code ec;
     if (std::filesystem::exists(kResolutionTry, ec)) {
         std::filesystem::remove(kResolutionTry, ec);
         std::filesystem::remove(kResolutionFile, ec);
         DebugLog::log("[menu] 1080p never showed a frame last time: 720p, and the setting is off");
-        return;
+        return false;
     }
-    if (appletGetOperationMode() != AppletOperationMode_Console) return; // the console's own screen is 720p
+    if (!displaySupports1080p()) return true;
     std::ofstream(kResolutionTry) << "1";
     nxui::GpuDevice::setResolution(1920, 1080);
     nxui::GpuDevice::setFirstFrameHook([] {
@@ -246,6 +274,25 @@ static void chooseResolution() {
         std::filesystem::remove(kResolutionTry, err);
     });
     DebugLog::log("[menu] 1920x1080 (on the TV)");
+    return true;
+}
+
+struct DisplayModeHook {
+    nxui::Application& app;
+    bool prefer1080p;
+};
+
+static void onDisplayMode(AppletHookType type, void* context) {
+    if (type != AppletHookType_OnOperationMode && type != AppletHookType_OnResume)
+        return;
+    const auto& hook = *static_cast<DisplayModeHook*>(context);
+    auto& app = hook.app;
+    app.requestRedraw();
+    if (!hook.prefer1080p || !app.isRunning()
+        || (app.gpu().height() == 1080) == displaySupports1080p())
+        return;
+    if (R_SUCCEEDED(switchu::menu::smi_cmd::sendSimple(switchu::smi::SystemMessage::RestartMenuForDisplay)))
+        app.requestExit();
 }
 
 static switchu::smi::MenuStartMode readStartMode() {
@@ -320,7 +367,7 @@ int main(int argc, char* argv[]) {
         nxui::Renderer::setShaderBasePath(sdPath);
         DebugLog::log("[menu] shader path: %s", sdPath.c_str());
     }
-    chooseResolution();
+    const bool prefer1080p = chooseResolution();
 #endif
 
     nxui::GpuDevice::setLogSink([](const char* msg) { DebugLog::log("%s", msg); });
@@ -422,7 +469,11 @@ int main(int argc, char* argv[]) {
         try {
             if (app.initialize()) {
                 DebugLog::log("[menu] app.run...");
+                DisplayModeHook display{app, prefer1080p};
+                AppletHookCookie displayHook{};
+                appletHook(&displayHook, onDisplayMode, &display);
                 app.run();
+                appletUnhook(&displayHook);
             } else {
                 DebugLog::log("[menu] app.initialize FAILED");
                 cards::startStep("app.initialize failed");

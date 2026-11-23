@@ -14,20 +14,38 @@ template <class F> void eventually(F test) {
 
 int main() {
     namespace fake = switube_fake;
-    std::filesystem::create_directories("sdmc:/config/Switube");
+    std::filesystem::create_directories("sdmc:/config/SwitchU/media");
     Switube player;
     player.start();
     std::this_thread::sleep_for(50ms);
-    assert(fake::launches == 0 && fake::connects == 0); // dormant until the UI asks
-    fake::ready(0x99); // stale readiness from an earlier process must not permit IPC
+    assert(fake::starts == 0 && fake::connects == 0); // dormant until the UI asks
+    if (FILE* file = std::fopen(HOMENX_MEDIA_READY_PATH, "w")) {
+        std::fputs(HOMENX_MEDIA_READY_TAG " 0xF00\n", file);
+        std::fclose(file);
+    }
     player.setWatching(true);
-    eventually([] { return fake::launches == 1; });
+    std::this_thread::sleep_for(50ms);
+    assert(fake::starts == 0); // opening the UI can be for YouTube alone
+    player.command(Switube::Cmd::PlayPause); // keep this queued through startup
+    eventually([] { return fake::starts == 1; });
     std::this_thread::sleep_for(50ms);
     assert(fake::connects == 0);
-    player.command(Switube::Cmd::PlayPause); // keep this queued through startup
-    fake::ready(0x55);
+    FILE* failure = std::fopen(HOMENX_MEDIA_READY_PATH, "w");
+    assert(failure);
+    std::fputs(HOMENX_MEDIA_READY_TAG " 0x10801\n", failure);
+    std::fclose(failure);
+    std::string startupError;
+    eventually([&] {
+        if (startupError.empty()) startupError = player.takeError();
+        return startupError.find("0x10801") != std::string::npos;
+    });
+    assert(fake::connects == 0);
+
+    player.command(Switube::Cmd::PlayPause);
+    eventually([] { return fake::starts == 2; });
+    fake::registered = true;
     eventually([&] { return player.now().playing; });
-    assert(fake::connects == 1 && fake::launches == 1);
+    assert(fake::connects == 1 && fake::starts == 2);
     player.command(Switube::Cmd::Volume, 55);
     player.command(Switube::Cmd::Repeat);
     player.command(Switube::Cmd::Shuffle);
@@ -47,7 +65,7 @@ int main() {
     assert(fake::polls == polls && fake::nexts == 1 && fake::playing);
     player.setWatching(true);
     eventually([&] { return player.now().connected; });
-    assert(fake::launches == 1); // reattach to the same background player
+    assert(fake::starts == 2); // reattach to the same background player
     player.stop();
     assert(fake::playing); // exiting HOME leaves background playback alone
 }

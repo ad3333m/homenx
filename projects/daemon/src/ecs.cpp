@@ -2,6 +2,9 @@
 #include <switchu/smi_protocol.hpp>
 #include <switchu/file_log.hpp>
 
+#include <switch/services/fsldr.h>
+#include <switch/services/lr.h>
+
 #include <stratosphere.hpp>
 #include <stratosphere/fssrv/interface_adapters/fssrv_filesystem_interface_adapter.hpp>
 
@@ -92,62 +95,80 @@ void initializeExternalContentAllocator() {
     }
 }
 
-Result registerExternalContent(uint64_t program_id, const char* exefs_path) {
+static Result serveExternalContent(uint64_t programId, std::shared_ptr<::ams::fs::fsa::IFileSystem> fs) {
     Result rc = initializeRuntime();
     if (R_FAILED(rc))
         return rc;
 
-    Handle move_h = INVALID_HANDLE;
-    rc = ldrAtmosRegisterExternalCode(program_id, &move_h);
-    if (R_FAILED(rc)) {
-        switchu::FileLog::log("[ecs] RegisterExternalCode FAIL: 0x%X", rc);
+    Handle handle = INVALID_HANDLE;
+    rc = ldrAtmosRegisterExternalCode(programId, &handle);
+    if (R_FAILED(rc))
         return rc;
-    }
-    switchu::FileLog::log("[ecs] RegisterExternalCode ok program=0x%016lX server=0x%X",
-                          program_id, move_h);
 
-    FsFileSystem sd_fs = {};
-    rc = fsOpenSdCardFileSystem(&sd_fs);
-    if (R_FAILED(rc)) {
-        ldrAtmosUnregisterExternalCode(program_id);
-        svcCloseHandle(move_h);
-        switchu::FileLog::log("[ecs] fsOpenSdCard FAIL: 0x%X", rc);
-        return rc;
-    }
-
-    auto remote_sd_fs = std::make_shared<::ams::fs::RemoteFileSystem>(sd_fs);
-    auto subdir_fs = std::make_shared<::ams::fssystem::SubDirectoryFileSystem>(std::move(remote_sd_fs));
-
-    ::ams::fs::Path exefs_fs_path;
-    auto amsRc = exefs_fs_path.Initialize(exefs_path, std::strlen(exefs_path));
-    if (amsRc.IsSuccess())
-        amsRc = exefs_fs_path.Normalize(::ams::fs::PathFlags{});
-    if (amsRc.IsSuccess())
-        amsRc = subdir_fs->Initialize(exefs_fs_path);
-
-    if (amsRc.IsFailure()) {
-        rc = amsRc.GetValue();
-        ldrAtmosUnregisterExternalCode(program_id);
-        svcCloseHandle(move_h);
-        switchu::FileLog::log("[ecs] SubDirectoryFileSystem init FAIL: 0x%X path=%s", rc, exefs_path);
-        return rc;
-    }
-
-    auto fs_object = ::ams::sf::CreateSharedObjectEmplaced<
+    auto object = ::ams::sf::CreateSharedObjectEmplaced<
         ::ams::fssrv::sf::IFileSystem,
-        ::ams::fssrv::impl::FileSystemInterfaceAdapter>(std::move(subdir_fs), false);
-
-    amsRc = g_manager.RegisterSession(move_h, ::ams::sf::cmif::ServiceObjectHolder(std::move(fs_object)));
-    if (amsRc.IsFailure()) {
-        rc = amsRc.GetValue();
-        ldrAtmosUnregisterExternalCode(program_id);
-        svcCloseHandle(move_h);
-        switchu::FileLog::log("[ecs] RegisterSession FAIL: 0x%X", rc);
-        return rc;
+        ::ams::fssrv::impl::FileSystemInterfaceAdapter>(std::move(fs), false);
+    const auto result = g_manager.RegisterSession(handle, ::ams::sf::cmif::ServiceObjectHolder(std::move(object)));
+    if (result.IsFailure()) {
+        ldrAtmosUnregisterExternalCode(programId);
+        svcCloseHandle(handle);
     }
+    return result.GetValue();
+}
 
-    switchu::FileLog::log("[ecs] registered %s -> 0x%016lX via stratosphere", exefs_path, program_id);
-    return 0;
+Result registerExternalContent(uint64_t program_id, const char* exefs_path) {
+    Result rc = initializeRuntime(); // initialize the allocator before making filesystem objects
+    if (R_FAILED(rc))
+        return rc;
+
+    FsFileSystem sd{};
+    rc = fsOpenSdCardFileSystem(&sd);
+    if (R_FAILED(rc))
+        return rc;
+
+    auto remote = std::make_shared<::ams::fs::RemoteFileSystem>(sd);
+    auto subdir = std::make_shared<::ams::fssystem::SubDirectoryFileSystem>(std::move(remote));
+    ::ams::fs::Path path;
+    auto result = path.Initialize(exefs_path, std::strlen(exefs_path));
+    if (result.IsSuccess())
+        result = path.Normalize(::ams::fs::PathFlags{});
+    if (result.IsSuccess())
+        result = subdir->Initialize(path);
+    if (result.IsFailure())
+        return result.GetValue();
+    return serveExternalContent(program_id, std::move(subdir));
+}
+
+Result registerSystemAppletCode(uint64_t programId) {
+    Result rc = initializeRuntime();
+    if (R_FAILED(rc))
+        return rc;
+    rc = lrInitialize();
+    if (R_FAILED(rc))
+        return rc;
+
+    constexpr auto storage = NcmStorageId_BuiltInSystem;
+    char path[FS_MAX_PATH]{};
+    LrLocationResolver resolver{};
+    rc = lrOpenLocationResolver(storage, &resolver);
+    if (R_SUCCEEDED(rc)) {
+        rc = lrLrResolveProgramPath(&resolver, programId, path);
+        serviceClose(&resolver.s);
+    }
+    lrExit();
+    if (R_FAILED(rc))
+        return rc;
+
+    rc = fsldrInitialize();
+    if (R_FAILED(rc))
+        return rc;
+    FsFileSystem code{};
+    FsCodeInfo info{};
+    rc = fsldrOpenCodeFileSystem(&info, programId, storage, path, FsContentAttributes_None, &code);
+    fsldrExit();
+    if (R_FAILED(rc))
+        return rc;
+    return serveExternalContent(programId, std::make_shared<::ams::fs::RemoteFileSystem>(code));
 }
 
 Result unregisterExternalContent(uint64_t program_id) {

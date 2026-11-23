@@ -23,7 +23,7 @@ HomeNX only connects to the internet for what you use, straight from your consol
 |---|---|---|
 | GitHub | checking for and downloading updates | the request, your IP address |
 | Discord | when you sign in and use Discord | your token and messages, as with any Discord client |
-| YouTube Music (through the separately installed Switube service) | when you browse, search or play Switube music | searches and playback requests |
+| YouTube Music | when you browse, stream, or download in CardsNX | searches and playback requests |
 | SteamGridDB, GameTDB, nlib.cc | game pictures | game names or IDs, your SteamGridDB key |
 | Nextendo | the green "playing online" dots | the request |
 | ip-api, Open-Meteo | the weather widget | your IP address (for your town), then that town's location |
@@ -33,11 +33,12 @@ HomeNX only connects to the internet for what you use, straight from your consol
 
 Each of those services has its own privacy policy.
 
-## Switube
+## HomeNX Media
 
-HomeNX controls Switube's background service locally through IPC. Switube makes the music network requests
-and keeps its own settings and downloads in `config/Switube/`. HomeNX does not use Spotify credentials;
-an old `config/CardsNX/spotify.json` from a previous version can be deleted.
+CardsNX connects to YouTube Music while browsing, streaming, or downloading. Downloaded
+audio and metadata are stored in `config/SwitchU/media/downloads/`. The background service
+plays files from the SD card and uses local IPC. It writes diagnostic logs in
+`config/SwitchU/media/`.
 
 ## The website
 

@@ -16,16 +16,36 @@ package("libsdl")
         local nm = path.join(devkitpro, "devkitA64", "bin", "aarch64-none-elf-nm")
 
         os.mkdir(root)
-        if not os.isfile(package_path) then
-            cprint("${color.build.target}downloading${clear} SDL2 audout")
-            os.execv("curl", {"-fL", package_url, "-o", package_path})
-        end
-        if hash.sha256(package_path) ~= package_sha256 then
-            raise("unexpected checksum for " .. package_name)
-        end
         if not os.isfile(archive) then
-            cprint("${color.build.target}extracting${clear} SDL2 audout")
-            os.execv("tar", {"--zstd", "-xf", package_path, "--strip-components=4", "-C", root})
+            if not os.isfile(package_path) then
+                cprint("${color.build.target}downloading${clear} SDL2 audout")
+                local partial = package_path .. ".tmp"
+                try {
+                    function ()
+                        os.execv("curl", {"-fLsS", "--connect-timeout", "5", "--max-time", "20",
+                                          package_url, "-o", partial})
+                        if hash.sha256(partial) ~= package_sha256 then
+                            raise("unexpected checksum for " .. package_name)
+                        end
+                        os.mv(partial, package_path)
+                    end,
+                    catch {function (errors)
+                        os.tryrm(partial)
+                        print(errors)
+                    end}
+                }
+            end
+            if os.isfile(package_path) then
+                if hash.sha256(package_path) ~= package_sha256 then
+                    raise("unexpected checksum for " .. package_name)
+                end
+                cprint("${color.build.target}extracting${clear} SDL2 audout")
+                os.execv("tar", {"--zstd", "-xf", package_path, "--strip-components=4", "-C", root})
+            else
+                cprint("${color.build.target}building${clear} SDL2 audout from source")
+                os.execv("bash", {path.join(os.projectdir(), "packages/l/libsdl/build-audout.sh"),
+                                  devkitpro, root})
+            end
         end
         os.execv("sh", {
             "-c",

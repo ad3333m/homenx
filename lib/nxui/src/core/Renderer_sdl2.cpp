@@ -455,6 +455,30 @@ void Renderer::drawTextureSubRounded(const Texture* tex, const Rect& src,
     }
 }
 
+void Renderer::drawTextureDisc(const Texture* tex, const Vec2& center, float radius,
+                               float angle, const Color& tint) {
+    if (!tex || !tex->valid() || radius <= 0.f) return;
+    constexpr int segments = 48;
+    constexpr float step = 6.283185307f / segments;
+    const float width = static_cast<float>(tex->width()), height = static_cast<float>(tex->height());
+    const float halfSide = std::min(width, height) * 0.5f;
+    const float uRadius = halfSide / width, vRadius = halfSide / height;
+    flush();
+    const SDL_Color color{static_cast<Uint8>(255.f * tint.r), static_cast<Uint8>(255.f * tint.g),
+                          static_cast<Uint8>(255.f * tint.b), static_cast<Uint8>(255.f * tint.a)};
+    SDL_Vertex points[segments + 1]{};
+    int triangles[segments * 3]{};
+    points[0] = {{center.x, center.y}, color, {0.5f, 0.5f}};
+    for (int i = 0; i < segments; ++i) {
+        const float theta = i * step, uv = theta - angle;
+        points[i + 1] = {{center.x + radius * std::cos(theta), center.y + radius * std::sin(theta)}, color,
+                         {0.5f + uRadius * std::cos(uv), 0.5f + vRadius * std::sin(uv)}};
+        triangles[i * 3 + 1] = i + 1;
+        triangles[i * 3 + 2] = (i + 1) % segments + 1;
+    }
+    SDL_RenderGeometry(m_gpu.sdlRenderer(), tex->sdlTexture(), points, segments + 1, triangles, segments * 3);
+}
+
 void Renderer::drawText(const std::string& text, const Vec2& pos, Font* font,
                          const Color& color, float scale) {
     if (!font || text.empty()) return;

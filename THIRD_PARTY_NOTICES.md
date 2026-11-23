@@ -16,10 +16,18 @@ they were.
 
 ## Code built into HomeNX
 
-- **Switube** 0.1.0 by dl3g0, <https://github.com/dl3g0/Switube>, GPL-3.0. The unmodified IPC protocol header
-  is included at `projects/common/include/switube/ipc_protocol.h`, from source commit
-  `e911311a73838111af3516f843015a9b9987a225`. HomeNX's client uses this protocol to control the separately
-  installed background service. Switube's application, overlay, and service binaries are not bundled.
+- **Switube**, copyright 2026 dl3g0, <https://github.com/dl3g0/Switube>, GPL-3.0-or-later.
+  HomeNX Media adapts the IPC definitions and background audio engine from upstream commit
+  `762d598ca2dc1d648590d5c884c7b4e377304f2f`. Corresponding source and the upstream license are
+  under `projects/media`; the IPC header is under `projects/common/include/switube`.
+  The native YouTube Music client and decoder in `projects/media/online` adapt Switube's
+  foreground engine for CardsNX. Both run inside HomeNX's own player and service.
+  The HomeNX foreground video player was written for this project, using Switube's FFmpeg
+  decode and output approach as a reference.
+- **FFmpeg**, <https://ffmpeg.org/>, supplied by devkitPro's `switch-ffmpeg` package.
+  HomeNX Media links libavformat, libavcodec, libswresample, libswscale and libavutil.
+  The package source and build configuration are available in
+  [devkitPro's portlibs repository](https://github.com/devkitPro/pacman-packages).
 
 | Component | Author | License |
 |---|---|---|
@@ -67,3 +75,5 @@ Wii U sounds and music are Nintendo's.
 
 - **PowerCmptr**: the HomeNX lock screen and Discord token sign-in
   ([ad3333m/homenx#5](https://github.com/ad3333m/homenx/pull/5)).
+
+Background WebM playback uses Matthew Gregan and contributors’ [nestegg](https://github.com/kinetiknz/nestegg) at commit `767aab25013acefbdcc6d68a2a7a2c9081303e3f`. Its ISC license and author list are included in `projects/media/vendor/nestegg/`.

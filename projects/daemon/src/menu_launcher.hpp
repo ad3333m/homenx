@@ -3,6 +3,7 @@
 #include <switchu/smi_helpers.hpp>
 #include <switchu/file_log.hpp>
 #include "ecs.hpp"
+#include "library_applet_runner.hpp"
 #include <switch.h>
 #include <cstdio>
 #include <cstring>
@@ -56,8 +57,7 @@ inline Result create() {
     switchu::FileLog::log("[menu_la] create begin active=%d holderActive=%d",
                           g_active ? 1 : 0,
                           (g_active && appletHolderActive(&g_holder)) ? 1 : 0);
-    Result rc = appletCreateLibraryApplet(&g_holder,
-        kMenuAppletId, LibAppletMode_AllForeground);
+    Result rc = createForegroundApplet(&g_holder, kMenuAppletId);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[menu_la] CreateLibApplet id=0x%X FAIL: 0x%X",
                               (u32)kMenuAppletId, rc);
@@ -163,7 +163,7 @@ inline Result startPrepared(smi::MenuStartMode mode, const smi::SystemStatus& st
     }
 
     switchu::FileLog::log("[menu_la] holder start call");
-    rc = appletHolderStart(&g_holder);
+    rc = startForegroundApplet(&g_holder);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[menu_la] Start FAIL: 0x%X", rc);
         cleanupHolder();
@@ -193,8 +193,13 @@ inline Result terminateWithin(uint64_t timeoutNs) {
     if (g_active) {
         Result rc = appletHolderRequestExitOrTerminate(&g_holder, timeoutNs);
         switchu::FileLog::log("[menu_la] terminate request rc=0x%X", rc);
-        g_lastExitReason = R_SUCCEEDED(rc) ? appletHolderGetExitReason(&g_holder)
-                                           : LibAppletExitReason_Unexpected;
+        if (R_FAILED(rc))
+            return rc;
+        rc = eventWait(&g_holder.StateChangedEvent, 500'000'000ULL);
+        if (R_FAILED(rc))
+            return rc;
+        appletHolderJoin(&g_holder);
+        g_lastExitReason = appletHolderGetExitReason(&g_holder);
         if (g_startedAtTick != 0)
             g_lastRuntimeNs = armTicksToNs(armGetSystemTick() - g_startedAtTick);
     }
@@ -210,10 +215,10 @@ inline bool checkFinished() {
     if (appletHolderCheckFinished(&g_holder)) {
         if (g_startedAtTick != 0)
             g_lastRuntimeNs = armTicksToNs(armGetSystemTick() - g_startedAtTick);
+        appletHolderJoin(&g_holder);
         g_lastExitReason = appletHolderGetExitReason(&g_holder);
         switchu::FileLog::log("[menu_la] holder finished reason=%d",
                               (int)g_lastExitReason);
-        appletHolderJoin(&g_holder);
         const Result cleanupRc = cleanupHolder();
         if (R_FAILED(cleanupRc))
             switchu::FileLog::log("[menu_la] finished cleanup FAIL: 0x%X", cleanupRc);

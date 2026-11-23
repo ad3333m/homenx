@@ -75,7 +75,7 @@ struct Settings {
     std::map<std::string, std::string> hiddenCards; // cards hidden with + (their ids and names): still installed
     int sheetBack = -1, sheetBackRow = 0; // Settings' tab and row while one of Nintendo's screens is open (HOME only)
     std::vector<int> hiddenPages; // pages not shown (ZL / ZR skip them; one always stays)
-    bool switube = false;       // Switube background player instead of HOME music (HOME only)
+    bool switube = false;       // SD background player instead of HOME music (legacy settings key)
     long long picturesAt = 0;   // when every game's pictures were last made sure of (seconds)
     long long achSeenAt = 0;    // the newest achievement HOME has said (seconds; 0: none said yet)
     bool introDone = false;     // the first-time intro was shown

@@ -12,6 +12,7 @@
 #include "util/strings.h"
 
 #include <switch.h>
+#include <switchu/sd_commit.hpp>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -31,6 +32,8 @@ namespace {
 // {"current": id, "accounts": [{id, username, global_name, avatar, token}],
 //  "signed_out": [ids]} — the same account shape as SwitchCord's accounts.json.
 constexpr const char* kAccountsPath = "sdmc:/config/SwitchU/discord.json";
+constexpr const char* kAccountsTemp = "sdmc:/config/SwitchU/discord.json.tmp";
+constexpr const char* kAccountsBackup = "sdmc:/config/SwitchU/discord.json.bak";
 constexpr const char* kSwitchCordAccounts = "sdmc:/switch/SwitchCord/accounts.json";
 
 std::string readAll(const char* path) {
@@ -94,6 +97,7 @@ void DiscordService::beginShutdown() {
 // busy); the session, the store and the account stay, and the wake resumes
 // the session, so the open chat and the alerts of what came meanwhile stay.
 void DiscordService::sleep() {
+    if (m_pausedForSleep) return;
     m_pausedForSleep = started() && m_gateway;
     if (!m_pausedForSleep) return;
     DebugLog::log("[discord] pausing for the console's sleep");
@@ -164,12 +168,17 @@ void DiscordService::loadAccounts() {
             if (x.token == a.token || (!a.id.empty() && x.id == a.id)) return;
         m_accounts.push_back(std::move(a));
     };
-    for (const char* path : {kAccountsPath, kSwitchCordAccounts}) {
+    bool haveLocalAccounts = false;
+    for (const char* path : {kAccountsPath, kAccountsBackup, kAccountsTemp, kSwitchCordAccounts}) {
+        const bool local = path != kSwitchCordAccounts;
+        if (local && haveLocalAccounts) continue;
         const std::string text = readAll(path);
         if (text.empty()) continue;
         J::Doc doc = J::Parse(text);
         yyjson_val* root = J::Root(doc);
-        if (path == kAccountsPath) {
+        if (!yyjson_is_obj(root)) continue;
+        if (local) {
+            haveLocalAccounts = true;
             m_current = J::S(root, "current");
             for (yyjson_val* id : J::Arr(root, "signed_out"))
                 if (yyjson_is_str(id)) m_signedOut.push_back(yyjson_get_str(id));
@@ -200,7 +209,30 @@ void DiscordService::saveAccounts() const {
     out += "]}\n";
     std::error_code ec;
     std::filesystem::create_directories("sdmc:/config/SwitchU", ec);
-    std::ofstream(kAccountsPath, std::ios::trunc) << out;
+    std::ofstream file(kAccountsTemp, std::ios::trunc);
+    file << out;
+    file.close();
+    if (!file || !switchu::commitSdCard("Discord account temp")) {
+        DebugLog::log("[discord] could not stage account settings");
+        return;
+    }
+
+    if (std::filesystem::exists(kAccountsPath, ec)) {
+        const auto current = J::Parse(readAll(kAccountsPath));
+        if (yyjson_is_obj(J::Root(current))) {
+            std::filesystem::remove(kAccountsBackup, ec);
+            if (!ec) std::filesystem::rename(kAccountsPath, kAccountsBackup, ec);
+        } else {
+            std::filesystem::remove(kAccountsPath, ec);
+        }
+    }
+    if (!ec) std::filesystem::rename(kAccountsTemp, kAccountsPath, ec);
+    if (ec || !switchu::commitSdCard("Discord accounts")) {
+        DebugLog::log("[discord] could not commit account settings");
+        return;
+    }
+    std::filesystem::remove(kAccountsBackup, ec);
+    switchu::commitSdCard("Discord account backup cleanup");
 }
 
 void DiscordService::activate() {

@@ -162,6 +162,8 @@ private:
         std::function<std::string()> value;     // Choice / Info (and an Action's note)
         std::function<void(int)> change;        // Choice, Slider: -1 / +1; Toggle: flip
         std::function<float()> level;           // Toggle 0 / 1, Slider 0..1
+        std::string coverUrl;
+        bool mediaTrack = false;
         const nxui::Texture* picture = nullptr; // a user's picture
         bool danger = false;                    // red (Delete)
         bool stay = false;                      // an action that keeps the popup open
@@ -358,13 +360,23 @@ private:
     void switubeDo(Switube::Cmd c, int value = 0);
     float switubePos() const;
     void updateSwitube();
-    void openSwitubeBrowse();
+    void openSwitubeBrowse(bool online = true);
     void showSwitubePage(const Switube::Page& page);
+    void closePopup();
+    std::function<void()> m_switubeTrackBack;
     Switube::Now m_sp;
     bool m_switubeBrowseOpen = false;
 #ifdef SWITCHU_MENU
     Switube m_switube;
     bool m_spWatch = false;
+    std::string m_switubeQuery;
+    std::uint64_t m_switubeResultGeneration = 0;
+    std::size_t m_switubeResultIndex = 0;
+    std::atomic<bool> m_switubeCoverCancel{true};
+    std::future<std::vector<std::uint8_t>> m_switubeCoverJob;
+    std::string m_switubeCoverUrl;
+    std::map<std::string, std::unique_ptr<nxui::Texture>> m_switubeCovers;
+    void updateSwitubeCovers();
 #endif
     // + > Title picture: the game's pictures to choose from, in a grid.
     bool m_pickOpen = false;

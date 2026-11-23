@@ -170,6 +170,9 @@ jobs:
       - name: Package install layout
         run: |
           xmake install -o dist/frontend --root
+          test -s dist/frontend/switch/SwitchU/bin/LICENSE.switube
+          test ! -e dist/frontend/atmosphere/contents/4200000000484D58
+          test -s dist/frontend/switch/homenx-video/homenx-video.nro
           test -d dist/frontend/atmosphere
           test -d dist/frontend/switch
           # The Loader lives in HomeNX's own folder so every updater installs it.
