@@ -87,27 +87,37 @@ bool Application::applyPendingActivity() {
 }
 
 bool Application::initialize() {
+    checkpoint("GPU device initialization BEGIN");
     if (!m_gpu.initialize()) return false;
+    checkpoint("GPU device initialization END");
 
+    checkpoint("Renderer initialization BEGIN");
     m_renderer = std::make_unique<Renderer>(m_gpu);
     if (!m_renderer->initialize()) return false;
 
+    checkpoint("Renderer initialization END");
+    checkpoint("Input initialization BEGIN");
     m_input.initialize();
+    checkpoint("Input initialization END");
 
     // Present one clean frame immediately so that stale framebuffer
     // content from a previous process is never visible on screen.
     // Activities may replace the default black with a leave-frame splash.
+    checkpoint("Initial frame acquisition and submission BEGIN");
     m_gpu.beginFrame();
     m_renderer->beginFrame();
     if (m_activity)
         m_activity->presentInitialFrame(*m_renderer);
     m_renderer->endFrame();
     m_gpu.endFrame();
+    checkpoint("Initial frame submitted");
 
     if (m_activity) {
         // Set the root box to cover the entire screen
         m_activity->m_rootBox->setRect({0, 0, (float)GpuDevice::FB_WIDTH, (float)GpuDevice::FB_HEIGHT}); // laid out at 1280x720
+        checkpoint("Activity resource and UI creation BEGIN");
         if (!m_activity->onCreate()) return false;
+        checkpoint("Activity resource and UI creation END");
     }
     return true;
 }
@@ -230,14 +240,20 @@ void Application::dispatchInput() {
     if (pointerConsumesA)
         actionExcludeMask |= kA;
 
+    const bool activatePressed = m_input.isDown(Button::A);
+    if (activatePressed) checkpoint("A pressed; action dispatch BEGIN", true);
     uint64_t consumed = fm.dispatchActions(m_input, actionExcludeMask);
+    if (activatePressed) checkpoint("A action dispatch END", true);
 
     // Auto-activate with A.
     // If the focused widget didn't register an explicit addAction(A, ...),
     // fall through to the legacy activate() / setOnActivate() mechanism.
-    if (!pointerConsumesA && !(consumed & kA) && m_input.isDown(Button::A)) {
-        if (auto* w = fm.current())
+    if (!pointerConsumesA && !(consumed & kA) && activatePressed) {
+        if (auto* w = fm.current()) {
+            checkpoint("Focused widget activation BEGIN", true);
             w->activate();
+            checkpoint("Focused widget activation END", true);
+        }
     }
 
     // Touch-based focus navigation.
@@ -252,6 +268,7 @@ void Application::dispatchInput() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 void Application::run() {
+    bool firstActivityFrame = true;
     uint64_t prevTick = armGetSystemTick();
     uint64_t presentTick = prevTick; // the last drawn turn's start (paces the skipped ones)
 
@@ -262,6 +279,7 @@ void Application::run() {
         prevTick = nowTick;
         if (dt > 0.1f) dt = 0.016f;
 
+        setPhase("sleep and focus handling");
         if (m_sleeping) {
             // The console is asleep: nothing is on screen, so stop submitting
             // frames and stop touching input. The activity still gets a slow
@@ -275,6 +293,7 @@ void Application::run() {
             // pre-sleep home screen framebuffer. Asleep, the loop waits for
             // the daemon's next message (at most 500 ms) rather than 50 ms.
             if (m_sleeping) {
+                setPhase("intentional sleep wait");
                 waitWhileAsleep();
                 prevTick = armGetSystemTick();
                 continue;
@@ -337,6 +356,11 @@ void Application::run() {
                 setPhase("showing the frame");
                 m_gpu.endFrame();
                 setPhase("after the frame");
+                if (firstActivityFrame) {
+                    firstActivityFrame = false;
+                    checkpoint("First activity frame submitted; startup complete");
+                    checkpoint("UI loop");
+                }
                 m_activity->onAfterPresent(*m_renderer);
             } else {
                 // Yield CPU while another app owns the foreground.

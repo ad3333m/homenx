@@ -1,3 +1,4 @@
+#include <switchu/recovery.hpp>
 #include "Config.hpp"
 #include "FolderStore.hpp"
 #include <cstdio>
@@ -29,6 +30,12 @@ void readJsonOpt(const nlohmann::json& j, const char* key, T& out) {
 } // namespace
 
 bool AppConfig::load() {
+    if (switchu::recovery::enabled()) {
+        *this = AppConfig{};
+        tutorialCompleted = true;
+        musicEnabled = false;
+        return true;
+    }
     // The previous copy is tried when the current one is missing or unreadable.
     // A crash used to cost the player every setting they had ever chosen --
     // including tutorialCompleted, which is why the tutorial greeted them again
@@ -43,6 +50,7 @@ bool AppConfig::load() {
         if (!f.is_open()) continue;
         try {
             f >> j;
+            if (!j.is_object()) continue;
             parsed = true;
             break;
         } catch (...) {
@@ -181,6 +189,7 @@ bool AppConfig::load() {
 }
 
 bool AppConfig::save() const {
+    if (switchu::recovery::enabled()) return false;
     // Settings closes are persisted by a worker while launch actions
     // can save on the UI thread. Both use the same staging filename, so those
     // writes must never overlap.

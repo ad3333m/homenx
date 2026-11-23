@@ -1,3 +1,4 @@
+#include <switchu/recovery.hpp>
 #include "WiiUMenuApp.hpp"
 #include "FontChoice.hpp"
 #include "social/NotificationLog.hpp"
@@ -5908,7 +5909,7 @@ void WiiUMenuApp::onUpdate(float dt) {
     // Discord, the banners and the weather wait for the wake as well (they
     // used to run on every sleeping tick).
     std::uint64_t workStart = armGetSystemTick();
-    m_discord.update(); // HomeNX Discord panel and HOME's alerts
+    if (!switchu::recovery::enabled()) m_discord.update(); // HomeNX Discord panel and HOME's alerts
     noteWork(WorkDiscord, workStart);
     workStart = armGetSystemTick();
     updateHomeBanners(dt);
@@ -6004,6 +6005,7 @@ void WiiUMenuApp::handleLockScreenAutoSleep() {
 
 // Settings > HomeNX > Lock screen (a flag file: HOME's Settings and its start read it).
 bool WiiUMenuApp::lockScreenOn() {
+    if (switchu::recovery::enabled()) return false;
     std::error_code ec;
     return std::filesystem::exists("sdmc:/config/SwitchU/lock_screen", ec);
 }

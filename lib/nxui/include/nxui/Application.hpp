@@ -30,6 +30,15 @@ class Activity;
 ///   app.shutdown();
 class Application {
 public:
+    static void setDiagnosticSink(void (*sink)(const char*, bool)) { s_diagnostic = sink; }
+
+private:
+    inline static void (*s_diagnostic)(const char*, bool) = nullptr;
+    static void checkpoint(const char* phase, bool input = false) {
+        if (s_diagnostic) s_diagnostic(phase, input);
+    }
+
+public:
     Application() = default;
     ~Application();
 

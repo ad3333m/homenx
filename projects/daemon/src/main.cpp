@@ -1,3 +1,5 @@
+#include <switchu/diagnostic.hpp>
+namespace diag = switchu::diagnostic;
 #include <switch.h>
 #include <switch/applets/friends_la.h>
 #include <cstdlib>
@@ -56,27 +58,33 @@ extern "C" {
 }
 
 extern "C" void __appInit(void) {
+    diag::origin = armGetSystemTick();
+    diag::component = "daemon";
+    diag::begin("BOOT", "__appInit BEGIN");
     Result rc;
 
     svcOutputDebugString("[SwitchU-daemon] __appInit start", 34);
     daemon::initializeExternalContentAllocator();
 
-    rc = smInitialize();
+    diag::begin("IPC", "smInitialize BEGIN");
+    rc = diag::end("IPC", "smInitialize END", smInitialize());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-daemon] smInitialize FAIL", 35);
-        diagAbortWithResult(MAKERESULT(Module_Libnx, 500));
+        diagAbortWithResult(rc);
     }
 
-    rc = fsInitialize();
+    diag::begin("IPC", "fsInitialize BEGIN");
+    rc = diag::end("IPC", "fsInitialize END", fsInitialize());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-daemon] fsInitialize FAIL", 35);
-        diagAbortWithResult(MAKERESULT(Module_Libnx, 501));
+        diagAbortWithResult(rc);
     }
 
-    rc = appletInitialize();
+    diag::begin("IPC", "appletInitialize BEGIN");
+    rc = diag::end("IPC", "appletInitialize END", appletInitialize());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-daemon] appletInitialize FAIL", 39);
-        diagAbortWithResult(MAKERESULT(Module_Libnx, 502));
+        diagAbortWithResult(rc);
     }
     svcOutputDebugString("[SwitchU-daemon] appletInitialize OK", 37);
 
@@ -85,12 +93,14 @@ extern "C" void __appInit(void) {
     if (!switchu::timebudget::syncBootTime())
         svcOutputDebugString("[SwitchU-daemon] time not available yet", 39);
 
-    rc = setsysInitialize();
+    diag::begin("IPC", "setsysInitialize BEGIN");
+    rc = diag::end("IPC", "setsysInitialize END", setsysInitialize());
     g_setsysReady = R_SUCCEEDED(rc);
     if (R_FAILED(rc))
         svcOutputDebugString("[SwitchU-daemon] setsysInitialize FAIL", 39);
 
-    rc = setInitialize();
+    diag::begin("IPC", "setInitialize BEGIN");
+    rc = diag::end("IPC", "setInitialize END", setInitialize());
     g_setReady = R_SUCCEEDED(rc);
     if (R_FAILED(rc))
         svcOutputDebugString("[SwitchU-daemon] setInitialize FAIL", 36);
@@ -101,43 +111,50 @@ extern "C" void __appInit(void) {
             hosversionSet(MAKEHOSVERSION(fw.major, fw.minor, fw.micro) | BIT(31));
     }
 
-    rc = nsInitialize();
+    diag::begin("IPC", "nsInitialize BEGIN");
+    rc = diag::end("IPC", "nsInitialize END", nsInitialize());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-daemon] nsInitialize FAIL", 35);
         diagAbortWithResult(rc);
     }
     g_nsReady = true;
 
-    rc = ldrShellInitialize();
+    diag::begin("IPC", "ldrShellInitialize BEGIN");
+    rc = diag::end("IPC", "ldrShellInitialize END", ldrShellInitialize());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-daemon] ldrShellInitialize FAIL", 41);
         diagAbortWithResult(rc);
     }
     g_ldrShellReady = true;
 
-    rc = accountInitialize(AccountServiceType_System);
+    diag::begin("IPC", "accountInitialize BEGIN");
+    rc = diag::end("IPC", "accountInitialize END", accountInitialize(AccountServiceType_System));
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-daemon] accountInitialize FAIL", 40);
         diagAbortWithResult(rc);
     }
     g_accountReady = true;
 
-    rc = nssuInitialize();
+    diag::begin("IPC", "nssuInitialize BEGIN");
+    rc = diag::end("IPC", "nssuInitialize END", nssuInitialize());
     g_nssuReady = R_SUCCEEDED(rc);
     if (R_FAILED(rc))
         svcOutputDebugString("[SwitchU-daemon] nssuInitialize FAIL", 37);
 
-    rc = avmInitialize();
+    diag::begin("IPC", "avmInitialize BEGIN");
+    rc = diag::end("IPC", "avmInitialize END", avmInitialize());
     g_avmReady = R_SUCCEEDED(rc);
     if (R_FAILED(rc))
         svcOutputDebugString("[SwitchU-daemon] avmInitialize FAIL", 36);
 
-    rc = psmInitialize();
+    diag::begin("IPC", "psmInitialize BEGIN");
+    rc = diag::end("IPC", "psmInitialize END", psmInitialize());
     g_psmReady = R_SUCCEEDED(rc);
     if (R_FAILED(rc))
         svcOutputDebugString("[SwitchU-daemon] psmInitialize FAIL", 36);
 
-    rc = viInitialize(ViServiceType_Manager);
+    diag::begin("IPC", "viInitialize BEGIN");
+    rc = diag::end("IPC", "viInitialize END", viInitialize(ViServiceType_Manager));
     if (R_SUCCEEDED(rc)) {
         viSetContentVisibility(true); // recover upgrades from older builds
         viExit();
@@ -145,18 +162,23 @@ extern "C" void __appInit(void) {
     // No lbl session here: the daemon never sets the backlight, and lbl has few
     // sessions. Holding one left none for HOME's brightness slider (OutOfSessions).
 
-    rc = hidInitialize();
+    diag::begin("IPC", "hidInitialize BEGIN");
+    rc = diag::end("IPC", "hidInitialize END", hidInitialize());
     g_hidReady = R_SUCCEEDED(rc);
     if (R_FAILED(rc))
         svcOutputDebugString("[SwitchU-daemon] hidInitialize FAIL", 36);
 
-    rc = fsdevMountSdmc();
+    diag::begin("FS", "SD mount BEGIN");
+    rc = diag::end("FS", "SD mount END", fsdevMountSdmc());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-daemon] fsdevMountSdmc FAIL", 37);
         svcSleepThread(100'000'000ULL);
-        rc = fsdevMountSdmc();
+        rc = diag::end("FS", "SD mount END", fsdevMountSdmc());
     }
 
+    if (R_SUCCEEDED(rc))
+        diag::start("sdmc:/config/SwitchU/diagnostic-daemon.log",
+                    "sdmc:/config/SwitchU/diagnostic-daemon.old");
     switchu::FileLog::open("daemon");
     switchu::FileLog::log("[daemon] __appInit complete (sd mount: 0x%X)", rc);
     switchu::FileLog::log("[daemon] services time=%d setsys=%d set=%d ns=%d ldr=%d account=%d nssu=%d avm=%d psm=%d hid=%d",
@@ -189,6 +211,7 @@ extern "C" void __appExit(void) {
     if (g_setsysReady) setsysExit();
 
     appletExit();
+    diag::stop();
     fsdevUnmountAll();
     fsExit();
     smExit();
@@ -974,7 +997,9 @@ static Result launchPendingHomeMenu() {
         "[%s] HOME foreground acquired; launching menu mode=%u status.running=%d suspended=0x%016lX",
         source, static_cast<u32>(mode), status.app_running ? 1 : 0, status.suspended_app_id);
     const uint64_t launchStartedAt = armGetSystemTick();
-    const Result rc = daemon::menu_la::launch(mode, status);
+    diag::begin("SMI", "HOME transition BEGIN");
+    const Result rc = diag::end("SMI", "HOME transition END", daemon::menu_la::launch(mode, status));
+    diag::stage.store("daemon main loop");
     if (R_FAILED(rc)) {
         g_pendingHomeMenuLaunch = true;
         g_pendingHomeMenuMode = mode;
@@ -1058,6 +1083,8 @@ static void noteSleep(char what) {
 static void startSleepSequence(const char* source) {
     if (g_sleepInProgress)
         return;
+    diag::log(diag::Level::Info, "POWER", "Sleep entry");
+    diag::stage.store(nullptr);
     g_sleepInProgress = true;
     stopHomebrewPlayClock();
     switchu::FileLog::log("[power] sleep requested source=%s", source);
@@ -1066,11 +1093,12 @@ static void startSleepSequence(const char* source) {
     if (lock_screen::enabled())
         appletInvalidateTransitionLayer();
 
-    const Result rc = appletStartSleepSequence(true);
+    const Result rc = diag::end("POWER", "Sleep request END", appletStartSleepSequence(true));
     switchu::FileLog::log("[power] StartSleepSequence rc=0x%X", rc);
     if (R_FAILED(rc)) {
         g_sleepInProgress = false;
         noteSleep('W');
+        diag::log(diag::Level::Info, "POWER", "Sleep ended");
         if (g_homebrewAppletRunning || daemon::app::hasForeground()) startHomebrewPlayClock();
         pushNotification(smi::MenuMessage::WakeUp);
     }
@@ -1295,8 +1323,10 @@ static bool handleGeneralChannel() {
 }
 
 static void finishSleepSequence() {
-    if (g_sleepInProgress.exchange(false))
+    if (g_sleepInProgress.exchange(false)) {
         noteSleep('W');
+        diag::log(diag::Level::Info, "POWER", "Sleep ended");
+    }
     switchu::FileLog::log("[power] wake");
     g_batteryRefreshPending.store(true);
     const bool lockEnabled = lock_screen::enabled();
@@ -1730,6 +1760,11 @@ static bool handleMenuCommand() {
     auto msg = reader.systemMessage();
     const uint64_t requestId = reader.requestId();
     switchu::FileLog::log("[smi] command=%u", (u32)msg);
+#if HOMENX_DIAGNOSTIC_LEVEL >= 3
+    char command[48];
+    std::snprintf(command, sizeof(command), "Command received opcode=%u", static_cast<unsigned>(msg));
+    diag::log(diag::Level::Debug, "SMI", command);
+#endif
 
     Result result = 0;
 
@@ -1988,7 +2023,9 @@ static Result relaunchMenuAfterApplet(const char* appletName) {
     if (g_pendingHomeMenuLaunch)
         return launchPendingHomeMenu();
     const auto status = buildSystemStatus();
-    const Result rc = daemon::menu_la::launch(smi::MenuStartMode::AppletReturn, status);
+    diag::begin("SMI", "Applet return BEGIN");
+    const Result rc = diag::end("SMI", "Applet return END", daemon::menu_la::launch(smi::MenuStartMode::AppletReturn, status));
+    diag::stage.store("daemon main loop");
     switchu::FileLog::log(
         "[action] %s menu restore rc=0x%X module=%u desc=%u running=%d suspended=0x%016lX",
         appletName, rc, R_MODULE(rc), R_DESCRIPTION(rc), status.app_running ? 1 : 0,
@@ -2045,7 +2082,9 @@ static bool handleAction(daemon::SystemAction& action) {
 
         case daemon::SystemActionType::LaunchApplication: {
             closeHomebrewApp("replace");
-            Result rc = daemon::app::launch(action.titleId, action.uid);
+            diag::begin("APP", "Game launch BEGIN");
+            Result rc = diag::end("APP", "Game launch END", daemon::app::launch(action.titleId, action.uid));
+            diag::stage.store("daemon main loop");
             if (R_SUCCEEDED(rc)) g_systemHasForeground = false;
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchApplication,
                                   rc, action.titleId);
@@ -2059,7 +2098,9 @@ static bool handleAction(daemon::SystemAction& action) {
 
         case daemon::SystemActionType::ResumeApplication: {
             switchu::FileLog::log("[action] resume: calling app::resume()");
-            Result rc = daemon::app::resume();
+            diag::begin("APP", "Game resume BEGIN");
+            Result rc = diag::end("APP", "Game resume END", daemon::app::resume());
+            diag::stage.store("daemon main loop");
             if (R_SUCCEEDED(rc)) {
                 g_systemHasForeground = false;
                 startHomebrewPlayClock();
@@ -2614,6 +2655,7 @@ static void eventManagerThreadFunc(void* arg) {
             continue;
         }
 
+        diag::ScopedProgress eventProgress(diag::eventProgress);
         if (evIdx == recordIdx) {
             eventClear(&recordEvent);
             switchu::FileLog::log("[event] ApplicationRecordUpdateSystemEvent fired");
@@ -2699,11 +2741,13 @@ static void controlCacheThreadFunc(void* arg) {
             continue;
         }
 
+        diag::ScopedProgress cacheProgress(diag::cacheProgress);
         if (titleId == 0 || switchu::control_cache::hasMeta(titleId))
             continue;
 
-        auto* controlData = new NsApplicationControlData();
+        auto* controlData = new (std::nothrow) NsApplicationControlData();
         if (!controlData) {
+            diag::log(diag::Level::Error, "MEM", "Control cache allocation failed");
             switchu::FileLog::log("[control-cache] alloc FAIL title=0x%016lX", titleId);
             svcSleepThread(250'000'000ULL);
             continue;
@@ -2821,18 +2865,24 @@ int main(int argc, char* argv[]) {
     appletLoadAndApplyIdlePolicySettings();
     clearAutoAppletFlag();
 
+    diag::begin("BOOT", "Application catalog BEGIN");
     rebuildAppCatalog("boot");
+    diag::log(diag::Level::Info, "BOOT", "Application catalog END");
 
-    Result rc = startControlCacheWorker();
+    diag::begin("THREAD", "Control cache worker start BEGIN");
+    Result rc = diag::end("THREAD", "Control cache worker start END", startControlCacheWorker());
     if (R_FAILED(rc))
         switchu::FileLog::log("[daemon] control cache worker failed: 0x%X (non-fatal)", rc);
 
-    rc = startEventManager();
+    diag::begin("THREAD", "Event manager start BEGIN");
+    rc = diag::end("THREAD", "Event manager start END", startEventManager());
     if (R_FAILED(rc))
         switchu::FileLog::log("[daemon] event manager failed: 0x%X (non-fatal)", rc);
 
     switchu::FileLog::log("[daemon] launching menu...");
+    diag::begin("SMI", "Startup HOME launch BEGIN");
     rc = daemon::menu_la::launch(smi::MenuStartMode::StartupBoot, buildSystemStatus());
+    diag::end("SMI", "Startup HOME launch END", rc);
     if (R_FAILED(rc))
         switchu::FileLog::log("[daemon] menu launch failed: 0x%X", rc);
 
@@ -2841,7 +2891,13 @@ int main(int argc, char* argv[]) {
 
     while (g_running.load()) {
         if (!g_sleepInProgress) g_bootTimeSynced = switchu::timebudget::syncBootTime();
+        if (g_sleepInProgress) diag::stage.store(nullptr);
+        else {
+            diag::stage.store("daemon main loop");
+            ++diag::serial;
+        }
         mainLoop();
+        diag::stage.store(nullptr); // Intentional event wait.
         waitForMainWork();
     }
 

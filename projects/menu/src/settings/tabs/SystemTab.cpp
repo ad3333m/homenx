@@ -1,3 +1,4 @@
+#include <switchu/boot_modules.hpp>
 #include "TabBuilders.hpp"
 #include "core/DebugLog.hpp"
 #include "smi_commands.hpp"
@@ -50,6 +51,86 @@ bool setManualDateTime(
                   "%s (0x%X)", failureText.c_str(), daemonRc);
     screen.requestToast(fallback);
     return false;
+}
+
+namespace modules = switchu::boot_modules;
+
+const char* bootStatus(const modules::Module& module) {
+    if (module.state == modules::State::Conflict) return "Conflicting flags";
+    if (!module.manageable) {
+        if (modules::regular(module.path / modules::activeFlag) == 1)
+            return "Boot2 flag present (read-only)";
+        return "Unsupported boot configuration";
+    }
+    switch (module.state) {
+    case modules::State::Enabled: return "Boot2 enabled";
+    case modules::State::Parked: return "Boot2 disabled by HomeNX";
+    default: return "Unknown boot configuration";
+    }
+}
+
+void appendSysmodules(SettingsScreen& screen, SettingsScreen::Tab& tab) {
+    using Item = SettingsScreen::SettingItem;
+    using Type = SettingsScreen::ItemType;
+    constexpr const char* root = "sdmc:/atmosphere/contents";
+    Item section;
+    section.label = "Sysmodules";
+    section.type = Type::Section;
+    tab.items.push_back(std::move(section));
+
+    std::error_code error;
+    const auto installed = modules::discover(root, error);
+    if (error || installed.empty()) {
+        Item status;
+        status.type = Type::Info;
+        status.label = error ? "Sysmodule scan failed" : "No boot sysmodules found";
+        if (error) status.infoText = error.message();
+        tab.items.push_back(std::move(status));
+        return;
+    }
+
+    const auto action = [&](std::string label, std::string description,
+                            std::vector<modules::Change> changes) {
+        Item item;
+        item.type = Type::Action;
+        item.label = label;
+        item.description = std::move(description);
+        item.buttonLabel = "Apply";
+        item.onChange = [&screen, label, changes](Item&) {
+            screen.requestDialog(label, "Change the boot flags shown here? Changes take effect after reboot.", {
+                {"Apply", [&screen, changes] {
+                    const auto failure = modules::apply(changes);
+                    screen.rebuildCurrentTab();
+                    screen.requestToast(failure.empty() ? "Boot configuration saved. Reboot to apply."
+                                                       : failure, 5.f);
+                }},
+                {"Cancel", [] {}}
+            });
+        };
+        tab.items.push_back(std::move(item));
+    };
+    std::vector<modules::Change> minimal, normal;
+    for (const auto& module : installed) {
+        const auto description = module.path.string() + " • " + bootStatus(module);
+        Item item;
+        item.type = Type::Info;
+        item.label = module.name + " (" + module.id + ")";
+        item.infoText = bootStatus(module);
+        item.description = description;
+        tab.items.push_back(std::move(item));
+        if (!module.manageable || (module.state != modules::State::Enabled &&
+                                   module.state != modules::State::Parked))
+            continue;
+        minimal.push_back({module, modules::State::Parked});
+        normal.push_back({module, modules::State::Enabled});
+        const bool disable = module.state == modules::State::Enabled;
+        action(std::string("Custom • ") + (disable ? "Disable " : "Restore ") + module.name,
+               description, {{module, disable ? modules::State::Parked : modules::State::Enabled}});
+    }
+    if (!minimal.empty()) {
+        action("Minimal boot profile", "Park supported optional boot flags.", std::move(minimal));
+        action("Normal boot profile", "Restore original boot flags parked by HomeNX.", std::move(normal));
+    }
 }
 
 } // namespace
@@ -312,5 +393,6 @@ SettingsScreen::Tab settings::tabs::SystemTab::build(SettingsScreen& screen) {
         t.items.push_back(std::move(it));
     }
 
+    appendSysmodules(screen, t);
     return t;
 }
