@@ -149,7 +149,7 @@ bool AppletLauncher::requestLaunch(uint64_t titleId, AccountUid uid) {
     if (R_FAILED(rc))
         DebugLog::log("[launcher] FAIL: 0x%X", rc);
     else
-        DebugLog::log("[launcher] command sent; the daemon starts it while the menu closes");
+        DebugLog::log("[launcher] command sent; the daemon starts it after the menu closes");
     return R_SUCCEEDED(rc);
 }
 
@@ -200,13 +200,13 @@ bool nroNamed(const char* path, const char* name) {
     return readHomebrew(path, app) && strcasecmp(app.name.c_str(), name) == 0;
 }
 
-void writeLine(const char* path, const std::string& line) {
+bool writeLine(const char* path, const std::string& line) {
     std::error_code ec;
     std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
-    if (FILE* f = std::fopen(path, "w")) {
-        std::fputs((line + "\n").c_str(), f);
-        std::fclose(f);
-    }
+    std::ofstream file(path, std::ios::trunc);
+    file << line << '\n';
+    file.close();
+    return file.good();
 }
 } // namespace
 
@@ -445,6 +445,7 @@ void AppletLauncher::installBundledApps() {
 }
 
 namespace {
+constexpr const char* kHblAppletDir = "sdmc:/switch/SwitchU/bin/hbl-applet";
 constexpr const char* kHblDir = "sdmc:/switch/SwitchU/bin/hbl";
 constexpr const char* kHblNsp = "sdmc:/atmosphere/hbl.nsp";
 }
@@ -489,12 +490,14 @@ bool AppletLauncher::prepareHbl() {
     const std::string stampPath = std::string(kHblDir) + "/source-size";
     if (!std::filesystem::exists(kHblNsp, ec)) return false;
     // "-app": stamp of npdms patched to application type (older ones get redone).
-    const std::string size = std::to_string(std::filesystem::file_size(kHblNsp, ec)) + "-app";
+    const std::string size = std::to_string(std::filesystem::file_size(kHblNsp, ec)) + "-app-and-applet";
     {
         std::ifstream stamp(stampPath);
         std::string seen;
         if (std::getline(stamp, seen) && seen == size
-            && std::filesystem::exists(mainPath, ec) && std::filesystem::exists(npdmPath, ec))
+            && std::filesystem::exists(mainPath, ec) && std::filesystem::exists(npdmPath, ec)
+            && std::filesystem::exists(std::string(kHblAppletDir) + "/main", ec)
+            && std::filesystem::exists(std::string(kHblAppletDir) + "/main.npdm", ec))
             return true;
     }
     // PFS0: header, file entries {u64 offset, u64 size, u32 name, u32 pad},
@@ -510,6 +513,7 @@ bool AppletLauncher::prepareHbl() {
     if (h.magic != 0x30534650 /* PFS0 */ || h.count > 16 || entriesEnd + h.strings > nsp.size()) return false;
     const std::size_t dataStart = entriesEnd + h.strings;
     std::filesystem::create_directories(kHblDir, ec);
+    std::filesystem::create_directories(kHblAppletDir, ec);
     bool gotMain = false, gotNpdm = false;
     for (u32 i = 0; i < h.count; ++i) {
         Entry e;
@@ -521,9 +525,15 @@ bool AppletLauncher::prepareHbl() {
         if (n != "main" && n != "main.npdm") continue;
         std::vector<char> data(nsp.begin() + dataStart + e.offset,
                                nsp.begin() + dataStart + e.offset + e.size);
+        std::ofstream appletFile(std::string(kHblAppletDir) + "/" + n, std::ios::binary | std::ios::trunc);
+        appletFile.write(data.data(), static_cast<std::streamsize>(data.size()));
+        appletFile.close();
+        if (!appletFile) return false;
         if (n == "main.npdm" && !patchHblNpdmAsApplication(data)) return false;
-        std::ofstream(std::string(kHblDir) + "/" + n, std::ios::binary | std::ios::trunc)
-            .write(data.data(), static_cast<std::streamsize>(data.size()));
+        std::ofstream appFile(std::string(kHblDir) + "/" + n, std::ios::binary | std::ios::trunc);
+        appFile.write(data.data(), static_cast<std::streamsize>(data.size()));
+        appFile.close();
+        if (!appFile) return false;
         (n == "main" ? gotMain : gotNpdm) = true;
     }
     if (gotMain && gotNpdm) std::ofstream(stampPath) << size;
@@ -531,15 +541,14 @@ bool AppletLauncher::prepareHbl() {
     return gotMain && gotNpdm;
 }
 
-// Application mode when we can borrow a game; the Album (applet) otherwise.
-// applicationOnly (Nextendo): never the Album; false if it can't start that way.
-static bool startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid uid,
+// Prefer application mode unless the caller or settings select an applet.
+static bool startHomebrew(uint64_t hostTitleId, AccountUid uid,
                           const AppletLauncher::Callbacks& cb, bool applicationOnly = false) {
     std::error_code ec;
     // A fresh session: the Loader ends the process when it's started again in the
     // one it recorded here (the homebrew was closed). See projects/loader.
     std::filesystem::remove("sdmc:/config/SwitchU/hbl_chained.txt", ec);
-    // Tells the daemon not to fall back to the Album if this launch fails.
+    // Tells the daemon whether an applet fallback is allowed.
     constexpr const char* kApplicationOnly = "sdmc:/config/SwitchU/homebrew_application_only";
     if (applicationOnly) {
         if (FILE* f = std::fopen(kApplicationOnly, "w")) std::fclose(f);
@@ -564,22 +573,28 @@ static bool startHomebrew(AppletLauncher& self, uint64_t hostTitleId, AccountUid
                       static_cast<unsigned long>(hostTitleId));
         return false;
     }
-    self.launchAlbum();
+    const Result rc = switchu::menu::smi_cmd::sendSimple(switchu::smi::SystemMessage::LaunchHomebrewApplet);
+    if (R_FAILED(rc)) return false;
+    if (cb.requestExit) cb.requestExit();
     return true;
 }
 
 bool AppletLauncher::launchSphaira(uint64_t hostTitleId, AccountUid uid) {
-    if (!installLoader()) return false;
-    writeLine(kLoaderNext, "sphaira"); // (with nothing asked, the Loader opens the user's own hbmenu)
-    startHomebrew(*this, hostTitleId, uid, m_cb);
-    return true;
+    return launchNro("sphaira", hostTitleId, uid);
 }
 
 bool AppletLauncher::launchNro(const std::string& path, uint64_t hostTitleId, AccountUid uid,
                                bool applicationOnly) {
+    if (!prepareHbl()) {
+        g_loaderError = "Couldn't prepare Atmosphère's homebrew loader.";
+        return false;
+    }
     if (!installLoader()) return false;
-    writeLine(kLoaderNext, path);
-    return startHomebrew(*this, hostTitleId, uid, m_cb, applicationOnly);
+    if (writeLine(kLoaderNext, path) && startHomebrew(hostTitleId, uid, m_cb, applicationOnly))
+        return true;
+    std::remove(kLoaderNext);
+    restoreHbmenu();
+    return false;
 }
 
 Result AppletLauncher::createMii() { launchMiiEditor(); return 0; }

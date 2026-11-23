@@ -10,7 +10,9 @@
 extern "C" {
 #endif
 
-#define SWITUBE_IPC_SERVICE_NAME "switube"
+#define SWITUBE_IPC_SERVICE_NAME "homenxmd"
+#define HOMENX_MEDIA_READY_TAG "daemon-media-v1"
+#define HOMENX_MEDIA_READY_PATH "sdmc:/config/SwitchU/media/background-ready.log"
 
 #define SWITUBE_IPC_API_VERSION_MAJOR 1u
 #define SWITUBE_IPC_API_VERSION_MINOR 0u

@@ -120,6 +120,8 @@ public:
     void drawTextureRounded(const Texture* tex, const Rect& dest, float radius, const Color& tint = Color::white());
     void drawTextureSubRounded(const Texture* tex, const Rect& src, const Rect& dest,
                                float radius, const Color& tint = Color::white());
+    void drawTextureDisc(const Texture* tex, const Vec2& center, float radius,
+                         float angle, const Color& tint = Color::white());
     void drawText(const std::string& text, const Vec2& pos, Font* font, const Color& color, float scale = 1.f);
 
     /// GPU→CPU readback of the last presented framebuffer. See GpuDevice.

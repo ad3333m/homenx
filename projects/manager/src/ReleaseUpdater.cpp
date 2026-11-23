@@ -396,12 +396,13 @@ std::string safeRelativePath(std::string raw) {
         if (part == ".." || part == ".") return {};
     }
     const bool daemon = raw.rfind("atmosphere/contents/0100000000001000/", 0) == 0;
+    const bool media = raw == "switch/homenx-video/homenx-video.nro";
     const bool menu = raw.rfind("switch/SwitchU/", 0) == 0;
     const bool manager = raw.rfind("switch/SwitchU-Manager/", 0) == 0
         || raw.rfind("switch/HomeNX-Toggle/", 0) == 0
         || raw.rfind("switch/NXToggle/", 0) == 0
         || raw.rfind("switch/HomeNX-Loader/", 0) == 0;
-    return daemon || menu || manager ? raw : std::string();
+    return daemon || media || menu || manager ? raw : std::string();
 }
 
 std::vector<std::string> extractArchive(std::atomic<float>& progress,

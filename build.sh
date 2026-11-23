@@ -49,6 +49,10 @@ step() {
 command -v xmake >/dev/null || die "xmake is not installed"
 command -v make >/dev/null || die "make is not installed"
 command -v zip >/dev/null || die "zip is not installed"
+command -v cmake >/dev/null || die "cmake is not installed"
+command -v python3 >/dev/null || die "python3 is not installed"
+[[ -f "$DEVKITPRO/portlibs/switch/lib/libavformat.a" ]] ||
+    die "devkitPro's switch-ffmpeg package is required for HomeNX Media"
 
 # Match the output layout used by the packaging steps below.
 step "Configuring HomeNX"
@@ -63,7 +67,7 @@ rm -f "$RELEASE_DIR/switchu-daemon"
 xmake b switchu-daemon
 
 step "Building HomeNX applications"
-xmake b -j"$JOBS" CardsNX SwitchU HomeNX-Loader Homebrew-Manager SwitchU-Manager
+xmake b -j"$JOBS" CardsNX SwitchU HomeNX-Loader Homebrew-Manager SwitchU-Manager homenx-video
 
 step "Building the achievements overlay (Tesla/Ultrahand .ovl)"
 make -C "$REPO_ROOT/projects/achievements" -j"$JOBS"
@@ -145,7 +149,7 @@ rm -f -- "$ZIP_PATH"
 
 (
     cd "$SD_ROOT"
-    zip -qr "$ZIP_PATH" .
+    zip -qr "$ZIP_PATH" . -x 'atmosphere/contents/4200000000484D58' 'atmosphere/contents/4200000000484D58/*'
 )
 
 # Summary.

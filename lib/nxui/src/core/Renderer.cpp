@@ -887,6 +887,27 @@ void Renderer::drawTextureSubRounded(const Texture* tex, const Rect& src,
                       Rect{src.x / tw, src.y / th, src.width / tw, src.height / th});
 }
 
+void Renderer::drawTextureDisc(const Texture* tex, const Vec2& center, float radius,
+                               float angle, const Color& tint) {
+    if (!tex || !tex->valid() || radius <= 0.f) return;
+    constexpr int segments = 48;
+    constexpr float step = 6.283185307f / segments;
+    const float width = static_cast<float>(tex->width()), height = static_cast<float>(tex->height());
+    const float halfSide = std::min(width, height) * 0.5f;
+    const float uRadius = halfSide / width, vRadius = halfSide / height;
+    bindTexture(tex->descriptorSlot());
+    auto edge = [&](int i) {
+        const float theta = i * step, uv = theta - angle;
+        addVertex(center.x + radius * std::cos(theta), center.y + radius * std::sin(theta),
+                  0.5f + uRadius * std::cos(uv), 0.5f + vRadius * std::sin(uv), tint);
+    };
+    for (int i = 0; i < segments; ++i) {
+        addVertex(center.x, center.y, 0.5f, 0.5f, tint);
+        edge(i);
+        edge(i + 1);
+    }
+}
+
 void Renderer::drawText(const std::string& text, const Vec2& pos, Font* font,
                          const Color& color, float scale) {
     if (!font || text.empty()) return;

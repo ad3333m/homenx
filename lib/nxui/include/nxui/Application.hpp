@@ -97,7 +97,6 @@ public:
     bool sleeping() const    { return m_sleeping; }
 
 private:
-    void renderSleepFrames();
     void wakeRendering() { m_quietSeconds = 0.f; m_redrawRequested = true; }
     bool shouldPresent(float dt);
     void setDeepIdle(bool deep);

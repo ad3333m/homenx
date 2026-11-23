@@ -6,23 +6,18 @@
 #include <cstdio>
 #include <cstring>
 #include <type_traits>
+using u8 = std::uint8_t;
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
 using Result = unsigned;
 #define R_SUCCEEDED(rc) ((rc) == 0)
 #define R_FAILED(rc) ((rc) != 0)
 struct Service { bool active = false; };
-struct NcmProgramLocation { u64 program_id; unsigned storageID; };
-constexpr unsigned NcmStorageId_None = 0;
 namespace switube_fake {
-inline std::atomic<unsigned> launches{0}, connects{0}, polls{0}, nexts{0};
-inline std::atomic<u64> pid{0};
+inline std::atomic<unsigned> starts{0}, connects{0}, polls{0}, nexts{0};
+inline std::atomic<bool> registered{false};
 inline std::atomic<u32> volume{700}, repeat{0}, shuffle{0};
 inline std::atomic<bool> playing{false};
-inline void ready(u64 marker) {
-    FILE* f = std::fopen("sdmc:/config/Switube/background-ready.log", "w");
-    if (f) { std::fprintf(f, "pass-v043 %016llX 0x00000000\n", static_cast<unsigned long long>(marker)); std::fclose(f); }
-}
 template <class T> Result output(unsigned command, T& out) {
     if constexpr (std::is_same_v<T, SwitubeIpcStatus>) {
         if (command != SwitubeIpcCommand_GetStatus) return 1;
@@ -72,13 +67,11 @@ inline Result item(unsigned, u32, SwitubeIpcBrowseItem& out) {
 inline bool serviceIsActive(Service* s) { return s->active; }
 inline void serviceClose(Service* s) { s->active = false; }
 inline Result smGetService(Service* s, const char*) { s->active = true; ++switube_fake::connects; return 0; }
-inline Result pmdmntInitialize() { return 0; }
-inline void pmdmntExit() {}
-inline Result pmdmntGetProcessId(u64* pid, u64) { *pid = switube_fake::pid; return 0; }
-inline Result pmshellInitialize() { return 0; }
-inline void pmshellExit() {}
-inline Result pmshellLaunchProgram(unsigned, const NcmProgramLocation*, u64* pid) {
-    ++switube_fake::launches; *pid = 0x55; switube_fake::pid = *pid; return 0;
+inline const char* smEncodeName(const char* name) { return name; }
+inline void* smGetServiceSessionTipc() { return nullptr; }
+inline Result tipcDispatchInOut(void*, unsigned, const char*, u8& out) {
+    out = switube_fake::registered;
+    return 0;
 }
 inline u64 armGetSystemTick() {
     return std::chrono::steady_clock::now().time_since_epoch().count();

@@ -1075,6 +1075,7 @@ bool WiiUMenuApp::onCreate() {
             using Message = switchu::smi::SystemMessage;
             switch (static_cast<Message>(command)) {
                 case Message::LaunchAlbum: return "Album";
+                case Message::LaunchHomebrewApplet: return "Homebrew applet";
                 case Message::LaunchMiiEditor: return "MiiEditor";
                 case Message::LaunchControllers: return "Controllers";
                 case Message::LaunchNetConnect: return "NetConnect";

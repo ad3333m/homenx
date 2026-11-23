@@ -271,6 +271,10 @@ target("SwitchU")
         add_deps("switchu-daemon")
 
         add_defines("SWITCHU_MENU")
+        add_defines("HOMENX_NATIVE_YOUTUBE")
+        add_includedirs("projects/media/online", "projects/media/upstream")
+        add_files("projects/media/online/*.cpp", "projects/media/upstream/NXConsoleLog.cpp")
+        add_linkgroups("avformat", "avcodec", "swresample", "avutil", "dav1d", "bz2", "z", {group = true})
         set_values("switch.name",    "switchu-menu")
         set_values("switch.author",  "PoloNX")
         set_values("switch.version", version)
@@ -468,6 +472,30 @@ target("switchu-daemon")
     add_deps("atmosphere-stratosphere")
 
     add_files("projects/daemon/src/**.cpp")
+    add_files("projects/media/engine/background_backend.cpp",
+              "projects/media/source/ipc_server.c",
+              "projects/media/source/switube_service.cpp",
+              "projects/media/source/service_core.cpp",
+              "projects/media/vendor/nestegg/nestegg.c",
+              "projects/media/source/ffmpeg_stubs.c",
+              "projects/media/source/ffmpeg_custom_list.c",
+              "projects/media/upstream/yt_engine.cpp",
+              "projects/media/upstream/yt_audio_player.cpp",
+              "projects/media/upstream/NXAudioSink.cpp",
+              "projects/media/upstream/NXConsoleLog.cpp",
+              {cxflags = "-Os"})
+    add_includedirs("projects/media/vendor/nestegg/include", "projects/media/engine", "projects/media/source", "projects/media/upstream")
+    add_defines("SWITUBE_BACKGROUND_SERVICE")
+    add_linkgroups("avformat", "avcodec", "swresample", "avutil", "opus", "vorbis",
+                   "ogg", "bz2", "z", "m", {group = true})
+    add_ldflags("-Wl,--wrap=memalign", {force = true})
+
+    after_install(function (target)
+        local dest = path.join(target:installdir(), "switch", "SwitchU", "bin")
+        os.mkdir(dest)
+        os.cp(path.join(os.projectdir(), "projects/media/LICENSE.switube"), dest)
+    end)
+
 
     add_includedirs("projects/common/include", {public = false})
     add_includedirs("lib/Atmosphere-libs/libstratosphere/include")
@@ -498,4 +526,24 @@ target("switchu-daemon")
     set_values("switch.tid",     "0100000000001000")
     set_values("switch.json",    "projects/daemon/daemon.json")
     set_values("switch.format",  "nsp")
+target_end()
+
+target("homenx-video")
+    set_kind("binary")
+    if not is_plat("cross") or has_config("homebrew") then
+        set_enabled(false)
+        return
+    end
+    set_toolchains("devkita64")
+    set_languages("c++20")
+    add_rules("switch")
+    add_files("projects/media/video/main.cpp")
+    add_packages("libsdl")
+    add_linkgroups("SDL2", "EGL", "glapi", "drm_nouveau", "avformat", "avcodec",
+                   "swresample", "swscale", "avutil", "dav1d", "bz2", "z", "nx", {group = true})
+    set_values("switch.name", "homenx-video")
+    set_values("switch.author", "HomeNX")
+    set_values("switch.version", version)
+    set_values("switch.icon", "projects/manager/icon.jpg")
+    set_values("switch.format", "nro")
 target_end()

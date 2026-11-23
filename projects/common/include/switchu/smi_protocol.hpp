@@ -47,6 +47,10 @@ enum class SystemMessage : uint32_t {
     RequestForeground     = 23,
     RebootToPayload       = 24, // HomeNX: a reboot through am, which Atmosphère sends to its payload
 
+    LaunchHomebrewApplet  = 25,
+    RestartMenuForDisplay = 26,
+    StartMedia = 27,
+
     GetAppList            = 30,
     GetSystemStatus       = 31,
     IsApplicationValid    = 32,

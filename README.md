@@ -68,18 +68,20 @@ sdmc:/
   - **Home**: Ask who's playing (choose the profile when a game starts), the panel button, Look for new software
   - **Look**: one background picture for everything, the launch animation, TV resolution
   - **Lock screen**: on or off, a password, a picture
-  - **Sound**: HOME music or **Switube**
+  - **Sound**: HOME music or **YouTube Music**
   - **Console**: sleep, and the date and time
   - **Pictures**: SteamGridDB, and Save every picture (readable copies in `config/CardsNX/pictures`)
-- **Switube** plays YouTube Music on the Switch through its background service (CardsNX running as HOME).
-  - Install [Switube 0.1.0's complete SD package](https://github.com/dl3g0/Switube/releases/tag/0.1.0), then select
-    **Settings > Sound > Music player > Switube**. HomeNX starts the installed service when you open its player.
-  - The music screen and Quick Settings show the song, artist, progress, shuffle, repeat and volume, with transport controls.
-  - In the music screen, press **X** or tap the right-hand panel to browse YouTube Music, search, or play offline downloads.
-    **Settings > Sound > Browse Switube** opens the same browser.
-  - Playback continues when HOME closes. The standalone Switube app has its own player; HomeNX controls the background
-    service used by Switube's overlay. HomeNX does not bundle Switube or start it at console boot.
-  - No Spotify login or Premium account is used. Switube's IPC status has no artwork field, so the player uses its record graphic.
+- **YouTube Music** is built into CardsNX. Open **Settings > Sound > Browse YouTube Music**
+  to browse or search. Results show the song title, artist and cover. Select a song to play it
+  while HOME is open, add it to the queue, or save it to Downloads. The music player shows
+  the queue beside the controls and spins the current cover on the record label.
+- **Downloads** lists music downloaded through HomeNX or Switube. Start a downloaded track
+  before launching a game to keep it playing in the background.
+- Choose **Play SD video** from the music browser to play an MP4, MKV, or WebM file from
+  `/videos`. The video player supports sources up to 1080p. Press **A** to pause or resume
+  and **B** to return to HOME.
+- The YouTube Music client and background audio engine adapt source from
+  [Switube by dl3g0](https://github.com/dl3g0/Switube). The standalone Switube app is unnecessary.
 
 ## The Wii U look
 

@@ -92,6 +92,7 @@ GameCardMarker gameCardMarker(const Game& game, const GameCardState& state);
 GameCardState readGameCard(std::uint64_t knownTitle = 0, const std::vector<Game>& knownGames = {});
 // The .nro apps in sdmc:/switch (and one folder below), Sphaira, Discord
 // (SwitchCord) and the Homebrew Manager first.
+void loadHomebrewPlaytime(std::vector<Game>& apps);
 std::vector<Game> listHomebrew();
 std::vector<std::uint8_t> gameIcon(const Game& game); // JPEG
 // Quick checks (no names or icons read): the .nro files' paths, and how many

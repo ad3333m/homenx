@@ -9,6 +9,9 @@
 #include <switchu/time_budget.hpp>
 #include <switchu/tls_roots.hpp>
 #include "homebrew/HomebrewStore.hpp"
+#include <switchu/homebrew_playtime.hpp>
+#include <iomanip>
+#include <sstream>
 #ifdef SWITCHU_MENU
 #include "themeshop/ThemeHttp.hpp"
 #endif
@@ -596,6 +599,36 @@ bool playTotals(AccountUidLike user, std::map<std::uint64_t, PlayTotal>& out, co
     return finish(true); // (a session still open at the end isn't counted, as there)
 }
 
+void loadHomebrewPlaytime(std::vector<Game>& apps) {
+    struct Total {
+        std::uint64_t nanoseconds = 0;
+        std::uint64_t last = 0;
+        std::uint64_t launches = 0;
+    };
+    std::map<std::string, Total> totals;
+    std::ifstream log(switchu::homebrew::kPlayLog);
+    std::string line;
+    while (std::getline(log, line)) {
+        std::istringstream entry(line);
+        std::uint64_t duration = 0, last = 0;
+        bool launch = false;
+        std::string path;
+        if (!(entry >> duration >> last >> launch >> std::quoted(path)))
+            continue;
+        auto& total = totals[path];
+        total.nanoseconds += duration;
+        total.last = std::max(total.last, last);
+        total.launches += launch;
+    }
+    for (Game& app : apps) {
+        if (const auto it = totals.find(app.path); it != totals.end()) {
+            app.playSeconds = it->second.nanoseconds / 1'000'000'000ULL;
+            app.lastPlayed = it->second.last;
+            app.launches = it->second.launches;
+        }
+    }
+}
+
 std::vector<Game> listHomebrew() {
     std::vector<Game> apps;
     for (HomebrewApp& hb : scanHomebrew("sdmc:/switch/CardsNX/CardsNX.nro", false)) {
@@ -633,6 +666,7 @@ std::vector<Game> listHomebrew() {
         return 4;
     };
     std::stable_sort(apps.begin(), apps.end(), [&](const Game& a, const Game& b) { return pin(a) < pin(b); });
+    loadHomebrewPlaytime(apps);
     return apps;
 }
 

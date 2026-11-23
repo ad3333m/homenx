@@ -1,4 +1,7 @@
 #include "Audio.hpp"
+#ifdef HOMENX_NATIVE_YOUTUBE
+#include "pcm_output.hpp"
+#endif
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
@@ -58,6 +61,9 @@ void fft(std::vector<std::complex<float>>& a) { // in place, radix 2
 }
 
 void onMixed(void*, Uint8* stream, int len) {
+#ifdef HOMENX_NATIVE_YOUTUBE
+    switube::native::pcm::mix(reinterpret_cast<Sint16*>(stream), len / (2 * sizeof(Sint16)));
+#endif
     static std::vector<std::complex<float>> buf(kFft);
     static std::vector<float> window;
     static std::array<int, Audio::kBands + 1> edges{};
@@ -246,6 +252,12 @@ void Audio::opened() {
     m_open = true;
     Mix_Volume(-1, MIX_MAX_VOLUME * m_soundVolume / 100);
     Mix_HookMusicFinished(onTrackEnded);
+#ifdef HOMENX_NATIVE_YOUTUBE
+    int rate = 0, channels = 0;
+    Uint16 format = 0;
+    if (Mix_QuerySpec(&rate, &format, &channels) && format == AUDIO_S16SYS && channels == 2)
+        switube::native::pcm::setOutputRate(rate);
+#endif
     Mix_SetPostMix(onMixed, nullptr);
     m_infoJob = std::async(std::launch::async, []() {
         offTheScreensCore();
@@ -276,6 +288,9 @@ void Audio::stop() {
     if (m_trackJob.valid()) m_trackJob.wait();
     Mix_HookMusicFinished(nullptr);
     Mix_SetPostMix(nullptr, nullptr);
+#ifdef HOMENX_NATIVE_YOUTUBE
+    switube::native::pcm::setOutputRate(0);
+#endif
     Mix_HaltMusic();
     Mix_HaltChannel(-1);
     if (m_current) Mix_FreeMusic(m_current);
