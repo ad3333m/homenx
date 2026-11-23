@@ -11,12 +11,13 @@ cd "$REPO_ROOT"
 
 # Configuration — override any of these with environment variables.
 export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
-# Some devkitPro installs lack half the portlibs this build needs (libjpeg for
-# libstratosphere, curl's metadata for the overlay). When the default is one of
-# those, prefer the fuller install under the devkitA64 rootfs.
-if [ ! -f "$DEVKITPRO/portlibs/switch/include/jpeglib.h" ] \
-    && [ -f "$HOME/Work/devkita64-rootfs/opt/devkitpro/portlibs/switch/include/jpeglib.h" ]; then
-    export DEVKITPRO="$HOME/Work/devkita64-rootfs/opt/devkitpro"
+# Use the alternate root only if it supplies both required media libraries.
+fallback_devkitpro="$HOME/Work/devkita64-rootfs/opt/devkitpro"
+if { [[ ! -f "$DEVKITPRO/portlibs/switch/include/jpeglib.h" ]] ||
+     [[ ! -f "$DEVKITPRO/portlibs/switch/lib/libavformat.a" ]]; } &&
+   [[ -f "$fallback_devkitpro/portlibs/switch/include/jpeglib.h" ]] &&
+   [[ -f "$fallback_devkitpro/portlibs/switch/lib/libavformat.a" ]]; then
+    export DEVKITPRO="$fallback_devkitpro"
 fi
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -52,7 +53,9 @@ command -v zip >/dev/null || die "zip is not installed"
 command -v cmake >/dev/null || die "cmake is not installed"
 command -v python3 >/dev/null || die "python3 is not installed"
 [[ -f "$DEVKITPRO/portlibs/switch/lib/libavformat.a" ]] ||
-    die "devkitPro's switch-ffmpeg package is required for HomeNX Media"
+    die "Missing libavformat.a under $DEVKITPRO/portlibs/switch/lib (switch-ffmpeg)"
+[[ -f "$DEVKITPRO/portlibs/switch/include/jpeglib.h" ]] ||
+    die "Missing jpeglib.h under $DEVKITPRO/portlibs/switch/include (switch-libjpeg-turbo)"
 
 # Match the output layout used by the packaging steps below.
 step "Configuring HomeNX"

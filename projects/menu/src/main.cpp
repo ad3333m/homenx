@@ -1,3 +1,6 @@
+#include <switchu/recovery.hpp>
+#include <switchu/diagnostic.hpp>
+namespace diag = switchu::diagnostic;
 
 #include "core/WiiUMenuApp.hpp"
 #include "core/DebugLog.hpp"
@@ -52,6 +55,7 @@ extern "C" {
 
 #ifndef SWITCHU_HOMEBREW
 namespace {
+constinit Result lastHeapFailure{};
 constexpr size_t kHeapLadder[] = {
     416u * 1024u * 1024u,
     400u * 1024u * 1024u,
@@ -94,10 +98,12 @@ extern "C" void __libnx_initheap(void) {
     const size_t ceiling = available > kHeadroom ? available - kHeadroom : 0;
     for (size_t requested : kHeapLadder) {
         if (ceiling != 0 && requested > ceiling && requested > kHeapLadder[std::size(kHeapLadder) - 1]) continue;
-        if (R_SUCCEEDED(svcSetHeapSize(&address, requested))) {
+        const Result rc = svcSetHeapSize(&address, requested);
+        if (R_SUCCEEDED(rc)) {
             granted = requested;
             break;
         }
+        lastHeapFailure = rc;
     }
 
     g_switchuHeapSize = granted;
@@ -138,48 +144,75 @@ ViLayer g_menuLayer{};
 NWindow g_menuWindow{};
 
 void initializeMenuWindow() {
-    Result rc = viInitialize(ViServiceType_Default);
-    if (R_SUCCEEDED(rc)) rc = viOpenDefaultDisplay(&g_menuDisplay);
-    if (R_SUCCEEDED(rc)) rc = viCreateLayer(&g_menuDisplay, &g_menuLayer);
-    if (R_SUCCEEDED(rc)) rc = viSetLayerScalingMode(&g_menuLayer, ViScalingMode_PreserveAspectRatio);
-    if (R_FAILED(rc) && g_menuLayer.initialized)
-        rc = viSetLayerScalingMode(&g_menuLayer, ViScalingMode_FitToLayer);
-    if (R_SUCCEEDED(rc)) rc = nwindowCreateFromLayer(&g_menuWindow, &g_menuLayer);
-    if (R_FAILED(rc)) diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_BadGfxInit));
+    auto step = [](const char* name, auto call) {
+        diag::begin("VI", name);
+        return diag::end("VI", "END", call());
+    };
+    Result rc = step("viInitialize BEGIN", [] { return viInitialize(ViServiceType_Default); });
+    if (R_SUCCEEDED(rc)) rc = step("viOpenDefaultDisplay BEGIN", [] { return viOpenDefaultDisplay(&g_menuDisplay); });
+    if (R_SUCCEEDED(rc)) rc = step("viCreateLayer BEGIN", [] { return viCreateLayer(&g_menuDisplay, &g_menuLayer); });
+    if (R_SUCCEEDED(rc)) {
+        rc = step("VI preserve aspect BEGIN", [] { return viSetLayerScalingMode(&g_menuLayer, ViScalingMode_PreserveAspectRatio); });
+        if (R_FAILED(rc))
+            rc = step("VI fit to layer BEGIN", [] { return viSetLayerScalingMode(&g_menuLayer, ViScalingMode_FitToLayer); });
+    }
+    if (R_SUCCEEDED(rc)) rc = step("nwindowCreateFromLayer BEGIN", [] { return nwindowCreateFromLayer(&g_menuWindow, &g_menuLayer); });
+    if (R_FAILED(rc)) {
+        diag::stop();
+        diagAbortWithResult(rc);
+    }
     nxui::GpuDevice::setWindow(&g_menuWindow);
 }
 
 } // namespace
 
 extern "C" void __appInit(void) {
+    diag::origin = armGetSystemTick();
+    diag::component = "menu";
+    diag::begin("BOOT", "__appInit BEGIN");
+    if (lastHeapFailure)
+        diag::log(g_switchuHeapSize ? diag::Level::Warn : diag::Level::Error, "MEM",
+                  g_switchuHeapSize ? "Heap request rejected before fallback" : "All heap requests rejected",
+                  lastHeapFailure);
     Result rc;
     g_homenxStartTick = armGetSystemTick();
 
     svcOutputDebugString("[SwitchU-menu] __appInit start", 30);
 
-    rc = smInitialize();
-    if (R_FAILED(rc)) diagAbortWithResult(MAKERESULT(Module_Libnx, 500));
+    diag::begin("IPC", "smInitialize BEGIN");
+    rc = diag::end("IPC", "smInitialize END", smInitialize());
+    if (R_FAILED(rc)) diagAbortWithResult(rc);
 
-    rc = fsInitialize();
-    if (R_FAILED(rc)) diagAbortWithResult(MAKERESULT(Module_Libnx, 501));
+    diag::begin("IPC", "fsInitialize BEGIN");
+    rc = diag::end("IPC", "fsInitialize END", fsInitialize());
+    if (R_FAILED(rc)) diagAbortWithResult(rc);
 
-    rc = appletInitialize();
+    diag::begin("IPC", "appletInitialize BEGIN");
+    rc = diag::end("IPC", "appletInitialize END", appletInitialize());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-menu] appletInitialize FAIL", 37);
-        diagAbortWithResult(MAKERESULT(Module_Libnx, 502));
+        diagAbortWithResult(rc);
     }
     svcOutputDebugString("[SwitchU-menu] appletInitialize OK", 34);
 
-    rc = hidInitialize();
+    diag::begin("IPC", "hidInitialize BEGIN");
+    rc = diag::end("IPC", "hidInitialize END", hidInitialize());
     if (R_FAILED(rc)) svcOutputDebugString("[SwitchU-menu] hidInitialize FAIL", 33);
 
-    setsysInitialize();
-    setInitialize();
-    plInitialize(PlServiceType_System);
-    psmInitialize();
-    lblInitialize();
-    splInitialize();
-    accountInitialize(AccountServiceType_System);
+    diag::begin("IPC", "setsysInitialize BEGIN");
+    diag::end("IPC", "setsysInitialize END", setsysInitialize());
+    diag::begin("IPC", "setInitialize BEGIN");
+    diag::end("IPC", "setInitialize END", setInitialize());
+    diag::begin("IPC", "plInitialize BEGIN");
+    diag::end("IPC", "plInitialize END", plInitialize(PlServiceType_System));
+    diag::begin("IPC", "psmInitialize BEGIN");
+    diag::end("IPC", "psmInitialize END", psmInitialize());
+    diag::begin("IPC", "lblInitialize BEGIN");
+    diag::end("IPC", "lblInitialize END", lblInitialize());
+    diag::begin("IPC", "splInitialize BEGIN");
+    diag::end("IPC", "splInitialize END", splInitialize());
+    diag::begin("IPC", "accountInitialize BEGIN");
+    diag::end("IPC", "accountInitialize END", accountInitialize(AccountServiceType_System));
 
     {
         SetSysFirmwareVersion fw = {};
@@ -190,18 +223,23 @@ extern "C" void __appInit(void) {
     // ClockService tries again if it fails here.
     switchu::timebudget::poll();
 
-    rc = fsdevMountSdmc();
+    diag::begin("FS", "SD mount BEGIN");
+    rc = diag::end("FS", "SD mount END", fsdevMountSdmc());
     if (R_FAILED(rc)) {
         svcOutputDebugString("[SwitchU-menu] fsdevMountSdmc FAIL, retry", 42);
         svcSleepThread(100'000'000ULL);
-        rc = fsdevMountSdmc();
+        rc = diag::end("FS", "SD mount END", fsdevMountSdmc());
     }
 
+    if (R_SUCCEEDED(rc))
+        diag::start("sdmc:/config/SwitchU/diagnostic-menu.log",
+                    "sdmc:/config/SwitchU/diagnostic-menu.old", &nxui::g_phase, &nxui::g_phaseSerial);
     switchu::FileLog::open("menu");
     DebugLog::openFileLog();
     DebugLog::log("[menu] __appInit complete (sd mount: 0x%X)", rc);
 
-    rc = nsInitialize();
+    diag::begin("IPC", "nsInitialize BEGIN");
+    rc = diag::end("IPC", "nsInitialize END", nsInitialize());
     if (R_FAILED(rc))
         DebugLog::log("[menu] nsInitialize FAILED: 0x%X", rc);
     else
@@ -236,6 +274,7 @@ extern "C" void __appExit(void) {
     setsysExit();
     timeExit();
 
+    diag::stop();
     fsdevUnmountAll();
     fsExit();
     smExit();
@@ -283,8 +322,14 @@ struct DisplayModeHook {
 };
 
 static void onDisplayMode(AppletHookType type, void* context) {
+    if (type == AppletHookType_OnFocusState) {
+        diag::log(diag::Level::Info, "APPLET", appletGetFocusState() == AppletFocusState_InFocus
+            ? "Focus gained" : "Focus lost");
+        return;
+    }
     if (type != AppletHookType_OnOperationMode && type != AppletHookType_OnResume)
         return;
+    diag::log(diag::Level::Info, "APPLET", type == AppletHookType_OnResume ? "Resume" : "Operation mode changed");
     const auto& hook = *static_cast<DisplayModeHook*>(context);
     auto& app = hook.app;
     app.requestRedraw();
@@ -344,19 +389,51 @@ int main(int argc, char* argv[]) {
                       static_cast<unsigned long long>(total > used ? (total - used) >> 20 : 0));
     }
 
+    char environment[140];
+    const u32 firmware = hosversionGet();
+    std::snprintf(environment, sizeof(environment), "%s git=%s HOS=%u.%u.%u heap=%zu MiB",
+                  HOMENX_BUILD, HOMENX_GIT, (firmware >> 16) & 255,
+                  (firmware >> 8) & 255, firmware & 255, g_switchuHeapSize >> 20);
+    diag::log(diag::Level::Info, "BOOT", environment);
+    u64 atmosphere{};
+    const Result atmosphereRc = splGetConfig(static_cast<SplConfigItem>(65000), &atmosphere);
+    if (R_SUCCEEDED(atmosphereRc)) {
+        std::snprintf(environment, sizeof(environment), "Atmosphere %u.%u.%u",
+                      static_cast<unsigned>((atmosphere >> 56) & 255),
+                      static_cast<unsigned>((atmosphere >> 48) & 255),
+                      static_cast<unsigned>((atmosphere >> 40) & 255));
+        diag::log(diag::Level::Info, "BOOT", environment);
+    } else {
+        diag::log(diag::Level::Warn, "BOOT", "Atmosphere version unavailable", atmosphereRc);
+    }
+    u64 total{}, used{};
+    Result totalRc = svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+    Result usedRc = svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+    if (R_SUCCEEDED(totalRc) && R_SUCCEEDED(usedRc)) {
+        std::snprintf(environment, sizeof(environment), "Process memory limit=%llu used=%llu bytes",
+                      static_cast<unsigned long long>(total), static_cast<unsigned long long>(used));
+        diag::log(diag::Level::Info, "MEM", environment);
+    } else {
+        diag::end("MEM", "Memory limit query END", totalRc);
+        diag::end("MEM", "Memory used query END", usedRc);
+    }
+    diag::begin("BOOT", "Read startup applet storage BEGIN");
     auto startMode = readStartMode();
     auto sysStatus = readSystemStatus();
+    diag::log(diag::Level::Info, "BOOT", "Read startup applet storage END");
 
     // HomeNX housekeeping only when the console boots, not on every HOME press
     // (returning from a game has to be quick): finish an update (files that were
     // open while it ran, before any font is opened), put the Loader in place as
     // sdmc:/hbmenu.nro and copy the shipped Toggle. The Sphaira button re-checks
     // the Loader itself.
-    if (startMode == switchu::smi::MenuStartMode::StartupBoot) {
+    if (!switchu::recovery::enabled() && startMode == switchu::smi::MenuStartMode::StartupBoot) {
+        diag::begin("BOOT", "Apply pending update and prepare loader BEGIN");
         switchu::manager::ReleaseUpdater::applyPending();
         AppletLauncher::restoreHbmenu(); // (the Loader goes in only to start homebrew)
         AppletLauncher::installBundledApps();
         AppletLauncher::prepareHbl();
+        diag::log(diag::Level::Info, "BOOT", "Apply pending update and prepare loader END");
     }
 
     DebugLog::log("[menu] start mode=%d  suspended=0x%016lX running=%d",
@@ -367,10 +444,28 @@ int main(int argc, char* argv[]) {
         nxui::Renderer::setShaderBasePath(sdPath);
         DebugLog::log("[menu] shader path: %s", sdPath.c_str());
     }
-    const bool prefer1080p = chooseResolution();
+    diag::begin("VI", "Select display resolution BEGIN");
+    const bool recovery = switchu::recovery::enabled();
+    if (recovery) diag::log(diag::Level::Info, "BOOT", "Recovery mode active");
+    const bool prefer1080p = !recovery && chooseResolution();
+    diag::log(diag::Level::Info, "VI", "Select display resolution END");
 #endif
 
-    nxui::GpuDevice::setLogSink([](const char* msg) { DebugLog::log("%s", msg); });
+#ifndef SWITCHU_HOMEBREW
+    nxui::Application::setDiagnosticSink([](const char* phase, bool input) {
+        if (input)
+            diag::log(std::strncmp(phase, "A pressed", 9) == 0 ? diag::Level::Debug : diag::Level::Trace,
+                      "INPUT", phase);
+        else diag::begin("UI", phase);
+    });
+    diag::begin("BOOT", "SDL and font initialization BEGIN");
+#endif
+    nxui::GpuDevice::setLogSink([](const char* msg) {
+#ifndef SWITCHU_HOMEBREW
+        diag::log(diag::Level::Warn, "GPU", msg);
+#endif
+        DebugLog::log("%s", msg);
+    });
 
     // The audio device opens with the music, well after HOME's first frame:
     // opening it here was part of the freeze before the first frame every time
@@ -420,14 +515,18 @@ int main(int argc, char* argv[]) {
             return activity;
         };
         AppConfig startupConfig;
-        startupConfig.load();
+        diag::begin("CONFIG", "Load startup settings BEGIN");
+        const bool configLoaded = startupConfig.load();
+        diag::log(configLoaded ? diag::Level::Info : diag::Level::Warn, "CONFIG",
+                  configLoaded ? "Load startup settings END" : "No readable settings, using defaults");
+        diag::begin("UI", "Select and construct activity BEGIN");
         // NXToggle's Home screen choice: CardsNX's card row instead of HomeNX's.
         std::string homeStyle;
         std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), homeStyle);
         // A CardsNX start that crashes is followed by a safe one; if that crashes too, HomeNX's
         // HOME until the console restarts, not a black screen that flickers for ever.
         // (The count is cleared once CardsNX has run a moment.)
-        bool useCards = homeStyle.rfind("cards", 0) == 0;
+        bool useCards = !recovery && homeStyle.rfind("cards", 0) == 0;
         if (useCards) {
             const bool atBoot = startMode == switchu::smi::MenuStartMode::StartupBoot;
             std::error_code ec;
@@ -468,6 +567,7 @@ int main(int argc, char* argv[]) {
         DebugLog::log("[menu] app.initialize...");
         try {
             if (app.initialize()) {
+                diag::begin("UI", "UI loop");
                 DebugLog::log("[menu] app.run...");
                 DisplayModeHook display{app, prefer1080p};
                 AppletHookCookie displayHook{};
@@ -475,15 +575,21 @@ int main(int argc, char* argv[]) {
                 app.run();
                 appletUnhook(&displayHook);
             } else {
+                diag::log(diag::Level::Error, "UI", "Application initialization failed");
                 DebugLog::log("[menu] app.initialize FAILED");
                 cards::startStep("app.initialize failed");
             }
         } catch (const std::exception& e) { // (for the log: it still ends the process, as it did)
+            diag::log(diag::Level::Error, "UI", "Unhandled application initialization or run exception");
+            if (dynamic_cast<const std::bad_alloc*>(&e))
+                diag::log(diag::Level::Error, "MEM", "C++ allocation failed");
             cards::startStep(std::string("exception: ") + e.what());
             throw;
         }
+        diag::begin("GPU", "Application shutdown BEGIN");
         DebugLog::log("[menu] app.shutdown...");
         app.shutdown();
+        diag::log(diag::Level::Info, "GPU", "Application shutdown END");
 #endif
     }
 

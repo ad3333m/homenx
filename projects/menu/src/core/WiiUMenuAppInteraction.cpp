@@ -1,3 +1,4 @@
+#include <switchu/recovery.hpp>
 #include "WiiUMenuApp.hpp"
 #include "widgets/GlossyIcon.hpp"
 #include "widgets/FolderPalette.hpp"
@@ -1316,7 +1317,7 @@ void WiiUMenuApp::updateHomeBanners(float dt) {
 
     // A saved Discord account connects a few seconds after HOME settles, so its
     // DMs and mentions show here (the overlay shows them over games).
-    if (!m_discordAutoStarted && !leaveSplashActive() && m_deferredInitialAssetFrames == 0 && !launching
+    if (!switchu::recovery::enabled() && !m_discordAutoStarted && !leaveSplashActive() && m_deferredInitialAssetFrames == 0 && !launching
         && !m_discord.stopping() && (m_discordAutoStart -= dt) <= 0.f) {
         m_discordAutoStarted = true;
         const bool saved = m_discord.hasSavedAccount();

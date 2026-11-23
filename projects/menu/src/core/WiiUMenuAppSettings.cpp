@@ -1,3 +1,4 @@
+#include <switchu/recovery.hpp>
 #include <switchu/lock_password.hpp>
 #include <switchu/lock_picture.hpp>
 #include "WiiUMenuApp.hpp"
@@ -912,6 +913,7 @@ void WiiUMenuApp::showDiagnostics() {
 }
 
 void WiiUMenuApp::openDiscordPanel() {
+    if (switchu::recovery::enabled()) return;
     if (m_editMode || (m_dialog && m_dialog->isActive()) ||
         (m_userSelect && m_userSelect->isActive()) ||
         (m_quickSettings && m_quickSettings->isActive()))
