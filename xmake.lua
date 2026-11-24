@@ -491,7 +491,7 @@ target("switchu-daemon")
               {cxflags = "-Os"})
     add_includedirs("projects/media/vendor/nestegg/include", "projects/media/engine", "projects/media/source", "projects/media/upstream")
     add_defines("SWITUBE_BACKGROUND_SERVICE")
-    add_linkgroups("avformat", "avcodec", "swresample", "avutil", "opus", "vorbis",
+    add_linkgroups("avformat", "avcodec", "swresample", "avutil", "opus",
                    "ogg", "bz2", "z", "m", {group = true})
     add_ldflags("-Wl,--wrap=memalign", {force = true})
 

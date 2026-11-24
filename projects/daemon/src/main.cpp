@@ -284,6 +284,8 @@ static bool g_systemHasForeground = false; // confirmed by AE messages 1/2
 static smi::MenuStartMode g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
 static const char* g_pendingHomeMenuSource = nullptr;
 static uint64_t g_pendingHomeMenuStartedAt = 0;
+static uint64_t g_pendingHomeMenuRetryAt = 0;
+static constexpr uint64_t kHomeMenuRetryNs = 2'000'000'000ULL;
 // HomeNX: when the menu asked for something that only happens once it has
 // closed (a game, an applet), and it hasn't closed yet. See forceMenuGone().
 static uint64_t g_menuExitExpectedAt = 0;
@@ -991,6 +993,7 @@ static Result launchPendingHomeMenu() {
     g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
     g_pendingHomeMenuSource = nullptr;
     g_pendingHomeMenuStartedAt = 0;
+    g_pendingHomeMenuRetryAt = 0;
 
     const auto status = buildSystemStatus();
     switchu::FileLog::log(
@@ -1004,7 +1007,8 @@ static Result launchPendingHomeMenu() {
         g_pendingHomeMenuLaunch = true;
         g_pendingHomeMenuMode = mode;
         g_pendingHomeMenuSource = source;
-        g_pendingHomeMenuStartedAt = armGetSystemTick();
+        g_pendingHomeMenuStartedAt = startedAt;
+        g_pendingHomeMenuRetryAt = armGetSystemTick() + armNsToTicks(kHomeMenuRetryNs);
     }
     const uint64_t launchDoneAt = armGetSystemTick();
     switchu::FileLog::log(
@@ -1187,17 +1191,11 @@ static void openMenuFromHome(const char* source) {
 
     if (!daemon::menu_la::hasHolder() && !g_foregroundAppletActive) {
         // AM announces ownership separately from accepting the foreground request.
-        const bool alreadyOwnsForeground = g_systemHasForeground;
         g_pendingHomeMenuLaunch = true;
         g_pendingHomeMenuMode = smi::MenuStartMode::MainMenu;
         g_pendingHomeMenuSource = source;
         g_pendingHomeMenuStartedAt = homeStartedAt;
-        if (alreadyOwnsForeground) {
-            launchPendingHomeMenu();
-        } else {
-            const Result rc = appletRequestToGetForeground();
-            switchu::FileLog::log("[%s] HOME foreground requested rc=0x%X", source, rc);
-        }
+        g_pendingHomeMenuRetryAt = 0;
         return;
     }
 
@@ -1344,16 +1342,14 @@ static void finishSleepSequence() {
         g_pendingHomeMenuMode = smi::MenuStartMode::WakeUp;
         g_pendingHomeMenuSource = "wake-lock";
         g_pendingHomeMenuStartedAt = armGetSystemTick();
+        g_pendingHomeMenuRetryAt = 0;
         if (g_foregroundAppletActive) {
             g_pendingForegroundAppletHome = true;
             return;
         }
     }
     if (g_pendingHomeMenuLaunch) {
-        if (g_systemHasForeground)
-            launchPendingHomeMenu();
-        else
-            appletRequestToGetForeground();
+        g_pendingHomeMenuRetryAt = 0;
         return;
     }
     if (target == lock_screen::WakeTarget::ExistingMenu) {
@@ -1381,8 +1377,9 @@ static bool handleAppletMessages() {
     switch (msg) {
         case 1:
         switchu::FileLog::log("[ae] -> ChangeIntoForeground");
+        if (!g_systemHasForeground)
+            g_pendingHomeMenuRetryAt = 0;
         g_systemHasForeground = true;
-        launchPendingHomeMenu();
         break;
 
         case 2:
@@ -2021,7 +2018,7 @@ static bool handleMenuCommand() {
 
 static Result relaunchMenuAfterApplet(const char* appletName) {
     if (g_pendingHomeMenuLaunch)
-        return launchPendingHomeMenu();
+        return 0; // The main loop restores HOME after draining ownership messages.
     const auto status = buildSystemStatus();
     diag::begin("SMI", "Applet return BEGIN");
     const Result rc = diag::end("SMI", "Applet return END", daemon::menu_la::launch(smi::MenuStartMode::AppletReturn, status));
@@ -2391,17 +2388,6 @@ static void mainLoop() {
         didWork = true;
     }
 
-    if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0
-        && armTicksToNs(armGetSystemTick() - g_pendingHomeMenuStartedAt) >= 2'000'000'000ULL) {
-        if (g_systemHasForeground) {
-            launchPendingHomeMenu();
-        } else {
-            const Result rc = appletRequestToGetForeground();
-            g_pendingHomeMenuStartedAt = armGetSystemTick();
-            switchu::FileLog::log("[home] retry foreground request rc=0x%X", rc);
-        }
-        didWork = true;
-    }
     if (menuExitExpected()) {
         if (g_menuExitExpectedAt == 0)
             g_menuExitExpectedAt = armGetSystemTick();
@@ -2413,7 +2399,8 @@ static void mainLoop() {
         g_menuExitExpectedAt = 0;
     }
 
-    didWork |= consumeOneAction();
+    const bool consumedAction = consumeOneAction();
+    didWork |= consumedAction;
 
     if (daemon::app::checkFinished()) {
         switchu::FileLog::log("[main] app exited");
@@ -2430,6 +2417,21 @@ static void mainLoop() {
             fallBackToHomebrewApplet("exited early");
         } else {
             openMenuFromHome("app-exit");
+        }
+        didWork = true;
+    }
+
+    // Process queued ownership changes and game exit before starting an
+    // AllForeground applet. An action can add new ownership events while it runs.
+    if (!consumedAction && g_pendingHomeMenuLaunch
+        && !daemon::menu_la::hasHolder() && !g_foregroundAppletActive
+        && armGetSystemTick() >= g_pendingHomeMenuRetryAt) {
+        if (g_systemHasForeground) {
+            launchPendingHomeMenu();
+        } else {
+            const Result rc = appletRequestToGetForeground();
+            g_pendingHomeMenuRetryAt = armGetSystemTick() + armNsToTicks(kHomeMenuRetryNs);
+            switchu::FileLog::log("[%s] HOME foreground request rc=0x%X", g_pendingHomeMenuSource, rc);
         }
         didWork = true;
     }
@@ -2500,9 +2502,13 @@ static u64 mainLoopTimeoutNs() {
             timeout = ns;
     };
 
-    // Retry HOME foreground acquisition if AM has yet to confirm it.
-    if (g_pendingHomeMenuLaunch && g_pendingHomeMenuStartedAt != 0)
-        until(g_pendingHomeMenuStartedAt + armNsToTicks(2'000'000'000ULL));
+    // Wake for a deferred HOME launch or the next handoff retry.
+    if (g_pendingHomeMenuLaunch && !daemon::menu_la::hasHolder() && !g_foregroundAppletActive) {
+        if (g_pendingHomeMenuRetryAt == 0)
+            atMost(1'000'000ULL);
+        else
+            until(g_pendingHomeMenuRetryAt);
+    }
     // A menu that should be closing: closed by the watchdog after 5 s.
     if (g_menuExitExpectedAt != 0)
         until(g_menuExitExpectedAt + armNsToTicks(5'000'000'000ULL));
