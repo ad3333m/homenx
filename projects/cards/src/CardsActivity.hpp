@@ -529,6 +529,26 @@ private:
     void drawCardExtras(nxui::Renderer& r); // after the blur: glass cards, badges, the sheen
     void drawLaunch(nxui::Renderer& r);
     void drawPanel(nxui::Renderer& r, float a);
+    // Settings > Look > Style > Material 3: a rail on the left, a big title, the status as one
+    // button group, the sort modes as chips, and the panel as a round sheet; its colours come
+    // from the chosen game's cover (updateM3). Where each button was drawn is kept for touch.
+    void drawTopBarM3(nxui::Renderer& r, float a);
+    void drawPanelM3(nxui::Renderer& r, float a);
+    void updateM3();
+    bool m3() const { return m_settings.style == 1; }
+    std::vector<int> bottomSlots() const; // the panel's buttons, left to right (activateBottom's numbers)
+    struct M3Colors {
+        nxui::Color primary, onPrimary, primaryC, onPrimaryC, secondaryC, onSecondaryC, tertiaryC, onTertiaryC,
+            surface, surfaceC, surfaceHigh, onSurface, onSurfaceVar, outline;
+    };
+    M3Colors m_m3{};
+    nxui::Color m_m3Seed{0.f, 0.f, 0.f, 0.f}; // eased towards the chosen cover's colour
+    float m_m3Time = 0.f, m_m3Dt = 0.f;
+    float m_m3Pill = -1.f;   // the rail's filled pill: where it is (a page's place; it slides)
+    nxui::Font m_fHead;      // the big title (loaded the first time Material 3 draws)
+    bool m_headFont = false;
+    nxui::Rect m_topHit[kTopCount]{}, m_chipHit[4]{}, m_bottomHit[5]{};
+    std::vector<std::pair<int, nxui::Rect>> m_pageHit; // the rail's pages
     void drawPopup(nxui::Renderer& r);
     void drawSheet(nxui::Renderer& r);
     void drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect& row, bool chosen, float a, bool wide);
@@ -573,6 +593,7 @@ private:
         std::unique_ptr<nxui::Texture> tex;
         float in = 0.f;
         ArtKind kind = ArtKind::Grid; // (a box cover's red band is trimmed, as the full one's)
+        nxui::Color seed{0.f, 0.f, 0.f, 0.f}; // its main colour (Material 3's colours); a = 0: grey
     };
     struct ThumbPixels {
         std::uint64_t id = 0;

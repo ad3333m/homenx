@@ -57,9 +57,20 @@ constexpr float kTopY = 47.f, kCircle = 77.f;
 // Cards are the shape of a Switch case cover without its red band (352x499),
 // so its whole picture fits them exactly.
 constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 14.f;
-constexpr float kCardMidY = 309.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
-const nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
-constexpr float kPanelRadius = 35.f;
+// (Not constants: Settings > Look > Style > Material 3 lays the row and the panel out its own way.)
+float kCardMidY = 309.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
+nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
+float kPanelRadius = 35.f;
+void applyLayout(bool m3) {
+    kCardMidY = m3 ? 340.f : 309.f;
+    kCardPitch = m3 ? 262.f : 250.f;
+    kCardFirstX = m3 ? 144.f : 136.f;
+    kCardRadius = m3 ? 34.f : 26.f;
+    kPanel = m3 ? nxui::Rect{131.f, 530.f, 1122.f, 170.f} : nxui::Rect{186.f, 503.f, 907.f, 207.f};
+    kPanelRadius = m3 ? 46.f : 35.f;
+}
+// Material 3's row runs between the rail and the right edge (the cards at its ends narrow).
+constexpr float kM3Left = 131.f, kM3Right = 1253.f;
 // The top bar: menu, Discord and sort on the left; the pill (you,
 // the time, battery, free space, Nextendo) ends at kPillRight; then the bell,
 // music, power and settings.
@@ -279,6 +290,98 @@ void drawCover(nxui::Renderer& r, const nxui::Texture* tex, const nxui::Rect& ds
 nxui::Rect scaled(const nxui::Rect& r, float s) {
     const float w = r.width * s, h = r.height * s;
     return {r.x + (r.width - w) * 0.5f, r.y + (r.height - h) * 0.5f, w, h};
+}
+
+// Material 3's colours (Settings > Look > Style): hue, saturation, lightness (0..1) and back.
+nxui::Color hsl(float h, float s, float l, float a = 1.f) {
+    h -= std::floor(h);
+    s = clamp01(s);
+    l = clamp01(l);
+    auto f = [&](float n) {
+        const float k = std::fmod(n + h * 12.f, 12.f);
+        return l - s * std::min(l, 1.f - l) * std::max(-1.f, std::min({k - 3.f, 9.f - k, 1.f}));
+    };
+    return nxui::Color(f(0.f), f(8.f), f(4.f), a);
+}
+void toHsl(const nxui::Color& c, float& h, float& s, float& l) {
+    const float hi = std::max({c.r, c.g, c.b}), lo = std::min({c.r, c.g, c.b}), d = hi - lo;
+    l = (hi + lo) * 0.5f;
+    h = s = 0.f;
+    if (d < 1e-4f) return;
+    s = d / (1.f - std::abs(2.f * l - 1.f));
+    if (hi == c.r) h = std::fmod((c.g - c.b) / d + 6.f, 6.f);
+    else if (hi == c.g) h = (c.b - c.r) / d + 2.f;
+    else h = (c.r - c.g) / d + 4.f;
+    h /= 6.f;
+}
+
+// A cover's main colour, Material 3's seed: the hue most of its colourful pixels share (grey,
+// black and white ones left out), averaged. a = 0: there's none (a grey cover).
+nxui::Color seedOf(const std::uint8_t* rgba, int w, int h) {
+    float weight[24] = {}, sum[24][3] = {};
+    int seen = 0;
+    const int count = w * h, step = std::max(1, count / 2048);
+    for (int i = 0; i < count; i += step) {
+        const std::uint8_t* p = rgba + static_cast<size_t>(i) * 4;
+        const nxui::Color c(p[0] / 255.f, p[1] / 255.f, p[2] / 255.f);
+        float hue, sat, light;
+        toHsl(c, hue, sat, light);
+        ++seen;
+        if (sat < 0.25f || light < 0.12f || light > 0.88f) continue;
+        const int bin = std::min(23, static_cast<int>(hue * 24.f));
+        const float k = sat * (1.f - std::abs(light - 0.5f));
+        weight[bin] += k;
+        sum[bin][0] += c.r * k;
+        sum[bin][1] += c.g * k;
+        sum[bin][2] += c.b * k;
+    }
+    int best = 0;
+    float bestAround = 0.f;
+    for (int b = 0; b < 24; ++b) {
+        const float around = weight[b] + 0.5f * (weight[(b + 23) % 24] + weight[(b + 1) % 24]);
+        if (around > bestAround) {
+            bestAround = around;
+            best = b;
+        }
+    }
+    if (seen == 0 || weight[best] < 0.04f * static_cast<float>(seen)) return nxui::Color(0.f, 0.f, 0.f, 0.f);
+    return nxui::Color(sum[best][0] / weight[best], sum[best][1] / weight[best], sum[best][2] / weight[best], 1.f);
+}
+
+// Material 3 Expressive's soft shapes: a circle with `lobes` gentle bumps ("sunny", "cookie").
+void drawBumpy(nxui::Renderer& r, float cx, float cy, float radius, int lobes, float depth, const nxui::Color& c,
+               float turn = 0.f) { // turn: radians, so it can spin slowly
+    constexpr int kSteps = 96;
+    nxui::Vec2 prev{};
+    for (int i = 0; i <= kSteps; ++i) {
+        const float t = 6.28318f * static_cast<float>(i) / kSteps;
+        const float rr = radius * (1.f - depth + depth * std::cos(static_cast<float>(lobes) * (t - turn)));
+        const nxui::Vec2 p{cx + rr * std::sin(t), cy - rr * std::cos(t)};
+        if (i) r.drawTriangle({cx, cy}, prev, p, c);
+        prev = p;
+    }
+}
+
+// One button of a Material 3 connected group: fully round at the group's ends, a little inside.
+void drawSegment(nxui::Renderer& r, const nxui::Rect& b, const nxui::Color& c, bool first, bool last, float inner) {
+    const float outer = b.height * 0.5f;
+    if (first == last) {
+        r.drawRoundedRect(b, c, first ? outer : inner);
+        return;
+    }
+    const float half = std::round(b.x + b.width * 0.5f) - b.x;
+    r.pushClipRect({b.x, b.y, half, b.height});
+    r.drawRoundedRect(b, c, first ? outer : inner);
+    r.popClipRect();
+    r.pushClipRect({b.x + half, b.y, b.width - half, b.height});
+    r.drawRoundedRect(b, c, last ? outer : inner);
+    r.popClipRect();
+}
+
+// The ring around the chosen card: on it, or (Material 3) a little way out from it.
+void cardRing(nxui::Renderer& r, const nxui::Rect& card, const nxui::Color& c, bool m3) {
+    if (m3) r.drawRoundedRectOutline({card.x - 8.f, card.y - 8.f, card.width + 16.f, card.height + 16.f}, c, kCardRadius + 8.f, 4.f);
+    else r.drawRoundedRectOutline(card, c, kCardRadius, 3.5f);
 }
 
 // A glass card's picture in the square where its icon goes: an icon fills it;
@@ -1006,6 +1109,7 @@ void CardsActivity::applyTheme() {
 }
 
 nxui::Color CardsActivity::accent(float a) const {
+    if (m3() && m_m3Seed.a > 0.f) return m_m3.primary.withAlpha(a); // Material 3: from the chosen cover
     return kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].color.withAlpha(a);
 }
 
@@ -1586,7 +1690,7 @@ void CardsActivity::takeArt() {
             if (!d.small.empty() && (d.kind == ArtKind::Grid || d.kind == ArtKind::Box) && !m_thumbs.count(d.id)) {
                 auto small = std::make_unique<nxui::Texture>();
                 if (reserveArtwork(65536) && small->loadFromPixels(app().gpu(), app().renderer(), d.small.data(), d.sw, d.sh))
-                    m_thumbs[d.id] = {std::move(small), m_time, d.kind};
+                    m_thumbs[d.id] = {std::move(small), m_time, d.kind, seedOf(d.small.data(), d.sw, d.sh)};
             }
             if (!m_perfFirstCard && d.id == selected) {
                 m_perfFirstCard = true;
@@ -4916,7 +5020,7 @@ void CardsActivity::drawDots(nxui::Renderer& r) {
     r.drawRoundedRectOutline(p, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 28.f, 1.5f);
     r.drawGradientRect({p.x + 2.f, p.y + 2.f, p.width - 4.f, 70.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
                        nxui::Color(1.f, 1.f, 1.f, 0.f));
-    r.drawTriangle({kMenuX - 10.f, kDotsY + 1.f}, {kMenuX + 10.f, kDotsY + 1.f}, {kMenuX, kDotsY - 9.f},
+    if (!m3()) r.drawTriangle({kMenuX - 10.f, kDotsY + 1.f}, {kMenuX + 10.f, kDotsY + 1.f}, {kMenuX, kDotsY - 9.f},
                    nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a)); // pointing at the button
     if (s < 0.999f) r.pushClipRect(p);
     textMid(r, m_fPill, "Pages", full.x + kDotsPad + 4.f, full.y + kDotsPad + 12.f - 10.f * (1.f - a), kMuted.withAlpha(a), 0.9f);
@@ -5979,6 +6083,12 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(home));
 
     Section look{"Look", "gear", {}};
+    look.rows.push_back(choice("Style", [this]() { return std::string(m3() ? "Material 3" : "Default"); },
+        [this, save](int) {
+            m_settings.style = m3() ? 0 : 1;
+            applyLayout(m3());
+            save();
+        }, "Material 3: a rail, big round shapes and the colours of the chosen game"));
     look.rows.push_back(choice("Highlight colour",
         [this]() { return std::string(kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].name); },
         [this, save](int d) {
@@ -7747,6 +7857,12 @@ void CardsActivity::activateBottom(int index) {
             app().requestExit();
 #endif
             break;
+        case 4: // Material 3's Album button: this game's pictures and videos
+            if (const Game* g = current()) {
+                m_galleryApp = g->id;
+                openGallery(3);
+            }
+            break;
         default: break;
     }
 }
@@ -7780,6 +7896,11 @@ void CardsActivity::keepTextCachesSmall() {
         f.trimCache(124, 3u << 20); // (trimCache scales its byte limit too)
     };
     for (nxui::Font* f : {&m_fTitle, &m_fPlay, &m_fLabel, &m_fPill, &m_fBody, &m_fBadge, &m_fCount}) keep(*f);
+    if (m_headFont) { // Material 3's big title: a game's name each, so a short memory (1 MB)
+        const float scale2 = m_fHead.pixelScale() * m_fHead.pixelScale();
+        if (m_fHead.cacheEntryCount() > 40 || m_fHead.cacheBytes() > static_cast<std::size_t>((1u << 20) * scale2))
+            m_fHead.trimCache(28, 3u << 18);
+    }
 #ifdef SWITCHU_MENU
     // Discord, Social and the keyboard draw with HomeNX's font: nothing trimmed
     // its cache, and once full no new channel names or messages showed.
@@ -8044,7 +8165,7 @@ bool CardsActivity::handleTouch() {
     }
 
     if (in.touchDown()) {
-        m_touchOnCards = y > 100.f && y < 490.f;
+        m_touchOnCards = m3() ? y > 140.f && y < 526.f && x > 112.f : y > 100.f && y < 490.f;
         m_touchScroll = m_scroll;
         m_dragging = false;
     }
@@ -8081,6 +8202,41 @@ bool CardsActivity::handleTouch() {
             }
             return true;
         }
+        return true;
+    }
+    if (m3()) { // Material 3: what was drawn where (drawTopBarM3, drawPanelM3)
+        for (const auto& [page, box] : m_pageHit)
+            if (box.contains(x, y)) {
+                goToPage(page, 0);
+                return true;
+            }
+        for (int i = 0; i < 4; ++i) {
+            if (!m_chipHit[i].contains(x, y)) continue;
+            m_zone = Zone::Top;
+            m_topSel = kTopSort;
+            if (m_page == kGames) {
+                sortGames(kSortCycle[i]);
+                m_settings.save();
+                m_audio.play("toggle_on");
+            } else {
+                switchPage(1);
+            }
+            return true;
+        }
+        for (int i = 0; i < kTopCount; ++i)
+            if (m_topHit[i].contains(x, y)) {
+                m_zone = Zone::Top;
+                m_topSel = i;
+                activateTop(i);
+                return true;
+            }
+        for (int i = 0; i < 5; ++i)
+            if (m_bottomHit[i].contains(x, y)) {
+                m_zone = Zone::Bottom;
+                m_bottomSel = i;
+                activateBottom(i);
+                return true;
+            }
         return true;
     }
     if (y < 95.f) { // the top bar
@@ -8386,7 +8542,7 @@ void CardsActivity::onUpdate(float dt) {
                 auto tex = std::make_unique<nxui::Texture>();
                 nxui::GpuDevice::EssentialScope essential;
                 if (tex->loadFromPixels(app().gpu(), app().renderer(), p.rgba.data(), p.w, p.h)) {
-                    m_thumbs[p.id] = {std::move(tex), m_time, p.kind};
+                    m_thumbs[p.id] = {std::move(tex), m_time, p.kind, seedOf(p.rgba.data(), p.w, p.h)};
                     pictureArrived();
                 }
             }
@@ -9108,13 +9264,10 @@ void CardsActivity::onUpdate(float dt) {
             if (next == kTopPlayers && !m_settings.players) next = m_topSel;
             if (next != m_topSel) m_audio.play("navigation");
             m_topSel = next;
-        } else {
-#ifdef SWITCHU_MENU
-            const int last = m_settings.panelApp.empty() ? 2 : 3; // Settings > Home > Panel button: Nothing
-#else
-            const int last = 3;
-#endif
-            const int next = std::clamp(m_bottomSel + move, 0, last);
+        } else { // the panel's buttons, left to right
+            const std::vector<int> slots = bottomSlots();
+            const int at = static_cast<int>(std::find(slots.begin(), slots.end(), m_bottomSel) - slots.begin());
+            const int next = slots[(size_t)std::clamp(at + move, 0, static_cast<int>(slots.size()) - 1)];
             if (next != m_bottomSel) m_audio.play("navigation");
             m_bottomSel = next;
         }
@@ -9167,6 +9320,8 @@ void CardsActivity::draw(nxui::Renderer& r) {
     m_drawMarkTick = armGetSystemTick();
     m_drawMarkMs = 0.f;
     m_drawMarkName = "";
+    applyLayout(m3());
+    if (m3()) updateM3();
     drawStep("draw: the background");
     drawBackground(r);
     drawStep("draw: the cards");
@@ -9271,6 +9426,17 @@ void CardsActivity::drawGameCard(nxui::Renderer& r, float alpha) {
             tone = kRed;
             break;
     }
+    if (m3()) {
+        const float w = std::min(520.f, measured(m_fBody, label).x + 60.f);
+        const nxui::Rect chip{kM3Right - w, 98.f, w, 36.f};
+        r.drawRoundedRect(chip, m_m3.surfaceC.withAlpha(0.9f * alpha), 18.f);
+        if (m_gameCard.status == GameCardStatus::Ready && m_gameCardIcon)
+            r.drawTextureRounded(m_gameCardIcon.get(), {chip.x + 10.f, chip.y + 6.f, 24.f, 24.f}, 6.f, kWhite.withAlpha(alpha));
+        else icon(r, "gamecard", chip.x + 22.f, chip.y + 18.f, 22.f, (tone.a < 0.9f ? m_m3.onSurfaceVar : tone).withAlpha(alpha));
+        const float scale = std::min(1.f, (w - 56.f) / std::max(1.f, measured(m_fBody, label).x));
+        textMid(r, m_fBody, label, chip.x + 42.f, chip.y + 18.f, m_m3.onSurface.withAlpha(alpha), scale);
+        return;
+    }
     const nxui::Rect strip{186.f, 88.f, 907.f, 28.f};
     frost(r, strip, 8.f, glassTint(alpha));
     r.drawGradientRect({strip.x + 2.f, strip.y + 2.f, strip.width - 4.f, 10.f},
@@ -9347,6 +9513,12 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
         if (const nxui::Texture* cur = bgOf(m_bgId))
             drawCover(r, cur, screen, 0.f, kWhite.withAlpha(easeOut(m_bgFade)), 0.f, 0.f, zoom, panX, panY);
     }
+    if (m3()) { // the art far back, under the scheme's dark surface (Background softness: how far)
+        const float fade = 1.f - (m_leaving && (style == kZoom || style == kFlip) ? easeOut(m_leaveT * 2.f) : 0.f);
+        r.drawRect(screen, m_m3.surface.withAlpha((0.55f + 0.3f * static_cast<float>(m_settings.haze) / 80.f) * fade));
+        r.drawGradientRect({0.f, 260.f, 1280.f, 460.f}, m_m3.surface.withAlpha(0.f), m_m3.surface.withAlpha(0.55f * fade));
+        return;
+    }
     // The haze over it (Settings > Background softness), and a little depth at the edges.
     const float haze = static_cast<float>(m_settings.haze) / 100.f
                      * (1.f - (m_leaving && (style == kZoom || style == kFlip) ? easeOut(m_leaveT * 2.f) : 0.f));
@@ -9356,6 +9528,7 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
 }
 
 void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
+    if (m3()) return drawTopBarM3(r, a);
     if (a <= 0.001f) return;
     const bool top = m_zone == Zone::Top && !m_moving;
     const float y = kTopY - 18.f * (1.f - a);
@@ -9489,6 +9662,14 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
         lift += 22.f + 3.f * std::sin(m_decoTime * 6.f);
     }
     card = {x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f - lift + 60.f * rise, w, h};
+    if (m3()) {
+        if (card.x < kM3Left) {
+            card.width -= kM3Left - card.x;
+            card.x = kM3Left;
+        }
+        if (card.x + card.width > kM3Right) card.width = kM3Right - card.x;
+        if (card.width < 24.f) return false;
+    }
     if (m_leaving) {
         const int style = launchStyle();
         if (style == kFade && index == m_leaveIndex) { // a smooth hop: up, a little bigger, and back down
@@ -9517,7 +9698,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
     const bool cardsFocused = m_zone == Zone::Cards;
     const float pageAlpha = easeOut(m_pageIn);
     const float making = othersAlpha(); // launching: the others fade
-    if (m_page >= kPageCount) { // a page of your own: its name over the cards
+    if (m_page >= kPageCount && !m3()) { // a page of your own: its name over the cards (Material 3: the title)
         const std::string name = fit(m_fBody, pageName(m_page), 640.f);
         textMid(r, m_fBody, name, kCardFirstX + 4.f, 100.f, kMuted.withAlpha(0.95f * pageAlpha * making), 0.9f);
     }
@@ -9577,7 +9758,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
             r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.30f * (1.f - t) * alpha), kCardRadius);
         if (t > 0.01f) {
             const float ring = cardsFocused ? 0.85f + 0.15f * std::sin(m_decoTime * 4.f) : 0.55f;
-            r.drawRoundedRectOutline(card, accent(ring * t * alpha), kCardRadius, 3.5f);
+            cardRing(r, card, accent(ring * t * alpha), m3());
         }
     }
 }
@@ -9607,10 +9788,11 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             if (pressed > 0.f) card = scaled(card, 1.f - 0.05f * pressed);
             r.drawRoundedRect({card.x - 3.f, card.y + 6.f + 6.f * t, card.width + 6.f, card.height + 6.f},
                               nxui::Color(0.f, 0.f, 0.f, (0.10f + 0.10f * t) * alpha), kCardRadius + 3.f);
-            frost(r, card, kCardRadius, glassTint((1.f + 0.25f * t) * alpha));
+            if (m3()) r.drawRoundedRect(card, m_m3.surfaceC.withAlpha(0.92f * alpha), kCardRadius); // tonal
+            else frost(r, card, kCardRadius, glassTint((1.f + 0.25f * t) * alpha));
             // A sheen of glass at the top, in the card's own rounded shape (a plain gradient's
             // square corners stuck out past the card's): its shape in bands, fainter going down.
-            for (int band = 1; band <= 4; ++band) {
+            for (int band = 1; band <= (m3() ? 0 : 4); ++band) {
                 r.pushClipRect({card.x, card.y, card.width, 18.f * static_cast<float>(band)});
                 r.drawRoundedRect(card, nxui::Color(1.f, 1.f, 1.f, 0.018f * alpha), kCardRadius);
                 r.popClipRect();
@@ -9651,7 +9833,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
                 r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
                            kMuted.withAlpha(alpha));
             }
-            r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.20f * alpha), kCardRadius, 1.5f);
+            if (!m3()) r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.20f * alpha), kCardRadius, 1.5f);
             if (nroUpdate(g)) { // a newer version: a green "Update" tag in the corner
                 const bool busy = g.path == m_nroUpdating;
                 const std::string tag = busy ? std::to_string(static_cast<int>(m_nroProgress.load() * 100.f)) + "%" : "Update";
@@ -9663,7 +9845,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             if (i < sel() && !m_moving) r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.22f * (1.f - t) * alpha), kCardRadius);
             if (t > 0.01f) {
                 const float ring = m_zone == Zone::Cards ? 0.85f + 0.15f * std::sin(m_decoTime * 4.f) : 0.55f;
-                r.drawRoundedRectOutline(card, accent(ring * t * alpha), kCardRadius, 3.5f);
+                cardRing(r, card, accent(ring * t * alpha), m3());
             }
         }
 
@@ -9710,12 +9892,18 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         if (p == m_players.end() || p->second <= 0) continue;
         const std::string n = std::to_string(p->second);
         const nxui::Rect badge{card.x + 14.f, card.y + 14.f, 34.f + measured(m_fCount, n).x + 14.f, 34.f};
-        frost(r, badge, 17.f, nxui::Color(0.05f, 0.07f, 0.09f, 0.42f * alpha));
-        r.drawRoundedRectOutline(badge, nxui::Color(1.f, 1.f, 1.f, 0.16f * alpha), 17.f, 1.5f);
+        const nxui::Color dot = m3() ? nxui::Color(0.12f, 0.55f, 0.16f, 1.f) : kGreen;
+        if (m3()) {
+            r.drawRoundedRect(badge, nxui::Color(0.77f, 0.96f, 0.69f, 0.95f * alpha), 17.f);
+        } else {
+            frost(r, badge, 17.f, nxui::Color(0.05f, 0.07f, 0.09f, 0.42f * alpha));
+            r.drawRoundedRectOutline(badge, nxui::Color(1.f, 1.f, 1.f, 0.16f * alpha), 17.f, 1.5f);
+        }
         const float breathe = m_settings.motion ? 0.5f + 0.5f * std::sin(m_decoTime * 3.f) : 0.5f;
-        r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f + 4.f * breathe, kGreen.withAlpha(0.25f * (1.f - breathe) * alpha), 24);
-        r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f, kGreen.withAlpha(alpha), 24);
-        textMid(r, m_fCount, n, badge.x + 33.f, badge.y + 17.f, kWhite.withAlpha(alpha));
+        r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f + 4.f * breathe, dot.withAlpha(0.25f * (1.f - breathe) * alpha), 24);
+        r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f, dot.withAlpha(alpha), 24);
+        textMid(r, m_fCount, n, badge.x + 33.f, badge.y + 17.f,
+                (m3() ? nxui::Color(0.04f, 0.23f, 0.f, 1.f) : kWhite).withAlpha(alpha));
         if (i < sel() && !m_moving) r.drawRoundedRect(badge, nxui::Color(0.f, 0.f, 0.f, 0.30f * (1.f - t) * alpha), 17.f);
     }
 }
@@ -9873,6 +10061,7 @@ const nxui::Texture* CardsActivity::gameIconTexture() {
 }
 
 void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
+    if (m3()) return drawPanelM3(r, a);
     if (a <= 0.001f) return;
     const nxui::Rect panel{kPanel.x, kPanel.y + 40.f * (1.f - a), kPanel.width, kPanel.height};
     frost(r, panel, kPanelRadius, glassTint(1.12f * a));
@@ -9979,6 +10168,401 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
         const bool here = m_settings.pageOrder[(size_t)p] == m_page;
         const float cx = right - 77.f - 8.f - 38.5f + (static_cast<float>(at++) - static_cast<float>(shownPages - 1) * 0.5f) * 10.f;
         r.drawCircle({cx, by + 77.f + 9.f}, here ? 3.5f : 2.5f, kWhite.withAlpha((here ? 0.95f : 0.4f) * a), 12);
+    }
+}
+
+// ---------------------------------------------------------------- Material 3 (Settings > Look > Style)
+
+// Its colours, each frame: a dark scheme from one seed, the chosen game's cover colour (the
+// highlight colour when its cover is grey or not here yet), eased so a new game's blend in.
+void CardsActivity::updateM3() {
+    if (!m_headFont) {
+        m_headFont = true;
+        m_fHead.load(app().gpu(), app().renderer(), std::string(kAssets) + "fonts/Inter-700.ttf", 40);
+    }
+    nxui::Color target = kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].color;
+    if (const Game* g = current()) {
+        auto th = m_thumbs.find(g->id);
+        if (th != m_thumbs.end() && th->second.seed.a > 0.f) target = th->second.seed;
+    }
+    m_m3Dt = std::clamp(m_time - m_m3Time, 0.f, 0.1f);
+    m_m3Time = m_time;
+    const float k = m_m3Seed.a <= 0.f || !m_settings.motion ? 1.f : 1.f - std::exp(-m_m3Dt * 5.f);
+    m_m3Seed = nxui::Color(m_m3Seed.r + (target.r - m_m3Seed.r) * k, m_m3Seed.g + (target.g - m_m3Seed.g) * k,
+                           m_m3Seed.b + (target.b - m_m3Seed.b) * k, 1.f);
+    float h, s, l;
+    toHsl(m_m3Seed, h, s, l);
+    const float p = std::min(s, 0.9f), n = std::min(1.f, s / 0.6f); // n: how much of the hue the greys get
+    M3Colors& c = m_m3;
+    c.primary = hsl(h, p, 0.84f);
+    c.onPrimary = hsl(h, p, 0.17f);
+    c.primaryC = hsl(h, p * 0.8f, 0.52f);
+    c.onPrimaryC = hsl(h, p * 0.4f, 0.98f);
+    c.secondaryC = hsl(h, 0.26f * n, 0.31f);
+    c.onSecondaryC = hsl(h, 0.8f * n, 0.92f);
+    c.tertiaryC = hsl(h + 0.28f, 0.42f * n, 0.39f);
+    c.onTertiaryC = hsl(h + 0.28f, 0.9f * n, 0.92f);
+    c.surface = hsl(h, 0.21f * n, 0.075f);
+    c.surfaceC = hsl(h, 0.19f * n, 0.135f);
+    c.surfaceHigh = hsl(h, 0.16f * n, 0.18f);
+    c.onSurface = hsl(h, 0.26f * n, 0.92f);
+    c.onSurfaceVar = hsl(h, 0.17f * n, 0.80f);
+    c.outline = hsl(h, 0.09f * n, 0.59f);
+}
+
+// The panel's buttons, left to right, as activateBottom numbers them: Play, (Material 3: the
+// Album), +, the page button, and the panel button (Settings > Home > Panel button).
+std::vector<int> CardsActivity::bottomSlots() const {
+    std::vector<int> slots{0};
+    if (m3()) slots.push_back(4);
+    slots.push_back(1);
+    slots.push_back(2);
+#ifdef SWITCHU_MENU
+    if (!m_settings.panelApp.empty()) slots.push_back(3); // (Nothing: no button)
+#else
+    slots.push_back(3);
+#endif
+    return slots;
+}
+
+// The bar's buttons, Material 3's way: the rail on the left (menu, Discord, the pages, music,
+// power, Settings), the page's name big, the status as one button group (you and the time,
+// Nextendo, the bell, battery, free space, temperature) and the sort modes as chips. The same
+// buttons in the same order for the d-pad; where each was drawn is kept for touch.
+void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
+    for (nxui::Rect& hit : m_topHit) hit = {};
+    for (nxui::Rect& hit : m_chipHit) hit = {};
+    m_pageHit.clear();
+    if (a <= 0.001f) return;
+    const M3Colors& c = m_m3;
+    const bool top = m_zone == Zone::Top && !m_moving;
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
+    auto pressedOf = [this](int index) {
+        return m_pressZone == 0 && m_pressIndex == index ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
+    };
+    auto mix = [](const nxui::Color& x, const nxui::Color& y, float t) {
+        return nxui::Color(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t, x.b + (y.b - x.b) * t, x.a + (y.a - x.a) * t);
+    };
+    // A button's place (for touch) and, chosen, a ring around it.
+    auto place = [&](int item, const nxui::Rect& box, float radius) {
+        m_topHit[item] = box;
+        if (top && m_topSel == item)
+            r.drawRoundedRectOutline({box.x - 4.f, box.y - 4.f, box.width + 8.f, box.height + 8.f},
+                                     c.primary.withAlpha(ring * a), radius + 4.f, 3.f);
+    };
+    const float drop = 18.f * (1.f - a); // (coming in: from a little above, as the bar does)
+
+    // The rail: slides in from the left.
+    const nxui::Rect rail{16.f - 24.f * (1.f - a), 16.f, 84.f, 688.f};
+    r.drawRoundedRect(rail, c.surfaceC.withAlpha(0.9f * a), 42.f);
+    const float cx = rail.x + rail.width * 0.5f;
+    auto railButton = [&](int item, float cy, const char* name) {
+        const float s = 1.f - 0.1f * pressedOf(item);
+        icon(r, name, cx, cy, 28.f * s, c.onSurfaceVar.withAlpha(a));
+        place(item, {cx - 28.f, cy - 20.f, 56.f, 40.f}, 20.f);
+    };
+    railButton(kTopMenu, 52.f, "menu");
+    // Discord: the big button, in Material 3 Expressive's "sunny" shape, turning slowly.
+    const float fabY = 110.f, fs = 1.f - 0.1f * pressedOf(kTopDiscord);
+    const float spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
+    drawBumpy(r, cx, fabY, 31.f * fs, 8, 0.09f, c.tertiaryC.withAlpha(a), spin);
+    icon(r, "discord", cx, fabY, 34.f * fs, c.onTertiaryC.withAlpha(a));
+    place(kTopDiscord, {cx - 32.f, fabY - 32.f, 64.f, 64.f}, 32.f);
+#ifdef SWITCHU_MENU
+    const int dms = m_discord.started() ? m_discord.unreadDms() : 0;
+    if (dms > 0) {
+        const std::string n = dms > 99 ? "99+" : std::to_string(dms);
+        const float bw = std::max(22.f, measured(m_fBadge, n).x + 12.f);
+        const nxui::Rect b{cx + 10.f, fabY - 36.f, bw, 22.f};
+        r.drawRoundedRect(b, nxui::Color(1.f, 0.71f, 0.67f, a), 11.f); // Material 3's error colours
+        textMid(r, m_fBadge, n, b.x + (bw - measured(m_fBadge, n).x) * 0.5f, b.y + 11.f, nxui::Color(0.41f, 0.f, 0.02f, a));
+    }
+#endif
+    // The pages, in your order (not the hidden ones; L and R go through them). The filled pill
+    // slides to the page you're on.
+    std::vector<int> shown;
+    for (int p = 0; p < pageCount(); ++p)
+        if (!pageHidden(m_settings.pageOrder[(size_t)p])) shown.push_back(m_settings.pageOrder[(size_t)p]);
+    const float firstY = 168.f;
+    const float pitch = shown.empty() ? 0.f : std::min(64.f, (540.f - firstY) / static_cast<float>(shown.size()));
+    float here = 0.f;
+    for (size_t i = 0; i < shown.size(); ++i)
+        if (shown[i] == m_page) here = static_cast<float>(i);
+    m_m3Pill = m_m3Pill < 0.f || !m_settings.motion ? here : m_m3Pill + (here - m_m3Pill) * (1.f - std::exp(-m_m3Dt * 14.f));
+    if (!shown.empty()) r.drawRoundedRect({cx - 28.f, firstY + pitch * m_m3Pill, 56.f, 32.f}, c.primaryC.withAlpha(a), 16.f);
+    for (size_t i = 0; i < shown.size(); ++i) {
+        const int page = shown[i];
+        const float on = clamp01(1.f - std::abs(static_cast<float>(i) - m_m3Pill)); // under the pill
+        const float y = firstY + pitch * static_cast<float>(i);
+        const char* glyph = page == kGames ? "pad" : page == kHomebrew ? "cube" : page == kNintendo ? "store"
+                          : page == kMedia ? "playc" : "folder";
+        icon(r, glyph, cx, y + 16.f, 22.f, mix(c.onSurfaceVar, c.onPrimaryC, on).withAlpha(a));
+        if (pitch >= 54.f) {
+            const std::string name = fit(m_fBadge, pageName(page), rail.width - 8.f, 0.8f);
+            textMid(r, m_fBadge, name, cx - measured(m_fBadge, name).x * 0.4f, y + 44.f,
+                    mix(c.onSurfaceVar, c.onSurface, on).withAlpha(a), 0.8f);
+        }
+        m_pageHit.push_back({page, {rail.x, y - 4.f, rail.width, pitch}});
+    }
+    // Music, power and Settings at its foot.
+    railButton(kTopMusic, 572.f, "music");
+    if (m_settings.music) { // playing: a little level meter under the note
+        for (int i = 0; i < 3; ++i) {
+            const float hgt = 3.f + 5.f * (0.5f + 0.5f * std::sin(m_decoTime * (5.f + i * 1.7f) + i));
+            r.drawRect({cx - 8.f + i * 6.f, 594.f - hgt, 3.f, hgt}, c.primary.withAlpha(0.9f * a));
+        }
+    }
+    railButton(kTopPower, 624.f, "power");
+    railButton(kTopGear, 676.f, "gear");
+
+    // The status: one connected button group, right-aligned.
+    const float gy = 22.f - drop, gh = 52.f, gcy = gy + gh * 0.5f, pad = 16.f, face = 34.f;
+    const bool showFree = m_settings.showFree && !m_free.empty();
+    const bool showTemp = m_settings.showTemp && m_temp >= 0;
+    const std::string players = m_playersTotal < 0 ? "?" : std::to_string(m_playersTotal);
+    const std::string unread = m_unread > 99 ? "99+" : std::to_string(m_unread);
+    const std::string temp = showTemp ? std::to_string(m_temp) + "\xC2\xB0" : std::string();
+    const float w[6] = { // you and the time, Nextendo, the bell, battery, free space, temperature (0: not shown)
+        10.f + face + 12.f + measured(m_fPill, m_clock).x + pad,
+        m_settings.players ? pad + 26.f + 6.f + measured(m_fPill, players).x + pad : 0.f,
+        pad + 26.f + (m_unread > 0 ? 8.f + measured(m_fPill, unread).x : 0.f) + pad,
+        pad + (m_charging ? 18.f : 0.f) + measured(m_fPill, m_battery).x + pad,
+        showFree ? pad + 22.f + 6.f + measured(m_fPill, m_free).x + pad : 0.f,
+        showTemp ? pad + 24.f + measured(m_fPill, temp).x + pad : 0.f,
+    };
+    int count = 0, last = 0;
+    float total = 0.f;
+    for (int i = 0; i < 6; ++i)
+        if (w[i] > 0.f) {
+            total += w[i];
+            ++count;
+            last = i;
+        }
+    total += 4.f * static_cast<float>(count - 1);
+    const float groupLeft = kM3Right - total;
+    float x = groupLeft;
+    for (int i = 0, nth = 0; i < 6; ++i) {
+        if (w[i] <= 0.f) continue;
+        const nxui::Rect seg{x, gy, w[i], gh};
+        x += w[i] + 4.f;
+        drawSegment(r, seg, c.surfaceHigh.withAlpha(0.95f * a), nth++ == 0, i == last, 12.f);
+        const nxui::Color ink = c.onSurfaceVar.withAlpha(a);
+        switch (i) {
+            case 0: { // you (a "cookie" frame; a dot: online), the time
+                const float fx = seg.x + 10.f + face * 0.5f, ps = 1.f - 0.1f * pressedOf(kTopUser);
+                drawBumpy(r, fx, gcy, (face * 0.5f + 4.f) * ps, 9, 0.08f, c.primary.withAlpha(a), -spin);
+                const float f = face * ps;
+                if (m_avatar && m_avatar->valid())
+                    r.drawTextureRounded(m_avatar.get(), {fx - f * 0.5f, gcy - f * 0.5f, f, f}, f * 0.5f, kWhite.withAlpha(a));
+                else r.drawCircle({fx, gcy}, f * 0.5f, c.secondaryC.withAlpha(a), 32);
+                r.drawCircle({fx + 13.f, gcy + 13.f}, 6.5f, c.surfaceHigh.withAlpha(a), 16);
+                r.drawCircle({fx + 13.f, gcy + 13.f}, 4.5f, (m_online ? kGreen : c.outline).withAlpha(a), 16);
+                textMid(r, m_fPill, m_clock, seg.x + 10.f + face + 12.f, gcy, c.onSurface.withAlpha(a));
+                place(kTopUser, seg, gh * 0.5f);
+                break;
+            }
+            case 1:
+                icon(r, "friends", seg.x + pad + 13.f, gcy, 26.f * (1.f - 0.1f * pressedOf(kTopPlayers)), ink);
+                textMid(r, m_fPill, players, seg.x + pad + 32.f, gcy, ink);
+                place(kTopPlayers, seg, 12.f);
+                break;
+            case 2:
+                icon(r, "bell", seg.x + pad + 13.f, gcy, 26.f * (1.f - 0.1f * pressedOf(kTopBell)),
+                     (m_unread > 0 ? c.primary : c.onSurfaceVar).withAlpha(a));
+                if (m_unread > 0) textMid(r, m_fPill, unread, seg.x + pad + 34.f, gcy, c.onSurface.withAlpha(a));
+                place(kTopBell, seg, i == last ? gh * 0.5f : 12.f);
+                break;
+            case 3: {
+                float bx = seg.x + pad;
+                if (m_charging) {
+                    switchu::battery_drawing::drawLightningBolt(r, {bx - 3.f, gcy - 11.f, 22.f, 22.f}, kGreen.withAlpha(a),
+                                                                nxui::Color(0.f, 0.f, 0.f, 0.25f * a), 0.f);
+                    bx += 18.f;
+                }
+                textMid(r, m_fPill, m_battery, bx, gcy, ink);
+                break;
+            }
+            case 4:
+                icon(r, "sdcard", seg.x + pad + 11.f, gcy, 22.f, ink);
+                textMid(r, m_fPill, m_free, seg.x + pad + 28.f, gcy, ink);
+                break;
+            case 5: { // red and pulsing when hot
+                const bool hot = m_temp >= 60, warm = m_temp >= 48;
+                const float pulse = hot && m_settings.motion ? 0.55f + 0.45f * std::sin(m_decoTime * 6.f) : 1.f;
+                const nxui::Color tone = hot ? kRed : warm ? nxui::Color(1.f, 0.72f, 0.3f, 1.f) : c.onSurfaceVar;
+                icon(r, "thermo", seg.x + pad + 11.f, gcy, 22.f, tone.withAlpha(a * pulse));
+                textMid(r, m_fPill, temp, seg.x + pad + 24.f, gcy, tone.withAlpha(a));
+                break;
+            }
+            default: break;
+        }
+    }
+
+    // The page's name, big, and how many are on it.
+    const float room = groupLeft - 24.f - kM3Left;
+    const std::string title = pageName(m_page);
+    const float ts = fitScale(m_fHead, title, room, 0.6f);
+    textMid(r, m_fHead, fit(m_fHead, title, room, ts), kM3Left, 44.f - drop, c.onSurface.withAlpha(a), ts);
+    const int n = static_cast<int>(games().size());
+    const bool apps = m_page == kHomebrew || m_page == kNintendo || m_page == kMedia;
+    const std::string sub = n == 1 ? tr(apps ? "1 app" : "1 game") : trf(apps ? "{n} apps" : "{n} games", {std::to_string(n)});
+    textMid(r, m_fBody, sub, kM3Left + 2.f, 80.f - drop, c.onSurfaceVar.withAlpha(a));
+
+    // The chips: the sort modes (the Games page); elsewhere the sort button goes to the next page.
+    const float chipY = 98.f - drop, chipH = 36.f;
+    auto chip = [&](int index, float cx0, const std::string& label, const char* glyph, bool on, bool focus) {
+        const float cw = 14.f + 20.f + 8.f + measured(m_fPill, label).x * 0.9f + 18.f;
+        const nxui::Rect box{cx0, chipY, cw, chipH};
+        r.drawRoundedRect(box, on ? c.primary.withAlpha(a) : c.surfaceC.withAlpha(0.9f * a), chipH * 0.5f);
+        const nxui::Color ink = (on ? c.onPrimary : c.onSurfaceVar).withAlpha(a);
+        icon(r, glyph, cx0 + 24.f, chipY + chipH * 0.5f, 20.f, ink);
+        textMid(r, m_fPill, label, cx0 + 42.f, chipY + chipH * 0.5f, ink, 0.9f);
+        m_chipHit[index] = box;
+        if (focus && top && m_topSel == kTopSort)
+            r.drawRoundedRectOutline({box.x - 4.f, box.y - 4.f, box.width + 8.f, box.height + 8.f}, c.primary.withAlpha(ring * a),
+                                     chipH * 0.5f + 4.f, 3.f);
+        return cw;
+    };
+    if (m_page == kGames) {
+        static const char* const kSortGlyphs[] = {"history", "az", "trend", "order"}; // (as kSortNames)
+        float cx0 = kM3Left;
+        for (int i = 0; i < 4; ++i) {
+            const int sort = kSortCycle[i];
+            const bool on = sort == m_settings.sort;
+            cx0 += chip(i, cx0, tr(kSortNames[sort]), on ? "check" : kSortGlyphs[sort], on, on) + 8.f;
+        }
+    } else {
+        int pos = pagePos(m_page);
+        for (int i = 0; i < pageCount(); ++i) { // the next page shown (as switchPage)
+            pos = (pos + 1) % pageCount();
+            if (!pageHidden(m_settings.pageOrder[(size_t)pos])) break;
+        }
+        chip(0, kM3Left, pageName(m_settings.pageOrder[(size_t)pos]), "next", false, true);
+    }
+}
+
+// The panel, Material 3's way: a round sheet; the game's title picture (or its icon), its name
+// big, what's known about it, and its buttons as one connected group (bottomSlots).
+void CardsActivity::drawPanelM3(nxui::Renderer& r, float a) {
+    for (nxui::Rect& hit : m_bottomHit) hit = {};
+    if (a <= 0.001f) return;
+    const M3Colors& c = m_m3;
+    const nxui::Rect panel{kPanel.x, kPanel.y + 40.f * (1.f - a), kPanel.width, kPanel.height};
+    r.drawRoundedRect(panel, c.surfaceHigh.withAlpha(0.94f * a), kPanelRadius);
+    const Game* gp = current();
+    if (!gp) return;
+    const Game& g = *gp;
+    const bool running = isRunning(g.id);
+    // Its details fade and slide in when the chosen game changes.
+    const float d = easeOut(m_detailIn);
+    const float da = a * d, dx = 14.f * (1.f - d);
+    const float cy = panel.y + panel.height * 0.5f;
+
+    // The buttons, on the right: Play big, then the rest square.
+    const bool bottom = m_zone == Zone::Bottom;
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
+    const std::vector<int> slots = bottomSlots();
+    const float bh = 76.f, playW = 188.f, sq = 76.f, gap = 4.f;
+    const float left = panel.x + panel.width - 24.f - playW - static_cast<float>(slots.size() - 1) * (sq + gap);
+    float x = left;
+    for (size_t i = 0; i < slots.size(); ++i) {
+        const int slot = slots[i];
+        const float w = slot == 0 ? playW : sq;
+        const nxui::Rect box{x, cy - bh * 0.5f, w, bh};
+        x += w + gap;
+        m_bottomHit[slot] = box;
+        const float pressed = m_pressZone == 2 && m_pressIndex == slot ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
+        const nxui::Rect b = scaled(box, 1.f - 0.06f * pressed);
+        drawSegment(r, b, (slot == 0 ? c.primaryC : c.secondaryC).withAlpha(a), i == 0, i + 1 == slots.size(), 16.f);
+        if (bottom && m_bottomSel == slot)
+            r.drawRoundedRectOutline({b.x - 5.f, b.y - 5.f, b.width + 10.f, b.height + 10.f}, c.primary.withAlpha(ring * a),
+                                     (i == 0 || i + 1 == slots.size() ? bh * 0.5f : 16.f) + 5.f, 3.f);
+        const nxui::Color ink = (slot == 0 ? c.onPrimaryC : c.onSecondaryC).withAlpha(a);
+        const float bx = b.x + b.width * 0.5f, by = b.y + b.height * 0.5f;
+        switch (slot) {
+            case 0: {
+                const char* word = running ? "Resume" : g.action == "get" ? "Get"
+                                 : g.path.empty() && g.action.empty() && !g.homebrew ? "Play" : "Open";
+                const float ww = 26.f + 10.f + measured(m_fPlay, word).x;
+                icon(r, "play", bx - ww * 0.5f + 13.f, by, 26.f, ink);
+                textMid(r, m_fPlay, word, bx - ww * 0.5f + 36.f, by, ink);
+                break;
+            }
+            case 4: icon(r, "photo", bx, by, 32.f, ink); break;
+            case 1: icon(r, "dots", bx, by, 32.f, ink); break;
+            case 2: icon(r, "copy", bx, by, 30.f, ink); break;
+            case 3:
+#ifdef SWITCHU_MENU
+                if (m_settings.panelApp == "news") {
+                    icon(r, "news", bx, by, 32.f, ink);
+                } else { // a card's own picture in it
+                    const Game* card = panelCard();
+                    auto it = card ? m_art.find(card->id) : m_art.end();
+                    const nxui::Texture* pic =
+                        it != m_art.end() && it->second.icon && it->second.icon->valid() ? it->second.icon.get() : nullptr;
+                    if (pic) {
+                        r.drawTextureRounded(pic, {bx - 22.f, by - 22.f, 44.f, 44.f}, 12.f, kWhite.withAlpha(a));
+                    } else {
+                        icon(r, "play", bx, by, 28.f, ink);
+                        if (card) wantPanelIcon(*card);
+                    }
+                }
+#else
+                icon(r, "home", bx, by, 32.f, ink);
+#endif
+                break;
+            default: break;
+        }
+    }
+
+    // On the left: its title picture (Settings > Look > Title pictures) or its icon.
+    float tx = panel.x + 30.f + dx;
+    if (const nxui::Texture* ic = gameIconTexture()) {
+        auto art = m_art.find(g.id);
+        if (art != m_art.end() && art->second.iconKind == ArtKind::Title) {
+            const float aspect = ic->height() > 0 ? static_cast<float>(ic->width()) / static_cast<float>(ic->height()) : 1.f;
+            const float h = std::min(120.f, 240.f / std::max(aspect, 0.1f)), w = h * aspect;
+            r.drawTexture(ic, {tx, cy - h * 0.5f, w, h}, kWhite.withAlpha(da));
+            tx += w + 26.f;
+        } else {
+            const nxui::Rect box{tx, cy - 52.f, 104.f, 104.f};
+            if (!g.action.empty()) r.drawTexture(ic, box, kWhite.withAlpha(da)); // HomeNX's icon as it's drawn
+            else r.drawTextureRounded(ic, box, 28.f, kWhite.withAlpha(da));
+            tx += box.width + 26.f;
+        }
+    }
+    // The words wait until the panel has landed (see drawPanel).
+    if (a < 0.999f) return;
+    const float right = left - 24.f;
+    const float ts = fitScale(m_fHead, g.name, right - tx, 0.55f);
+    textMid(r, m_fHead, fit(m_fHead, g.name, right - tx, ts), tx, cy - 20.f, c.onSurface.withAlpha(da), ts);
+    std::vector<std::string> facts;
+    if (!g.action.empty()) {
+        if (!g.author.empty()) facts.push_back(g.author);
+    } else if (g.homebrew && !g.path.empty()) {
+        facts.push_back(g.author.empty() ? tr("Homebrew") : trf("Homebrew by {author}", {g.author}));
+    } else {
+        facts.push_back(playTime(g.playSeconds));
+        facts.push_back(running ? tr("Open now: Resume carries on") : lastPlayed(g.lastPlayed));
+    }
+    if (!g.version.empty()) {
+        const std::string vn = versionName(g.version);
+        facts.push_back(vn.empty() ? g.version : vn);
+    }
+    if (const NroUpdate* u = nroUpdate(g)) {
+        const std::string to = versionName(u->latest);
+        facts.push_back((to.empty() ? tr("Update to the latest version") : trf("Update to {version}", {to})) + " (+)");
+    }
+    float fx = tx;
+    const float fy = cy + 24.f;
+    for (size_t i = 0; i < facts.size() && fx < right - 40.f; ++i) {
+        if (i) {
+            r.drawCircle({fx + 10.f, fy}, 2.5f, c.outline.withAlpha(da), 12);
+            fx += 20.f;
+        }
+        const std::string s = fit(m_fPill, facts[i], right - fx, 0.9f);
+        textMid(r, m_fPill, s, fx, fy, c.onSurfaceVar.withAlpha(da), 0.9f);
+        fx += measured(m_fPill, s).x * 0.9f;
     }
 }
 

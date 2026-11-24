@@ -438,6 +438,105 @@ def sys_settings():
     return im
 
 
+# Material 3 (Settings > Look > Style): the rail, the chips, the panel.
+def menu():
+    im = canvas(); d = ImageDraw.Draw(im)
+    for y in (28, 48, 68):
+        d.rounded_rectangle([q(16), q(y - 4), q(80), q(y + 4)], radius=q(4), fill=W)
+    return im
+
+
+def cube():  # Homebrew
+    im = canvas(); d = ImageDraw.Draw(im)
+    w = q(6)
+    top = [(q(48), q(12)), (q(82), q(30)), (q(48), q(48)), (q(14), q(30))]
+    d.line(top + [top[0], top[1]], fill=W, width=w, joint="curve")
+    d.line([(q(14), q(30)), (q(14), q(66)), (q(48), q(84)), (q(82), q(66)), (q(82), q(30))], fill=W, width=w, joint="curve")
+    d.line([(q(48), q(48)), (q(48), q(84))], fill=W, width=w)
+    return im
+
+
+def store():  # Nintendo
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(12), q(14), q(84), q(40)], radius=q(7), fill=W)              # the awning
+    for x in (36, 60):
+        d.rectangle([q(x - 2), q(14), q(x + 2), q(40)], fill=(0, 0, 0, 0))
+    d.rounded_rectangle([q(20), q(44), q(76), q(84)], radius=q(6), outline=W, width=q(6))  # the shop
+    d.rounded_rectangle([q(40), q(60), q(56), q(84)], radius=q(3), fill=W)              # its door
+    return im
+
+
+def playc():  # Media
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.ellipse([q(12), q(12), q(84), q(84)], outline=W, width=q(6))
+    d.polygon([(q(40), q(32)), (q(66), q(48)), (q(40), q(64))], fill=W)
+    return im
+
+
+def folder():  # a page of your own
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(12), q(18), q(46), q(36)], radius=q(5), fill=W)
+    d.rounded_rectangle([q(12), q(28), q(84), q(78)], radius=q(8), fill=W)
+    return im
+
+
+def photo():  # the Album
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([q(28), q(12), q(84), q(68)], radius=q(9), outline=W, width=q(6))
+    d.polygon([(q(38), q(58)), (q(50), q(40)), (q(60), q(52)), (q(66), q(46)), (q(75), q(58))], fill=W)
+    d.ellipse([q(62), q(22), q(72), q(32)], fill=W)
+    d.line([(q(12), q(28)), (q(12), q(84)), (q(68), q(84))], fill=W, width=q(6), joint="curve")
+    for x, y in ((12, 28), (68, 84)):
+        d.ellipse([q(x) - q(3), q(y) - q(3), q(x) + q(3), q(y) + q(3)], fill=W)
+    return im
+
+
+def check():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.line([(q(18), q(50)), (q(38), q(70)), (q(78), q(28))], fill=W, width=q(9), joint="curve")
+    for x, y in ((18, 50), (78, 28)):
+        d.ellipse([q(x) - q(4.5), q(y) - q(4.5), q(x) + q(4.5), q(y) + q(4.5)], fill=W)
+    return im
+
+
+def history():  # Last Played
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.ellipse([q(14), q(14), q(82), q(82)], outline=W, width=q(6))
+    d.line([(q(48), q(28)), (q(48), q(50)), (q(62), q(60))], fill=W, width=q(6), joint="curve")
+    return im
+
+
+def az():  # Title
+    from PIL import ImageFont
+    im = canvas(); d = ImageDraw.Draw(im)
+    font = ImageFont.truetype(os.path.join(ROOT, "romfs", "fonts", "Inter-700.ttf"), q(44))
+    d.text((q(48), q(50)), "AZ", font=font, fill=W, anchor="mm")
+    return im
+
+
+def trend():  # Most Played
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.line([(q(12), q(70)), (q(36), q(46)), (q(52), q(60)), (q(76), q(34))], fill=W, width=q(7), joint="curve")
+    d.polygon([(q(58), q(26)), (q(86), q(24)), (q(84), q(52))], fill=W)
+    return im
+
+
+def order():  # My Order
+    im = canvas(); d = ImageDraw.Draw(im)
+    for y in (28, 48, 68):
+        d.ellipse([q(12), q(y - 5), q(22), q(y + 5)], fill=W)
+        d.rounded_rectangle([q(30), q(y - 4), q(84), q(y + 4)], radius=q(4), fill=W)
+    return im
+
+
+def sdcard():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.polygon([(q(38), q(10)), (q(76), q(10)), (q(76), q(86)), (q(20), q(86)), (q(20), q(28))], fill=W)
+    for x in (34, 46, 58):
+        d.rectangle([q(x), q(18), q(x + 6), q(34)], fill=(0, 0, 0, 0))
+    return im
+
+
 def save_tile(im, name):
     os.makedirs(os.path.join(ROOT, "romfs", "icons"), exist_ok=True)
     im.resize((256, 256), Image.LANCZOS).save(os.path.join(ROOT, "romfs", "icons", "sys_" + name + ".png"))
@@ -469,7 +568,10 @@ if __name__ == "__main__":
                      ("power", power), ("music", music), ("news", news), ("discord", discord), ("arrows", arrows),
                      ("wifi", wifi), ("airplane", airplane), ("sun", sun), ("speaker", speaker), ("prev", prev),
                      ("next", next_), ("pause", pause), ("repeat", repeat), ("shuffle", shuffle),
-                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad), ("nextendo", nextendo)]:
+                     ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad), ("nextendo", nextendo),
+                     ("menu", menu), ("cube", cube), ("store", store), ("playc", playc), ("folder", folder),
+                     ("photo", photo), ("check", check), ("history", history), ("az", az), ("trend", trend),
+                     ("order", order), ("sdcard", sdcard)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),
