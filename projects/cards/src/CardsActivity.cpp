@@ -71,6 +71,7 @@ void applyLayout(bool m3) {
 }
 // Material 3's row runs between the rail and the right edge (the cards at its ends narrow).
 constexpr float kM3Left = 131.f, kM3Right = 1253.f;
+constexpr float kM3CardsRight = 1184.f; // (the cards: four whole ones; the next slides in from here)
 // The top bar: menu, Discord and sort on the left; the pill (you,
 // the time, battery, free space, Nextendo) ends at kPillRight; then the bell,
 // music, power and settings.
@@ -1440,6 +1441,8 @@ void CardsActivity::worker(int index) {
                       "[ART] title=%016llX kind=%d source=%.2fms bytes=%zu decode_scale_save=%.2fms result=%zu",
                       static_cast<unsigned long long>(done.id), done.what, ticksMs(readFinished - jobStart),
                       data.size(), ticksMs(armGetSystemTick() - readFinished), done.rgba.capacity());
+        if ((job.what == kCard || job.what == kIcon) && !done.rgba.empty() && done.w > 0 && done.h > 0)
+            done.seed = seedOf(done.rgba.data(), done.w, done.h);
         perfLine(artDiagnostic);
         decodeLock.unlock();
         const float took = ticksMs(armGetSystemTick() - jobStart);
@@ -1669,6 +1672,7 @@ void CardsActivity::takeArt() {
         } else if (d.what == kIcon) {
             it->second.icon = std::move(tex);
             it->second.iconKind = d.kind;
+            if (d.seed.a > 0.f && it->second.seed.a <= 0.f) it->second.seed = d.seed; // (a cover's comes first)
             if (d.again) { // asked again in a moment, for its title picture
                 it->second.iconAsked = false;
                 it->second.retryAt = m_time + 3.f;
@@ -1684,6 +1688,7 @@ void CardsActivity::takeArt() {
         } else {
             it->second.card = std::move(tex);
             it->second.kind = d.kind;
+            if (d.seed.a > 0.f) it->second.seed = d.seed;
             it->second.cardIn = m_time;
             // Its very small copy stays under it (drawCards): a cover let go shows
             // that until it's back, never a blank card.
@@ -5131,6 +5136,7 @@ bool CardsActivity::powerTouch() {
 
 void CardsActivity::drawPower(nxui::Renderer& r) {
     if (!m_powerOpen) return;
+    if (m3()) return drawPowerM3(r);
     const float a = easeOut(m_powerIn);
     const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
@@ -8165,7 +8171,7 @@ bool CardsActivity::handleTouch() {
     }
 
     if (in.touchDown()) {
-        m_touchOnCards = m3() ? y > 140.f && y < 526.f && x > 112.f : y > 100.f && y < 490.f;
+        m_touchOnCards = m3() ? !m_railWant && y > 140.f && y < 526.f && x > 112.f : y > 100.f && y < 490.f;
         m_touchScroll = m_scroll;
         m_dragging = false;
     }
@@ -8204,15 +8210,24 @@ bool CardsActivity::handleTouch() {
         }
         return true;
     }
-    if (m3()) { // Material 3: what was drawn where (drawTopBarM3, drawPanelM3)
-        for (const auto& [page, box] : m_pageHit)
-            if (box.contains(x, y)) {
-                goToPage(page, 0);
+    if (m3()) { // Material 3: what was drawn where (drawRailM3, drawTopBarM3, drawPanelM3)
+        const std::vector<RailEntry> rail = railEntries(m_railWant);
+        for (const auto& [at, box] : m_railHit)
+            if (box.contains(x, y) && at >= 0 && at < static_cast<int>(rail.size())) {
+                m_zone = Zone::Top;
+                m_onRail = true;
+                m_railSel = at;
+                activateRail(rail[(size_t)at]);
                 return true;
             }
+        if (m_railWant) { // opened out: a tap beside it closes it
+            setRail(false);
+            return true;
+        }
         for (int i = 0; i < 4; ++i) {
             if (!m_chipHit[i].contains(x, y)) continue;
             m_zone = Zone::Top;
+            m_onRail = false;
             m_topSel = kTopSort;
             if (m_page == kGames) {
                 sortGames(kSortCycle[i]);
@@ -8226,6 +8241,7 @@ bool CardsActivity::handleTouch() {
         for (int i = 0; i < kTopCount; ++i)
             if (m_topHit[i].contains(x, y)) {
                 m_zone = Zone::Top;
+                m_onRail = false;
                 m_topSel = i;
                 activateTop(i);
                 return true;
@@ -9253,44 +9269,48 @@ void CardsActivity::onUpdate(float dt) {
         return;
     }
 
-    if (move) {
-        if (m_zone == Zone::Cards) {
-            select(sel() + move);
-        } else if (m_zone == Zone::Top) {
-            int next = m_topSel;
-            do next += move;
-            while (next == kTopPlayers && !m_settings.players);
-            next = std::clamp(next, 0, kTopCount - 1);
-            if (next == kTopPlayers && !m_settings.players) next = m_topSel;
-            if (next != m_topSel) m_audio.play("navigation");
-            m_topSel = next;
-        } else { // the panel's buttons, left to right
-            const std::vector<int> slots = bottomSlots();
-            const int at = static_cast<int>(std::find(slots.begin(), slots.end(), m_bottomSel) - slots.begin());
-            const int next = slots[(size_t)std::clamp(at + move, 0, static_cast<int>(slots.size()) - 1)];
-            if (next != m_bottomSel) m_audio.play("navigation");
-            m_bottomSel = next;
+    if (m3()) {
+        navigateM3(move, leftDown || rightDown, upDown, downDown, aDown, bDown);
+    } else {
+        if (move) {
+            if (m_zone == Zone::Cards) {
+                select(sel() + move);
+            } else if (m_zone == Zone::Top) {
+                int next = m_topSel;
+                do next += move;
+                while (next == kTopPlayers && !m_settings.players);
+                next = std::clamp(next, 0, kTopCount - 1);
+                if (next == kTopPlayers && !m_settings.players) next = m_topSel;
+                if (next != m_topSel) m_audio.play("navigation");
+                m_topSel = next;
+            } else { // the panel's buttons, left to right
+                const std::vector<int> slots = bottomSlots();
+                const int at = static_cast<int>(std::find(slots.begin(), slots.end(), m_bottomSel) - slots.begin());
+                const int next = slots[(size_t)std::clamp(at + move, 0, static_cast<int>(slots.size()) - 1)];
+                if (next != m_bottomSel) m_audio.play("navigation");
+                m_bottomSel = next;
+            }
         }
-    }
-    if (upDown && m_zone != Zone::Top) {
-        m_zone = m_zone == Zone::Bottom ? Zone::Cards : Zone::Top;
-        m_audio.play("navigation");
-    }
-    if (downDown && m_zone != Zone::Bottom) {
-        m_zone = m_zone == Zone::Top ? Zone::Cards : Zone::Bottom;
-        m_audio.play("navigation");
-    }
-    if (aDown) {
-        if (m_zone == Zone::Cards) {
-            press(1, sel());
-            play();
-        } else if (m_zone == Zone::Top) {
-            activateTop(m_topSel);
-        } else {
-            activateBottom(m_bottomSel);
+        if (upDown && m_zone != Zone::Top) {
+            m_zone = m_zone == Zone::Bottom ? Zone::Cards : Zone::Top;
+            m_audio.play("navigation");
         }
+        if (downDown && m_zone != Zone::Bottom) {
+            m_zone = m_zone == Zone::Top ? Zone::Cards : Zone::Bottom;
+            m_audio.play("navigation");
+        }
+        if (aDown) {
+            if (m_zone == Zone::Cards) {
+                press(1, sel());
+                play();
+            } else if (m_zone == Zone::Top) {
+                activateTop(m_topSel);
+            } else {
+                activateBottom(m_bottomSel);
+            }
+        }
+        if (bDown && m_zone != Zone::Cards) m_zone = Zone::Cards;
     }
-    if (bDown && m_zone != Zone::Cards) m_zone = Zone::Cards;
     if (in.isDown(B::Plus)) openOptions();
     if (in.isDown(B::X)) askClose();
     if (in.isDown(B::Minus)) openNotifications();
@@ -9363,6 +9383,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawGameCard(r, easeOut(m_intro * 2.2f) * ui);
     drawStep("draw: the panel");
     drawPanel(r, easeOut((m_intro - 0.25f) * 2.f) * ui);
+    if (m3()) drawRailM3(r, easeOut(m_intro * 2.2f) * ui);
     drawStep("draw: the messages");
     if (m_moving) { // what Move does
         const std::string hint = "Move it with  < >      A  Done      B  Put it back";
@@ -9667,7 +9688,7 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
             card.width -= kM3Left - card.x;
             card.x = kM3Left;
         }
-        if (card.x + card.width > kM3Right) card.width = kM3Right - card.x;
+        if (card.x + card.width > kM3CardsRight) card.width = kM3CardsRight - card.x;
         if (card.width < 24.f) return false;
     }
     if (m_leaving) {
@@ -10173,8 +10194,56 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
 
 // ---------------------------------------------------------------- Material 3 (Settings > Look > Style)
 
-// Its colours, each frame: a dark scheme from one seed, the chosen game's cover colour (the
-// highlight colour when its cover is grey or not here yet), eased so a new game's blend in.
+namespace {
+// Focus rings that follow the shape they're around: `gap` out from its edge, `t` thick (an
+// outline strokes inward from the rectangle it's given).
+void ringRect(nxui::Renderer& r, const nxui::Rect& b, float radius, const nxui::Color& c, float gap = 4.f, float t = 3.f) {
+    const float o = gap + t;
+    r.drawRoundedRectOutline({b.x - o, b.y - o, b.width + 2.f * o, b.height + 2.f * o}, c, radius + o, t);
+}
+// ...around a connected group's button: round at the group's end(s), less round inside.
+void ringSegment(nxui::Renderer& r, const nxui::Rect& b, bool first, bool last, float inner, const nxui::Color& c,
+                 float gap = 4.f, float t = 3.f) {
+    const float outer = b.height * 0.5f;
+    if (first == last) {
+        ringRect(r, b, first ? outer : inner, c, gap, t);
+        return;
+    }
+    const float o = gap + t, half = std::round(b.x + b.width * 0.5f) - b.x;
+    const nxui::Rect ring{b.x - o, b.y - o, b.width + 2.f * o, b.height + 2.f * o};
+    r.pushClipRect({ring.x, ring.y, half + o, ring.height});
+    r.drawRoundedRectOutline(ring, c, (first ? outer : inner) + o, t);
+    r.popClipRect();
+    r.pushClipRect({b.x + half, ring.y, b.width - half + o, ring.height});
+    r.drawRoundedRectOutline(ring, c, (last ? outer : inner) + o, t);
+    r.popClipRect();
+}
+// ...around one of the bumpy shapes (drawBumpy), bump for bump.
+void ringBumpy(nxui::Renderer& r, float cx, float cy, float radius, int lobes, float depth, float turn, const nxui::Color& c,
+               float gap = 4.f, float t = 3.f) {
+    constexpr int kSteps = 96;
+    nxui::Vec2 lastIn{}, lastOut{};
+    for (int i = 0; i <= kSteps; ++i) {
+        const float k = 6.28318f * static_cast<float>(i) / kSteps;
+        const float rr = radius * (1.f - depth + depth * std::cos(static_cast<float>(lobes) * (k - turn)));
+        const nxui::Vec2 in{cx + (rr + gap) * std::sin(k), cy - (rr + gap) * std::cos(k)};
+        const nxui::Vec2 out{cx + (rr + gap + t) * std::sin(k), cy - (rr + gap + t) * std::cos(k)};
+        if (i) {
+            r.drawTriangle(lastIn, lastOut, out, c);
+            r.drawTriangle(lastIn, out, in, c);
+        }
+        lastIn = in;
+        lastOut = out;
+    }
+}
+nxui::Color mixed(const nxui::Color& x, const nxui::Color& y, float t) {
+    return nxui::Color(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t, x.b + (y.b - x.b) * t, x.a + (y.a - x.a) * t);
+}
+const nxui::Color kM3Error(1.f, 0.71f, 0.67f, 1.f), kM3OnError(0.41f, 0.f, 0.02f, 1.f); // Material 3's error colours
+} // namespace
+
+// Its colours, each frame: a dark scheme from one seed, the chosen game's colour (from its cover
+// or icon; the highlight colour when it's grey or not here yet), eased so a new game's blend in.
 void CardsActivity::updateM3() {
     if (!m_headFont) {
         m_headFont = true;
@@ -10182,17 +10251,24 @@ void CardsActivity::updateM3() {
     }
     nxui::Color target = kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].color;
     if (const Game* g = current()) {
+        auto art = m_art.find(g->id);
         auto th = m_thumbs.find(g->id);
-        if (th != m_thumbs.end() && th->second.seed.a > 0.f) target = th->second.seed;
+        if (art != m_art.end() && art->second.seed.a > 0.f) target = art->second.seed;
+        else if (th != m_thumbs.end() && th->second.seed.a > 0.f) target = th->second.seed;
     }
     m_m3Dt = std::clamp(m_time - m_m3Time, 0.f, 0.1f);
     m_m3Time = m_time;
     const float k = m_m3Seed.a <= 0.f || !m_settings.motion ? 1.f : 1.f - std::exp(-m_m3Dt * 5.f);
     m_m3Seed = nxui::Color(m_m3Seed.r + (target.r - m_m3Seed.r) * k, m_m3Seed.g + (target.g - m_m3Seed.g) * k,
                            m_m3Seed.b + (target.b - m_m3Seed.b) * k, 1.f);
+    // The rail opening out (or back).
+    const float want = m_railWant ? 1.f : 0.f;
+    m_railOpen += (want - m_railOpen) * (m_settings.motion ? 1.f - std::exp(-m_m3Dt * 12.f) : 1.f);
+    if (std::abs(want - m_railOpen) < 0.002f) m_railOpen = want;
     float h, s, l;
     toHsl(m_m3Seed, h, s, l);
-    const float p = std::min(s, 0.9f), n = std::min(1.f, s / 0.6f); // n: how much of the hue the greys get
+    // The game's colour, clearly: a pale cover's hue is made strong enough to read as its own.
+    const float p = s < 0.08f ? s : std::clamp(s * 1.25f, 0.45f, 0.9f), n = std::min(1.f, s / 0.6f);
     M3Colors& c = m_m3;
     c.primary = hsl(h, p, 0.84f);
     c.onPrimary = hsl(h, p, 0.17f);
@@ -10225,95 +10301,356 @@ std::vector<int> CardsActivity::bottomSlots() const {
     return slots;
 }
 
-// The bar's buttons, Material 3's way: the rail on the left (menu, Discord, the pages, music,
-// power, Settings), the page's name big, the status as one button group (you and the time,
-// Nextendo, the bell, battery, free space, temperature) and the sort modes as chips. The same
-// buttons in the same order for the d-pad; where each was drawn is kept for touch.
-void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
-    for (nxui::Rect& hit : m_topHit) hit = {};
-    for (nxui::Rect& hit : m_chipHit) hit = {};
-    m_pageHit.clear();
+// The rail, top to bottom: the three bars, Discord, your pages (not the hidden ones), music, power,
+// Settings. Opened out it also has the rest of the old menu: News, Users, Pages, Quick, Updates.
+std::vector<CardsActivity::RailEntry> CardsActivity::railEntries(bool expanded) const {
+    std::vector<RailEntry> list{{kRailTop, kTopMenu}, {kRailTop, kTopDiscord}};
+    for (int p = 0; p < pageCount(); ++p)
+        if (!pageHidden(m_settings.pageOrder[(size_t)p])) list.push_back({kRailPage, m_settings.pageOrder[(size_t)p]});
+    if (expanded) {
+#ifdef SWITCHU_MENU
+        list.push_back({kRailExtra, kXNews});
+#endif
+        for (int x : {kXUsers, kXPages, kXQuick, kXUpdates}) list.push_back({kRailExtra, x});
+    }
+    list.push_back({kRailTop, kTopMusic});
+    list.push_back({kRailTop, kTopPower});
+    list.push_back({kRailTop, kTopGear});
+#ifndef SWITCHU_MENU
+    if (expanded) list.push_back({kRailExtra, kXClose});
+#endif
+    return list;
+}
+
+// Opens the rail out (or back); what was chosen on it stays chosen.
+void CardsActivity::setRail(bool open) {
+    if (open == m_railWant) return;
+    const std::vector<RailEntry> from = railEntries(m_railWant), to = railEntries(open);
+    const RailEntry at = m_railSel >= 0 && m_railSel < static_cast<int>(from.size()) ? from[(size_t)m_railSel]
+                                                                                      : RailEntry{kRailTop, kTopMenu};
+    m_railWant = open;
+    m_railSel = 0;
+    for (size_t i = 0; i < to.size(); ++i)
+        if (to[i].kind == at.kind && to[i].value == at.value) m_railSel = static_cast<int>(i);
+    if (open) {
+        m_zone = Zone::Top;
+        m_onRail = true;
+    }
+    if (!m_settings.motion) m_railOpen = open ? 1.f : 0.f;
+    m_audio.play(open ? "show_modal" : "hide_modal");
+}
+
+// Onto the rail, at the page you're on.
+void CardsActivity::toRail() {
+    const std::vector<RailEntry> list = railEntries(m_railWant);
+    m_railSel = 0;
+    for (size_t i = 0; i < list.size(); ++i)
+        if (list[i].kind == kRailPage && list[i].value == m_page) m_railSel = static_cast<int>(i);
+    m_zone = Zone::Top;
+    m_onRail = true;
+    m_audio.play("navigation");
+}
+
+void CardsActivity::activateRail(RailEntry e) {
+    if (e.kind == kRailTop && e.value == kTopMenu) { // the three bars: the rail opens out (and back)
+        setRail(!m_railWant);
+        return;
+    }
+    setRail(false);
+    if (e.kind == kRailTop) {
+        activateTop(e.value);
+    } else if (e.kind == kRailPage) {
+        goToPage(e.value, 0);
+        toRail(); // (still on the rail: up and down go on through the pages)
+    } else {
+        m_audio.play("activation");
+        switch (e.value) {
+#ifdef SWITCHU_MENU
+            case kXNews: openNews(); break;
+#endif
+            case kXUsers: openUsers(); break;
+            case kXPages: openPagePicker(); break;
+            case kXQuick: openQuick(); break;
+            case kXUpdates: openHomebrewUpdates(); break;
+#ifndef SWITCHU_MENU
+            case kXClose:
+                m_settings.save();
+                app().requestExit();
+                break;
+#endif
+            default: break;
+        }
+    }
+}
+
+// The d-pad, Material 3's way. The rail: up and down; right (or B) to the cards. The header (the
+// chips, you, Nextendo, the bell): left and right; down to the cards. The cards: up to the header,
+// down to the panel, left from the first card onto the rail. The panel: left from Play onto the rail.
+void CardsActivity::navigateM3(int move, bool fresh, bool up, bool down, bool a, bool b) {
+    auto nav = [this]() { m_audio.play("navigation"); };
+    if (m_railWant && !(m_zone == Zone::Top && m_onRail)) { // opened out: it keeps the focus
+        m_zone = Zone::Top;
+        m_onRail = true;
+    }
+    if (m_zone == Zone::Top && m_onRail) {
+        const std::vector<RailEntry> list = railEntries(m_railWant);
+        const int n = static_cast<int>(list.size());
+        m_railSel = std::clamp(m_railSel, 0, n - 1);
+        if (up && m_railSel > 0) {
+            --m_railSel;
+            nav();
+        }
+        if (down && m_railSel < n - 1) {
+            ++m_railSel;
+            nav();
+        }
+        if (b || (move > 0 && fresh)) {
+            if (m_railWant) {
+                setRail(false);
+            } else {
+                m_zone = Zone::Cards;
+                nav();
+            }
+        } else if (a) {
+            activateRail(list[(size_t)m_railSel]);
+        }
+        return;
+    }
+    if (m_zone == Zone::Top) {
+        std::vector<int> items{kTopSort, kTopUser};
+        if (m_settings.players) items.push_back(kTopPlayers);
+        items.push_back(kTopBell);
+        int at = static_cast<int>(std::find(items.begin(), items.end(), m_topSel) - items.begin());
+        if (at >= static_cast<int>(items.size())) at = 0;
+        m_topSel = items[(size_t)at];
+        if (move < 0 && at == 0) {
+            if (fresh) toRail();
+            return;
+        }
+        if (move) {
+            const int next = std::clamp(at + move, 0, static_cast<int>(items.size()) - 1);
+            if (next != at) nav();
+            m_topSel = items[(size_t)next];
+        }
+        if (down || b) {
+            m_zone = Zone::Cards;
+            nav();
+        } else if (a) {
+            activateTop(m_topSel);
+        }
+        return;
+    }
+    if (m_zone == Zone::Cards) {
+        if (move < 0 && sel() == 0) {
+            if (fresh) toRail();
+            return;
+        }
+        if (move) select(sel() + move);
+        if (up) {
+            m_zone = Zone::Top;
+            m_onRail = false;
+            if (m_topSel != kTopUser && m_topSel != kTopPlayers && m_topSel != kTopBell) m_topSel = kTopSort;
+            nav();
+        } else if (down) {
+            m_zone = Zone::Bottom;
+            nav();
+        } else if (a) {
+            press(1, sel());
+            play();
+        }
+        return;
+    }
+    const std::vector<int> slots = bottomSlots();
+    int at = static_cast<int>(std::find(slots.begin(), slots.end(), m_bottomSel) - slots.begin());
+    if (at >= static_cast<int>(slots.size())) at = 0;
+    m_bottomSel = slots[(size_t)at];
+    if (move < 0 && at == 0) {
+        if (fresh) toRail();
+        return;
+    }
+    if (move) {
+        const int next = std::clamp(at + move, 0, static_cast<int>(slots.size()) - 1);
+        if (next != at) nav();
+        m_bottomSel = slots[(size_t)next];
+    }
+    if (up || b) {
+        m_zone = Zone::Cards;
+        nav();
+    } else if (a) {
+        activateBottom(m_bottomSel);
+    }
+}
+
+// The rail on the left. Narrow: icons (the pages named under theirs). Opened out (the three bars):
+// wider, everything named beside its icon, and the rest of the old menu in it; each entry slides
+// from one place to the other. The page you're on sits on a pill of the game's colour, which
+// slides to a new page. Chosen, an entry's own shape gets a ring.
+void CardsActivity::drawRailM3(nxui::Renderer& r, float a) {
+    m_railHit.clear();
     if (a <= 0.001f) return;
     const M3Colors& c = m_m3;
-    const bool top = m_zone == Zone::Top && !m_moving;
+    const float e = easeInOut(m_railOpen);
+    const bool focus = m_zone == Zone::Top && m_onRail && !m_moving;
     const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
+    const float spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
     auto pressedOf = [this](int index) {
         return m_pressZone == 0 && m_pressIndex == index ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
     };
-    auto mix = [](const nxui::Color& x, const nxui::Color& y, float t) {
-        return nxui::Color(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t, x.b + (y.b - x.b) * t, x.a + (y.a - x.a) * t);
+    if (e > 0.001f) r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.45f * e * a));
+    const nxui::Rect rail{16.f - 24.f * (1.f - a), 16.f, 84.f + 188.f * e, 688.f};
+    r.drawRoundedRect(rail, c.surfaceC.withAlpha((0.9f + 0.08f * e) * a), 42.f);
+    const float cx = rail.x + 42.f;
+
+    const std::vector<RailEntry> small = railEntries(false), big = railEntries(true);
+    const std::vector<RailEntry>& now = m_railWant ? big : small;
+    auto same = [](const RailEntry& x, const RailEntry& y) { return x.kind == y.kind && x.value == y.value; };
+    auto indexIn = [&](const std::vector<RailEntry>& list, const RailEntry& en) {
+        for (size_t i = 0; i < list.size(); ++i)
+            if (same(list[i], en)) return static_cast<int>(i);
+        return -1;
     };
-    // A button's place (for touch) and, chosen, a ring around it.
-    auto place = [&](int item, const nxui::Rect& box, float radius) {
-        m_topHit[item] = box;
-        if (top && m_topSel == item)
-            r.drawRoundedRectOutline({box.x - 4.f, box.y - 4.f, box.width + 8.f, box.height + 8.f},
-                                     c.primary.withAlpha(ring * a), radius + 4.f, 3.f);
+    const RailEntry* chosen = focus && m_railSel >= 0 && m_railSel < static_cast<int>(now.size()) ? &now[(size_t)m_railSel] : nullptr;
+    // Narrow: fixed places, the pages spread between Discord and music. Opened out: a list.
+    int pages = 0;
+    for (const RailEntry& en : small) pages += en.kind == kRailPage ? 1 : 0;
+    const float pitch = pages ? std::min(64.f, (540.f - 168.f) / static_cast<float>(pages)) : 0.f;
+    auto smallY = [&](int i) {
+        const RailEntry& en = small[(size_t)i];
+        if (en.kind == kRailPage) return 168.f + pitch * static_cast<float>(i - 2) + 16.f;
+        return en.value == kTopMenu ? 52.f : en.value == kTopDiscord ? 110.f : en.value == kTopMusic ? 572.f
+             : en.value == kTopPower ? 624.f : 676.f;
+    };
+    const float rh = std::min(46.f, (692.f - 150.f) / static_cast<float>(std::max<size_t>(1, big.size() - 2)));
+    auto bigY = [&](int i) { return i == 0 ? 52.f : i == 1 ? 110.f : 150.f + rh * static_cast<float>(i - 2) + rh * 0.5f; };
+    struct Spot {
+        RailEntry en;
+        float y, alpha;
+        nxui::Rect pill; // the shape it's chosen (and, a page, shown as where you are) in
+    };
+    std::vector<Spot> spots;
+    std::vector<float> pageYs;
+    for (int i = 0; i < static_cast<int>(big.size()); ++i) {
+        const int j = indexIn(small, big[(size_t)i]);
+        const float y = j >= 0 ? smallY(j) + (bigY(i) - smallY(j)) * e : bigY(i);
+        const nxui::Rect narrow{cx - 28.f, y - 16.f, 56.f, 32.f};
+        const nxui::Rect wide{rail.x + 8.f, y - (rh - 6.f) * 0.5f, 256.f, rh - 6.f};
+        spots.push_back({big[(size_t)i], y, j >= 0 ? 1.f : e, lerpRect(narrow, wide, e)});
+        if (big[(size_t)i].kind == kRailPage) pageYs.push_back(y);
+    }
+    // The page pill: its place among the pages eases to the page you're on.
+    float here = 0.f;
+    for (int i = 0, at = 0; i < static_cast<int>(small.size()); ++i)
+        if (small[(size_t)i].kind == kRailPage) {
+            if (small[(size_t)i].value == m_page) here = static_cast<float>(at);
+            ++at;
+        }
+    m_m3Pill = m_m3Pill < 0.f || !m_settings.motion ? here : m_m3Pill + (here - m_m3Pill) * (1.f - std::exp(-m_m3Dt * 14.f));
+    float pillY = -1000.f;
+    if (!pageYs.empty()) {
+        const float at = std::clamp(m_m3Pill, 0.f, static_cast<float>(pageYs.size() - 1));
+        const size_t lo = static_cast<size_t>(at), hi = std::min(lo + 1, pageYs.size() - 1);
+        pillY = pageYs[lo] + (pageYs[hi] - pageYs[lo]) * (at - static_cast<float>(lo));
+        const nxui::Rect narrow{cx - 28.f, pillY - 16.f, 56.f, 32.f};
+        const nxui::Rect wide{rail.x + 8.f, pillY - (rh - 6.f) * 0.5f, 256.f, rh - 6.f};
+        const nxui::Rect fill = lerpRect(narrow, wide, e);
+        r.drawRoundedRect(fill, c.primaryC.withAlpha(a), fill.height * 0.5f);
+    }
+
+    for (const Spot& s : spots) {
+        if (s.alpha <= 0.01f) continue;
+        const float al = s.alpha * a;
+        const int at = indexIn(now, s.en);
+        const bool isChosen = chosen && same(*chosen, s.en);
+        if (s.en.kind == kRailTop && s.en.value == kTopMenu) {
+            const nxui::Rect pill{cx - 28.f, s.y - 20.f, 56.f, 40.f};
+            if (isChosen) {
+                r.drawRoundedRect(pill, c.onSurface.withAlpha(0.10f * al), 20.f);
+                ringRect(r, pill, 20.f, c.primary.withAlpha(ring * al));
+            }
+            icon(r, "menu", cx, s.y, 28.f, c.onSurfaceVar.withAlpha(al));
+            if (at >= 0) m_railHit.push_back({at, {pill.x - 6.f, pill.y - 6.f, pill.width + 12.f, pill.height + 12.f}});
+            continue;
+        }
+        if (s.en.kind == kRailTop && s.en.value == kTopDiscord) { // the big button: a slowly turning "sunny" shape
+            const float fs = 1.f - 0.1f * pressedOf(kTopDiscord);
+            drawBumpy(r, cx, s.y, 31.f * fs, 8, 0.09f, c.primaryC.withAlpha(al), spin);
+            icon(r, "discord", cx, s.y, 34.f * fs, c.onPrimaryC.withAlpha(al));
+            if (isChosen) ringBumpy(r, cx, s.y, 31.f * fs, 8, 0.09f, spin, c.primary.withAlpha(ring * al));
+            if (e > 0.01f) textMid(r, m_fPill, "Discord", cx + 46.f, s.y, c.onSurface.withAlpha(e * al));
+#ifdef SWITCHU_MENU
+            const int dms = m_discord.started() ? m_discord.unreadDms() : 0;
+            if (dms > 0) {
+                const std::string n = dms > 99 ? "99+" : std::to_string(dms);
+                const float bw = std::max(22.f, measured(m_fBadge, n).x + 12.f);
+                const nxui::Rect badge{cx + 10.f, s.y - 36.f, bw, 22.f};
+                r.drawRoundedRect(badge, kM3Error.withAlpha(al), 11.f);
+                textMid(r, m_fBadge, n, badge.x + (bw - measured(m_fBadge, n).x) * 0.5f, badge.y + 11.f, kM3OnError.withAlpha(al));
+            }
+#endif
+            if (at >= 0) m_railHit.push_back({at, {cx - 36.f, s.y - 36.f, 72.f + 150.f * e, 72.f}});
+            continue;
+        }
+        const char* glyph = "folder";
+        std::string name;
+        if (s.en.kind == kRailPage) {
+            const int page = s.en.value;
+            glyph = page == kGames ? "pad" : page == kHomebrew ? "cube" : page == kNintendo ? "store" : page == kMedia ? "playc" : "folder";
+            name = pageName(page);
+        } else if (s.en.kind == kRailTop) {
+            glyph = s.en.value == kTopMusic ? "music" : s.en.value == kTopPower ? "power" : "gear";
+            name = s.en.value == kTopMusic ? "Music" : s.en.value == kTopPower ? "Power" : "Settings";
+        } else {
+            static const char* const kGlyphs[] = {"news", "friends", "copy", "sun", "download", "home"};
+            static const char* const kNames[] = {"News", "Users", "Pages", "Quick", "Updates", "Close"};
+            glyph = kGlyphs[std::clamp(s.en.value, 0, 5)];
+            name = kNames[std::clamp(s.en.value, 0, 5)];
+        }
+        // How much of the page pill is under it (it slides across the pages between).
+        const float under = s.en.kind == kRailPage ? clamp01(1.f - std::abs(pillY - s.y) / 30.f) : 0.f;
+        if (isChosen) {
+            if (under < 0.5f) r.drawRoundedRect(s.pill, c.onSurface.withAlpha(0.10f * al), s.pill.height * 0.5f);
+            ringRect(r, s.pill, s.pill.height * 0.5f, c.primary.withAlpha(ring * al));
+        }
+        const float pressed = s.en.kind == kRailTop ? pressedOf(s.en.value) : 0.f;
+        const float ix = cx + (s.pill.x + 26.f - cx) * e;
+        icon(r, glyph, ix, s.y, (s.en.kind == kRailPage ? 22.f : 26.f) * (1.f - 0.1f * pressed),
+             mixed(c.onSurfaceVar, c.onPrimaryC, under).withAlpha(al));
+        if (s.en.kind == kRailTop && s.en.value == kTopMusic && m_settings.music) { // playing: a little level meter
+            for (int i = 0; i < 3; ++i) {
+                const float hgt = 3.f + 5.f * (0.5f + 0.5f * std::sin(m_decoTime * (5.f + i * 1.7f) + i));
+                r.drawRect({ix - 8.f + i * 6.f, s.y + 22.f - hgt, 3.f, hgt}, c.primary.withAlpha(0.9f * al));
+            }
+        }
+        if (e < 0.99f && s.en.kind == kRailPage && pitch >= 54.f) { // narrow: the page's name under its icon
+            const std::string shown = fit(m_fBadge, name, 76.f, 0.8f);
+            textMid(r, m_fBadge, shown, cx - measured(m_fBadge, shown).x * 0.4f, s.y + 28.f,
+                    mixed(c.onSurfaceVar, c.onSurface, under).withAlpha((1.f - e) * al), 0.8f);
+        }
+        if (e > 0.01f) { // opened out: beside it
+            const float tx = ix + 30.f;
+            const std::string shown = fit(m_fPill, name, rail.x + rail.width - 20.f - tx, 0.9f);
+            textMid(r, m_fPill, shown, tx, s.y, mixed(c.onSurface, c.onPrimaryC, under).withAlpha(e * al), 0.9f);
+        }
+        if (at >= 0)
+            m_railHit.push_back({at, {s.pill.x - 4.f, s.pill.y - 6.f, s.pill.width + 8.f, s.pill.height + 12.f}});
+    }
+}
+
+// The header, Material 3's way: the page's name big, the status as one connected button group
+// (you and the time, Nextendo, the bell, battery, free space, temperature) and the sort modes as
+// chips. Where each was drawn is kept for touch; chosen, a ring follows its shape.
+void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
+    for (nxui::Rect& hit : m_topHit) hit = {};
+    for (nxui::Rect& hit : m_chipHit) hit = {};
+    if (a <= 0.001f) return;
+    const M3Colors& c = m_m3;
+    const bool top = m_zone == Zone::Top && !m_onRail && !m_moving;
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
+    const float spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
+    auto pressedOf = [this](int index) {
+        return m_pressZone == 0 && m_pressIndex == index ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
     };
     const float drop = 18.f * (1.f - a); // (coming in: from a little above, as the bar does)
-
-    // The rail: slides in from the left.
-    const nxui::Rect rail{16.f - 24.f * (1.f - a), 16.f, 84.f, 688.f};
-    r.drawRoundedRect(rail, c.surfaceC.withAlpha(0.9f * a), 42.f);
-    const float cx = rail.x + rail.width * 0.5f;
-    auto railButton = [&](int item, float cy, const char* name) {
-        const float s = 1.f - 0.1f * pressedOf(item);
-        icon(r, name, cx, cy, 28.f * s, c.onSurfaceVar.withAlpha(a));
-        place(item, {cx - 28.f, cy - 20.f, 56.f, 40.f}, 20.f);
-    };
-    railButton(kTopMenu, 52.f, "menu");
-    // Discord: the big button, in Material 3 Expressive's "sunny" shape, turning slowly.
-    const float fabY = 110.f, fs = 1.f - 0.1f * pressedOf(kTopDiscord);
-    const float spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
-    drawBumpy(r, cx, fabY, 31.f * fs, 8, 0.09f, c.tertiaryC.withAlpha(a), spin);
-    icon(r, "discord", cx, fabY, 34.f * fs, c.onTertiaryC.withAlpha(a));
-    place(kTopDiscord, {cx - 32.f, fabY - 32.f, 64.f, 64.f}, 32.f);
-#ifdef SWITCHU_MENU
-    const int dms = m_discord.started() ? m_discord.unreadDms() : 0;
-    if (dms > 0) {
-        const std::string n = dms > 99 ? "99+" : std::to_string(dms);
-        const float bw = std::max(22.f, measured(m_fBadge, n).x + 12.f);
-        const nxui::Rect b{cx + 10.f, fabY - 36.f, bw, 22.f};
-        r.drawRoundedRect(b, nxui::Color(1.f, 0.71f, 0.67f, a), 11.f); // Material 3's error colours
-        textMid(r, m_fBadge, n, b.x + (bw - measured(m_fBadge, n).x) * 0.5f, b.y + 11.f, nxui::Color(0.41f, 0.f, 0.02f, a));
-    }
-#endif
-    // The pages, in your order (not the hidden ones; L and R go through them). The filled pill
-    // slides to the page you're on.
-    std::vector<int> shown;
-    for (int p = 0; p < pageCount(); ++p)
-        if (!pageHidden(m_settings.pageOrder[(size_t)p])) shown.push_back(m_settings.pageOrder[(size_t)p]);
-    const float firstY = 168.f;
-    const float pitch = shown.empty() ? 0.f : std::min(64.f, (540.f - firstY) / static_cast<float>(shown.size()));
-    float here = 0.f;
-    for (size_t i = 0; i < shown.size(); ++i)
-        if (shown[i] == m_page) here = static_cast<float>(i);
-    m_m3Pill = m_m3Pill < 0.f || !m_settings.motion ? here : m_m3Pill + (here - m_m3Pill) * (1.f - std::exp(-m_m3Dt * 14.f));
-    if (!shown.empty()) r.drawRoundedRect({cx - 28.f, firstY + pitch * m_m3Pill, 56.f, 32.f}, c.primaryC.withAlpha(a), 16.f);
-    for (size_t i = 0; i < shown.size(); ++i) {
-        const int page = shown[i];
-        const float on = clamp01(1.f - std::abs(static_cast<float>(i) - m_m3Pill)); // under the pill
-        const float y = firstY + pitch * static_cast<float>(i);
-        const char* glyph = page == kGames ? "pad" : page == kHomebrew ? "cube" : page == kNintendo ? "store"
-                          : page == kMedia ? "playc" : "folder";
-        icon(r, glyph, cx, y + 16.f, 22.f, mix(c.onSurfaceVar, c.onPrimaryC, on).withAlpha(a));
-        if (pitch >= 54.f) {
-            const std::string name = fit(m_fBadge, pageName(page), rail.width - 8.f, 0.8f);
-            textMid(r, m_fBadge, name, cx - measured(m_fBadge, name).x * 0.4f, y + 44.f,
-                    mix(c.onSurfaceVar, c.onSurface, on).withAlpha(a), 0.8f);
-        }
-        m_pageHit.push_back({page, {rail.x, y - 4.f, rail.width, pitch}});
-    }
-    // Music, power and Settings at its foot.
-    railButton(kTopMusic, 572.f, "music");
-    if (m_settings.music) { // playing: a little level meter under the note
-        for (int i = 0; i < 3; ++i) {
-            const float hgt = 3.f + 5.f * (0.5f + 0.5f * std::sin(m_decoTime * (5.f + i * 1.7f) + i));
-            r.drawRect({cx - 8.f + i * 6.f, 594.f - hgt, 3.f, hgt}, c.primary.withAlpha(0.9f * a));
-        }
-    }
-    railButton(kTopPower, 624.f, "power");
-    railButton(kTopGear, 676.f, "gear");
 
     // The status: one connected button group, right-aligned.
     const float gy = 22.f - drop, gh = 52.f, gcy = gy + gh * 0.5f, pad = 16.f, face = 34.f;
@@ -10344,11 +10681,17 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
     for (int i = 0, nth = 0; i < 6; ++i) {
         if (w[i] <= 0.f) continue;
         const nxui::Rect seg{x, gy, w[i], gh};
+        const bool first = nth++ == 0;
         x += w[i] + 4.f;
-        drawSegment(r, seg, c.surfaceHigh.withAlpha(0.95f * a), nth++ == 0, i == last, 12.f);
+        drawSegment(r, seg, c.surfaceHigh.withAlpha(0.95f * a), first, i == last, 12.f);
+        // A button (for touch), and chosen: a ring along its shape.
+        auto place = [&](int item) {
+            m_topHit[item] = seg;
+            if (top && m_topSel == item) ringSegment(r, seg, first, i == last, 12.f, c.primary.withAlpha(ring * a));
+        };
         const nxui::Color ink = c.onSurfaceVar.withAlpha(a);
         switch (i) {
-            case 0: { // you (a "cookie" frame; a dot: online), the time
+            case 0: { // you (in a "cookie" frame; a dot: online), the time
                 const float fx = seg.x + 10.f + face * 0.5f, ps = 1.f - 0.1f * pressedOf(kTopUser);
                 drawBumpy(r, fx, gcy, (face * 0.5f + 4.f) * ps, 9, 0.08f, c.primary.withAlpha(a), -spin);
                 const float f = face * ps;
@@ -10358,19 +10701,19 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
                 r.drawCircle({fx + 13.f, gcy + 13.f}, 6.5f, c.surfaceHigh.withAlpha(a), 16);
                 r.drawCircle({fx + 13.f, gcy + 13.f}, 4.5f, (m_online ? kGreen : c.outline).withAlpha(a), 16);
                 textMid(r, m_fPill, m_clock, seg.x + 10.f + face + 12.f, gcy, c.onSurface.withAlpha(a));
-                place(kTopUser, seg, gh * 0.5f);
+                place(kTopUser);
                 break;
             }
             case 1:
                 icon(r, "friends", seg.x + pad + 13.f, gcy, 26.f * (1.f - 0.1f * pressedOf(kTopPlayers)), ink);
                 textMid(r, m_fPill, players, seg.x + pad + 32.f, gcy, ink);
-                place(kTopPlayers, seg, 12.f);
+                place(kTopPlayers);
                 break;
             case 2:
                 icon(r, "bell", seg.x + pad + 13.f, gcy, 26.f * (1.f - 0.1f * pressedOf(kTopBell)),
                      (m_unread > 0 ? c.primary : c.onSurfaceVar).withAlpha(a));
                 if (m_unread > 0) textMid(r, m_fPill, unread, seg.x + pad + 34.f, gcy, c.onSurface.withAlpha(a));
-                place(kTopBell, seg, i == last ? gh * 0.5f : 12.f);
+                place(kTopBell);
                 break;
             case 3: {
                 float bx = seg.x + pad;
@@ -10418,9 +10761,7 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
         icon(r, glyph, cx0 + 24.f, chipY + chipH * 0.5f, 20.f, ink);
         textMid(r, m_fPill, label, cx0 + 42.f, chipY + chipH * 0.5f, ink, 0.9f);
         m_chipHit[index] = box;
-        if (focus && top && m_topSel == kTopSort)
-            r.drawRoundedRectOutline({box.x - 4.f, box.y - 4.f, box.width + 8.f, box.height + 8.f}, c.primary.withAlpha(ring * a),
-                                     chipH * 0.5f + 4.f, 3.f);
+        if (focus && top && m_topSel == kTopSort) ringRect(r, box, chipH * 0.5f, c.primary.withAlpha(ring * a));
         return cw;
     };
     if (m_page == kGames) {
@@ -10473,10 +10814,9 @@ void CardsActivity::drawPanelM3(nxui::Renderer& r, float a) {
         m_bottomHit[slot] = box;
         const float pressed = m_pressZone == 2 && m_pressIndex == slot ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
         const nxui::Rect b = scaled(box, 1.f - 0.06f * pressed);
-        drawSegment(r, b, (slot == 0 ? c.primaryC : c.secondaryC).withAlpha(a), i == 0, i + 1 == slots.size(), 16.f);
-        if (bottom && m_bottomSel == slot)
-            r.drawRoundedRectOutline({b.x - 5.f, b.y - 5.f, b.width + 10.f, b.height + 10.f}, c.primary.withAlpha(ring * a),
-                                     (i == 0 || i + 1 == slots.size() ? bh * 0.5f : 16.f) + 5.f, 3.f);
+        const bool first = i == 0, lastOne = i + 1 == slots.size();
+        drawSegment(r, b, (slot == 0 ? c.primaryC : c.secondaryC).withAlpha(a), first, lastOne, 16.f);
+        if (bottom && m_bottomSel == slot) ringSegment(r, b, first, lastOne, 16.f, c.primary.withAlpha(ring * a));
         const nxui::Color ink = (slot == 0 ? c.onPrimaryC : c.onSecondaryC).withAlpha(a);
         const float bx = b.x + b.width * 0.5f, by = b.y + b.height * 0.5f;
         switch (slot) {
@@ -10566,6 +10906,52 @@ void CardsActivity::drawPanelM3(nxui::Renderer& r, float a) {
     }
 }
 
+// The power menu, Material 3's way: a round sheet, each choice a round tile with its icon in a
+// shape of its own; the chosen one fills with the game's colour (Power Off: the error colours).
+void CardsActivity::drawPowerM3(nxui::Renderer& r) {
+    const M3Colors& c = m_m3;
+    const float a = easeOut(m_powerIn);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
+    const float spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f * a));
+    const nxui::Rect card = scaled(kPowerCard, 0.94f + 0.06f * easeOutBack(m_powerIn));
+    r.drawRoundedRect(card, c.surfaceC.withAlpha(0.98f * a), 44.f);
+    const float dy = card.y - kPowerCard.y, hy = kPowerCard.y + 44.f + dy;
+    drawBumpy(r, kPowerCard.x + 52.f, hy, 22.f, 9, 0.08f, c.primaryC.withAlpha(a), spin);
+    icon(r, "power", kPowerCard.x + 52.f, hy, 24.f, c.onPrimaryC.withAlpha(a));
+    textMid(r, m_fTitle, "Power", kPowerCard.x + 86.f, hy, c.onSurface.withAlpha(a));
+    const std::string hint = "A Choose    B Back";
+    textMid(r, m_fBody, hint, kPowerCard.x + kPowerCard.width - 36.f - measured(m_fBody, hint).x, hy, c.onSurfaceVar.withAlpha(a));
+    static const int kLobes[4] = {9, 8, 4, 6}; // a cookie, a sun, a clover, a flower
+    static const float kDepth[4] = {0.08f, 0.09f, 0.14f, 0.11f};
+    const int n = std::min<int>(4, static_cast<int>(m_powerItems.size()));
+    for (int i = 0; i < n; ++i) {
+        // The chosen one rises a little and fills with the game's colour.
+        float& lift = m_powerLift[i];
+        const float want = i == m_powerSel ? 1.f : 0.f;
+        lift += (want - lift) * (m_settings.motion ? 0.25f : 1.f);
+        const PowerLook& look = kPowerLooks[i];
+        const float rise = easeOut((m_powerIn - 0.06f * i) / 0.8f); // they rise in, one by one
+        nxui::Rect tile = scaled(powerTile(i), 1.f + 0.04f * lift);
+        tile.y += dy - 6.f * lift + 30.f * (1.f - rise);
+        const float ta = a * rise;
+        r.drawRoundedRect(tile, mixed(c.surfaceHigh, c.primaryC, lift).withAlpha(ta), 32.f);
+        if (lift > 0.5f) ringRect(r, tile, 32.f, c.primary.withAlpha(ring * ta));
+        const bool off = i == 2;
+        const nxui::Color shape = off ? kM3Error : mixed(c.secondaryC, c.primary, lift);
+        const nxui::Color glyph = off ? kM3OnError : mixed(c.onSecondaryC, c.onPrimary, lift);
+        const float ix = tile.x + tile.width * 0.5f, iy = tile.y + 80.f;
+        drawBumpy(r, ix, iy, 40.f + 4.f * lift, kLobes[i], kDepth[i], shape.withAlpha(ta), spin * (0.3f + 0.7f * lift));
+        icon(r, look.glyph, ix, iy, 34.f, glyph.withAlpha(ta));
+        const nxui::Color ink = mixed(c.onSurface, c.onPrimaryC, lift);
+        const std::string name = look.name;
+        textMid(r, m_fLabel, name, tile.x + (tile.width - measured(m_fLabel, name).x) * 0.5f, tile.y + 150.f, ink.withAlpha(ta));
+        const std::string about = fit(m_fBody, look.about, tile.width - 20.f, 0.85f);
+        textMid(r, m_fBody, about, tile.x + (tile.width - measured(m_fBody, about).x * 0.85f) * 0.5f, tile.y + 180.f,
+                ink.withAlpha(0.8f * ta), 0.85f);
+    }
+}
+
 // One row: a toggle switch, a slider, a choice (< value >), a value, or an action.
 void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect& row, bool chosen, float a, bool wide) {
     const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
@@ -10582,21 +10968,34 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
     } else if (item.glyph) { // its icon on a little glass tile
         const float s = std::min(34.f, row.height - 12.f);
         const nxui::Rect tile{x, cy - s * 0.5f, s, s};
-        r.drawRoundedRect(tile, item.danger ? nxui::Color(1.f, 0.27f, 0.25f, 0.85f * a) : nxui::Color(1.f, 1.f, 1.f, 0.12f * a),
-                          s * 0.3f);
-        icon(r, item.glyph, tile.x + s * 0.5f, cy, s * 0.58f, kWhite.withAlpha(a));
+        if (m3()) {
+            r.drawRoundedRect(tile, (item.danger ? kM3Error : m_m3.secondaryC).withAlpha(a), s * 0.5f);
+            icon(r, item.glyph, tile.x + s * 0.5f, cy, s * 0.58f, (item.danger ? kM3OnError : m_m3.onSecondaryC).withAlpha(a));
+        } else {
+            r.drawRoundedRect(tile, item.danger ? nxui::Color(1.f, 0.27f, 0.25f, 0.85f * a) : nxui::Color(1.f, 1.f, 1.f, 0.12f * a),
+                              s * 0.3f);
+            icon(r, item.glyph, tile.x + s * 0.5f, cy, s * 0.58f, kWhite.withAlpha(a));
+        }
         x += s + 14.f;
     }
     // The control on the right, and the room it leaves for the label.
     const float right = row.x + row.width - 18.f;
     float control = 0.f;
-    const nxui::Color blue = nxui::Color(0.55f, 0.75f, 1.f, a);
+    const nxui::Color blue = m3() ? m_m3.primary.withAlpha(a) : nxui::Color(0.55f, 0.75f, 1.f, a);
     switch (item.kind) {
         case MenuItem::Toggle: {
             const float on = item.level ? item.level() : 0.f;
             if (item.anim < 0.f) item.anim = on;
             item.anim += (on - item.anim) * (m_settings.motion ? 0.3f : 1.f);
             const nxui::Rect track{right - 56.f, cy - 16.f, 56.f, 32.f};
+            if (m3()) { // Material 3's switch: off, an outlined track and a small handle; on, filled and a bigger one
+                const float t = item.anim;
+                r.drawRoundedRect(track, mixed(m_m3.surfaceHigh, m_m3.primary, t).withAlpha(a), 16.f);
+                if (t < 0.99f) r.drawRoundedRectOutline(track, m_m3.outline.withAlpha((1.f - t) * a), 16.f, 2.f);
+                r.drawCircle({track.x + 16.f + 24.f * t, cy}, 8.f + 4.f * t, mixed(m_m3.outline, m_m3.onPrimary, t).withAlpha(a), 24);
+                control = 70.f;
+                break;
+            }
             r.drawRoundedRect(track, nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 16.f);
             r.drawRoundedRect(track, kGreen.withAlpha(item.anim * a), 16.f);
             const float knob = track.x + 16.f + 24.f * item.anim;
@@ -10609,6 +11008,18 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
             const float v = item.level ? clamp01(item.level()) : 0.f;
             const float bw = wide ? 220.f : 150.f;
             const nxui::Rect bar{right - bw, cy - 4.f, bw, 8.f};
+            if (m3()) { // Material 3's slider: a thick track, filled in the game's colour, a bar for a handle
+                const float hx = bar.x + bar.width * v;
+                const nxui::Rect filled{bar.x, cy - 8.f, hx - 6.f - bar.x, 16.f};
+                const nxui::Rect rest{hx + 6.f, cy - 8.f, bar.x + bar.width - hx - 6.f, 16.f};
+                if (filled.width > 2.f) r.drawRoundedRect(filled, m_m3.primary.withAlpha(a), std::min(8.f, filled.width * 0.5f));
+                if (rest.width > 2.f) r.drawRoundedRect(rest, m_m3.secondaryC.withAlpha(a), std::min(8.f, rest.width * 0.5f));
+                r.drawRoundedRect({hx - 2.f, cy - 20.f, 4.f, 40.f}, m_m3.primary.withAlpha(a), 2.f);
+                const std::string pct = item.value ? item.value() : std::string();
+                textMid(r, m_fBody, pct, bar.x - 16.f - measured(m_fBody, pct).x, cy, m_m3.onSurfaceVar.withAlpha(a));
+                control = bw + 70.f;
+                break;
+            }
             r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 4.f);
             r.drawRoundedRect({bar.x, bar.y, std::max(8.f, bar.width * v), bar.height}, accent(a), 4.f);
             r.drawCircle({bar.x + bar.width * v, cy}, 11.f, kWhite.withAlpha(a), 24);
@@ -10622,7 +11033,7 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
             const std::string v = item.value ? item.value() : std::string();
             const float vw = measured(m_fPill, v).x;
             const nxui::Rect pill{right - vw - 60.f, cy - 18.f, vw + 60.f, 36.f};
-            r.drawRoundedRect(pill, nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.14f : 0.08f) * a), 18.f);
+            r.drawRoundedRect(pill, m3() ? m_m3.secondaryC.withAlpha(a) : nxui::Color(1.f, 1.f, 1.f, (chosen ? 0.14f : 0.08f) * a), 18.f);
             chevron(r, pill.x + 16.f, cy, 13.f, kMuted.withAlpha(0.75f * a), -1.f);
             textMid(r, m_fPill, v, pill.x + 30.f, cy, blue);
             chevron(r, pill.x + pill.width - 16.f, cy, 13.f, kMuted.withAlpha(0.75f * a));
@@ -10647,12 +11058,13 @@ void CardsActivity::drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect&
         }
     }
     const float room = right - control - x;
-    const nxui::Color labelColour = item.danger ? nxui::Color(1.f, 0.45f, 0.42f, a)
-                                  : item.kind == MenuItem::Info && !item.value ? kMuted.withAlpha(a)
-                                                                               : kWhite.withAlpha(a);
+    const nxui::Color soft = m3() ? m_m3.onSurfaceVar : kMuted;
+    const nxui::Color labelColour = item.danger ? (m3() ? kM3Error.withAlpha(a) : nxui::Color(1.f, 0.45f, 0.42f, a))
+                                  : item.kind == MenuItem::Info && !item.value ? soft.withAlpha(a)
+                                                                               : (m3() ? m_m3.onSurface : kWhite).withAlpha(a);
     if (!item.detail.empty() && (wide || item.kind == MenuItem::Info)) {
         textMid(r, m_fPill, fit(m_fPill, item.label, room), x, cy - 11.f, labelColour);
-        textMid(r, m_fBody, fit(m_fBody, item.detail, room, 0.88f), x, cy + 13.f, kMuted.withAlpha(0.8f * a), 0.88f);
+        textMid(r, m_fBody, fit(m_fBody, item.detail, room, 0.88f), x, cy + 13.f, soft.withAlpha(0.8f * a), 0.88f);
     } else {
         textMid(r, m_fPill, fit(m_fPill, item.label, room), x, cy, labelColour);
     }
@@ -10666,10 +11078,14 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
         nxui::Rect box{kGearX + 38.f - 460.f, 84.f - 12.f * (1.f - a), 460.f, 60.f + rows * 74.f + 40.f};
         r.drawRoundedRect({box.x - 4.f, box.y + 10.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.28f * a),
                           28.f); // its shadow
-        frost(r, box, 24.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.82f * a));
-        r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 24.f, 1.5f);
-        r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 56.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
-                           nxui::Color(1.f, 1.f, 1.f, 0.f));
+        if (m3()) {
+            r.drawRoundedRect(box, m_m3.surfaceC.withAlpha(0.98f * a), 32.f);
+        } else {
+            frost(r, box, 24.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.82f * a));
+            r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 24.f, 1.5f);
+            r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 56.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
+                               nxui::Color(1.f, 1.f, 1.f, 0.f));
+        }
         icon(r, "bell", box.x + 32.f, box.y + 30.f, 24.f, kWhite.withAlpha(a));
         textMid(r, m_fLabel, "Notifications", box.x + 54.f, box.y + 30.f, kWhite.withAlpha(a));
         if (m_notifRows.empty())
@@ -10696,15 +11112,20 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
     const nxui::Rect box = scaled(base, 0.94f + 0.06f * a);
     r.drawRoundedRect({box.x - 4.f, box.y + 12.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * a),
                       32.f); // its shadow
-    frost(r, box, 28.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.85f * a));
-    r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 28.f, 1.5f);
-    r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 60.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
-                       nxui::Color(1.f, 1.f, 1.f, 0.f)); // a sheen
-    r.drawText(fit(m_fLabel, m_menuTitle, box.width - 48.f), {box.x + 26.f, box.y + 22.f}, &m_fLabel, kWhite.withAlpha(a));
+    if (m3()) {
+        r.drawRoundedRect(box, m_m3.surfaceC.withAlpha(0.98f * a), 36.f);
+    } else {
+        frost(r, box, 28.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.85f * a));
+        r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 28.f, 1.5f);
+        r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 60.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
+                           nxui::Color(1.f, 1.f, 1.f, 0.f)); // a sheen
+    }
+    r.drawText(fit(m_fLabel, m_menuTitle, box.width - 48.f), {box.x + 26.f, box.y + 22.f}, &m_fLabel,
+               (m3() ? m_m3.onSurface : kWhite).withAlpha(a));
     // The rows as one grouped list: a glass block, hairlines between them.
     const size_t n = m_menu.size(), shown = std::min(n, kPopupRows), top = popupTop(n, m_menuSel);
     r.drawRoundedRect({box.x + 14.f, box.y + 62.f, box.width - 28.f, rowH * static_cast<float>(shown) + 2.f},
-                      nxui::Color(1.f, 1.f, 1.f, 0.05f * a), 18.f);
+                      m3() ? m_m3.surfaceHigh.withAlpha(a) : nxui::Color(1.f, 1.f, 1.f, 0.05f * a), m3() ? 24.f : 18.f);
     for (size_t i = top; i < top + shown; ++i) {
         const nxui::Rect row{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(i - top), box.width - 28.f, rowH - 6.f};
         const int at = static_cast<int>(i);
@@ -10720,12 +11141,17 @@ void CardsActivity::drawHints(nxui::Renderer& r, float right, float cy,
     float x = right;
     for (auto it = std::rbegin(hints); it != std::rend(hints); ++it) {
         x -= measured(m_fBody, it->second).x * 0.9f;
-        textMid(r, m_fBody, it->second, x, cy, kMuted.withAlpha(a), 0.9f);
+        textMid(r, m_fBody, it->second, x, cy, (m3() ? m_m3.onSurfaceVar : kMuted).withAlpha(a), 0.9f);
         const float bw = std::max(28.f, measured(m_fBadge, it->first).x + 16.f);
         const nxui::Rect pill{x - 8.f - bw, cy - 14.f, bw, 28.f};
-        r.drawRoundedRect(pill, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 14.f);
-        r.drawRoundedRectOutline(pill, nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 14.f, 1.f);
-        textMid(r, m_fBadge, it->first, pill.x + (bw - measured(m_fBadge, it->first).x) * 0.5f, cy, kWhite.withAlpha(a));
+        if (m3()) {
+            r.drawRoundedRect(pill, m_m3.secondaryC.withAlpha(a), 14.f);
+        } else {
+            r.drawRoundedRect(pill, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 14.f);
+            r.drawRoundedRectOutline(pill, nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 14.f, 1.f);
+        }
+        textMid(r, m_fBadge, it->first, pill.x + (bw - measured(m_fBadge, it->first).x) * 0.5f, cy,
+                (m3() ? m_m3.onSecondaryC : kWhite).withAlpha(a));
         x = pill.x - 22.f;
     }
 }
@@ -10888,29 +11314,53 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     const float a = easeOut(m_sheetIn);
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.45f * a));
     const nxui::Rect sheet = scaled(kSheet, 0.95f + 0.05f * a);
-    frost(r, sheet, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
-    r.drawRoundedRectOutline(sheet, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
-    r.drawGradientRect({sheet.x + 2.f, sheet.y + 2.f, sheet.width - 4.f, 80.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
-                       nxui::Color(1.f, 1.f, 1.f, 0.f));
+    // Material 3: solid round surfaces; what's chosen in the game's colour, a ring along its shape.
+    const bool md = m3();
+    const float spin = md && m_settings.motion ? m_decoTime * 0.25f : 0.f;
+    const nxui::Color ink = md ? m_m3.onSurface : kWhite;
+    if (md) {
+        r.drawRoundedRect(sheet, m_m3.surface.withAlpha(0.98f * a), 44.f);
+    } else {
+        frost(r, sheet, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
+        r.drawRoundedRectOutline(sheet, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+        r.drawGradientRect({sheet.x + 2.f, sheet.y + 2.f, sheet.width - 4.f, 80.f}, nxui::Color(1.f, 1.f, 1.f, 0.05f * a),
+                           nxui::Color(1.f, 1.f, 1.f, 0.f));
+    }
     const float dy = sheet.y - kSheet.y, hy = kSheet.y + 46.f + dy;
-    icon(r, "gear", kSecX + 20.f, hy, 32.f, kWhite.withAlpha(a));
-    textMid(r, m_fTitle, "Settings", kSecX + 46.f, hy, kWhite.withAlpha(a));
+    if (md) {
+        drawBumpy(r, kSecX + 20.f, hy, 22.f, 9, 0.08f, m_m3.primaryC.withAlpha(a), spin);
+        icon(r, "gear", kSecX + 20.f, hy, 24.f, m_m3.onPrimaryC.withAlpha(a));
+    } else {
+        icon(r, "gear", kSecX + 20.f, hy, 32.f, kWhite.withAlpha(a));
+    }
+    textMid(r, m_fTitle, "Settings", kSecX + (md ? 52.f : 46.f), hy, ink.withAlpha(a));
     // Where you are: the section's tile and name over its rows.
     const Section& here = m_sheet[(size_t)m_sheetSec];
     const nxui::Rect hereTile{kRowsX, hy - 19.f, 38.f, 38.f};
-    r.drawRoundedRect(hereTile, sectionTint(here.icon).withAlpha(a), 11.f);
-    icon(r, here.icon, hereTile.x + 19.f, hy, 22.f, kWhite.withAlpha(a));
-    textMid(r, m_fLabel, here.name, hereTile.x + 52.f, hy, kWhite.withAlpha(a));
+    if (md) drawBumpy(r, hereTile.x + 19.f, hy, 20.f, 8, 0.09f, m_m3.primaryC.withAlpha(a), spin);
+    else r.drawRoundedRect(hereTile, sectionTint(here.icon).withAlpha(a), 11.f);
+    icon(r, here.icon, hereTile.x + 19.f, hy, 22.f, (md ? m_m3.onPrimaryC : kWhite).withAlpha(a));
+    textMid(r, m_fLabel, here.name, hereTile.x + 52.f, hy, ink.withAlpha(a));
 
     // Sections: a darker column, each one's icon on a tile of its colour.
     const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     const float colTop = kSheetTop - 10.f + dy;
     r.drawRoundedRect({kSecX - 10.f, colTop, kSecW + 20.f, sheet.y + sheet.height - 12.f - colTop},
-                      nxui::Color(0.f, 0.f, 0.f, 0.14f * a), 22.f);
+                      md ? m_m3.surfaceC.withAlpha(a) : nxui::Color(0.f, 0.f, 0.f, 0.14f * a), md ? 28.f : 22.f);
     const float h = secH(m_sheet.size());
     for (size_t i = 0; i < m_sheet.size(); ++i) {
         const nxui::Rect row{kSecX, kSheetTop + h * static_cast<float>(i) + dy, kSecW, h - 8.f};
         const bool on = static_cast<int>(i) == m_sheetSec;
+        if (md) { // a pill in the game's colour; its icon and name on it
+            const float cy = row.y + row.height * 0.5f;
+            if (on) {
+                r.drawRoundedRect(row, m_m3.primaryC.withAlpha(a), row.height * 0.5f);
+                if (!m_sheetOnRows) ringRect(r, row, row.height * 0.5f, m_m3.primary.withAlpha(ring * a), 3.f);
+            }
+            icon(r, m_sheet[i].icon, row.x + 26.f, cy, 22.f, (on ? m_m3.onPrimaryC : m_m3.onSurfaceVar).withAlpha(a));
+            textMid(r, m_fPill, m_sheet[i].name, row.x + 50.f, cy, (on ? m_m3.onPrimaryC : m_m3.onSurface).withAlpha(a));
+            continue;
+        }
         if (on) {
             r.drawRoundedRect(row, nxui::Color(1.f, 1.f, 1.f, (m_sheetOnRows ? 0.10f : 0.16f) * a), 14.f);
             if (!m_sheetOnRows) r.drawRoundedRectOutline(row, accent(ring * a), 14.f, 2.f);
@@ -10940,8 +11390,12 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
         while (end < rows.size() && rows[end].kind != MenuItem::Header) ++end;
         const float top = sheetRowY(rows, i);
         const nxui::Rect group{kRowsX + slide, kSheetTop + top - m_sheetScroll + dy, kRowsW, sheetRowY(rows, end) - top - 8.f};
-        r.drawRoundedRect(group, nxui::Color(1.f, 1.f, 1.f, 0.05f * ra), 18.f);
-        r.drawRoundedRectOutline(group, nxui::Color(1.f, 1.f, 1.f, 0.07f * ra), 18.f, 1.f);
+        if (md) {
+            r.drawRoundedRect(group, m_m3.surfaceC.withAlpha(ra), 24.f);
+        } else {
+            r.drawRoundedRect(group, nxui::Color(1.f, 1.f, 1.f, 0.05f * ra), 18.f);
+            r.drawRoundedRectOutline(group, nxui::Color(1.f, 1.f, 1.f, 0.07f * ra), 18.f, 1.f);
+        }
         i = end;
     }
     for (size_t i = 0; i < rows.size(); ++i) {
@@ -10949,13 +11403,15 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
         const nxui::Rect row{kRowsX + slide, kSheetTop + sheetRowY(rows, i) - m_sheetScroll + dy, kRowsW, (isHeading ? kHeadH : kRowH) - 8.f};
         if (row.y > kRowsBottom + dy || row.y + row.height < kSheetTop + dy) continue;
         if (isHeading) {
-            textMid(r, m_fBody, rows[i].label, row.x + 18.f, row.y + row.height * 0.5f + 8.f, kMuted.withAlpha(ra), 0.9f);
+            textMid(r, m_fBody, rows[i].label, row.x + 18.f, row.y + row.height * 0.5f + 8.f,
+                    (md ? m_m3.primary : kMuted).withAlpha(ra), 0.9f);
             continue;
         }
         const int at = static_cast<int>(i);
         const bool chosen = m_sheetOnRows && at == m_sheetRow;
         if (i + 1 < rows.size() && rows[i + 1].kind != MenuItem::Header && !chosen && !(m_sheetOnRows && at + 1 == m_sheetRow))
-            r.drawRect({row.x + 18.f, row.y + row.height + 3.5f, row.width - 36.f, 1.f}, nxui::Color(1.f, 1.f, 1.f, 0.08f * ra));
+            r.drawRect({row.x + 18.f, row.y + row.height + 3.5f, row.width - 36.f, 1.f},
+                       md ? m_m3.outline.withAlpha(0.3f * ra) : nxui::Color(1.f, 1.f, 1.f, 0.08f * ra));
         drawRow(r, rows[i], row, chosen, ra, true);
     }
     r.popClipRect();

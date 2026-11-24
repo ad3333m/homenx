@@ -99,6 +99,7 @@ private:
         std::uint64_t lastAccess = 0, selectedTick = 0;
         float cardIn = -10.f; // when it arrived (it fades in)
         float retryAt = 0.f;  // nothing came: asked again after this
+        nxui::Color seed{0.f, 0.f, 0.f, 0.f}; // its main colour (Material 3's colours); a = 0: none yet
     };
     enum What { kCard, kBackground, kIcon, kLaunch }; // kLaunch: the art at full size, for the launch
     // The lists, read on a thread (HOME shows last time's at once).
@@ -138,6 +139,7 @@ private:
         bool again = false; // an icon for now: its title picture is asked for again
         std::vector<std::uint8_t> small; // a cover's very small copy (m_thumbs)
         int sw = 0, sh = 0;
+        nxui::Color seed{0.f, 0.f, 0.f, 0.f}; // a cover's or icon's main colour (Art::seed)
         int gen = 0;
     };
     // Bumped when every picture is let go (a Pictures setting changed): what was
@@ -544,11 +546,27 @@ private:
     M3Colors m_m3{};
     nxui::Color m_m3Seed{0.f, 0.f, 0.f, 0.f}; // eased towards the chosen cover's colour
     float m_m3Time = 0.f, m_m3Dt = 0.f;
-    float m_m3Pill = -1.f;   // the rail's filled pill: where it is (a page's place; it slides)
+    float m_m3Pill = -1.f;   // the rail's page pill: its place among the pages (it slides)
     nxui::Font m_fHead;      // the big title (loaded the first time Material 3 draws)
     bool m_headFont = false;
     nxui::Rect m_topHit[kTopCount]{}, m_chipHit[4]{}, m_bottomHit[5]{};
-    std::vector<std::pair<int, nxui::Rect>> m_pageHit; // the rail's pages
+    // The rail (drawRailM3): what's on it, narrow or opened out (the three bars), and the d-pad on it.
+    enum RailKind { kRailTop, kRailPage, kRailExtra };
+    enum RailExtra { kXNews, kXUsers, kXPages, kXQuick, kXUpdates, kXClose }; // (opened out only)
+    struct RailEntry {
+        int kind = kRailTop, value = 0; // kRailTop: a bar button (kTop...); kRailPage: a page; kRailExtra: RailExtra
+    };
+    std::vector<RailEntry> railEntries(bool expanded) const;
+    void setRail(bool open);
+    void toRail();
+    void activateRail(RailEntry e);
+    void navigateM3(int move, bool fresh, bool up, bool down, bool a, bool b);
+    void drawRailM3(nxui::Renderer& r, float a);
+    void drawPowerM3(nxui::Renderer& r);
+    bool m_onRail = false, m_railWant = false; // the focus is on the rail; it's opened out
+    int m_railSel = 0;                        // in railEntries(m_railWant)
+    float m_railOpen = 0.f;                   // 0 narrow .. 1 opened out (eased)
+    std::vector<std::pair<int, nxui::Rect>> m_railHit; // (railEntries index, where it was drawn)
     void drawPopup(nxui::Renderer& r);
     void drawSheet(nxui::Renderer& r);
     void drawRow(nxui::Renderer& r, MenuItem& item, const nxui::Rect& row, bool chosen, float a, bool wide);
