@@ -3766,73 +3766,366 @@ void CardsActivity::drawLock(nxui::Renderer& r) {
     textMid(r, m_fLabel, hint, 640.f - measured(m_fLabel, hint).x * 0.5f, 648.f + lift, kWhite.withAlpha(0.85f * a * pulse));
 }
 
+// The first time (and Settings > About > Show the intro again): welcome; each page shown for real
+// behind a caption (CardsNX goes to it); the buttons; the three styles, live, to pick one; a few
+// settings; done. A goes on, B goes back a step, - skips the rest.
 namespace {
-struct IntroPage {
-    const char* title;
+enum IntroKind { kIntroWelcome, kIntroPage, kIntroButtons, kIntroStyle, kIntroSetup, kIntroDone };
+struct PageAbout {
     const char* text;
     const char* glyph;
 };
-const IntroPage kIntro[] = {
-    {"Welcome to CardsNX", "Your games are cards. Left and right move between them, A plays. Either stick works too.", "play"},
-    {"Each card's options", "+ on a card: its pictures, a new name, another page for it, or delete it. X closes the software that's open.", "dots"},
-    {"Pages", "ZL and ZR go through Games, Homebrew, Media and Nintendo. + on a game shows its achievements.", "sort"},
-#ifdef SWITCHU_MENU
-    {"Quick Settings and more", "R opens Quick Settings: music, brightness, Wi-Fi, Bluetooth and power. L opens Discord. The gear at the top is Settings.", "gear"},
-#else
-    {"Quick Settings and more", "R opens Quick Settings: music, brightness, Wi-Fi and power. The gear at the top is Settings.", "gear"},
-#endif
+const PageAbout kPageAbout[] = {
+    {"Every game you have, as a card. Left and right choose, A plays, + has its options.", "pad"},
+    {"Your apps from the SD card. When there's a newer version, its card says so and + updates it.", "cube"},
+    {"The console's own screens: the eShop, the Album, controllers, Mii and more.", "store"},
+    {"Video and music apps in one place. The ones you don't have yet can be downloaded from here.", "playc"},
 };
-constexpr int kIntroPages = static_cast<int>(sizeof(kIntro) / sizeof(kIntro[0]));
-const nxui::Rect kIntroCard{260.f, 150.f, 760.f, 420.f};
+struct IntroKey {
+    const char* key;
+    const char* does;
+};
+const IntroKey kIntroKeys[] = {
+    {"A", "Play the chosen game"},
+    {"+", "Its options: pictures, name, page, delete"},
+    {"ZL ZR", "Go through the pages"},
+    {"R", "Quick Settings: music, Wi-Fi, brightness"},
+#ifdef SWITCHU_MENU
+    {"L", "Discord"},
+#endif
+    {"X", "Close the software that's open"},
+    {"-", "Notifications"},
+    {"HOME", "Back here from a game"},
+};
+const char* const kStyleNames[] = {"Default", "Material 3", "Soft"};
 } // namespace
+
+std::vector<CardsActivity::IntroStep> CardsActivity::introSteps() const {
+    std::vector<IntroStep> steps{{kIntroWelcome, 0}};
+    for (int p = 0; p < pageCount(); ++p) {
+        const int page = m_settings.pageOrder[(size_t)p];
+        if (page < kPageCount && !pageHidden(page)) steps.push_back({kIntroPage, page});
+    }
+    for (int k : {kIntroButtons, kIntroStyle, kIntroSetup, kIntroDone}) steps.push_back({k, 0});
+    return steps;
+}
+
+void CardsActivity::enterIntroStep() {
+    m_introStepIn = m_settings.motion ? 0.f : 1.f;
+    const std::vector<IntroStep> steps = introSteps();
+    const IntroStep step = steps[(size_t)std::clamp(m_introPage, 0, static_cast<int>(steps.size()) - 1)];
+    if (step.kind == kIntroPage) goToPage(step.page, 0);
+    if (step.kind == kIntroSetup && m_introRows.empty()) { // Settings' own rows (switches and choices only)
+        buildSettings();
+        for (const char* label : {"Music", "Launch animation", "Animations", "Ask who's playing", "Lock screen"}) {
+            bool found = false;
+            for (const Section& s : m_sheet)
+                for (const MenuItem& row : s.rows)
+                    if (!found && row.label == label && (row.kind == MenuItem::Toggle || row.kind == MenuItem::Choice)) {
+                        m_introRows.push_back(row);
+                        found = true;
+                    }
+        }
+        m_introRows.push_back(choice("Clock", [this]() { return std::string(m_settings.clock24 ? "24-hour" : "12-hour"); },
+            [this](int) {
+                m_settings.clock24 = !m_settings.clock24;
+                m_clock24 = m_settings.clock24;
+                m_settings.save();
+            }));
+        m_introRowSel = 0;
+    }
+}
 
 void CardsActivity::updateIntro(float dt) {
     m_introIn = std::min(1.f, m_introIn + dt / 0.35f);
+    m_introStepIn = std::min(1.f, m_introStepIn + dt / 0.6f);
     auto& in = app().input();
     using B = nxui::Button;
-    const bool next = in.isDown(B::A) || in.isDown(B::DRight) || in.isDown(B::LStickR) || in.touchUp();
-    const bool back = in.isDown(B::DLeft) || in.isDown(B::LStickL);
-    if (in.isDown(B::B) || in.isDown(B::Plus) || (next && m_introPage == kIntroPages - 1)) { // done (B skips)
+    const std::vector<IntroStep> steps = introSteps();
+    const int last = static_cast<int>(steps.size()) - 1;
+    m_introPage = std::clamp(m_introPage, 0, last);
+    const IntroStep step = steps[(size_t)m_introPage];
+    const bool up = in.isDown(B::DUp) || in.isDown(B::LStickU), down = in.isDown(B::DDown) || in.isDown(B::LStickD);
+    const bool left = in.isDown(B::DLeft) || in.isDown(B::LStickL), right = in.isDown(B::DRight) || in.isDown(B::LStickR);
+    bool next = in.isDown(B::A), back = in.isDown(B::B);
+    const int rows = static_cast<int>(m_introRows.size());
+    auto useRow = [&](MenuItem& row, int d) { // a switch flips, a choice moves on
+        if (!row.change) return;
+        row.change(d);
+        m_audio.play(row.kind == MenuItem::Toggle ? "toggle_on" : "navigation");
+    };
+    if (in.touchUp()) { // the style tiles and the setup rows; anywhere else goes on
+        const float x = in.touchX(), y = in.touchY();
+        int hit = -1;
+        for (size_t i = 0; i < m_introHits.size(); ++i)
+            if (m_introHits[i].contains(x, y)) hit = static_cast<int>(i);
+        if (step.kind == kIntroStyle && hit >= 0 && hit < 3) {
+            m_settings.style = hit;
+            applyLayout(m3());
+            m_settings.save();
+            m_audio.play("navigation");
+        } else if (step.kind == kIntroSetup && hit >= 0 && hit < rows) {
+            m_introRowSel = hit;
+            useRow(m_introRows[(size_t)hit], 1);
+        } else {
+            next = true;
+        }
+    }
+    if (in.isDown(B::Minus) || (next && m_introPage == last)) { // done (or skipped)
         m_introOpen = false;
         m_settings.introDone = true;
         m_settings.save();
+        m_introRows.clear();
         m_audio.play("hide_modal");
-        openFirstSetup();
+        goToPage(kGames, 0);
         return;
     }
-    if (next) {
-        ++m_introPage;
-        m_audio.play("navigation");
-    } else if (back && m_introPage > 0) {
+    if (step.kind == kIntroStyle) { // left and right try each style on, live
+        const int d = left ? -1 : right ? 1 : 0;
+        if (d && m_settings.style + d >= 0 && m_settings.style + d <= 2) {
+            m_settings.style += d;
+            applyLayout(m3());
+            m_settings.save();
+            m_audio.play("navigation");
+        }
+    } else if (step.kind == kIntroSetup) { // up and down through the rows (and Continue), A or < > change one
+        if (up && m_introRowSel > 0) {
+            --m_introRowSel;
+            m_audio.play("navigation");
+        }
+        if (down && m_introRowSel < rows) {
+            ++m_introRowSel;
+            m_audio.play("navigation");
+        }
+        if (m_introRowSel < rows) {
+            MenuItem& row = m_introRows[(size_t)m_introRowSel];
+            if (left || right) useRow(row, left ? -1 : 1);
+            if (next) useRow(row, 1);
+            next = false;
+        }
+    } else {
+        next = next || right;
+        back = back || left;
+    }
+    if (back && m_introPage > 0) {
         --m_introPage;
+        enterIntroStep();
+        m_audio.play("navigation");
+    } else if (next) {
+        ++m_introPage;
+        enterIntroStep();
         m_audio.play("navigation");
     }
 }
 
+// A style, small: the screen as it looks in it, with your own covers and the game's colours.
+void CardsActivity::drawStylePreview(nxui::Renderer& r, const nxui::Rect& tile, int style, float a) {
+    const float k = tile.width / 1280.f;
+    auto R = [&](float x, float y, float w, float h) { return nxui::Rect{tile.x + x * k, tile.y + y * k, w * k, h * k}; };
+    float h, s, l;
+    toHsl(m_m3Seed.a > 0.f ? m_m3Seed : accent(), h, s, l);
+    const float p = s < 0.08f ? s : std::clamp(s * 1.25f, 0.45f, 0.9f), n = std::min(1.f, s / 0.6f);
+    std::vector<const nxui::Texture*> covers;
+    for (const Game& g : m_pages[kGames]) {
+        auto it = m_art.find(g.id);
+        if (it != m_art.end() && it->second.card && it->second.card->valid()) covers.push_back(it->second.card.get());
+        if (covers.size() == 4) break;
+    }
+    auto cover = [&](const nxui::Rect& at, float radius, int i) {
+        if (i < static_cast<int>(covers.size())) drawCover(r, covers[(size_t)i], at, radius, kWhite.withAlpha(a));
+        else r.drawRoundedRect(at, hsl(h + 0.08f * static_cast<float>(i), 0.35f * n, 0.45f, a), radius);
+    };
+    r.pushClipRect(tile);
+    if (style == 0) { // the glass look
+        r.drawGradientRect(tile, nxui::Color(0.36f, 0.41f, 0.55f, a), nxui::Color(0.22f, 0.25f, 0.34f, a));
+        for (float x : {134.f, 219.f, 304.f}) r.drawRoundedRect(R(x - 38.f, 9.f, 77.f, 77.f), nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 38.f * k);
+        r.drawRoundedRect(R(560.f, 21.f, 312.f, 52.f), nxui::Color(1.f, 1.f, 1.f, 0.22f * a), 26.f * k);
+        for (int i = 0; i < 5; ++i) cover(R(136.f + 250.f * static_cast<float>(i) - (i ? 0.f : 5.f), i ? 139.f : 125.f, i ? 240.f : 250.f, i ? 340.f : 354.f), 26.f * k, i);
+        r.drawRoundedRectOutline(R(131.f, 125.f, 250.f, 354.f), accent(a), 26.f * k, 2.f);
+        r.drawRoundedRect(R(186.f, 503.f, 907.f, 207.f), nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 35.f * k);
+        r.drawRoundedRect(R(208.f, 611.f, 262.f, 77.f), kWhite.withAlpha(a), 38.f * k);
+    } else { // Material 3, Soft: the rail, the title, the chips, the round panel
+        const bool sft = style == 2;
+        const nxui::Color face = sft ? hsl(h, 0.10f * n, 0.165f) : hsl(h, 0.21f * n, 0.075f);
+        const nxui::Color raised = sft ? face : hsl(h, 0.19f * n, 0.135f);
+        const nxui::Color primary = hsl(h, p, sft ? 0.70f : 0.84f), primaryC = hsl(h, p * (sft ? 1.f : 0.8f), sft ? 0.55f : 0.52f);
+        const nxui::Color dark = hsl(h, 0.14f * n, 0.085f), light = hsl(h, 0.08f * n, 0.245f);
+        auto surface = [&](const nxui::Rect& b, float radius) {
+            if (sft) {
+                r.drawRoundedRect({b.x + 3.f, b.y + 3.f, b.width, b.height}, dark.withAlpha(0.8f * a), radius);
+                r.drawRoundedRect({b.x - 2.f, b.y - 2.f, b.width, b.height}, light.withAlpha(0.6f * a), radius);
+            }
+            r.drawRoundedRect(b, raised.withAlpha(a), radius);
+        };
+        r.drawRect(tile, face.withAlpha(a));
+        surface(R(16.f, 16.f, 84.f, 688.f), 42.f * k);
+        r.drawRoundedRect(R(30.f, 168.f, 56.f, 32.f), (sft ? dark : primaryC).withAlpha(a), 16.f * k);
+        r.drawRoundedRect(R(131.f, 26.f, 230.f, 34.f), hsl(h, 0.26f * n, 0.92f, 0.9f * a), 8.f * k); // (the title)
+        surface(R(860.f, 22.f, 393.f, 52.f), 26.f * k);
+        r.drawRoundedRect(R(131.f, 98.f, 130.f, 36.f), (sft ? dark : primary).withAlpha(a), 18.f * k);
+        surface(R(273.f, 98.f, 150.f, 36.f), 18.f * k);
+        for (int i = 0; i < 4; ++i) cover(R(144.f + 262.f * static_cast<float>(i) - (i ? 0.f : 5.f), i ? 170.f : 156.f, i ? 240.f : 250.f, i ? 340.f : 354.f), 34.f * k, i);
+        r.drawRoundedRectOutline(R(135.f, 152.f, 258.f, 362.f), primary.withAlpha(a), 38.f * k, 2.f);
+        surface(R(131.f, 530.f, 1122.f, 170.f), 46.f * k);
+        r.drawRoundedRect(R(880.f, 577.f, 188.f, 76.f), primaryC.withAlpha(a), 38.f * k);
+        for (int i = 0; i < 2; ++i) surface(R(1080.f + 88.f * static_cast<float>(i), 577.f, 76.f, 76.f), 22.f * k);
+    }
+    r.popClipRect();
+}
+
 void CardsActivity::drawIntro(nxui::Renderer& r) {
+    m_introHits.clear();
     if (!m_introOpen) return;
-    const float a = easeOut(m_introIn);
-    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f * a));
-    const nxui::Rect card = scaled(kIntroCard, 0.95f + 0.05f * easeOutBack(m_introIn));
-    frost(r, card, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.9f * a));
-    r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
-    const IntroPage& page = kIntro[std::clamp(m_introPage, 0, kIntroPages - 1)];
-    const float cx = card.x + card.width * 0.5f;
-    r.drawCircle({cx, card.y + 86.f}, 42.f, accent(0.9f * a), 48);
-    icon(r, page.glyph, cx, card.y + 86.f, 40.f, kWhite.withAlpha(a));
-    textMid(r, m_fTitle, page.title, cx - measured(m_fTitle, page.title).x * 0.5f, card.y + 170.f, kWhite.withAlpha(a));
-    float y = card.y + 222.f;
-    for (const std::string& line : wrap(m_fBody, page.text, card.width - 120.f)) {
-        textMid(r, m_fBody, line, cx - measured(m_fBody, line).x * 0.5f, y, kMuted.withAlpha(a));
-        y += 32.f;
+    if (!m_headFont) {
+        m_headFont = true;
+        m_fHead.load(app().gpu(), app().renderer(), std::string(kAssets) + "fonts/Inter-700.ttf", 40);
     }
-    for (int i = 0; i < kIntroPages; ++i) { // where you are
-        const float dx = (static_cast<float>(i) - (kIntroPages - 1) * 0.5f) * 22.f;
-        r.drawCircle({cx + dx, card.y + card.height - 66.f}, i == m_introPage ? 6.f : 4.f,
-                     nxui::Color(1.f, 1.f, 1.f, (i == m_introPage ? 0.95f : 0.35f) * a), 16);
+    const std::vector<IntroStep> steps = introSteps();
+    const int at = std::clamp(m_introPage, 0, static_cast<int>(steps.size()) - 1);
+    const IntroStep step = steps[(size_t)at];
+    const float a = easeOut(m_introIn), e = easeOut(m_introStepIn);
+    const bool md = m3();
+    const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
+    const nxui::Color hue = md ? m_m3.primary : accent();
+    const float spin = m_settings.motion ? m_decoTime * 0.3f : 0.f, rise = 34.f * (1.f - e), ea = e * a;
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
+    auto centred = [&](nxui::Font& f, const std::string& t, float cy, const nxui::Color& c, float scale = 1.f) {
+        const std::string shown = tr(t);
+        textMid(r, f, shown, 640.f - measured(f, shown).x * scale * 0.5f, cy, c, scale);
+    };
+    auto badge = [&](float cx, float cy, float rad, const char* glyph, float alpha) { // an icon in its own shape
+        if (md) {
+            drawBumpy(r, cx, cy, rad, 8, 0.09f, m_m3.primaryC.withAlpha(alpha), spin);
+            icon(r, glyph, cx, cy, rad * 1.05f, m_m3.onPrimaryC.withAlpha(alpha));
+        } else {
+            r.drawCircle({cx, cy}, rad, accent(0.9f * alpha), 48);
+            icon(r, glyph, cx, cy, rad * 1.05f, kWhite.withAlpha(alpha));
+        }
+    };
+    const bool tour = step.kind == kIntroPage;
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, (tour ? 0.2f : 0.8f) * a));
+
+    switch (step.kind) {
+        case kIntroWelcome: { // three of your covers fan up into place, then the words
+            std::vector<const nxui::Texture*> covers;
+            for (const Game& g : m_pages[kGames]) {
+                auto it = m_art.find(g.id);
+                if (it != m_art.end() && it->second.card && it->second.card->valid()) covers.push_back(it->second.card.get());
+                if (covers.size() == 3) break;
+            }
+            for (int k : {0, 2, 1}) { // (the middle one last, on top)
+                const float t = easeOutBack(clamp01(m_introStepIn * 1.8f - 0.25f * static_cast<float>(k == 1 ? 2 : k)));
+                const float sc = k == 1 ? 1.f : 0.84f, dx = static_cast<float>(k - 1) * 150.f * t;
+                nxui::Rect card{640.f - 105.f * sc + dx, 120.f + (k == 1 ? 0.f : 30.f) + 220.f * (1.f - t), 210.f * sc, 297.f * sc};
+                const float ca = a * clamp01(t * 1.5f);
+                r.drawRoundedRect({card.x + 6.f, card.y + 14.f, card.width, card.height}, nxui::Color(0.f, 0.f, 0.f, 0.35f * ca), 26.f);
+                if (k < static_cast<int>(covers.size())) drawCover(r, covers[(size_t)k], card, 26.f, kWhite.withAlpha(ca));
+                else r.drawRoundedRect(card, hue.withAlpha((0.5f + 0.25f * static_cast<float>(k)) * ca), 26.f);
+                if (k == 1) r.drawRoundedRectOutline({card.x - 4.f, card.y - 4.f, card.width + 8.f, card.height + 8.f}, hue.withAlpha(ca), 30.f, 4.f);
+            }
+            const float te = easeOut(m_introStepIn * 1.6f - 0.6f);
+            centred(m_fHead, "Welcome to CardsNX", 486.f + 30.f * (1.f - te), ink.withAlpha(te * a), 1.1f);
+            centred(m_fBody, "Your games and apps, as cards. Here's a quick look around.", 540.f + 30.f * (1.f - te), quiet.withAlpha(te * a));
+            break;
+        }
+        case kIntroPage: { // the page itself shows behind; a caption over the bottom
+            const PageAbout& about = kPageAbout[std::clamp(step.page, 0, kPageCount - 1)];
+            const nxui::Rect cap{200.f, 532.f + rise, 880.f, 150.f};
+            frost(r, cap, 40.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.92f * ea));
+            badge(cap.x + 72.f, cap.y + cap.height * 0.5f, 40.f, about.glyph, ea);
+            const float tx = cap.x + 136.f, room = cap.width - 160.f;
+            textMid(r, m_fHead, pageName(step.page), tx, cap.y + 42.f, ink.withAlpha(ea), 0.8f);
+            float y = cap.y + 84.f;
+            for (const std::string& line : wrap(m_fBody, about.text, room)) {
+                textMid(r, m_fBody, line, tx, y, quiet.withAlpha(ea));
+                y += 28.f;
+            }
+            break;
+        }
+        case kIntroButtons: { // what each button does, two columns
+            centred(m_fHead, "Your buttons", 120.f + rise, ink.withAlpha(ea));
+            const int n = static_cast<int>(sizeof(kIntroKeys) / sizeof(kIntroKeys[0]));
+            for (int i = 0; i < n; ++i) {
+                const float de = easeOut(m_introStepIn * 1.6f - 0.06f * static_cast<float>(i));
+                const float x = i % 2 ? 680.f : 180.f, y = 200.f + 84.f * static_cast<float>(i / 2) + 24.f * (1.f - de);
+                const nxui::Rect row{x, y, 420.f, 68.f};
+                frost(r, row, 34.f, nxui::Color(0.12f, 0.13f, 0.18f, 0.9f * de * a));
+                const std::string key = kIntroKeys[i].key;
+                const float kw = std::max(48.f, measured(m_fPill, key).x + 26.f);
+                const nxui::Rect pill{row.x + 12.f, row.y + 14.f, kw, 40.f};
+                r.drawRoundedRect(pill, hue.withAlpha(de * a), 20.f);
+                textMid(r, m_fPill, key, pill.x + (kw - measured(m_fPill, key).x) * 0.5f, pill.y + 20.f,
+                        (md ? m_m3.onPrimary : nxui::Color(0.05f, 0.06f, 0.1f, 1.f)).withAlpha(de * a));
+                textMid(r, m_fBody, fit(m_fBody, kIntroKeys[i].does, row.width - kw - 44.f), pill.x + kw + 16.f, row.y + 34.f,
+                        ink.withAlpha(de * a));
+            }
+            break;
+        }
+        case kIntroStyle: { // the three styles side by side, the chosen one lifted; it's applied as you choose
+            centred(m_fHead, "Pick a style", 110.f + rise, ink.withAlpha(ea));
+            centred(m_fBody, "It changes as you choose. Settings > Look > Style changes it later.", 156.f + rise, quiet.withAlpha(ea));
+            for (int i = 0; i < 3; ++i) {
+                const bool on = m_settings.style == i;
+                const float de = easeOut(m_introStepIn * 1.6f - 0.12f * static_cast<float>(i));
+                nxui::Rect tile{100.f + 370.f * static_cast<float>(i), 230.f + 40.f * (1.f - de), 340.f, 191.f};
+                if (on) tile = scaled(tile, 1.06f);
+                m_introHits.push_back(tile);
+                r.drawRoundedRect({tile.x + 6.f, tile.y + 14.f, tile.width, tile.height}, nxui::Color(0.f, 0.f, 0.f, 0.4f * de * a), 22.f);
+                drawStylePreview(r, tile, i, de * a);
+                if (on) r.drawRoundedRectOutline({tile.x - 5.f, tile.y - 5.f, tile.width + 10.f, tile.height + 10.f},
+                                                 hue.withAlpha(ring * de * a), 8.f, 5.f);
+                const std::string name = kStyleNames[i];
+                textMid(r, m_fLabel, name, tile.x + (tile.width - measured(m_fLabel, name).x) * 0.5f, tile.y + tile.height + 36.f,
+                        (on ? hue : quiet).withAlpha(de * a));
+            }
+            centred(m_fBody, "< > to choose, A when you like it", 560.f + rise, quiet.withAlpha(ea));
+            break;
+        }
+        case kIntroSetup: { // a few settings, as Settings has them, then Continue
+            centred(m_fHead, "Set it up", 110.f + rise, ink.withAlpha(ea));
+            const int rows = static_cast<int>(m_introRows.size());
+            const float top = 170.f + rise;
+            const nxui::Rect group{330.f, top - 8.f, 620.f, 64.f * static_cast<float>(rows) + 8.f};
+            frost(r, group, 28.f, nxui::Color(0.12f, 0.13f, 0.18f, 0.9f * ea));
+            for (int i = 0; i < rows; ++i) {
+                const nxui::Rect row{340.f, top + 64.f * static_cast<float>(i), 600.f, 56.f};
+                m_introHits.push_back(row);
+                drawRow(r, m_introRows[(size_t)i], row, i == m_introRowSel, ea, true);
+            }
+            const nxui::Rect go{540.f, top + 64.f * static_cast<float>(rows) + 30.f, 200.f, 56.f};
+            m_introHits.push_back(go);
+            if (md) softSurface(r, go, 28.f, m_m3.primaryC, ea);
+            else r.drawRoundedRect(go, accent(ea), 28.f);
+            if (m_introRowSel == rows) r.drawRoundedRectOutline({go.x - 4.f, go.y - 4.f, go.width + 8.f, go.height + 8.f}, hue.withAlpha(ring * ea), 32.f, 3.f);
+            const std::string cont = "Continue";
+            textMid(r, m_fPill, cont, go.x + (go.width - measured(m_fPill, cont).x) * 0.5f, go.y + 28.f,
+                    (md ? m_m3.onPrimaryC : kWhite).withAlpha(ea));
+            break;
+        }
+        default: { // done: little cards burst out, the words
+            for (int i = 0; i < 16; ++i) {
+                const float ang = 6.28318f * static_cast<float>(i) / 16.f + 0.3f, d = 60.f + 300.f * e;
+                const float sz = 26.f - 8.f * e;
+                const nxui::Rect bit{640.f + std::cos(ang) * d - sz * 0.5f, 300.f + std::sin(ang) * d * 0.7f - sz * 0.7f, sz, sz * 1.4f};
+                r.drawRoundedRect(bit, (i % 2 ? hue : quiet).withAlpha((1.f - e * 0.85f) * a), 6.f);
+            }
+            badge(640.f, 300.f, 56.f * easeOutBack(m_introStepIn), "play", a);
+            centred(m_fHead, "You're all set", 430.f + rise, ink.withAlpha(ea), 1.1f);
+            centred(m_fBody, "Press A to start. Settings > About shows this again.", 484.f + rise, quiet.withAlpha(ea));
+            break;
+        }
     }
-    const std::string hint = m_introPage == kIntroPages - 1 ? "A Start" : "A Next    B Skip";
-    textMid(r, m_fBody, hint, cx - measured(m_fBody, hint).x * 0.5f, card.y + card.height - 34.f, kMuted.withAlpha(0.8f * a));
+
+    // Where you are (the step a long dot), and the buttons.
+    const int count = static_cast<int>(steps.size());
+    for (int i = 0; i < count; ++i) {
+        const float x = 640.f + (static_cast<float>(i) - static_cast<float>(count - 1) * 0.5f) * 20.f;
+        if (i == at) r.drawRoundedRect({x - 11.f, 700.f, 22.f, 8.f}, hue.withAlpha(a), 4.f);
+        else r.drawCircle({x, 704.f}, 4.f, quiet.withAlpha(0.45f * a), 12);
+    }
+    if (at == count - 1) drawHints(r, 1250.f, 704.f, {{"A", "Done"}, {"B", "Back"}}, a);
+    else if (at == 0) drawHints(r, 1250.f, 704.f, {{"A", "Next"}, {"-", "Skip"}}, a);
+    else drawHints(r, 1250.f, 704.f, {{"A", "Next"}, {"B", "Back"}, {"-", "Skip"}}, a);
 }
 
 // HOME pressed while HOME shows: things close; else back to the open game;
@@ -6639,6 +6932,15 @@ void CardsActivity::buildSettings() {
     MenuItem report = action("Make a bug report", [this]() { openBugReport(); });
     report.detail = "The logs go to the HomeNX Discord's #log-reports, with your note";
     about.rows.push_back(std::move(report));
+    about.rows.push_back(action("Show the intro again", [this]() {
+        m_sheetOpen = false;
+        m_introOpen = true;
+        m_introPage = 0;
+        m_introIn = m_settings.motion ? 0.f : 1.f;
+        m_introRows.clear();
+        enterIntroStep();
+        m_audio.play("show_modal");
+    }));
     MenuItem tabs = action("Settings tab order", [this]() {
         m_sheetOpen = false;
         openSheetOrder();
@@ -9203,6 +9505,8 @@ void CardsActivity::onUpdate(float dt) {
         m_introOpen = true;
         m_introPage = 0;
         m_introIn = m_settings.motion ? 0.f : 1.f;
+        m_introRows.clear();
+        enterIntroStep();
         m_audio.play("show_modal");
     }
     if (m_introOpen) {
@@ -9385,7 +9689,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     m_drawMarkMs = 0.f;
     m_drawMarkName = "";
     applyLayout(m3());
-    if (m3()) updateM3();
+    if (m3() || m_introOpen) updateM3(); // (the intro shows the styles in the game's colours)
     drawStep("draw: the background");
     drawBackground(r);
     drawStep("draw: the cards");

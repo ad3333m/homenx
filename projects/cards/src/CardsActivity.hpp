@@ -419,6 +419,16 @@ private:
     bool m_introOpen = false;
     int m_introPage = 0;
     float m_introIn = 0.f;
+    float m_introStepIn = 1.f; // the step's own coming-in (0..1)
+    struct IntroStep {
+        int kind = 0, page = 0;
+    };
+    std::vector<IntroStep> introSteps() const;
+    void enterIntroStep();
+    std::vector<MenuItem> m_introRows;   // its setup step: Settings' own rows
+    int m_introRowSel = 0;
+    std::vector<nxui::Rect> m_introHits; // what can be tapped (the style tiles, the setup rows)
+    void drawStylePreview(nxui::Renderer& r, const nxui::Rect& tile, int style, float a);
     void updateIntro(float dt);
     // Back from a game: its last picture, shrinking into its card as HOME appears.
     std::unique_ptr<nxui::Texture> m_returnTex;
