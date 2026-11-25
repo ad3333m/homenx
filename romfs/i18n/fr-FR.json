@@ -3,7 +3,9 @@
     "auto": "Auto",
     "na": "N/A",
     "active": "Actif",
-    "disabled": "Désactivé"
+    "disabled": "Désactivé",
+    "none": "Aucun",
+    "loading": "Chargement"
   },
   "accessibility": {
     "speech": {
@@ -40,7 +42,8 @@
       "progress": "progression",
       "info": "information",
       "section": "section",
-      "widget": "widget"
+      "widget": "widget",
+      "folder": "dossier"
     },
     "hints": {
       "open": "A pour ouvrir.",
@@ -70,7 +73,8 @@
       "toggle_actions": "A pour changer. Gauche pour revenir aux onglets.",
       "slider_actions": "Gauche ou droite pour ajuster. B pour revenir aux onglets.",
       "selector_actions": "A ou droite pour ouvrir la liste. B pour revenir aux onglets.",
-      "action_actions": "A pour lancer l'action. B pour revenir aux onglets."
+      "action_actions": "A pour lancer l'action. B pour revenir aux onglets.",
+      "action_secondary_actions": "Gauche et droite choisissent Choisir ou Effacer. A pour valider. B pour revenir aux onglets."
     },
     "value": {
       "label": "Valeur",
@@ -149,7 +153,19 @@
     "controllers": "Manettes",
     "sleep": "Veille",
     "music": "Musique",
-    "theme_shop": "Boutique de thèmes"
+    "theme_shop": "Boutique de thèmes",
+    "custom_empty": "Vide",
+    "discord": "Discord",
+    "eshop": "Nintendo eShop",
+    "news": "Actualités",
+    "custom": "Bouton personnalisé",
+    "social": "Social",
+    "storage": "Stockage",
+    "mii_maker": "Éditeur Mii",
+    "toggle": "HomeNX Toggle",
+    "hekate": "Redémarrer vers Hekate",
+    "updater": "Gestionnaire de homebrews",
+    "none": "Aucun"
   },
   "hint": {
     "repeat": "Répéter",
@@ -159,7 +175,20 @@
     "search": "Rechercher",
     "sort_custom": "Mon ordre",
     "sort_alpha": "A-Z",
-    "sort_recent": "Récents"
+    "sort_recent": "Récents",
+    "navigate": "Naviguer",
+    "select": "Choisir",
+    "close": "Fermer",
+    "move": "Déplacer",
+    "place": "Placer",
+    "cancel": "Annuler",
+    "artwork": "Image",
+    "fullscreen": "Plein écran",
+    "back": "Retour",
+    "confirm": "Valider",
+    "resume": "Reprendre",
+    "launch": "Lancer",
+    "open": "Ouvrir"
   },
   "settings": {
     "tabs": {
@@ -276,7 +305,9 @@
       "page_translate": "Translation",
       "page_teleport": "Téléportation",
       "ui_wireframe": "Wireframe UI",
-      "ui_wireframe_desc": "Affiche le contour de toutes les Box pour le debug layout."
+      "ui_wireframe_desc": "Affiche le contour de toutes les Box pour le debug layout.",
+      "grid_columns": "Colonnes de la grille",
+      "grid_rows": "Lignes de la grille"
     },
     "internet": {
       "wifi_ssid": "Réseau WiFi",
@@ -311,7 +342,10 @@
       "start_failed": "La recherche des visuels n'a pas pu démarrer.",
       "started": "Recherche SteamGridDB démarrée.",
       "download_title": "Téléchargement des visuels",
-      "download_start": "Recherche sur SteamGridDB..."
+      "download_start": "Recherche sur SteamGridDB...",
+      "api_key_guide": "Saisis ta clé API",
+      "cancelling": "Annulation…",
+      "scan_cancelled": "Recherche d'images annulée."
     },
     "controllers": {
       "test": "Tester les périphériques",
@@ -323,7 +357,9 @@
       "vibration": "Vibration",
       "usb_wired": "Communication USB filaire",
       "usb_wired_desc": "Utilise l'USB filaire pour réduire la latence des manettes compatibles.",
-      "nfc": "NFC (amiibo)"
+      "nfc": "NFC (amiibo)",
+      "find": "Trouver les manettes",
+      "find_desc": "Fait vibrer chaque manette connectée pour la retrouver."
     },
     "bluetooth": {
       "bluetooth": "Bluetooth",
@@ -368,7 +404,18 @@
       "media_sleep": "Veille pendant les médias",
       "media_sleep_desc": "Permet la mise en veille automatique pendant la lecture de médias.",
       "wake_power": "Réveil au changement d'alimentation",
-      "wake_power_desc": "Réveille la console quand l'adaptateur secteur est connecté ou déconnecté."
+      "wake_power_desc": "Réveille la console quand l'adaptateur secteur est connecté ou déconnecté.",
+      "sleep_confirm": "Mettre la console en veille ?",
+      "reboot_confirm": "Redémarrer la console ?",
+      "shutdown_confirm": "Éteindre la console ?",
+      "power_actions": "Alimentation",
+      "sleep_now_desc": "Met la console en veille.",
+      "sleep_now": "Veille",
+      "shutdown_desc": "Éteint complètement la console.",
+      "shutdown": "Éteindre",
+      "reboot_desc": "Redémarre la console.",
+      "reboot": "Redémarrer",
+      "auto_sleep": "Mise en veille automatique"
     },
     "theme": {
       "preset": "Preset",
@@ -423,7 +470,10 @@
       "used": "Utilisé",
       "summary": "Résumé",
       "details": "Détails",
-      "delete": "Supprimer"
+      "delete": "Supprimer",
+      "homebrew_library_unavailable": "La gestion des logiciels installés n'est pas disponible en mode homebrew.",
+      "manage_title": "Gérer les logiciels",
+      "title_id": "Title ID"
     },
     "about": {
       "version": "Version",
@@ -434,7 +484,74 @@
       "acknowledgements_desc": "Merci à xortroll pour l'aide vis à vis du développements.",
       "source_code": "Code source",
       "source_code_value": "github.com/PoloNX/SwitchU"
-    }
+    },
+    "homenx": {
+      "diagnostics": "Diagnostic",
+      "nextendo_app": "Appli Nextendo",
+      "update_failed": "Impossible de vérifier les mises à jour",
+      "up_to_date": "HomeNX est à jour",
+      "update_title": "Mise à jour disponible",
+      "update_body": "Installer HomeNX",
+      "update_keep": "NXToggle s'ouvre et l'installe ; tes réglages et thèmes sont conservés.",
+      "install": "Installer",
+      "diagnostics_desc": "Ce que fait HomeNX en ce moment : mémoire, visages Mii, Discord. ",
+      "glass": "Effets de verre",
+      "glass_desc": "Désactivé, HomeNX reste à 60 images/s. Activé, il dessine tout l'effet verre liquide et le flou, ",
+      "fonts": "Polices",
+      "font_home": "Police du HOME",
+      "font_theme": "Police du thème",
+      "font_home_desc": "La police de tout le menu HOME, à la place de celle du thème.",
+      "font_discord": "Police de Discord",
+      "font_same": "Comme le HOME",
+      "font_discord_desc": "La police de Discord dans le HOME.",
+      "pointer": "Pointeur (L3)",
+      "pointer_desc": "Ce qu'active un appui sur L3. Mouvement : incline la manette. Stick gauche : le stick déplace le pointeur ",
+      "pointer_off": "Désactivé",
+      "pointer_gyro": "Mouvement (gyroscope)",
+      "pointer_stick": "Stick gauche",
+      "custom_app": "Bouton perso : appli",
+      "custom_app_desc": "Le homebrew qu'ouvre le bouton perso de la barre latérale. Il affiche l'icône de cette appli par défaut.",
+      "custom_icon": "Bouton perso : icône",
+      "custom_icon_desc": "L'icône de l'appli, ou une image de sdmc:/switch/SwitchU/custom_icons/.",
+      "nextendo_app_desc": "Le .nro qu'ouvre le bouton Nextendo (au départ : sdmc:/switch/prelude.nro). ",
+      "pages": "Pages de l'accueil",
+      "pages_desc": "Choisis le nombre de pages du HOME. Les pages vides sont retirées et les logiciels avancent pour tenir.",
+      "order": "Boutons de la barre latérale",
+      "left": "Gauche",
+      "right": "Droite",
+      "order_desc": "Choisis le bouton de cet emplacement ; il échange sa place avec l'ancien.",
+      "l_button": "Bouton L",
+      "r_button": "Bouton R",
+      "shoulder_desc": "Ce qu'il ouvre dans le HOME",
+      "hb_app": "Sphaira en application",
+      "hb_app_desc": "Activé : Sphaira et le bouton perso ont toute la mémoire en empruntant un de tes jeux, donc le ",
+      "ask_user": "Demander qui joue",
+      "ask_user_desc": "Lancer un jeu affiche d'abord les utilisateurs, à chaque fois, comme le HOME de Nintendo.",
+      "lock": "Écran de verrouillage",
+      "lock_desc": "L'heure et la date au démarrage ou au réveil, sur ton image (écran de verrouillage ",
+      "rescan": "Chercher de nouveaux logiciels",
+      "rescan_desc": "Relit ce qui est installé, pour tout ce que le HOME n'affiche pas encore.",
+      "lock_password": "Code de l'écran de verrouillage",
+      "lock_password_desc": "4 à 8 appuis sur la croix demandés avant d'ouvrir le HOME (celui de CardsNX aussi). Tu le crées sur ",
+      "lock_password_off": "Supprimer le code",
+      "lock_password_off_desc": "Oublié ? Supprime config/HomeNX/lock_password de la carte SD depuis un ordinateur.",
+      "lock_picture": "Image de l'écran de verrouillage",
+      "lock_picture_desc": "Ta propre image derrière l'horloge, nette (pas givrée) : depuis sdmc:/switch/SwitchU/lockscreen/ ",
+      "tv1080": "1080p sur la télé",
+      "tv1080_desc": "Sur le dock, le HOME est dessiné en 1920x1080 : texte et images plus nets. Désactivé : 1280x720, plus léger ",
+      "installed": "Version installée",
+      "timing": "Durée du retour",
+      "timing_desc": "Montre, étape par étape, le temps mis pour quitter un jeu. Fais une capture pour signaler un retour lent.",
+      "update": "Rechercher des mises à jour",
+      "update_button": "Vérifier",
+      "update_desc": "Télécharge et installe le dernier HomeNX depuis GitHub. Nécessite Internet."
+    },
+    "homenx_off": "Désactiver HomeNX",
+    "homenx_off_confirm": "La console redémarre avec le menu HOME normal.",
+    "homenx_off_button": "Désactiver",
+    "homenx_off_failed": "Impossible de le désactiver. Ouvre plutôt NXToggle depuis les homebrews.",
+    "loading_tab": "Chargement de cette section en arrière-plan.",
+    "homenx_off_desc": "Revenir au menu HOME normal. Ouvre NXToggle depuis les homebrews pour le réactiver."
   },
   "userselect": {
     "add_user": "Ajouter un utilisateur",
@@ -489,8 +606,14 @@
       "logo": "Logo",
       "logo_desc": "Ouvre la galerie des logos pour choisir l'image à utiliser.",
       "icon": "Icône de remplacement",
-      "icon_desc": "Ouvre la galerie des icônes pour remplacer celle du jeu."
-    }
+      "icon_desc": "Ouvre la galerie des icônes pour remplacer celle du jeu.",
+      "cleared": "Images SteamGridDB effacées.",
+      "nothing_to_clear": "Aucune image SteamGridDB à effacer."
+    },
+    "this_software": "le logiciel ouvert",
+    "rename_title": "Renommer",
+    "rename_guide": "Laisse vide pour garder le nom du jeu",
+    "rename_desc": "Change le nom affiché dans le menu HOME. Laisse vide pour garder le nom du jeu."
   },
   "folder": {
     "create": "Créer un dossier",
@@ -537,7 +660,23 @@
     "size_small": "Petit",
     "size_medium": "Moyen",
     "size_large": "Grand",
-    "items": "éléments"
+    "items": "éléments",
+    "move": "Déplacer",
+    "page_added": "Page ajoutée",
+    "style": "Style des dossiers",
+    "style_desc": "S'applique à tous les dossiers, y compris les nouveaux.",
+    "style_classic": "Classique",
+    "style_simple": "Simple",
+    "style_minimal": "Minimal",
+    "style_tab": "Onglet",
+    "style_ring": "Anneau",
+    "style_manila": "Chemise",
+    "style_label": "Étiquette",
+    "show_cover": "Afficher la jaquette",
+    "show_cover_desc": "Affiche le premier jeu sur chaque dossier. Le style Classique garde la mosaïque.",
+    "custom_icon": "Icône de couverture perso",
+    "custom_icon_set_desc": "Icône SteamGridDB active pour ce dossier. Nécessite « Afficher la jaquette ».",
+    "custom_icon_desc": "Cherche une icône sur SteamGridDB pour couvrir ce dossier."
   },
   "add": {
     "title": "Ajouter"
@@ -546,7 +685,7 @@
     "title": "Widget",
     "create": "Créer un nouveau widget",
     "clock": "Horloge",
-    "recently_played": "Joué récemment",
+    "recently_played": "Jeu récent",
     "recent_playtime": "Temps de jeu récent",
     "random_screenshot": "Capture aléatoire",
     "image_pin": "Image épinglée",
@@ -560,12 +699,13 @@
     "no_recent_game": "Aucun jeu récent",
     "last_played": "Dernier jeu lancé",
     "played_recently": "Joué récemment",
-    "recently_played": "Jeu récent",
     "no_playtime": "Aucun temps de jeu récent",
     "error_title": "Erreur de widget",
     "save_error": "La modification du widget n’a pas pu être enregistrée.",
     "no_assets_title": "Aucune image de widget",
-    "no_assets_desc": "Ajoutez des fichiers PNG, JPG, WebP ou GIF dans sdmc:/config/SwitchU/widgets/assets/ ou dans le dossier widgets du thème actif."
+    "no_assets_desc": "Ajoutez des fichiers PNG, JPG, WebP ou GIF dans sdmc:/config/SwitchU/widgets/assets/ ou dans le dossier widgets du thème actif.",
+    "weather": "Météo",
+    "calendar": "Calendrier"
   },
   "controller_test": {
     "title": "Test des manettes",
@@ -594,7 +734,13 @@
     "choose_action": "Choisissez une action.",
     "sleep": "Veille",
     "shutdown": "Éteindre",
-    "reboot": "Redémarrer"
+    "reboot": "Redémarrer",
+    "hekate": "Redémarrer vers Hekate",
+    "hekate_confirm": "La console redémarre sur le menu Hekate. Tout ce qui est ouvert sera fermé.",
+    "hekate_go": "Redémarrer",
+    "hekate_rtc_failed": "La puce d'alimentation n'a pas accepté la demande de menu Hekate.",
+    "hekate_missing": "Hekate n'est pas sur la carte SD : HomeNX cherche sdmc:/bootloader/update.bin ",
+    "hekate_failed": "Atmosphère n'a pas accepté le payload Hekate."
   },
   "languages": {
     "ja-JP": "Japonais",
@@ -620,7 +766,8 @@
     "needs_verify": "Les données du jeu doivent être vérifiées.",
     "needs_update": "Une mise à jour requise est disponible.",
     "no_contents": "Les données du jeu sont manquantes.",
-    "cannot_launch": "Ce jeu ne peut pas être lancé."
+    "cannot_launch": "Ce jeu ne peut pas être lancé.",
+    "operation_failed": "L'opération a échoué"
   },
   "button": {
     "ok": "OK",
@@ -639,7 +786,14 @@
     "search": "Rechercher",
     "manage": "Gérer",
     "stop": "Arrêter",
-    "pair": "Associer"
+    "pair": "Associer",
+    "clear_x": "×",
+    "find": "Trouver",
+    "show": "Afficher",
+    "choose": "Choisir",
+    "look": "Chercher",
+    "make": "Créer",
+    "off": "Désactiver"
   },
   "themeshop": {
     "source": {
@@ -658,7 +812,9 @@
       "action_hints": "Indications d’action",
       "action_hints_desc": "Choisissez l’apparence des commandes contextuelles en bas à droite.",
       "hint_panel": "Panneau",
-      "hint_capsules": "Capsules"
+      "hint_capsules": "Capsules",
+      "auto_theme": "Thème automatique",
+      "auto_theme_desc": "Passe tout seul d'un thème de jour à un thème de nuit."
     },
     "accessibility": {
       "fullscreen_preview": "Aperçu plein écran",
@@ -749,6 +905,10 @@
       "missing": "Aucune capture",
       "prev": "Préc.",
       "next": "Suiv."
+    },
+    "page": {
+      "prev": "Précédente",
+      "next": "Suivante"
     }
   },
   "text_entry": {
@@ -759,7 +919,9 @@
     "opened": "Clavier à l'écran. Croix directionnelle pour choisir une touche, A pour saisir, X pour effacer, Plus pour confirmer, B pour annuler.",
     "shift": "Majuscule",
     "space": "Espace",
-    "symbols": "?12#"
+    "symbols": "?12#",
+    "caps": "MAJ",
+    "backspace": "←"
   },
   "quicksettings": {
     "title": "Paramètres rapides",
@@ -782,6 +944,342 @@
     "reboot": "Redémarrer",
     "power_off": "Éteindre",
     "hint_adjust": "Ajuster",
-    "hint_shortcut": "Paramètres rapides"
+    "hint_shortcut": "Paramètres rapides",
+    "prev": "Précédent",
+    "next": "Suivant",
+    "play_pause": "Lecture/Pause",
+    "repeat": "Répéter",
+    "shuffle": "Aléatoire",
+    "playlist": "Liste de lecture",
+    "music_empty": "Aucune musique chargée",
+    "playlist_empty": "Aucun morceau",
+    "music_idle": "Pas de lecture"
+  },
+  "homebrew": {
+    "close_suffix": " ?\nIl s'ouvre comme une application : le jeu doit d'abord être fermé. ",
+    "version": "Version"
+  },
+  "loader": {
+    "missing_title": "Impossible de préparer le HomeNX Loader",
+    "missing_body": "Le HomeNX Loader sert à ouvrir Sphaira et les homebrews."
+  },
+  "cards": {
+    "fallback_title": "CardsNX n'a pas démarré",
+    "fallback_body": "CardsNX s'est arrêté 3 fois au démarrage : le HOME de HomeNX est affiché jusqu'au prochain redémarrage.\nVoir /config/SwitchU/menu.log."
+  },
+  "applet": {
+    "mode_title": "Ouvrir HomeNX par-dessus un jeu",
+    "mode_body": "Il faut le mode application. Maintiens R en lançant n'importe quel jeu, ",
+    "error_title": "Impossible de l'ouvrir",
+    "error_body": "Le système a renvoyé l'erreur"
+  },
+  "custom": {
+    "empty_title": "Ce bouton est vide",
+    "empty_body": "Choisis l'appli qu'il ouvre (et son icône) dans Réglages > HomeNX.",
+    "setup": "Configurer",
+    "app_title": "Appli du bouton personnalisé",
+    "none": "Rien (bouton vide)",
+    "choose_hint": "Appuie sur A pour choisir",
+    "icon_app": "L'icône de l'appli",
+    "icon_hint": "Mets des images .png ou .jpg dans sdmc:/switch/SwitchU/custom_icons/ pour les utiliser à la place.",
+    "icon_title": "Icône du bouton personnalisé"
+  },
+  "nextendo": {
+    "getting_title": "Téléchargement de Nextendo",
+    "getting_body": "Son appli (Prelude, 25 Mo) n'est pas sur la carte SD : HomeNX la télécharge. ",
+    "missing_title": "Nextendo est introuvable",
+    "missing_body": "HomeNX a cherché",
+    "choose": "Choisis son .nro dans Réglages > HomeNX > Appli Nextendo.",
+    "no_host_title": "Nextendo a besoin d'un jeu",
+    "no_host_body": "Il s'ouvre comme une application, en empruntant un jeu installé. ",
+    "no_hbl_title": "Le mode application n'est pas prêt",
+    "no_hbl_body": "Il faut hbl.nsp d'Atmosphère dans sdmc:/atmosphere/. Redémarre la console après ",
+    "failed_title": "Nextendo n'a pas démarré",
+    "failed_body": "Il ne fonctionne qu'en application, et celle-ci n'a pas démarré.",
+    "get_failed_title": "Nextendo n'a pas été téléchargé",
+    "get_failed_body": "Vérifie la connexion Internet, puis réessaie."
+  },
+  "bundled": {
+    "missing_title": "est introuvable"
+  },
+  "toggle": {
+    "missing_body": "HomeNX a cherché",
+    "missing_fix": "Redémarre la console : HomeNX le remettra en place."
+  },
+  "page": {
+    "delete_this": "Supprimer cette page",
+    "delete_unused": "Retirer les pages vides",
+    "delete": "Supprimer la page",
+    "delete_title": "Supprimer la page",
+    "delete_message": "Cette page est vide. Que veux-tu retirer ?",
+    "deleted": "Page supprimée",
+    "unused_deleted": "Pages vides supprimées"
+  },
+  "options": {
+    "title": "Options"
+  },
+  "discord": {
+    "alert_open": "Ouvrir",
+    "reply_to": "Message",
+    "status": {
+      "online": "En ligne",
+      "idle": "Absent",
+      "dnd": "Ne pas déranger",
+      "invisible": "Invisible",
+      "offline": "Hors ligne"
+    },
+    "accounts_body": "Passe d'un compte Discord à l'autre, ou ajoutes-en un.",
+    "add_account": "Ajouter un compte",
+    "log_out": "Se déconnecter",
+    "retry": "Réessayer",
+    "signin_qr": "Se connecter avec un QR code",
+    "signin_body": "Les jetons OAuth2 et de bot ne sont pas acceptés ici. Un jeton de session est sensible et il est enregistré ",
+    "connecting": "Connexion…",
+    "no_channels": "Aucun salon lisible ici.",
+    "members": "Membres",
+    "no_dms": "Pas encore de messages privés.",
+    "qr_title": "Connexion par QR code",
+    "hint_cancel": "B  Annuler",
+    "hint_reply": "X  Répondre",
+    "accounts_title": "Changer de compte",
+    "hint_back": "B  Retour",
+    "dms": "Messages privés",
+    "hint_home": "Y  Comptes",
+    "hint_close": "B  Fermer",
+    "welcome": "Bienvenue sur Discord",
+    "welcome_sub": "Connecte-toi pour voir tes messages privés et qui est en ligne.",
+    "switch": "Changer",
+    "channel_welcome": "Bienvenue dans",
+    "channel_start": "C'est le début du salon",
+    "channel_word": ".",
+    "dm_start": "C'est le début de ta conversation privée avec",
+    "loading": "Chargement…",
+    "message": "Message",
+    "qr_wait": "Obtention d'un code…",
+    "qr_body": "Scanne-le avec l'appli mobile Discord pour te connecter tout de suite."
+  },
+  "sphaira": {
+    "title": "Sphaira",
+    "missing": "Sphaira est introuvable dans sdmc:/switch/.",
+    "applet_mode": "HomeNX est en mode applet, donc Sphaira le serait aussi. Pour le mode application, ",
+    "open_anyway": "Ouvrir quand même"
+  },
+  "notifications": {
+    "open": "Notifications",
+    "title": "Notifications",
+    "new": "nouveau",
+    "now": "maintenant",
+    "m": "min",
+    "h": "h",
+    "d": "j",
+    "caught_up": "Tu es à jour",
+    "empty_hint": "Les messages Discord et les manettes presque vides s'affichent ici.",
+    "hint_empty": "B  Fermer",
+    "hint": "A  Ouvrir      X  Tout effacer      B  Fermer"
+  },
+  "pairing": {
+    "title": "Associer une manette",
+    "done": "Associée. La manette est prête.",
+    "none": "Aucune nouvelle manette associée. Si ses voyants se sont arrêtés ",
+    "failed": "Impossible de lancer l'association.",
+    "body": "Maintiens le bouton SYNC de la manette jusqu'à ce que ses voyants "
+  },
+  "battery": {
+    "low_title": "batterie faible",
+    "player": "Joueur",
+    "low_text": "à recharger bientôt"
+  },
+  "music": {
+    "now_playing": "En cours de lecture",
+    "paused": "En pause"
+  },
+  "news": {
+    "open_link_hint": "Appuie sur A pour ouvrir le lien",
+    "unavailable": "Impossible de lire les actualités de la console",
+    "empty": "Aucune actualité enregistrée sur cette console pour l'instant."
+  },
+  "lock": {
+    "picture_default": "Celle de HomeNX",
+    "picture_hint": "Mets des images .png ou .jpg dans sdmc:/switch/SwitchU/lockscreen/, ou prends une capture, pour en choisir une ici.",
+    "picture_shot": "Capture d'écran",
+    "picture_title": "Image de l'écran de verrouillage"
+  },
+  "pages": {
+    "one": "page",
+    "many": "pages",
+    "body": "Les pages vides sont d'abord retirées. Puis les logiciels des dernières pages prennent les places libres ",
+    "done": "Le HOME compte maintenant ",
+    "full": "Tout ne tient pas ; le HOME compte maintenant ",
+    "title": "Pages de l'accueil"
+  },
+  "timing": {
+    "game_paused": "Le jeu a libéré l'écran",
+    "menu_started": "Menu démarré",
+    "menu_loaded": "Menu chargé",
+    "picture": "Image à l'écran",
+    "fonts": "Polices et liste des applis",
+    "grid": "Menu construit",
+    "ready": "Menu prêt",
+    "music": "Musique lancée",
+    "return": "C'était un retour depuis un jeu ou une appli.",
+    "boot": "C'était un démarrage, pas un retour.",
+    "title": "Durée du retour"
+  },
+  "autotheme": {
+    "summary": {
+      "manual": "Heures manuelles",
+      "geo": "Géolocalisation (IP)",
+      "off": "Désactivé"
+    },
+    "geo_midnight_sun": "Soleil de minuit",
+    "geo_polar_night": "Nuit polaire",
+    "title": "Thème automatique",
+    "section": {
+      "mode": "Mode",
+      "themes": "Thèmes",
+      "schedule": "Horaires",
+      "geo": "Géolocalisation"
+    },
+    "mode": "Changement",
+    "mode_desc": "Désactivé garde ton thème. Manuel utilise des heures fixes. ",
+    "mode_off": "Désactivé",
+    "mode_manual": "Heures manuelles",
+    "mode_geo": "Géolocalisation (IP)",
+    "day_theme": "Thème de jour",
+    "day_theme_desc": "Appliqué pendant la journée.",
+    "night_theme": "Thème de nuit",
+    "night_theme_desc": "Appliqué pendant la nuit.",
+    "day_starts": "Début du jour",
+    "night_starts": "Début de la nuit",
+    "geo_location": "Lieu",
+    "geo_locating": "Localisation via Internet…",
+    "geo_sunrise": "Lever du soleil",
+    "geo_sunset": "Coucher du soleil",
+    "header": "Thème automatique",
+    "header_mode": "Mode : "
+  },
+  "lockscreen": {
+    "press_to_unlock": "Appuie sur A pour déverrouiller"
+  },
+  "social": {
+    "just_now": "à l'instant",
+    "min_ago": "min",
+    "hour_ago": "heure",
+    "hours_ago": "heures",
+    "day_ago": "jour",
+    "days_ago": "jours",
+    "min": "min",
+    "game": "Jeu",
+    "under_minute": "Moins d'une minute",
+    "error": "Erreur",
+    "them": "cette personne",
+    "now_friends": "Tu es maintenant ami avec",
+    "declined": "Demande refusée de",
+    "answer_failed": "Ça n'est pas passé.",
+    "code_guide": "Son code ami, par exemple SW-1234-5678-9012",
+    "busy": "Encore occupé avec la demande précédente. Réessaie dans un instant.",
+    "playing": "Joue en ligne",
+    "online": "En ligne",
+    "last_online": "Dernière connexion",
+    "offline": "Hors ligne",
+    "play_history": "Historique de jeu",
+    "play_activity": "Activité de jeu",
+    "game_lower": "jeu",
+    "games_lower": "jeux",
+    "in_total": "au total",
+    "most_played": "les plus joués d'abord",
+    "loading_history": "Chargement",
+    "no_history": "Aucun jeu joué sur ce profil pour l'instant.",
+    "no_activity": "Rien à afficher. Son activité de jeu est peut-être privée.",
+    "played": "Joué",
+    "time": "fois",
+    "times": "fois",
+    "you": "Toi",
+    "your_profile": "Ton profil",
+    "best_friend": "Meilleur ami",
+    "friend_code": "Code ami",
+    "unknown": "Inconnu",
+    "now": "En ce moment",
+    "now_playing": "En ligne, en train de jouer",
+    "now_online": "En ligne sur sa console",
+    "requests_loading": "Recherche des demandes d'ami…",
+    "requests_failed": "Impossible de récupérer tes demandes d'ami. Vérifie que la console est en ligne.",
+    "requests_none": "Aucune demande d'ami pour le moment.",
+    "someone": "Quelqu'un",
+    "wants_friend": "Veut devenir ton ami",
+    "answering": "Envoi de ta réponse…",
+    "accept_hint": "A  Accepter      X  Refuser",
+    "looking_up": "Recherche de",
+    "send_to": "Envoyer une demande d'ami à",
+    "sending": "Envoi de ta demande d'ami…",
+    "send_hint": "A  Envoyer      B  Annuler",
+    "sent": "Demande d'ami envoyée à",
+    "sent_more": "La personne apparaîtra dans tes amis quand elle aura accepté.",
+    "bad_code": "Ce n'est pas un code ami. Un code ami a 12 chiffres, par exemple SW-1234-5678-9012.",
+    "no_such_code": "Personne n'a ce code ami.",
+    "add_failed": "Ça n'a pas marché. Vérifie le code et que la console est en ligne.",
+    "miis": "Miis",
+    "press_a": "Appuie sur A pour ouvrir",
+    "miis_body2": "Crée des Miis, change leur look, renomme-les ou supprime-les, ",
+    "add_body2": "Saisis le code ami de quelqu'un pour lui envoyer une demande.",
+    "requests_body2": "Vois qui veut devenir ton ami, puis accepte ou refuse.",
+    "discord_signed_in": "Connecté en tant que",
+    "discord_online": "amis en ligne",
+    "discord_unread": "conversations non lues",
+    "discord_body": "Tes messages Discord et qui est en ligne, dans un panneau à gauche. Connecte-toi une fois avec ",
+    "discord_open": "Appuie sur A pour ouvrir Discord",
+    "friends_online": "amis en ligne",
+    "friends": "Amis",
+    "online_lower": "en ligne",
+    "loading": "Chargement de tes amis",
+    "no_friends": "Pas encore d'amis. Ajoutes-en avec « Ajouter un ami ».",
+    "hint_send": "A  Envoyer     B  Annuler",
+    "hint_ok": "A  OK",
+    "hint_back": "B  Retour",
+    "hint_requests": "A  Accepter     X  Refuser     B  Retour",
+    "hint_tiles": "A  Ouvrir     B  Fermer",
+    "hint_detail": "Haut/Bas  Défiler     B  Retour",
+    "hint_you": "A  Historique de jeu     Y  Trier     B  Fermer",
+    "hint_person": "A  Historique de jeu     B  Fermer"
+  },
+  "mii": {
+    "random_failed": "Impossible de créer un Mii.",
+    "added": "Ton nouveau Mii est enregistré.",
+    "renamed": "Renommé.",
+    "looks_saved": "Nouveau look enregistré.",
+    "deleted": "Supprimé.",
+    "failed": "Ça n'a pas marché.",
+    "name_title": "Nomme ton Mii",
+    "name_guide": "10 lettres maximum",
+    "rename_title": "Renommer",
+    "no_name": "Sans nom",
+    "girl": "Fille",
+    "boy": "Garçon",
+    "yes": "Oui",
+    "no": "Non",
+    "save_question": "Enregistrer les modifications de ce Mii ?",
+    "save_keys": "A  Enregistrer     X  Ne pas enregistrer     B  Continuer",
+    "delete_again": "Appuie encore sur X pour supprimer",
+    "loading": "Chargement de tes Miis…",
+    "make_body": "Appuie sur A pour un Mii au hasard. Garde-le et donne-lui un nom, ou ",
+    "new": "Créer un Mii",
+    "new_one": "Un nouveau Mii",
+    "boys": "Garçons seulement",
+    "girls": "Filles seulement",
+    "anyone": "Garçon ou fille",
+    "working": "Un instant…",
+    "maker": "Éditeur Mii",
+    "hint_pages": "Haut/Bas  Partie     A  Ouvrir     X  Partie surprise     B  Terminé",
+    "hint_grid": "Croix  Choisir     L/R  Onglet     Y  Surprise     B  Retour",
+    "hint_adjust": "Haut/Bas  Choisir     Gauche/Droite  Modifier     L/R  Onglet     B  Retour",
+    "hint_new": "A  Garder     Y  Un autre     X  Garçon / Fille     B  Retour",
+    "hint_make": "A  En créer un     B  Retour",
+    "hint_mii2": "A  Renommer     X  Supprimer     Y  Changer le look     B  Retour"
+  },
+  "friends": {
+    "no_profile": "Choisis d'abord un profil avec le bouton de profil.",
+    "add": "Ajouter un ami",
+    "requests": "Demandes d'ami",
+    "needs_online": "Cela utilise les serveurs de Nintendo : la console doit pouvoir aller en ligne."
   }
 }
