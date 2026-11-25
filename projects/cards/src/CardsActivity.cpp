@@ -3414,7 +3414,12 @@ void CardsActivity::openGallery(int mode) {
     m_pickJob = std::async(std::launch::async, [all, mode, app, current = m_galleryCurrent]() {
         offScreenCore();
         *all = listAlbum();
-        if (app) all->erase(std::remove_if(all->begin(), all->end(), [app](const AlbumShot& s) { return s.app != app; }), all->end());
+        if (app) {
+            std::vector<AlbumShot> mine;
+            for (const AlbumShot& s : *all)
+                if (s.app == app) mine.push_back(s);
+            if (!mine.empty()) *all = std::move(mine); // (none of it: everything, not an empty Album)
+        }
         if (mode != 3) {
             std::vector<AlbumShot> pictures;
             if (mode != 4) pictures.emplace_back(); // (no key: no picture of its own)
@@ -6095,7 +6100,7 @@ void CardsActivity::buildSettings() {
             applyLayout(m3());
             save();
         }, "Material 3: a rail, big round shapes and the colours of the chosen game"));
-    look.rows.push_back(choice("Highlight colour",
+    if (!m3()) look.rows.push_back(choice("Highlight colour", // (Material 3 and Soft: the game's colour)
         [this]() { return std::string(kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].name); },
         [this, save](int d) {
             m_settings.accent = (m_settings.accent + d + kAccentCount) % kAccentCount;
@@ -6109,7 +6114,7 @@ void CardsActivity::buildSettings() {
             m_settings.launchStyle = (m_settings.launchStyle + d + kLaunchStyles) % kLaunchStyles;
             save();
         }, "When a game starts"));
-    look.rows.push_back(choice("Glass", [this]() { return std::string(kGlassNames[std::clamp(m_settings.glass, 0, 2)]); },
+    if (!m3()) look.rows.push_back(choice("Glass", [this]() { return std::string(kGlassNames[std::clamp(m_settings.glass, 0, 2)]); },
         [this, save](int d) { m_settings.glass = (m_settings.glass + d + 3) % 3; save(); }, "Buttons, the bar and the panel"));
     look.rows.push_back(toggle("Animations", [this]() { return m_settings.motion; },
         [this, save]() { m_settings.motion = !m_settings.motion; save(); }));
@@ -6129,19 +6134,26 @@ void CardsActivity::buildSettings() {
         [this, save](int v) { m_settings.haze = v * 80 / 100; save(); }, "A haze over the game's art"));
     look.rows.push_back(toggle("Moving background", [this]() { return m_settings.bgMotion; },
         [this, save]() { m_settings.bgMotion = !m_settings.bgMotion; save(); }, "The art drifts slowly"));
-    look.rows.push_back(choice("Clock", [this]() { return std::string(m_settings.clock24 ? "24-hour" : "12-hour"); },
-        [this, save](int) {
-            m_settings.clock24 = !m_settings.clock24;
-            m_clock24 = m_settings.clock24;
-            save();
-        }));
-    look.rows.push_back(toggle("Free space in the bar", [this]() { return m_settings.showFree; },
-        [this, save]() { m_settings.showFree = !m_settings.showFree; save(); }));
-    look.rows.push_back(toggle("Temperature in the bar", [this]() { return m_settings.showTemp; },
-        [this, save]() { m_settings.showTemp = !m_settings.showTemp; save(); },
-        "Red, and a warning, when the Switch gets hot"));
-    look.rows.push_back(toggle("Nextendo players", [this]() { return m_settings.players; },
-        [this, save]() { m_settings.players = !m_settings.players; save(); }, "Green dots on games played online now"));
+    // The bar's extras in one place (four rows of Look before).
+    MenuItem bar = action("Status bar", [this, save]() {
+        std::vector<MenuItem> items;
+        items.push_back(choice("Clock", [this]() { return std::string(m_settings.clock24 ? "24-hour" : "12-hour"); },
+            [this, save](int) {
+                m_settings.clock24 = !m_settings.clock24;
+                m_clock24 = m_settings.clock24;
+                save();
+            }));
+        items.push_back(toggle("Free space in the bar", [this]() { return m_settings.showFree; },
+            [this, save]() { m_settings.showFree = !m_settings.showFree; save(); }));
+        items.push_back(toggle("Temperature in the bar", [this]() { return m_settings.showTemp; },
+            [this, save]() { m_settings.showTemp = !m_settings.showTemp; save(); },
+            "Red, and a warning, when the Switch gets hot"));
+        items.push_back(toggle("Nextendo players", [this]() { return m_settings.players; },
+            [this, save]() { m_settings.players = !m_settings.players; save(); }, "Green dots on games played online now"));
+        openMenu("Status bar", std::move(items));
+    });
+    bar.detail = "The clock, free space, temperature and Nextendo players";
+    look.rows.push_back(std::move(bar));
 #ifdef SWITCHU_MENU
     { // Read when HOME starts (HomeNX's main.cpp): 1920x1080 when docked.
         std::string want;
@@ -7473,42 +7485,74 @@ void CardsActivity::drawTask(nxui::Renderer& r) {
     if (m_task == Task::None) return;
     const TaskView v = taskView();
     const float a = easeOut(m_taskIn);
+    const bool md = m3();
+    const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
+    const nxui::Color hue = md ? m_m3.primary : accent();
+    const float motion = m_settings.motion ? 1.f : 0.f;
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
     const nxui::Rect box = scaled(kTaskBox, 0.94f + 0.06f * a);
     r.drawRoundedRect({box.x - 4.f, box.y + 12.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * a),
                       32.f); // its shadow
-    frost(r, box, 28.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.9f * a));
-    r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 28.f, 1.5f);
-    r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 80.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
-                       nxui::Color(1.f, 1.f, 1.f, 0.f)); // a sheen
+    frost(r, box, md ? 40.f : 28.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.9f * a));
+    if (!md) {
+        r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 28.f, 1.5f);
+        r.drawGradientRect({box.x + 2.f, box.y + 2.f, box.width - 4.f, 80.f}, nxui::Color(1.f, 1.f, 1.f, 0.06f * a),
+                           nxui::Color(1.f, 1.f, 1.f, 0.f)); // a sheen
+    }
     const float left = box.x + 34.f, textW = box.width - 68.f;
-    // What it is: its tile and name.
-    const nxui::Rect tile{left, box.y + 28.f, 56.f, 56.f};
-    r.drawRoundedRect(tile, sectionTint(v.icon).withAlpha(a), 16.f);
-    icon(r, v.icon, tile.x + 28.f, tile.y + 28.f, 32.f, kWhite.withAlpha(a));
-    textMid(r, m_fTitle, v.title, tile.x + 74.f, tile.y + 28.f, kWhite.withAlpha(a));
-    // Where it's got to, the bar, then the details.
-    float y = box.y + 136.f;
+    // What it is: its icon in a slowly turning shape, ripples going out from it while it works.
+    const float cx = left + 34.f, cy = box.y + 66.f, spin = motion * m_decoTime * 0.3f;
+    r.pushClipRect(box);
+    for (int i = 0; i < 2 && motion > 0.f; ++i) {
+        const float t = std::fmod(m_decoTime * 0.45f + 0.5f * static_cast<float>(i), 1.f);
+        const float rad = 34.f + 46.f * easeOut(t);
+        r.drawRoundedRectOutline({cx - rad, cy - rad, rad * 2.f, rad * 2.f}, hue.withAlpha(0.35f * (1.f - t) * a), rad, 2.f);
+    }
+    r.popClipRect();
+    if (md) {
+        drawBumpy(r, cx, cy, 34.f, 8, 0.09f, m_m3.primaryC.withAlpha(a), spin);
+        icon(r, v.icon, cx, cy, 34.f, m_m3.onPrimaryC.withAlpha(a));
+    } else {
+        r.drawCircle({cx, cy}, 34.f, sectionTint(v.icon).withAlpha(a), 48);
+        icon(r, v.icon, cx, cy, 34.f, kWhite.withAlpha(a));
+    }
+    if (md && m_headFont) textMid(r, m_fHead, fit(m_fHead, v.title, textW - 90.f, 0.8f), cx + 56.f, cy, ink.withAlpha(a), 0.8f);
+    else textMid(r, m_fTitle, v.title, cx + 56.f, cy, ink.withAlpha(a));
+    // Where it's got to, the line, then the details.
+    float y = box.y + 150.f;
     for (const std::string& line : wrap(m_fLabel, v.status, textW)) {
-        textMid(r, m_fLabel, line, left, y, kWhite.withAlpha(a));
+        textMid(r, m_fLabel, line, left, y, ink.withAlpha(a));
         y += 38.f;
     }
     if (v.progress >= 0.f) {
-        const nxui::Rect bar{left, y, textW, 14.f};
-        r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.12f * a), 7.f);
-        r.drawRoundedRect({bar.x, bar.y, std::max(14.f, bar.width * std::clamp(v.progress, 0.f, 1.f)), bar.height}, accent(a), 7.f);
-        y += 44.f;
+        // The done part a wave (moving while it works), the rest a flat track, a dot at the end.
+        const float p = std::clamp(v.progress, 0.f, 1.f), x0 = left + 4.f, x1 = left + textW - 4.f, ly = y + 6.f;
+        const float split = x0 + (x1 - x0) * p, phase = motion * m_decoTime * 5.f;
+        const nxui::Color track = md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.14f);
+        if (x1 - split > 14.f) r.drawRoundedRect({split + 10.f, ly - 3.f, x1 - split - 10.f, 6.f}, track.withAlpha(track.a * a), 3.f);
+        r.drawCircle({x1, ly}, 3.f, hue.withAlpha(a), 12);
+        nxui::Vec2 prev{x0, ly + 5.f * std::sin(phase)};
+        r.drawCircle(prev, 3.f, hue.withAlpha(a), 12);
+        for (float x = x0 + 4.f; x <= split; x += 4.f) {
+            const nxui::Vec2 at{x, ly + 5.f * std::sin((x - x0) / 10.f - phase)};
+            r.drawLine(prev, at, hue.withAlpha(a), 6.f);
+            r.drawCircle(at, 3.f, hue.withAlpha(a), 10); // (round joins)
+            prev = at;
+        }
+        y += 48.f;
     }
     const float detailEnd = box.y + box.height - 96.f;
     for (const std::string& line : wrap(m_fBody, v.detail, textW)) {
         if (y > detailEnd) break;
-        textMid(r, m_fBody, line, left, y, kMuted.withAlpha(a));
+        textMid(r, m_fBody, line, left, y, quiet.withAlpha(a));
         y += 30.f;
     }
     if (!v.button.empty()) {
         const nxui::Rect b = taskButtonRect(box);
-        r.drawRoundedRect(b, accent(a), 18.f);
-        textMid(r, m_fPill, v.button, b.x + (b.width - measured(m_fPill, v.button).x) * 0.5f, b.y + b.height * 0.5f, kWhite.withAlpha(a));
+        if (md) softSurface(r, b, b.height * 0.5f, m_m3.primaryC, a);
+        else r.drawRoundedRect(b, accent(a), 18.f);
+        textMid(r, m_fPill, v.button, b.x + (b.width - measured(m_fPill, v.button).x) * 0.5f, b.y + b.height * 0.5f,
+                (md ? m_m3.onPrimaryC : kWhite).withAlpha(a));
     }
     const char* back = m_task == Task::Pairing ? "Stop" : "Back";
     const float hintX = box.x + box.width - 30.f, hintY = box.y + box.height - 52.f;
