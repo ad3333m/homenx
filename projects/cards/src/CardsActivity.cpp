@@ -3461,7 +3461,7 @@ void CardsActivity::deleteGalleryShot() {
     m_galleryStale = true;
     m_audio.play("toggle_off");
     if (m_galleryView) {
-        if (rest->empty()) m_galleryView = false;
+        if (rest->empty()) closeGalleryView();
         else {
             m_galleryAt = std::min(m_galleryAt, static_cast<int>(rest->size()) - 1);
             loadGalleryPicture();
@@ -3484,9 +3484,10 @@ void CardsActivity::loadGalleryPicture() {
     if (!m_galleryAll || m_galleryAt < 0 || m_galleryAt >= static_cast<int>(m_galleryAll->size())) return;
     if (m_galleryJob.valid()) m_galleryJob.wait();
     const AlbumShot shot = (*m_galleryAll)[(size_t)m_galleryAt];
+    m_galleryTex.reset(); // (the last one's gone: its small one shows until this one's here)
     m_galleryJob = std::async(std::launch::async, [shot]() {
         offScreenCore();
-        return albumPixels(shot, 1280);
+        return albumPixels(shot, 1920); // (the whole picture: a screenshot is 1280 wide, your own can be more)
     });
 }
 
@@ -4029,6 +4030,19 @@ void CardsActivity::drawIntro(nxui::Renderer& r) {
             break;
         }
         case kIntroPage: { // the page itself shows behind; a caption over the bottom
+            nxui::Rect focus;
+            float chosen = 0.f;
+            if (!games().empty() && cardRect(sel(), focus, chosen)) {
+                const float pad = 14.f;
+                const nxui::Rect hole{focus.x - pad, focus.y - pad, focus.width + 2.f * pad, focus.height + 2.f * pad};
+                const nxui::Color shade(0.f, 0.f, 0.f, 0.6f * ea);
+                r.drawRect({0.f, 0.f, 1280.f, hole.y}, shade);
+                r.drawRect({0.f, hole.y + hole.height, 1280.f, 720.f - hole.y - hole.height}, shade);
+                r.drawRect({0.f, hole.y, hole.x, hole.height}, shade);
+                r.drawRect({hole.x + hole.width, hole.y, 1280.f - hole.x - hole.width, hole.height}, shade);
+                const float pulse = 0.7f + 0.3f * std::sin(m_decoTime * 4.f);
+                r.drawRoundedRectOutline(hole, hue.withAlpha(pulse * ea), 14.f, 4.f);
+            }
             const PageAbout& about = kPageAbout[std::clamp(step.page, 0, kPageCount - 1)];
             const nxui::Rect cap{200.f, 532.f + rise, 880.f, 150.f};
             frost(r, cap, 40.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.92f * ea));
@@ -4123,9 +4137,23 @@ void CardsActivity::drawIntro(nxui::Renderer& r) {
         if (i == at) r.drawRoundedRect({x - 11.f, 700.f, 22.f, 8.f}, hue.withAlpha(a), 4.f);
         else r.drawCircle({x, 704.f}, 4.f, quiet.withAlpha(0.45f * a), 12);
     }
-    if (at == count - 1) drawHints(r, 1250.f, 704.f, {{"A", "Done"}, {"B", "Back"}}, a);
-    else if (at == 0) drawHints(r, 1250.f, 704.f, {{"A", "Next"}, {"-", "Skip"}}, a);
-    else drawHints(r, 1250.f, 704.f, {{"A", "Next"}, {"B", "Back"}, {"-", "Skip"}}, a);
+    // The buttons: top right, on a backing of their own so they're easy to see.
+    auto buttons = [&](std::initializer_list<std::pair<const char*, const char*>> hints) {
+        float w = 0.f;
+        for (const auto& hint : hints)
+            w += measured(m_fBody, hint.second).x * 0.9f + std::max(28.f, measured(m_fBadge, hint.first).x + 16.f) + 30.f;
+        const nxui::Rect back{1250.f - w + 4.f, 18.f, w + 10.f, 48.f};
+        if (md) {
+            softSurface(r, back, 24.f, m_m3.surfaceC, 0.95f * a);
+        } else {
+            frost(r, back, 24.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.85f * a));
+            r.drawRoundedRectOutline(back, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 24.f, 1.5f);
+        }
+        drawHints(r, 1246.f, 42.f, hints, a);
+    };
+    if (at == count - 1) buttons({{"A", "Done"}, {"B", "Back"}});
+    else if (at == 0) buttons({{"A", "Next"}, {"-", "Skip"}});
+    else buttons({{"A", "Next"}, {"B", "Back"}, {"-", "Skip"}});
 }
 
 // HOME pressed while HOME shows: things close; else back to the open game;
@@ -4614,6 +4642,9 @@ void CardsActivity::pickChoice(int index) {
     if (m_pickWall == 3) { // the Album: that one, full screen
         m_galleryAt = m_galleryPage * kGalleryPage + index;
         m_galleryView = true;
+        const nxui::Rect tile = pickTile(index, 0.f, pickKind());
+        m_galleryFrom = {tile.x, tile.y, tile.width, tile.width * 9.f / 16.f}; // (its picture's part of the square)
+        m_galleryOpenAt = m_time;
         loadGalleryPicture();
         m_audio.play("activation");
         return;
@@ -4713,13 +4744,13 @@ void CardsActivity::updatePicker() {
                 return;
             }
             const bool lockScreen = in.isDown(B::X);
-            m_galleryView = false;
+            closeGalleryView();
             m_pickOpen = false;
             m_pickWall = 0;
             chooseWallpaper(path, lockScreen);
             if (!lockScreen) say("That's the background now.");
         } else if (in.isDown(B::B) || in.isDown(B::A)) {
-            m_galleryView = false;
+            closeGalleryView();
             m_audio.play("hide_modal");
         }
         return;
@@ -4793,7 +4824,7 @@ bool CardsActivity::pickerTouch() {
     if (!in.touchUp()) return in.isTouching();
     if (m_galleryAsk) return true;
     if (m_galleryView) { // a tap: back to the grid
-        m_galleryView = false;
+        closeGalleryView();
         m_audio.play("hide_modal");
         return true;
     }
@@ -4809,6 +4840,25 @@ bool CardsActivity::pickerTouch() {
         m_audio.play("hide_modal");
     }
     return true;
+}
+
+// Back from one picture: it shrinks into its square in the grid as the black fades.
+void CardsActivity::drawGalleryZoom(nxui::Renderer& r) {
+    const float t = (m_time - m_galleryCloseAt) / 0.3f;
+    if (m_galleryView || !m_pickOpen || t >= 1.f || !m_settings.motion) return;
+    const nxui::Texture* tex = m_galleryTex && m_galleryTex->valid() ? m_galleryTex.get() : nullptr;
+    if (!tex) return;
+    nxui::Rect to = m_galleryFrom;
+    const int local = m_galleryAt - m_galleryPage * kGalleryPage; // (where the one shown last is)
+    if (local >= 0 && local < static_cast<int>(m_pickChoices.size())) {
+        const nxui::Rect tile = pickTile(local, 0.f, pickKind());
+        to = {tile.x, tile.y, tile.width, tile.width * 9.f / 16.f};
+    }
+    const float e = easeOut(t);
+    const float tw = static_cast<float>(tex->width()), th = static_cast<float>(tex->height());
+    const float s = std::min(1280.f / tw, 720.f / th);
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 1.f - e));
+    r.drawTexture(tex, lerpRect({(1280.f - tw * s) * 0.5f, (720.f - th * s) * 0.5f, tw * s, th * s}, to, e), kWhite);
 }
 
 void CardsActivity::drawPicker(nxui::Renderer& r) {
@@ -4831,18 +4881,29 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
     if (m_galleryJob.valid() && m_galleryJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         Pixels px = m_galleryJob.get();
         auto tex = std::make_unique<nxui::Texture>();
-        if (!px.rgba.empty() && tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h))
+        if (!px.rgba.empty() && tex->loadFromPixels(app().gpu(), app().renderer(), px.rgba.data(), px.w, px.h)) {
             m_galleryTex = std::move(tex);
-        else m_galleryTex.reset();
-    }
-    if (m_galleryView) { // one, the whole screen
-        r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 1.f));
-        if (m_galleryTex && m_galleryTex->valid()) {
-            const float tw = static_cast<float>(m_galleryTex->width()), th = static_cast<float>(m_galleryTex->height());
-            const float s = std::min(1280.f / tw, 720.f / th);
-            r.drawTexture(m_galleryTex.get(), {(1280.f - tw * s) * 0.5f, (720.f - th * s) * 0.5f, tw * s, th * s});
+            m_galleryTexAt = m_time;
+        } else {
+            m_galleryTex.reset();
         }
-        r.drawGradientRect({0.f, 620.f, 1280.f, 100.f}, nxui::Color(0.f, 0.f, 0.f, 0.f), nxui::Color(0.f, 0.f, 0.f, 0.7f));
+    }
+    if (m_galleryView) { // one, the whole screen: it grows out of its square in the grid
+        const float open = m_settings.motion ? easeOut((m_time - m_galleryOpenAt) / 0.35f) : 1.f;
+        r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, open));
+        auto placed = [&](const nxui::Texture* t) {
+            const float tw = static_cast<float>(t->width()), th = static_cast<float>(t->height());
+            const float s = std::min(1280.f / tw, 720.f / th);
+            return lerpRect(m_galleryFrom, {(1280.f - tw * s) * 0.5f, (720.f - th * s) * 0.5f, tw * s, th * s}, open);
+        };
+        const nxui::Texture* full = m_galleryTex && m_galleryTex->valid() ? m_galleryTex.get() : nullptr;
+        const float fullIn = full ? (m_settings.motion ? easeOut((m_time - m_galleryTexAt) / 0.25f) : 1.f) : 0.f;
+        const int local = m_galleryAt - m_galleryPage * kGalleryPage; // (its small one, from the grid, until then)
+        const nxui::Texture* small = local >= 0 && local < static_cast<int>(m_pickTex.size()) && m_pickTex[(size_t)local]
+                                         && m_pickTex[(size_t)local]->valid() ? m_pickTex[(size_t)local].get() : nullptr;
+        if (small && fullIn < 1.f) r.drawTexture(small, placed(small), kWhite);
+        if (full) r.drawTexture(full, placed(full), kWhite.withAlpha(fullIn));
+        r.drawGradientRect({0.f, 620.f, 1280.f, 100.f}, nxui::Color(0.f, 0.f, 0.f, 0.f), nxui::Color(0.f, 0.f, 0.f, 0.7f * open));
         const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
         const std::string where = trf("{n} of {total}", {std::to_string(m_galleryAt + 1), std::to_string(n)});
         const bool video = n > 0 && (*m_galleryAll)[(size_t)std::clamp(m_galleryAt, 0, n - 1)].video;
@@ -4854,8 +4915,8 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
             const std::string note = "Videos can't play here";
             textMid(r, m_fBody, note, 640.f - measured(m_fBody, note).x * 0.5f, 430.f, kWhite);
         }
-        textMid(r, m_fBody, where, 40.f, 684.f, kMuted);
-        textMid(r, m_fBody, hint, 1240.f - measured(m_fBody, hint).x, 684.f, kWhite.withAlpha(0.9f));
+        textMid(r, m_fBody, where, 40.f, 684.f, kMuted.withAlpha(kMuted.a * open));
+        textMid(r, m_fBody, hint, 1240.f - measured(m_fBody, hint).x, 684.f, kWhite.withAlpha(0.9f * open));
         return;
     }
     const float a = easeOut(m_pickIn);
@@ -9749,6 +9810,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawDots(r);
     drawOptions(r);
     drawPicker(r);
+    drawGalleryZoom(r);
     drawGalleryAsk(r);
     drawLog(r);
     drawMusic(r);
