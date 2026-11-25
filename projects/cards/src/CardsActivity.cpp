@@ -379,9 +379,9 @@ void drawSegment(nxui::Renderer& r, const nxui::Rect& b, const nxui::Color& c, b
     r.popClipRect();
 }
 
-// The ring around the chosen card: on it, or (Material 3) a little way out from it.
+// The ring around the chosen card: on it, or (Material 3) right outside it.
 void cardRing(nxui::Renderer& r, const nxui::Rect& card, const nxui::Color& c, bool m3) {
-    if (m3) r.drawRoundedRectOutline({card.x - 8.f, card.y - 8.f, card.width + 16.f, card.height + 16.f}, c, kCardRadius + 8.f, 4.f);
+    if (m3) r.drawRoundedRectOutline({card.x - 4.f, card.y - 4.f, card.width + 8.f, card.height + 8.f}, c, kCardRadius + 4.f, 4.f);
     else r.drawRoundedRectOutline(card, c, kCardRadius, 3.5f);
 }
 
@@ -9411,9 +9411,11 @@ void CardsActivity::draw(nxui::Renderer& r) {
 #endif
     drawMessage(r); // (over the menus: under Settings' sheet it could hardly be read)
     drawIntro(r);
+    m_keepGlass = true; // (the launch, the way back and the lock screen keep their own look)
     drawLaunch(r);
     drawReturn(r);
     drawLock(r);
+    m_keepGlass = false;
     drawNotificationCard(r);
     drawStep("after drawing"); // (ends the last step's time)
 }
@@ -9493,6 +9495,12 @@ void CardsActivity::icon(nxui::Renderer& r, const char* name, float cx, float cy
 }
 
 void CardsActivity::frost(nxui::Renderer& r, const nxui::Rect& rect, float radius, const nxui::Color& tint) {
+    if (m3() && !m_keepGlass) { // Material 3 / Soft: their own surface instead of glass (as see-through as the glass was)
+        const float k = std::min(1.f, tint.a / 0.86f);
+        if (soft() && k > 0.9f) softSurface(r, rect, radius, m_m3.surfaceC, k);
+        else r.drawRoundedRect(rect, m_m3.surfaceC.withAlpha(k), radius);
+        return;
+    }
     if (m_frosted) r.drawOffscreenRounded(0, rect, radius, kWhite.withAlpha(std::min(1.f, tint.a * 3.f)));
     r.drawRoundedRect(rect, tint, radius);
 }
@@ -10198,13 +10206,13 @@ void CardsActivity::drawPanel(nxui::Renderer& r, float a) {
 namespace {
 // Focus rings that follow the shape they're around: `gap` out from its edge, `t` thick (an
 // outline strokes inward from the rectangle it's given).
-void ringRect(nxui::Renderer& r, const nxui::Rect& b, float radius, const nxui::Color& c, float gap = 4.f, float t = 3.f) {
+void ringRect(nxui::Renderer& r, const nxui::Rect& b, float radius, const nxui::Color& c, float gap = 0.f, float t = 3.f) {
     const float o = gap + t;
     r.drawRoundedRectOutline({b.x - o, b.y - o, b.width + 2.f * o, b.height + 2.f * o}, c, radius + o, t);
 }
 // ...around a connected group's button: round at the group's end(s), less round inside.
 void ringSegment(nxui::Renderer& r, const nxui::Rect& b, bool first, bool last, float inner, const nxui::Color& c,
-                 float gap = 4.f, float t = 3.f) {
+                 float gap = 0.f, float t = 3.f) {
     const float outer = b.height * 0.5f;
     if (first == last) {
         ringRect(r, b, first ? outer : inner, c, gap, t);
@@ -10221,7 +10229,7 @@ void ringSegment(nxui::Renderer& r, const nxui::Rect& b, bool first, bool last, 
 }
 // ...around one of the bumpy shapes (drawBumpy), bump for bump.
 void ringBumpy(nxui::Renderer& r, float cx, float cy, float radius, int lobes, float depth, float turn, const nxui::Color& c,
-               float gap = 4.f, float t = 3.f) {
+               float gap = 0.f, float t = 3.f) {
     constexpr int kSteps = 96;
     nxui::Vec2 lastIn{}, lastOut{};
     for (int i = 0; i <= kSteps; ++i) {
@@ -11407,7 +11415,7 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
             if (on) {
                 if (soft()) softSurface(r, row, row.height * 0.5f, m_m3.surface, a, true);
                 else r.drawRoundedRect(row, m_m3.primaryC.withAlpha(a), row.height * 0.5f);
-                if (!m_sheetOnRows) ringRect(r, row, row.height * 0.5f, m_m3.primary.withAlpha(ring * a), 3.f);
+                if (!m_sheetOnRows) ringRect(r, row, row.height * 0.5f, m_m3.primary.withAlpha(ring * a));
             }
             icon(r, m_sheet[i].icon, row.x + 26.f, cy, 22.f, (on ? (soft() ? m_m3.primary : m_m3.onPrimaryC) : m_m3.onSurfaceVar).withAlpha(a));
             textMid(r, m_fPill, m_sheet[i].name, row.x + 50.f, cy, (on ? (soft() ? m_m3.primary : m_m3.onPrimaryC) : m_m3.onSurface).withAlpha(a));

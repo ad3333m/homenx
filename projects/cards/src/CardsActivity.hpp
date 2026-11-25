@@ -539,6 +539,7 @@ private:
     void updateM3();
     bool m3() const { return m_settings.style >= 1; } // (Soft is Material 3's layout in its own look)
     bool soft() const { return m_settings.style == 2; }
+    bool m_keepGlass = false; // drawing the launch, the way back or the lock screen: glass in every Style
     // A surface: Soft raises it off the background with its shadows (or presses it in); else a plain shape.
     void softSurface(nxui::Renderer& r, const nxui::Rect& b, float radius, const nxui::Color& face, float a,
                      bool pressed = false);
