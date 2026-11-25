@@ -6089,9 +6089,9 @@ void CardsActivity::buildSettings() {
     m_sheet.push_back(std::move(home));
 
     Section look{"Look", "gear", {}};
-    look.rows.push_back(choice("Style", [this]() { return std::string(m3() ? "Material 3" : "Default"); },
-        [this, save](int) {
-            m_settings.style = m3() ? 0 : 1;
+    look.rows.push_back(choice("Style", [this]() { return std::string(soft() ? "Soft" : m3() ? "Material 3" : "Default"); },
+        [this, save](int d) {
+            m_settings.style = (m_settings.style + d + 3) % 3;
             applyLayout(m3());
             save();
         }, "Material 3: a rail, big round shapes and the colours of the chosen game"));
@@ -9536,7 +9536,7 @@ void CardsActivity::drawBackground(nxui::Renderer& r) {
     }
     if (m3()) { // the art far back, under the scheme's dark surface (Background softness: how far)
         const float fade = 1.f - (m_leaving && (style == kZoom || style == kFlip) ? easeOut(m_leaveT * 2.f) : 0.f);
-        r.drawRect(screen, m_m3.surface.withAlpha((0.55f + 0.3f * static_cast<float>(m_settings.haze) / 80.f) * fade));
+        r.drawRect(screen, m_m3.surface.withAlpha((soft() ? 0.94f : 0.55f + 0.3f * static_cast<float>(m_settings.haze) / 80.f) * fade));
         r.drawGradientRect({0.f, 260.f, 1280.f, 460.f}, m_m3.surface.withAlpha(0.f), m_m3.surface.withAlpha(0.55f * fade));
         return;
     }
@@ -9746,6 +9746,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         const float shadow = 0.18f + 0.18f * t + (m_moving && i == sel() ? 0.2f : 0.f);
         r.drawRoundedRect({card.x - 3.f, card.y + 6.f + 6.f * t, card.width + 6.f, card.height + 6.f},
                           nxui::Color(0.f, 0.f, 0.f, shadow * alpha), kCardRadius + 3.f);
+        if (soft()) softSurface(r, card, kCardRadius, m_m3.surface, alpha); // (Soft: raised off the surface)
         auto it = m_art.find(g.id);
         const bool haveCard = it != m_art.end() && it->second.card && it->second.card->valid();
         const nxui::Texture* tex = haveCard ? it->second.card.get() : nullptr;
@@ -9809,7 +9810,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             if (pressed > 0.f) card = scaled(card, 1.f - 0.05f * pressed);
             r.drawRoundedRect({card.x - 3.f, card.y + 6.f + 6.f * t, card.width + 6.f, card.height + 6.f},
                               nxui::Color(0.f, 0.f, 0.f, (0.10f + 0.10f * t) * alpha), kCardRadius + 3.f);
-            if (m3()) r.drawRoundedRect(card, m_m3.surfaceC.withAlpha(0.92f * alpha), kCardRadius); // tonal
+            if (m3()) softSurface(r, card, kCardRadius, m_m3.surfaceC, 0.92f * alpha); // tonal (Soft: raised)
             else frost(r, card, kCardRadius, glassTint((1.f + 0.25f * t) * alpha));
             // A sheen of glass at the top, in the card's own rounded shape (a plain gradient's
             // square corners stuck out past the card's): its shape in bands, fainter going down.
@@ -10284,6 +10285,46 @@ void CardsActivity::updateM3() {
     c.onSurface = hsl(h, 0.26f * n, 0.92f);
     c.onSurfaceVar = hsl(h, 0.17f * n, 0.80f);
     c.outline = hsl(h, 0.09f * n, 0.59f);
+    c.shadowDark = hsl(h, 0.12f * n, 0.09f);
+    c.shadowLight = hsl(h, 0.08f * n, 0.25f);
+    if (soft()) { // Soft (dark): one surface for everything, raised or pressed in; the game's colour for what's on
+        const nxui::Color face = hsl(h, 0.10f * n, 0.165f);
+        c.surface = c.surfaceC = c.surfaceHigh = c.secondaryC = c.tertiaryC = face;
+        c.onSecondaryC = c.onSurfaceVar;
+        c.primary = hsl(h, p, 0.70f);
+        c.onPrimary = hsl(h, p, 0.12f);
+        c.primaryC = hsl(h, p, 0.55f);
+        c.onPrimaryC = nxui::Color(1.f, 1.f, 1.f, 1.f);
+        c.shadowDark = hsl(h, 0.14f * n, 0.085f);
+        c.shadowLight = hsl(h, 0.08f * n, 0.245f);
+    }
+}
+
+// Soft's surfaces: lifted by a dark shadow below-right and a light one above-left (a few wider,
+// fainter layers each, for softness), or pressed in: dark along the top-left inside edge, light
+// along the bottom-right. Material 3: a plain shape.
+void CardsActivity::softSurface(nxui::Renderer& r, const nxui::Rect& b, float radius, const nxui::Color& face, float a,
+                                bool pressed) {
+    if (!soft()) {
+        r.drawRoundedRect(b, face.withAlpha(a), radius);
+        return;
+    }
+    const M3Colors& c = m_m3;
+    if (pressed) {
+        r.drawRoundedRect(b, c.shadowLight.withAlpha(a), radius);
+        r.drawRoundedRect({b.x, b.y, b.width - 2.f, b.height - 2.f}, c.shadowDark.withAlpha(a), radius);
+        r.drawRoundedRect({b.x + 4.f, b.y + 4.f, b.width - 5.f, b.height - 5.f}, mixed(face, c.shadowDark, 0.25f).withAlpha(a),
+                          std::max(0.f, radius - 2.f));
+        return;
+    }
+    for (int k = 4; k >= 1; --k) {
+        const float s = 2.5f * static_cast<float>(k), o = 4.f + static_cast<float>(k);
+        r.drawRoundedRect({b.x + o - s, b.y + o - s, b.width + 2.f * s, b.height + 2.f * s}, c.shadowDark.withAlpha(0.2f * a),
+                          radius + s);
+        r.drawRoundedRect({b.x - o - s, b.y - o - s, b.width + 2.f * s, b.height + 2.f * s}, c.shadowLight.withAlpha(0.12f * a),
+                          radius + s);
+    }
+    r.drawRoundedRect(b, face.withAlpha(a), radius);
 }
 
 // The panel's buttons, left to right, as activateBottom numbers them: Play, (Material 3: the
@@ -10498,7 +10539,7 @@ void CardsActivity::drawRailM3(nxui::Renderer& r, float a) {
     };
     if (e > 0.001f) r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.45f * e * a));
     const nxui::Rect rail{16.f - 24.f * (1.f - a), 16.f, 84.f + 188.f * e, 688.f};
-    r.drawRoundedRect(rail, c.surfaceC.withAlpha((0.9f + 0.08f * e) * a), 42.f);
+    softSurface(r, rail, 42.f, c.surfaceC, (0.9f + 0.08f * e) * a);
     const float cx = rail.x + 42.f;
 
     const std::vector<RailEntry> small = railEntries(false), big = railEntries(true);
@@ -10553,7 +10594,8 @@ void CardsActivity::drawRailM3(nxui::Renderer& r, float a) {
         const nxui::Rect narrow{cx - 28.f, pillY - 16.f, 56.f, 32.f};
         const nxui::Rect wide{rail.x + 8.f, pillY - (rh - 6.f) * 0.5f, 256.f, rh - 6.f};
         const nxui::Rect fill = lerpRect(narrow, wide, e);
-        r.drawRoundedRect(fill, c.primaryC.withAlpha(a), fill.height * 0.5f);
+        if (soft()) softSurface(r, fill, fill.height * 0.5f, c.surface, a, true); // (Soft: pressed in)
+        else r.drawRoundedRect(fill, c.primaryC.withAlpha(a), fill.height * 0.5f);
     }
 
     for (const Spot& s : spots) {
@@ -10607,6 +10649,7 @@ void CardsActivity::drawRailM3(nxui::Renderer& r, float a) {
         }
         // How much of the page pill is under it (it slides across the pages between).
         const float under = s.en.kind == kRailPage ? clamp01(1.f - std::abs(pillY - s.y) / 30.f) : 0.f;
+        const nxui::Color onPill = soft() ? c.primary : c.onPrimaryC;
         if (isChosen) {
             if (under < 0.5f) r.drawRoundedRect(s.pill, c.onSurface.withAlpha(0.10f * al), s.pill.height * 0.5f);
             ringRect(r, s.pill, s.pill.height * 0.5f, c.primary.withAlpha(ring * al));
@@ -10614,7 +10657,7 @@ void CardsActivity::drawRailM3(nxui::Renderer& r, float a) {
         const float pressed = s.en.kind == kRailTop ? pressedOf(s.en.value) : 0.f;
         const float ix = cx + (s.pill.x + 26.f - cx) * e;
         icon(r, glyph, ix, s.y, (s.en.kind == kRailPage ? 22.f : 26.f) * (1.f - 0.1f * pressed),
-             mixed(c.onSurfaceVar, c.onPrimaryC, under).withAlpha(al));
+             mixed(c.onSurfaceVar, onPill, under).withAlpha(al));
         if (s.en.kind == kRailTop && s.en.value == kTopMusic && m_settings.music) { // playing: a little level meter
             for (int i = 0; i < 3; ++i) {
                 const float hgt = 3.f + 5.f * (0.5f + 0.5f * std::sin(m_decoTime * (5.f + i * 1.7f) + i));
@@ -10629,7 +10672,7 @@ void CardsActivity::drawRailM3(nxui::Renderer& r, float a) {
         if (e > 0.01f) { // opened out: beside it
             const float tx = ix + 30.f;
             const std::string shown = fit(m_fPill, name, rail.x + rail.width - 20.f - tx, 0.9f);
-            textMid(r, m_fPill, shown, tx, s.y, mixed(c.onSurface, c.onPrimaryC, under).withAlpha(e * al), 0.9f);
+            textMid(r, m_fPill, shown, tx, s.y, mixed(c.onSurface, onPill, under).withAlpha(e * al), 0.9f);
         }
         if (at >= 0)
             m_railHit.push_back({at, {s.pill.x - 4.f, s.pill.y - 6.f, s.pill.width + 8.f, s.pill.height + 12.f}});
@@ -10678,6 +10721,7 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
     total += 4.f * static_cast<float>(count - 1);
     const float groupLeft = kM3Right - total;
     float x = groupLeft;
+    if (soft()) softSurface(r, {groupLeft, gy, total, gh}, gh * 0.5f, c.surfaceHigh, a); // (raised as one)
     for (int i = 0, nth = 0; i < 6; ++i) {
         if (w[i] <= 0.f) continue;
         const nxui::Rect seg{x, gy, w[i], gh};
@@ -10756,8 +10800,9 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
     auto chip = [&](int index, float cx0, const std::string& label, const char* glyph, bool on, bool focus) {
         const float cw = 14.f + 20.f + 8.f + measured(m_fPill, label).x * 0.9f + 18.f;
         const nxui::Rect box{cx0, chipY, cw, chipH};
-        r.drawRoundedRect(box, on ? c.primary.withAlpha(a) : c.surfaceC.withAlpha(0.9f * a), chipH * 0.5f);
-        const nxui::Color ink = (on ? c.onPrimary : c.onSurfaceVar).withAlpha(a);
+        if (soft()) softSurface(r, box, chipH * 0.5f, c.surfaceC, a, on); // (Soft: pressed in when on)
+        else r.drawRoundedRect(box, on ? c.primary.withAlpha(a) : c.surfaceC.withAlpha(0.9f * a), chipH * 0.5f);
+        const nxui::Color ink = (on ? (soft() ? c.primary : c.onPrimary) : c.onSurfaceVar).withAlpha(a);
         icon(r, glyph, cx0 + 24.f, chipY + chipH * 0.5f, 20.f, ink);
         textMid(r, m_fPill, label, cx0 + 42.f, chipY + chipH * 0.5f, ink, 0.9f);
         m_chipHit[index] = box;
@@ -10789,7 +10834,7 @@ void CardsActivity::drawPanelM3(nxui::Renderer& r, float a) {
     if (a <= 0.001f) return;
     const M3Colors& c = m_m3;
     const nxui::Rect panel{kPanel.x, kPanel.y + 40.f * (1.f - a), kPanel.width, kPanel.height};
-    r.drawRoundedRect(panel, c.surfaceHigh.withAlpha(0.94f * a), kPanelRadius);
+    softSurface(r, panel, kPanelRadius, c.surfaceHigh, 0.94f * a);
     const Game* gp = current();
     if (!gp) return;
     const Game& g = *gp;
@@ -10803,7 +10848,7 @@ void CardsActivity::drawPanelM3(nxui::Renderer& r, float a) {
     const bool bottom = m_zone == Zone::Bottom;
     const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f);
     const std::vector<int> slots = bottomSlots();
-    const float bh = 76.f, playW = 188.f, sq = 76.f, gap = 4.f;
+    const float bh = 76.f, playW = 188.f, sq = 76.f, gap = soft() ? 14.f : 4.f;
     const float left = panel.x + panel.width - 24.f - playW - static_cast<float>(slots.size() - 1) * (sq + gap);
     float x = left;
     for (size_t i = 0; i < slots.size(); ++i) {
@@ -10815,8 +10860,13 @@ void CardsActivity::drawPanelM3(nxui::Renderer& r, float a) {
         const float pressed = m_pressZone == 2 && m_pressIndex == slot ? std::sin(clamp01(m_pressT) * 3.14159f) : 0.f;
         const nxui::Rect b = scaled(box, 1.f - 0.06f * pressed);
         const bool first = i == 0, lastOne = i + 1 == slots.size();
-        drawSegment(r, b, (slot == 0 ? c.primaryC : c.secondaryC).withAlpha(a), first, lastOne, 16.f);
-        if (bottom && m_bottomSel == slot) ringSegment(r, b, first, lastOne, 16.f, c.primary.withAlpha(ring * a));
+        const float round = slot == 0 ? bh * 0.5f : 24.f; // (Soft: each button raised on its own)
+        if (soft()) softSurface(r, b, round, slot == 0 ? c.primaryC : c.secondaryC, a);
+        else drawSegment(r, b, (slot == 0 ? c.primaryC : c.secondaryC).withAlpha(a), first, lastOne, 16.f);
+        if (bottom && m_bottomSel == slot) {
+            if (soft()) ringRect(r, b, round, c.primary.withAlpha(ring * a));
+            else ringSegment(r, b, first, lastOne, 16.f, c.primary.withAlpha(ring * a));
+        }
         const nxui::Color ink = (slot == 0 ? c.onPrimaryC : c.onSecondaryC).withAlpha(a);
         const float bx = b.x + b.width * 0.5f, by = b.y + b.height * 0.5f;
         switch (slot) {
@@ -10915,7 +10965,7 @@ void CardsActivity::drawPowerM3(nxui::Renderer& r) {
     const float spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f * a));
     const nxui::Rect card = scaled(kPowerCard, 0.94f + 0.06f * easeOutBack(m_powerIn));
-    r.drawRoundedRect(card, c.surfaceC.withAlpha(0.98f * a), 44.f);
+    softSurface(r, card, 44.f, c.surfaceC, 0.98f * a);
     const float dy = card.y - kPowerCard.y, hy = kPowerCard.y + 44.f + dy;
     drawBumpy(r, kPowerCard.x + 52.f, hy, 22.f, 9, 0.08f, c.primaryC.withAlpha(a), spin);
     icon(r, "power", kPowerCard.x + 52.f, hy, 24.f, c.onPrimaryC.withAlpha(a));
@@ -10935,7 +10985,8 @@ void CardsActivity::drawPowerM3(nxui::Renderer& r) {
         nxui::Rect tile = scaled(powerTile(i), 1.f + 0.04f * lift);
         tile.y += dy - 6.f * lift + 30.f * (1.f - rise);
         const float ta = a * rise;
-        r.drawRoundedRect(tile, mixed(c.surfaceHigh, c.primaryC, lift).withAlpha(ta), 32.f);
+        if (soft()) softSurface(r, tile, 32.f, c.surfaceHigh, ta, lift > 0.5f);
+        else r.drawRoundedRect(tile, mixed(c.surfaceHigh, c.primaryC, lift).withAlpha(ta), 32.f);
         if (lift > 0.5f) ringRect(r, tile, 32.f, c.primary.withAlpha(ring * ta));
         const bool off = i == 2;
         const nxui::Color shape = off ? kM3Error : mixed(c.secondaryC, c.primary, lift);
@@ -10943,7 +10994,7 @@ void CardsActivity::drawPowerM3(nxui::Renderer& r) {
         const float ix = tile.x + tile.width * 0.5f, iy = tile.y + 80.f;
         drawBumpy(r, ix, iy, 40.f + 4.f * lift, kLobes[i], kDepth[i], shape.withAlpha(ta), spin * (0.3f + 0.7f * lift));
         icon(r, look.glyph, ix, iy, 34.f, glyph.withAlpha(ta));
-        const nxui::Color ink = mixed(c.onSurface, c.onPrimaryC, lift);
+        const nxui::Color ink = mixed(c.onSurface, soft() ? c.primary : c.onPrimaryC, lift);
         const std::string name = look.name;
         textMid(r, m_fLabel, name, tile.x + (tile.width - measured(m_fLabel, name).x) * 0.5f, tile.y + 150.f, ink.withAlpha(ta));
         const std::string about = fit(m_fBody, look.about, tile.width - 20.f, 0.85f);
@@ -11079,7 +11130,7 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
         r.drawRoundedRect({box.x - 4.f, box.y + 10.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.28f * a),
                           28.f); // its shadow
         if (m3()) {
-            r.drawRoundedRect(box, m_m3.surfaceC.withAlpha(0.98f * a), 32.f);
+            softSurface(r, box, 32.f, m_m3.surfaceC, 0.98f * a);
         } else {
             frost(r, box, 24.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.82f * a));
             r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 24.f, 1.5f);
@@ -11113,7 +11164,7 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
     r.drawRoundedRect({box.x - 4.f, box.y + 12.f, box.width + 8.f, box.height + 4.f}, nxui::Color(0.f, 0.f, 0.f, 0.3f * a),
                       32.f); // its shadow
     if (m3()) {
-        r.drawRoundedRect(box, m_m3.surfaceC.withAlpha(0.98f * a), 36.f);
+        softSurface(r, box, 36.f, m_m3.surfaceC, 0.98f * a);
     } else {
         frost(r, box, 28.f, nxui::Color(0.10f, 0.11f, 0.15f, 0.85f * a));
         r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.14f * a), 28.f, 1.5f);
@@ -11319,7 +11370,7 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
     const float spin = md && m_settings.motion ? m_decoTime * 0.25f : 0.f;
     const nxui::Color ink = md ? m_m3.onSurface : kWhite;
     if (md) {
-        r.drawRoundedRect(sheet, m_m3.surface.withAlpha(0.98f * a), 44.f);
+        softSurface(r, sheet, 44.f, m_m3.surface, 0.98f * a);
     } else {
         frost(r, sheet, 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.86f * a));
         r.drawRoundedRectOutline(sheet, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
@@ -11354,11 +11405,12 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
         if (md) { // a pill in the game's colour; its icon and name on it
             const float cy = row.y + row.height * 0.5f;
             if (on) {
-                r.drawRoundedRect(row, m_m3.primaryC.withAlpha(a), row.height * 0.5f);
+                if (soft()) softSurface(r, row, row.height * 0.5f, m_m3.surface, a, true);
+                else r.drawRoundedRect(row, m_m3.primaryC.withAlpha(a), row.height * 0.5f);
                 if (!m_sheetOnRows) ringRect(r, row, row.height * 0.5f, m_m3.primary.withAlpha(ring * a), 3.f);
             }
-            icon(r, m_sheet[i].icon, row.x + 26.f, cy, 22.f, (on ? m_m3.onPrimaryC : m_m3.onSurfaceVar).withAlpha(a));
-            textMid(r, m_fPill, m_sheet[i].name, row.x + 50.f, cy, (on ? m_m3.onPrimaryC : m_m3.onSurface).withAlpha(a));
+            icon(r, m_sheet[i].icon, row.x + 26.f, cy, 22.f, (on ? (soft() ? m_m3.primary : m_m3.onPrimaryC) : m_m3.onSurfaceVar).withAlpha(a));
+            textMid(r, m_fPill, m_sheet[i].name, row.x + 50.f, cy, (on ? (soft() ? m_m3.primary : m_m3.onPrimaryC) : m_m3.onSurface).withAlpha(a));
             continue;
         }
         if (on) {
@@ -11391,7 +11443,7 @@ void CardsActivity::drawSheet(nxui::Renderer& r) {
         const float top = sheetRowY(rows, i);
         const nxui::Rect group{kRowsX + slide, kSheetTop + top - m_sheetScroll + dy, kRowsW, sheetRowY(rows, end) - top - 8.f};
         if (md) {
-            r.drawRoundedRect(group, m_m3.surfaceC.withAlpha(ra), 24.f);
+            softSurface(r, group, 24.f, m_m3.surfaceC, ra);
         } else {
             r.drawRoundedRect(group, nxui::Color(1.f, 1.f, 1.f, 0.05f * ra), 18.f);
             r.drawRoundedRectOutline(group, nxui::Color(1.f, 1.f, 1.f, 0.07f * ra), 18.f, 1.f);

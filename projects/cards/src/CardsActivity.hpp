@@ -537,11 +537,15 @@ private:
     void drawTopBarM3(nxui::Renderer& r, float a);
     void drawPanelM3(nxui::Renderer& r, float a);
     void updateM3();
-    bool m3() const { return m_settings.style == 1; }
+    bool m3() const { return m_settings.style >= 1; } // (Soft is Material 3's layout in its own look)
+    bool soft() const { return m_settings.style == 2; }
+    // A surface: Soft raises it off the background with its shadows (or presses it in); else a plain shape.
+    void softSurface(nxui::Renderer& r, const nxui::Rect& b, float radius, const nxui::Color& face, float a,
+                     bool pressed = false);
     std::vector<int> bottomSlots() const; // the panel's buttons, left to right (activateBottom's numbers)
     struct M3Colors {
         nxui::Color primary, onPrimary, primaryC, onPrimaryC, secondaryC, onSecondaryC, tertiaryC, onTertiaryC,
-            surface, surfaceC, surfaceHigh, onSurface, onSurfaceVar, outline;
+            surface, surfaceC, surfaceHigh, onSurface, onSurfaceVar, outline, shadowDark, shadowLight;
     };
     M3Colors m_m3{};
     nxui::Color m_m3Seed{0.f, 0.f, 0.f, 0.f}; // eased towards the chosen cover's colour

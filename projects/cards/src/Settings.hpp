@@ -50,7 +50,7 @@ struct Settings {
     bool boxArt = true;       // box covers on cards (off: the eShop banner)
     int accent = 0;           // the focus colour (see kAccents)
     int glass = 1;            // 0 clear, 1 frosted, 2 dark
-    int style = 0;            // 0 the glass look, 1 Material 3 (Settings > Look > Style)
+    int style = 0;            // 0 the glass look, 1 Material 3, 2 Soft (Settings > Look > Style)
     int gameCardDisplay = 0;
     int gameCardIcons = 0;
     bool showInsertedGameCardIcon() const { return gameCardIcons >= 1; }
@@ -151,7 +151,7 @@ struct Settings {
             boxArt = j.value("boxArt", boxArt);
             accent = j.value("accent", accent);
             glass = j.value("glass", glass);
-            style = std::clamp(j.value("style", style), 0, 1);
+            style = std::clamp(j.value("style", style), 0, 2);
             gameCardDisplay = std::clamp(j.value("gameCardDisplay", gameCardDisplay), 0, 3);
             gameCardIcons = std::clamp(j.value("gameCardIcons", gameCardIcons), 0, 2);
             launchStyle = j.value("launchStyle", launchStyle);
