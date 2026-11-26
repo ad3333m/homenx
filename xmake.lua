@@ -10,7 +10,8 @@ local version = "1.2.0"
 local version_define = string.format('SWITCHU_VERSION="%s"', version)
 -- HomeNX: CI passes its run number; the Toggle's updater compares it with the
 -- "HomeNX build <N>" release title.
-local homenx_build_define = string.format('HOMENX_BUILD="build %s"', os.getenv("HOMENX_BUILD") or "0")
+-- (The build number is in projects/common/include/switchu/build_number.hpp, which CI writes: as a
+-- define on every file, each new number compiled everything again and the compile cache never hit.)
 
 set_version(version)
 
@@ -191,7 +192,7 @@ target("SwitchU")
               "projects/cards/src/GameCard.cpp", "projects/cards/src/Mtp.cpp", "projects/cards/src/Spotify.cpp")
     add_files("projects/updater/src/Catalog.cpp") -- homebrew updates, as the Homebrew Manager finds them
     add_includedirs("projects/cards/src", {public = false})
-    add_defines("HOMENX_UPDATER_SHARED_NETWORK", homenx_build_define)
+    add_defines("HOMENX_UPDATER_SHARED_NETWORK")
     add_links("minizip")
     add_packages("nlohmann_json", "fmt", "libsdl", "libsdl_mixer", "libsdl_ttf", "zlib", "libwebp", "libcurl", "curlpp")
     add_linkgroups("SDL2_ttf", "harfbuzz-subset", "harfbuzz", "freetype", "png16", "bz2", "z", {group = true})
@@ -309,7 +310,7 @@ target("SwitchU-Manager")
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
     add_syslinks("nx")
-    add_defines(version_define, homenx_build_define)
+    add_defines(version_define)
 
     if is_mode("release") then
         add_cxflags("-O3", "-ffast-math", {force = true})
@@ -361,7 +362,7 @@ target("Homebrew-Manager")
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
     add_syslinks("nx")
-    add_defines(version_define, homenx_build_define)
+    add_defines(version_define)
 
     before_build(function(target)
         local romfs_dir = path.join(os.projectdir(), "build/updater-romfs")
@@ -411,7 +412,7 @@ target("CardsNX")
         add_linkorders(is_mode("debug") and "deko3dd" or "deko3d", "nx")
     end
     add_syslinks("nx")
-    add_defines(version_define, homenx_build_define)
+    add_defines(version_define)
 
     before_build(function(target)
         local romfs_dir = path.join(os.projectdir(), "build/cards-romfs")

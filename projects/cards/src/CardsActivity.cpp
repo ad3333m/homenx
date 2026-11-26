@@ -1,3 +1,4 @@
+#include "switchu/build_number.hpp"
 #include "CardsActivity.hpp"
 #include "GameCardPresentation.hpp"
 

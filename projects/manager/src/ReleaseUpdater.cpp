@@ -1,4 +1,5 @@
 #include "ReleaseUpdater.hpp"
+#include "switchu/build_number.hpp"
 
 #include <curl/curl.h>
 #include <minizip/unzip.h>

@@ -29,6 +29,18 @@ jobs:
           submodules: recursive
           fetch-depth: 80 # (CardsNX's update log)
 
+      # Faster builds: xmake's compile cache kept between runs, so only changed files compile again.
+      # The build number lives in one generated header (not a define on every file) so it doesn't spoil it.
+      - name: Compile cache
+        uses: actions/cache@v4
+        with:
+          path: build/.build_cache
+          key: buildcache-${{ github.job }}-${{ github.run_id }}
+          restore-keys: buildcache-${{ github.job }}-
+
+      - name: Build number
+        run: printf '#pragma once\n#define HOMENX_BUILD "build %s"\n' "$HOMENX_BUILD" > projects/common/include/switchu/build_number.hpp
+
       - name: Install system dependencies
         run: |
           apt-get update
@@ -119,6 +131,18 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 80 # (CardsNX's update log)
+
+      # Faster builds: xmake's compile cache kept between runs, so only changed files compile again.
+      # The build number lives in one generated header (not a define on every file) so it doesn't spoil it.
+      - name: Compile cache
+        uses: actions/cache@v4
+        with:
+          path: build/.build_cache
+          key: buildcache-${{ github.job }}-${{ github.run_id }}
+          restore-keys: buildcache-${{ github.job }}-
+
+      - name: Build number
+        run: printf '#pragma once\n#define HOMENX_BUILD "build %s"\n' "$HOMENX_BUILD" > projects/common/include/switchu/build_number.hpp
 
       - name: Install system dependencies
         run: |
