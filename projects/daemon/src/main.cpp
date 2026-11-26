@@ -12,6 +12,7 @@
 #include <switchu/lock_screen_policy.hpp>
 #include <switchu/lock_screen_preferences.hpp>
 #include "achievements_watch.hpp"
+#include "presence.hpp"
 #include "app_manager.hpp"
 #include "ecs.hpp"
 #include "library_applet_runner.hpp"
@@ -2841,6 +2842,9 @@ int main(int argc, char* argv[]) {
     // Achievements are off for now (2026-11-14): no watcher, so dmnt and the game's memory are
     // never touched. switchu::daemon::achievements_watch::start() brings them back.
 
+    // Discord's "Playing" status during games (it does nothing until CardsNX's setting is on).
+    switchu::daemon::presence::start();
+
     while (g_running.load()) {
         g_bootTimeSynced = switchu::timebudget::syncBootTime(); // until it has worked once
         mainLoop();
@@ -2848,6 +2852,7 @@ int main(int argc, char* argv[]) {
     }
 
     switchu::daemon::achievements_watch::stop();
+    switchu::daemon::presence::stop();
     stopEventManager();
     stopControlCacheWorker();
     daemon::menu_la::terminate();

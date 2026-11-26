@@ -6948,6 +6948,19 @@ void CardsActivity::buildSettings() {
         openSocial();
         if (m_social) m_social->showAddFriend();
     }));
+    // Discord: the game you're playing on your profile (HOME's daemon shows it during games).
+    net.rows.push_back(toggle("Show what I'm playing on Discord", []() {
+            std::ifstream f("sdmc:/config/SwitchU/presence.json");
+            std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            return text.find("\"enabled\":true") != std::string::npos;
+        }, [this]() {
+            std::ifstream f("sdmc:/config/SwitchU/presence.json");
+            std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            f.close();
+            const bool on = text.find("\"enabled\":true") == std::string::npos;
+            std::ofstream("sdmc:/config/SwitchU/presence.json", std::ios::trunc) << (on ? "{\"enabled\":true}\n" : "{\"enabled\":false}\n");
+            if (on) say("Your Discord profile shows the game you're playing (with your HomeNX Discord account).");
+        }, "The game, its icon and how long, while you play. Discord's rules don't allow it: your account, your risk"));
 #endif
     m_sheet.push_back(std::move(net));
 

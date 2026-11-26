@@ -484,7 +484,7 @@ target("switchu-daemon")
         "_GNU_SOURCE"
     )
     add_cxxflags("-fno-rtti", "-fexceptions", "-std=gnu++23", {force = true})
-    add_packages("zlib", "nlohmann_json")
+    add_packages("zlib", "nlohmann_json", "libcurl") -- (libcurl: Discord's "Playing" status, presence.hpp)
     add_linkdirs("lib/Atmosphere-libs/libstratosphere/lib/nintendo_nx_arm64_armv8a/release")
     add_links("stratosphere")
     add_syslinks("nx")
