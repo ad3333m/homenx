@@ -692,7 +692,6 @@ Check destination space and close the software, then try again.{code}	Comprueba 
 {n}% remaining. Connect the charger.	Queda {n}%. Conecta el cargador.	Restam {n}%. Conecte o carregador.	Осталось {n}%. Подключите зарядку.	{n} % restants. Branchez le chargeur.	Noch {n} %. Schließe das Ladegerät an.	{n}% rimanente. Collega il caricatore.	残り{n}%です。充電してください。	剩余{n}%。请连接充电器。
 Console's TV output	Salida de TV de la consola	Saída de TV do console	Вывод консоли на ТВ	Sortie TV de la console	TV-Ausgabe der Konsole	Uscita TV della console	本体のテレビ出力	主机电视输出
 For games too (HOME's own: Look > TV resolution). Takes effect after a restart	También para los juegos (la de HOME: Aspecto > Resolución en la TV). Se aplica al reiniciar	Também para os jogos (a do HOME: Aparência > Resolução na TV). Vale depois de reiniciar	И для игр (для HOME: Вид > Разрешение на ТВ). Вступит в силу после перезапуска	Aussi pour les jeux (celle de HOME : Apparence > Résolution sur la TV). S'applique après un redémarrage	Auch für Spiele (für HOME: Aussehen > TV-Auflösung). Gilt nach einem Neustart	Anche per i giochi (quella di HOME: Aspetto > Risoluzione sulla TV). Vale dopo il riavvio	ゲームにも適用（HOMEは「見た目 > テレビ解像度」）。再起動後に反映されます	也适用于游戏（HOME的设置：外观 > 电视分辨率）。重启后生效
-+ on a game shows them	+ en un juego los muestra	+ em um jogo mostra	Их показывает + на игре	+ sur un jeu les affiche	+ auf einem Spiel zeigt sie	+ su un gioco li mostra	ゲームで＋を押すと見られます	在游戏上按+可查看
 Show the playing game	Mostrar el juego abierto	Mostrar o jogo aberto	Показывать запущенную игру	Afficher le jeu en cours	Laufendes Spiel anzeigen	Mostra il gioco in corso	プレイ中のゲームを表示	显示正在玩的游戏
 Its title picture and name, on the lock screen	Su imagen de título y su nombre, en la pantalla de bloqueo	A imagem de título e o nome, na tela de bloqueio	Картинка с названием и имя игры на экране блокировки	Son image de titre et son nom, sur l'écran de verrouillage	Titelbild und Name auf dem Sperrbildschirm	Immagine del titolo e nome, nella schermata di blocco	タイトル画像と名前をロック画面に表示します	在锁屏上显示其标题图片和名称
 Playing game background	Fondo del juego abierto	Fundo do jogo aberto	Фон запущенной игры	Arrière-plan du jeu en cours	Hintergrund des laufenden Spiels	Sfondo del gioco in corso	プレイ中のゲームの背景	正在玩的游戏的背景
@@ -803,3 +802,18 @@ Show the intro again	Ver la introducción otra vez	Ver a introdução de novo	П
 Continue	Continuar	Continuar	Продолжить	Continuer	Weiter	Continua	続ける	继续
 Next	Siguiente	Próximo	Далее	Suivant	Weiter	Avanti	次へ	下一步
 Skip	Omitir	Pular	Пропустить	Passer	Überspringen	Salta	スキップ	跳过
+Achievements	Logros	Conquistas	Достижения	Succès	Erfolge	Obiettivi	実績	成就
+Across every game	En todos los juegos	Em todos os jogos	Во всех играх	Dans tous les jeux	In allen Spielen	In tutti i giochi	すべてのゲーム	所有游戏
+Level {n}	Nivel {n}	Nível {n}	Уровень {n}	Niveau {n}	Stufe {n}	Livello {n}	レベル {n}	等级 {n}
+{n} points	{n} puntos	{n} pontos	Очков: {n}	{n} points	{n} Punkte	{n} punti	{n} ポイント	{n} 分
+{n} to level {level}	{n} para el nivel {level}	{n} para o nível {level}	{n} до уровня {level}	{n} avant le niveau {level}	{n} bis Stufe {level}	{n} al livello {level}	レベル {level} まで {n}	距离等级 {level} 还差 {n}
+Faster	Más rápido	Mais rápido	Быстрее	Plus vite	Schneller	Più veloce	速く	更快
++ > Achievements shows them	+ > Logros los muestra	+ > Conquistas mostra-as	+ > Достижения покажет их	+ > Succès les affiche	+ > Erfolge zeigt sie	+ > Obiettivi li mostra	+ > 実績で確認できます	+ > 成就中可查看
+Warming up	Calentando	Aquecendo	Разминка	Échauffement	Aufwärmen	Riscaldamento	ウォーミングアップ	热身
+Play it for 1 hour	Juega 1 hora	Jogue por 1 hora	Сыграйте 1 час	Jouez-y 1 heure	Spiele es 1 Stunde	Giocaci per 1 ora	1時間プレイする	游玩 1 小时
+First steps	Primeros pasos	Primeiros passos	Первые шаги	Premiers pas	Erste Schritte	Primi passi	はじめの一歩	第一步
+Play your first game	Juega tu primer juego	Jogue seu primeiro jogo	Сыграйте в первую игру	Jouez à votre premier jeu	Spiele dein erstes Spiel	Gioca il tuo primo gioco	最初のゲームをプレイする	玩你的第一款游戏
+Connoisseur	Conocedor	Conhecedor	Знаток	Connaisseur	Kenner	Intenditore	目利き	鉴赏家
+Play 30 different games	Juega 30 juegos distintos	Jogue 30 jogos diferentes	Сыграйте в 30 разных игр	Jouez à 30 jeux différents	Spiele 30 verschiedene Spiele	Gioca 30 giochi diversi	30種類のゲームをプレイする	玩 30 款不同的游戏
+Getting started	Empezando	Começando	Начало пути	Les débuts	Der Anfang	Si comincia	スタート	起步
+Play games for 10 hours in all	Juega 10 horas en total	Jogue 10 horas no total	Играйте 10 часов в сумме	Jouez 10 heures en tout	Spiele insgesamt 10 Stunden	Gioca 10 ore in tutto	合計10時間プレイする	累计游玩 10 小时

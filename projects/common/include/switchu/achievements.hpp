@@ -53,36 +53,45 @@ inline void setMilestonesEnabled(bool enabled) {
     else std::ofstream(kMilestonesOffFlag) << '1';
 }
 
+// Medals: bronze, silver, gold, each worth points (CardsNX adds them up into your level).
+enum class Tier : std::uint8_t { Bronze, Silver, Gold };
+inline constexpr int tierPoints(Tier t) { return t == Tier::Gold ? 50 : t == Tier::Silver ? 25 : 10; }
+
 struct Milestone {
     const char* id;   // as kept in the file
     const char* name;
     const char* about;
     Kind kind;
     std::uint32_t goal; // hours, games or achievements (a Moment: unused)
+    Tier tier = Tier::Bronze;
 };
 
 inline constexpr Milestone kPerGame[] = {
-    {"h10", "Hooked", "Play it for 10 hours", Kind::Hours, 10},
-    {"h25", "Dedicated", "Play it for 25 hours", Kind::Hours, 25},
-    {"h50", "Devoted", "Play it for 50 hours", Kind::Hours, 50},
-    {"h100", "Legend", "Play it for 100 hours", Kind::Hours, 100},
-    {"session3", "Lost in it", "Play it for 3 hours in one go", Kind::Moment, 0},
-    {"back", "Welcome back", "Play it again after 6 months away", Kind::Moment, 0},
-    {"perfect", "Perfect", "Earn every one of its own achievements", Kind::Moment, 0}, // (only with a pack)
+    {"h1", "Warming up", "Play it for 1 hour", Kind::Hours, 1, Tier::Bronze},
+    {"h10", "Hooked", "Play it for 10 hours", Kind::Hours, 10, Tier::Bronze},
+    {"h25", "Dedicated", "Play it for 25 hours", Kind::Hours, 25, Tier::Silver},
+    {"h50", "Devoted", "Play it for 50 hours", Kind::Hours, 50, Tier::Silver},
+    {"h100", "Legend", "Play it for 100 hours", Kind::Hours, 100, Tier::Gold},
+    {"session3", "Lost in it", "Play it for 3 hours in one go", Kind::Moment, 0, Tier::Silver},
+    {"back", "Welcome back", "Play it again after 6 months away", Kind::Moment, 0, Tier::Bronze},
+    {"perfect", "Perfect", "Earn every one of its own achievements", Kind::Moment, 0, Tier::Gold}, // (only with a pack)
 };
 
 inline constexpr Milestone kOverall[] = {
-    {"games5", "Explorer", "Play 5 different games", Kind::Games, 5},
-    {"games15", "Globetrotter", "Play 15 different games", Kind::Games, 15},
-    {"lib25", "Collector", "Have 25 games installed", Kind::Installed, 25},
-    {"lib50", "Curator", "Have 50 games installed", Kind::Installed, 50},
-    {"lib100", "Archivist", "Have 100 games installed", Kind::Installed, 100},
-    {"hunt10", "Achievement hunter", "Earn 10 of your games' own achievements", Kind::Earned, 10},
-    {"hunt50", "Trophy room", "Earn 50 of your games' own achievements", Kind::Earned, 50},
-    {"night", "Night owl", "Play a game between midnight and 4 a.m.", Kind::Moment, 0},
-    {"total100", "Marathon", "Play games for 100 hours in all", Kind::Hours, 100},
-    {"total500", "Lifer", "Play games for 500 hours in all", Kind::Hours, 500},
-    {"total1000", "Unstoppable", "Play games for 1,000 hours in all", Kind::Hours, 1000},
+    {"games1", "First steps", "Play your first game", Kind::Games, 1, Tier::Bronze},
+    {"games5", "Explorer", "Play 5 different games", Kind::Games, 5, Tier::Bronze},
+    {"games15", "Globetrotter", "Play 15 different games", Kind::Games, 15, Tier::Silver},
+    {"games30", "Connoisseur", "Play 30 different games", Kind::Games, 30, Tier::Gold},
+    {"lib25", "Collector", "Have 25 games installed", Kind::Installed, 25, Tier::Bronze},
+    {"lib50", "Curator", "Have 50 games installed", Kind::Installed, 50, Tier::Silver},
+    {"lib100", "Archivist", "Have 100 games installed", Kind::Installed, 100, Tier::Gold},
+    {"hunt10", "Achievement hunter", "Earn 10 of your games' own achievements", Kind::Earned, 10, Tier::Silver},
+    {"hunt50", "Trophy room", "Earn 50 of your games' own achievements", Kind::Earned, 50, Tier::Gold},
+    {"night", "Night owl", "Play a game between midnight and 4 a.m.", Kind::Moment, 0, Tier::Bronze},
+    {"total10", "Getting started", "Play games for 10 hours in all", Kind::Hours, 10, Tier::Bronze},
+    {"total100", "Marathon", "Play games for 100 hours in all", Kind::Hours, 100, Tier::Silver},
+    {"total500", "Lifer", "Play games for 500 hours in all", Kind::Hours, 500, Tier::Gold},
+    {"total1000", "Unstoppable", "Play games for 1,000 hours in all", Kind::Hours, 1000, Tier::Gold},
 };
 
 inline const Milestone* milestone(const char* id) {

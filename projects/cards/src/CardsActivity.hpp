@@ -405,11 +405,36 @@ private:
     struct Achieved {
         std::vector<std::string> said; // "Name (Game)" for each new one
         long long newest = 0;          // the latest time anything was earned
+        struct Unlock {
+            std::string name, game;
+            int tier = 0, points = 0;
+        };
+        std::vector<Unlock> unlocks; // each new one, for its medal card
     };
     static Achieved collectAchievements(const std::vector<PlayStat>& stats, const std::map<std::uint64_t, std::string>& names,
                                         bool every, long long seenAt, std::uint32_t installed);
     std::future<Achieved> m_achJob;
     void openAchievements(const Game& g);
+    // Achievements (openTrophies): medals, points and your level; a medal card drops in when one is earned.
+    struct TrophyRow {
+        std::string name, about, status;
+        int tier = 0, points = 0;
+        bool done = false, heading = false;
+        float progress = 0.f;
+    };
+    struct TrophyToast {
+        std::string name, game;
+        int tier = 0, points = 0;
+    };
+    std::vector<TrophyRow> m_trophyRows;
+    std::deque<TrophyToast> m_trophyToasts;
+    bool m_trophyOpen = false;
+    int m_trophySel = 0, m_trophyPoints = 0, m_trophyMedals[3] = {};
+    float m_trophyIn = 0.f, m_trophyScroll = 0.f, m_trophyToastAt = -1.f;
+    void openTrophies();
+    void updateTrophies();
+    void drawTrophies(nxui::Renderer& r);
+    void drawTrophyToast(nxui::Renderer& r);
     std::vector<MenuItem> overallAchievementRows();
     void welcomeBack(const Game& g);        // Achievements > Welcome back, as it starts
     bool m_scanAsked = false;              // Settings > Home > Look for new software
@@ -575,7 +600,7 @@ private:
     nxui::Rect m_topHit[kTopCount]{}, m_chipHit[4]{}, m_bottomHit[5]{};
     // The rail (drawRailM3): what's on it, narrow or opened out (the three bars), and the d-pad on it.
     enum RailKind { kRailTop, kRailPage, kRailExtra };
-    enum RailExtra { kXNews, kXUsers, kXPages, kXQuick, kXUpdates, kXClose }; // (opened out only)
+    enum RailExtra { kXNews, kXUsers, kXPages, kXQuick, kXUpdates, kXClose, kXAchievements }; // (opened out only)
     struct RailEntry {
         int kind = kRailTop, value = 0; // kRailTop: a bar button (kTop...); kRailPage: a page; kRailExtra: RailExtra
     };
