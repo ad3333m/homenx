@@ -172,6 +172,9 @@ jobs:
           xmake install -o dist/frontend --root
           test -s dist/frontend/switch/SwitchU/bin/LICENSE.switube
           test ! -e dist/frontend/atmosphere/contents/4200000000484D58
+          test -s dist/frontend/switch/.overlays/homenx-music.ovl
+          test ! -e dist/frontend/atmosphere/contents/4200000000484D59/flags/boot2.flag
+          test -s dist/frontend/atmosphere/contents/4200000000484D59/exefs.nsp
           test -s dist/frontend/switch/homenx-video/homenx-video.nro
           test -d dist/frontend/atmosphere
           test -d dist/frontend/switch

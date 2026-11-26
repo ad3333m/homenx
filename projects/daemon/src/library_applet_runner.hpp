@@ -7,8 +7,8 @@
 
 namespace switchu::daemon {
 
-Result createForegroundApplet(AppletHolder* holder, AppletId id);
-Result startForegroundApplet(AppletHolder* holder);
+Result createForegroundApplet(AppletHolder* holder, AppletId id, uint64_t timeoutNs = 250000000);
+Result startForegroundApplet(AppletHolder* holder, uint64_t timeoutNs = 250000000);
 
 struct LibraryAppletInput {
     const void* data = nullptr;
@@ -26,6 +26,8 @@ struct LibraryAppletRequest {
     void* output = nullptr;
     std::size_t outputSize = 0;
     std::size_t* outputTransferSize = nullptr;
+    uint64_t launchTimeoutNs = 250000000;
+    void (*reportStage)(const char*, Result) = nullptr;
 };
 
 // Handles what is waiting on the applet-manager channels; returns whether it

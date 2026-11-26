@@ -6,7 +6,7 @@
 namespace switchu::daemon {
 namespace {
 
-Result waitForLaunchable() {
+Result waitForLaunchable(uint64_t timeoutNs) {
     Handle handle = INVALID_HANDLE;
     Service* controller = appletGetServiceSession_SelfController();
     serviceAssumeDomain(controller);
@@ -17,7 +17,7 @@ Result waitForLaunchable() {
         return rc;
     Event event{};
     eventLoadRemote(&event, handle, false);
-    rc = eventWait(&event, 250'000'000ULL);
+    rc = eventWait(&event, timeoutNs);
     eventClose(&event);
     return rc;
 }
@@ -44,8 +44,8 @@ Result exitReasonResult(LibAppletExitReason reason) {
 
 } // namespace
 
-Result createForegroundApplet(AppletHolder* holder, AppletId id) {
-    Result rc = waitForLaunchable();
+Result createForegroundApplet(AppletHolder* holder, AppletId id, uint64_t timeoutNs) {
+    Result rc = waitForLaunchable(timeoutNs);
     if (R_FAILED(rc))
         return rc;
 
@@ -77,8 +77,8 @@ Result createForegroundApplet(AppletHolder* holder, AppletId id) {
     return rc;
 }
 
-Result startForegroundApplet(AppletHolder* holder) {
-    Result rc = waitForLaunchable();
+Result startForegroundApplet(AppletHolder* holder, uint64_t timeoutNs) {
+    Result rc = waitForLaunchable(timeoutNs);
     if (R_FAILED(rc))
         return rc;
     serviceAssumeDomain(&holder->s);
@@ -99,7 +99,8 @@ Result runLibraryApplet(const LibraryAppletRequest& request,
                           request.version, request.inputCount);
 
     HolderGuard guard;
-    Result rc = createForegroundApplet(&guard.holder, request.id);
+    Result rc = createForegroundApplet(&guard.holder, request.id, request.launchTimeoutNs);
+    if (request.reportStage) request.reportStage("applet create", rc);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[applet] %s create FAIL: 0x%X", request.name, rc);
         return rc;
@@ -127,7 +128,8 @@ Result runLibraryApplet(const LibraryAppletRequest& request,
         return rc;
     }
 
-    rc = startForegroundApplet(&guard.holder);
+    rc = startForegroundApplet(&guard.holder, request.launchTimeoutNs);
+    if (request.reportStage) request.reportStage("applet start", rc);
     if (R_FAILED(rc)) {
         switchu::FileLog::log("[applet] %s start FAIL: 0x%X", request.name, rc);
         return rc;

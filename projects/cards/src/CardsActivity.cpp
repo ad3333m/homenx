@@ -2430,19 +2430,23 @@ void CardsActivity::resumeOpen(int index) {
 }
 
 // Another game or app is open: it closes first (starting one ends the other), then `next` starts.
-void CardsActivity::askCloseFirst(std::uint64_t open, const std::string& title, std::uint64_t next) {
+void CardsActivity::askCloseFirst(std::uint64_t open, const std::string& title, std::uint64_t next, std::string appletPath) {
     std::string name = tr("the game that's open");
     for (const auto& page : m_pages)
         for (const Game& o : page)
             if (o.id == open) name = o.name;
-    openMenu(trf("Close {game}?", {name}), {
-        action(trf("Close it and start {game}", {title}), [this, next, name]() {
+    std::vector<MenuItem> choices = {
+        action(trf("Close it and start {game}", {title}), [this, next, name, appletPath]() {
+            m_pendingNroPath = appletPath;
             m_pendingLaunch = next;
             m_launcher.terminateApplication();
             say(trf("Closing {game}...", {name}));
         }, true),
-        action("Cancel", [] {}),
-    });
+    };
+    if (!appletPath.empty()) choices.push_back(action("Keep game open and use applet mode",
+        [this, appletPath] { openNro(appletPath, true); }));
+    choices.push_back(action("Cancel", [] {}));
+    openMenu(trf("Close {game}?", {name}), std::move(choices));
 }
 
 // The daemon closes homebrew on HOME only while this file is there (Settings >
@@ -2462,30 +2466,36 @@ void CardsActivity::syncHomebrewFlag() {
 }
 #endif
 
-void CardsActivity::openNro(const std::string& path) {
+void CardsActivity::openNro(const std::string& path, bool applet) {
     int index = -1;
     for (size_t i = 0; i < games().size(); ++i)
         if (games()[i].path == path) index = static_cast<int>(i);
     if (index >= 0) m_settings.lastGame = idText(games()[(size_t)index].id);
     m_settings.lastPage = m_page >= kPageCount ? m_page : -1;
 #ifdef SWITCHU_MENU
-    if (const std::uint64_t open = runningId()) {
+    if (const std::uint64_t open = applet ? 0 : runningId(); open) {
         if (open == nroId(path)) { // left open (Settings > Home > Keep homebrew open): back to it
             resumeOpen(index);
             return;
         }
         // Another is open: it closes first (starting this one would end it unasked).
         askCloseFirst(open, index >= 0 ? games()[(size_t)index].name : std::filesystem::path(path).stem().string(),
-                      nroId(path));
+                      nroId(path), path);
         return;
     }
-    const std::uint64_t host = hostTitleId();
-    m_settings.hbPath = path; // what's open in that game now (runningId)
-    m_settings.hbHost = idText(host);
-    leave(index, 0.85f, [this, path, host]() {
+    const std::uint64_t host = applet ? 0 : hostTitleId();
+    if (!applet) m_settings.hbPath = path; // what's open in that game now (runningId)
+    if (!applet) m_settings.hbHost = idText(host);
+    if (applet) {
+        if (FILE* log = std::fopen("sdmc:/config/SwitchU/homebrew-applet.log", "w")) {
+            std::fprintf(log, "Applet requested for %s\n", path.c_str());
+            std::fclose(log);
+        }
+    }
+    leave(index, 0.85f, [this, path, host, applet]() {
         m_discord.beginShutdown();
         // (The homebrew menu itself: the Loader puts the user's own back and starts that.)
-        if (!m_launcher.launchNro(path == "sdmc:/hbmenu.nro" ? std::string("hbmenu") : path, host, launchUid())) {
+        if (!m_launcher.launchNro(path == "sdmc:/hbmenu.nro" ? std::string("hbmenu") : path, host, launchUid(), applet ? AppletLauncher::NroMode::Applet : AppletLauncher::NroMode::Default)) {
             comeBack();
             const std::string why = AppletLauncher::loaderError();
             say(why.empty() ? std::string("That app didn't start.") : why);
@@ -2939,6 +2949,12 @@ void CardsActivity::pumpDaemon() {
                 m_settings.hbHost.clear();
                 const std::uint64_t next = m_pendingLaunch;
                 m_pendingLaunch = 0;
+                if (!m_pendingNroPath.empty()) {
+                    auto path = std::move(m_pendingNroPath);
+                    m_pendingNroPath.clear();
+                    openNro(path);
+                    return;
+                }
                 if (next)
                     for (const auto& page : m_pages)
                         for (const Game& g : page)
@@ -3793,6 +3809,10 @@ void CardsActivity::openOptions() {
     items.push_back(action(running ? "Resume" : g.action == "get" ? "Get" : game ? "Play" : "Open", [this]() { play(); }));
     items.back().glyph = g.action == "get" ? "download" : "play";
 #ifdef SWITCHU_MENU
+    if (g.homebrew && !g.path.empty()) {
+        items.push_back(action("Open in applet mode", [this, path = g.path] { openNro(path, true); }));
+        items.back().glyph = "play";
+    }
     if (running) {
         items.push_back(action("Close software", [this]() {
             m_launcher.terminateApplication();
@@ -5639,7 +5659,7 @@ void CardsActivity::showSwitubePage(const Switube::Page& page) {
         items.push_back(std::move(item));
     };
     m_switubeTrackBack = {};
-    if (page.online) {
+    if (page.online || page.background) {
         add("Search YouTube Music", [this, browse] {
             askText("Search YouTube Music", "Song or artist", m_switubeQuery, 127,
                 [this, browse](const std::string& query) {
@@ -5655,8 +5675,15 @@ void CardsActivity::showSwitubePage(const Switube::Page& page) {
         m_musicOpen = true;
         m_musicIn = 0.f;
     });
+    add("Playlists", [browse] { browse(Switube::Browse::Playlists); });
+    if (page.background && page.title == "Playlists")
+        add("Save current queue as playlist", [this, browse] {
+            askText("Save playlist", "Playlist name", "", 60, [browse](const std::string& name) {
+                if (!name.empty()) browse(Switube::Browse::SavePlaylist, 0, 0, name);
+            });
+        });
     if (!page.online) add("YouTube Music", [browse] { browse(Switube::Browse::OnlineHome); });
-    if (page.online) add("Downloads", [browse] { browse(Switube::Browse::Home); });
+    if (page.online || page.background) add("Downloads", [browse] { browse(Switube::Browse::Home); });
     int firstResult = static_cast<int>(items.size());
     if (page.loading) {
         add("Loading...", [] {});
@@ -5670,7 +5697,13 @@ void CardsActivity::showSwitubePage(const Switube::Page& page) {
             auto results = std::make_shared<const Switube::Page>(page);
             for (std::size_t index = 0; index < page.onlineTracks.size(); ++index) {
                 const auto& track = page.onlineTracks[index];
-                add(track.title, [this, browse, results, index] {
+                add(track.title, [this, browse, gen = results->generation, index] {
+                    m_switubeResultGeneration = gen;
+                    m_switubeResultIndex = index;
+                    browse(Switube::Browse::OnlinePlay, gen, index);
+                });
+                items.back().value = [] { return std::string("•••"); };
+                items.back().songOptions = [this, browse, results, index] {
                     const auto& track = results->onlineTracks[index];
                     m_switubeResultGeneration = results->generation;
                     m_switubeResultIndex = index;
@@ -5698,7 +5731,7 @@ void CardsActivity::showSwitubePage(const Switube::Page& page) {
                     openMenu("Track", {std::move(info), std::move(play), std::move(queue), std::move(download), std::move(backButton)});
                     m_menuSel = 1;
                     m_switubeTrackBack = std::move(back);
-                });
+                };
                 items.back().detail = track.artist;
                 items.back().coverUrl = track.cover;
                 items.back().mediaTrack = true;
@@ -5780,7 +5813,7 @@ void CardsActivity::drawMusic(nxui::Renderer& r) {
     float bass = 0.f;
     for (int i = 0; i < 8; ++i) bass += m_viz[(size_t)i] / 8.f;
     m_musicBass += (bass - m_musicBass) * 0.25f;
-    if (playing) m_musicSpin += dt * 1.1f;
+
 
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
     const nxui::Rect card = scaled(kMusicCard, 0.95f + 0.05f * easeOutBack(m_musicIn));
@@ -8001,6 +8034,12 @@ void CardsActivity::closePopup() {
 
 bool CardsActivity::updatePopup() {
     if (m_menu.empty()) return false;
+    if (m_menuSel >= 0 && m_menuSel < static_cast<int>(m_menu.size()) &&
+        m_menu[m_menuSel].songOptions && app().input().isDown(nxui::Button::X)) {
+        auto open = m_menu[m_menuSel].songOptions;
+        open();
+        return true;
+    }
     listInput(m_menu, m_menuSel, [this]() { closePopup(); });
     return true;
 }
@@ -8217,6 +8256,12 @@ bool CardsActivity::handleTouch() {
         nxui::Rect box;
         float rowH = 56.f;
         popupGeometry(m_menu.size(), box, rowH, m_switubeBrowseOpen);
+        if (m_switubeBrowseOpen && box.contains(in.touchStartX(), in.touchStartY()) &&
+            std::abs(in.touchDeltaY()) > rowH * 0.55f) {
+            const int rows = static_cast<int>(std::round(in.touchDeltaY() / rowH));
+            m_menuSel = std::clamp(m_menuSel - rows, 0, static_cast<int>(m_menu.size()) - 1);
+            return true;
+        }
         if (!box.contains(x, y)) {
             closePopup();
             m_audio.play("hide_modal");
@@ -8230,6 +8275,11 @@ bool CardsActivity::handleTouch() {
         m_menuSel = row;
         MenuItem& item = m_menu[(size_t)row];
         const nxui::Rect r{box.x + 14.f, box.y + 66.f + rowH * static_cast<float>(shownRow), box.width - 28.f, rowH - 6.f};
+        if (item.songOptions && x >= r.x + r.width - 80.f) {
+            auto open = item.songOptions;
+            open();
+            return true;
+        }
         if (tapRow(item, r, r.x + r.width - 18.f - 150.f, 150.f) && item.run) {
             auto run = item.run;
             if (!item.stay) m_menu.clear();
@@ -8639,6 +8689,10 @@ void CardsActivity::onUpdate(float dt) {
     step(m_optIn, 0.26f);
     step(m_pickIn, 0.26f);
     step(m_musicIn, 0.26f);
+    if (m_musicOpen && (switubeOn() ? m_sp.playing : m_settings.music && !m_audio.paused())) {
+        m_musicSpin = std::fmod(m_musicSpin + dt * 1.1f, 6.2831853f);
+        app().requestRedraw();
+    }
     step(m_quickListIn, 0.2f);
 #ifdef SWITCHU_MENU
     step(m_newsIn, 0.24f);
@@ -10339,7 +10393,10 @@ void CardsActivity::drawPopup(nxui::Renderer& r) {
             r.drawRect({row.x + 16.f, row.y + row.height + 2.5f, row.width - 32.f, 1.f}, nxui::Color(1.f, 1.f, 1.f, 0.08f * a));
         drawRow(r, m_menu[i], row, at == m_menuSel, a, false);
     }
-    drawHints(r, box.x + box.width - 24.f, box.y + box.height - 26.f, {{"A", "Choose"}, {"B", "Back"}}, a);
+    if (m_menuSel >= 0 && m_menuSel < static_cast<int>(n) && m_menu[m_menuSel].songOptions)
+        drawHints(r, box.right() - 24.f, box.bottom() - 26.f, {{"A", "Play"}, {"X", "Options"}, {"B", "Back"}}, a);
+    else
+        drawHints(r, box.right() - 24.f, box.bottom() - 26.f, {{"A", "Choose"}, {"B", "Back"}}, a);
 }
 
 void CardsActivity::drawHints(nxui::Renderer& r, float right, float cy,

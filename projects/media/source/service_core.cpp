@@ -113,6 +113,31 @@ void ServiceCore::publishQueue(uint32_t index, uint32_t count,
   changedLocked(monotonicMs);
 }
 
+void ServiceCore::replaceQueue(std::vector<SwitubeIpcBrowseItem> items, uint32_t index, uint64_t now) {
+  std::scoped_lock lock(mutex);
+  queueItems = std::move(items);
+  ++status.reserved0; // Queue revision for clients with the Queue capability.
+  status.queue_index = index;
+  status.queue_count = queueItems.size();
+  changedLocked(now);
+}
+
+bool ServiceCore::queueItem(uint32_t index, SwitubeIpcBrowseItem& item) const {
+  std::scoped_lock lock(mutex);
+  if (index >= queueItems.size()) return false;
+  item = queueItems[index];
+  item.generation = status.reserved0;
+  return true;
+}
+
+void ServiceCore::publishPlaybackOptions(bool shuffle, uint32_t repeat, uint64_t now) {
+  std::scoped_lock lock(mutex);
+  setFlagLocked(SwitubeStatusFlag_Shuffle, shuffle);
+  setFlagLocked(SwitubeStatusFlag_RepeatOne, repeat == SwitubeRepeatMode_One);
+  setFlagLocked(SwitubeStatusFlag_RepeatAll, repeat == SwitubeRepeatMode_All);
+  changedLocked(now);
+}
+
 void ServiceCore::publishVolume(uint32_t volumePermille, uint64_t monotonicMs) {
   std::scoped_lock lock(mutex);
   status.volume_permille = std::min(volumePermille, 1000u);
@@ -273,7 +298,7 @@ SwitubeControlResult ServiceCore::submit(SwitubeIpcCommand command,
 
 SwitubeControlResult ServiceCore::submitBrowse(
     SwitubeIpcCommand command, const SwitubeIpcBrowseRequest& request,
-    uint64_t monotonicMs) {
+    uint64_t monotonicMs, const SwitubeIpcOnlineTrack& track) {
   std::scoped_lock lock(mutex);
   if (!acceptingCommands) {
     status.last_result = SwitubeControlResult_BackendUnavailable;
@@ -294,6 +319,7 @@ SwitubeControlResult ServiceCore::submitBrowse(
       .generation = request.generation,
       .query = {},
   };
+  commands[tail].track = track;
   std::memcpy(commands[tail].query.data(), request.query,
               std::min(sizeof(commands[tail].query), sizeof(request.query)));
   commands[tail].query.back() = '\0';

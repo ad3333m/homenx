@@ -79,7 +79,12 @@ std::string transferAudio(const std::string& url, std::uint64_t expectedBytes,
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, +[](char* data, size_t size, size_t count, void* context) -> size_t {
         auto& bytes = static_cast<Range*>(context)->bytes;
         const auto length = size * count;
+#ifdef HOMENX_STREAMING_MODULE
+        // Bound RAM even when the server ignores the Range header.
+        if (length > rangeSize - bytes.size()) return 0;
+#else
         if (length > maxAudioBytes - bytes.size()) return 0;
+#endif
         try {
             bytes.insert(bytes.end(), data, data + length);
         } catch (...) {

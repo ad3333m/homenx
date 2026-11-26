@@ -40,6 +40,8 @@ public:
     // applicationOnly: never the Album (applet mode); false if that's not possible.
     bool launchNro(const std::string& path, uint64_t hostTitleId = 0, AccountUid uid = {},
                    bool applicationOnly = false);
+    enum class NroMode { Default, Application, Applet };
+    bool launchNro(const std::string& path, uint64_t hostTitleId, AccountUid uid, NroMode mode);
     Result createMii();
     enum class FriendScreen { AddFriend, Requests };
     Result openFriendScreen(FriendScreen screen, AccountUid uid);

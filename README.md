@@ -169,3 +169,30 @@ The output goes to `build/cross/aarch64/release/`.
 ## License
 
 GPL-3.0: see [LICENSE](LICENSE). HomeNX is not affiliated with Nintendo. No games are provided.
+
+## In-game YouTube Music
+
+When upgrading from a music build with autostart, rename
+`atmosphere/contents/4200000000484D59/flags/boot2.flag` to `boot2.flag.disabled`
+on the SD card before rebooting. Extract the new package to the card root.
+During a game, open Tesla or Ultrahand, select **HomeNX Music**, and press X to
+start the sysmodule. If Horizon declines the launch, the overlay displays the result code.
+
+In the HOME YouTube Music menu, **Play** and **Add to queue** start the music
+sysmodule on demand. The HOME player and overlay share the same queue and volume. **Downloads**
+lists songs saved by HomeNX or Switube and plays them directly from the SD card.
+
+To keep a queue, open **Playlists** in the HOME music browser, choose **Save
+current queue as playlist**, and give it a name. Open the saved playlist from
+HOME or the in-game music overlay and select a song to start there. Playlists
+preserve the order of streamed songs and downloads on the SD card.
+
+On the Homebrew page, press **+** on an installed NRO and choose **Open in applet mode**.
+If another game is running, opening a homebrew card offers to close the game or
+keep it suspended while using applet mode.
+
+Open **Find a song** to type with the touch or controller keyboard, or choose
+**Discover songs**. Tap a result or highlight it and press A. Playback advances
+through the results and continues after you close the overlay. On the player
+screen, Y toggles playback, L and R skip tracks, and the slider controls music
+volume independently of the game. Streaming requires an internet connection.

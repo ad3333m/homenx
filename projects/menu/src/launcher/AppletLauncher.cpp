@@ -19,6 +19,10 @@
 #include <fstream>
 #include <cstdio>
 
+bool AppletLauncher::launchNro(const std::string& path, uint64_t hostTitleId, AccountUid uid, bool applicationOnly) {
+    return launchNro(path, hostTitleId, uid, applicationOnly ? NroMode::Application : NroMode::Default);
+}
+
 void AppletLauncher::init(Callbacks cbs) {
     m_cb = std::move(cbs);
 }
@@ -237,9 +241,17 @@ std::vector<std::uint8_t> loaderBytes() {
 #endif
 }
 
-std::vector<std::uint8_t> fileBytes(const char* path) {
+bool matchesLoader(const char* path, const std::vector<std::uint8_t>& loader) {
+    std::error_code ec;
+    if (std::filesystem::file_size(path, ec) != loader.size() || ec) return false;
     std::ifstream in(path, std::ios::binary);
-    return std::vector<std::uint8_t>{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    char chunk[4096];
+    for (size_t offset = 0; offset < loader.size();) {
+        const auto length = std::min(sizeof(chunk), loader.size() - offset);
+        if (!in.read(chunk, length) || std::memcmp(chunk, loader.data() + offset, length)) return false;
+        offset += length;
+    }
+    return true;
 }
 } // namespace
 
@@ -254,7 +266,7 @@ bool AppletLauncher::installLoader() {
     }
     std::error_code ec;
     if (std::filesystem::exists(kHbmenu, ec)) {
-        if (fileBytes(kHbmenu) == loader) return true; // already installed
+        if (matchesLoader(kHbmenu, loader)) return true; // already installed
         if (!nroNamed(kHbmenu, "HomeNX-Loader")) {
             // Keep the user's own hbmenu (newest one wins) for the Loader's fallback.
             std::filesystem::remove(kHbmenuOriginal, ec);
@@ -278,7 +290,7 @@ bool AppletLauncher::installLoader() {
         ec.clear();
         std::filesystem::rename(tmp, kHbmenu, ec);
     }
-    if (!written || ec || fileBytes(kHbmenu) != loader) {
+    if (!written || ec || !matchesLoader(kHbmenu, loader)) {
         g_loaderError = "Couldn't write sdmc:/hbmenu.nro (" +
             (ec ? ec.message() : std::string(written ? "verify failed" : std::strerror(errno))) + ").";
         std::filesystem::remove(tmp, ec);
@@ -450,36 +462,32 @@ constexpr const char* kHblDir = "sdmc:/switch/SwitchU/bin/hbl";
 constexpr const char* kHblNsp = "sdmc:/atmosphere/hbl.nsp";
 }
 
-// hbl.nsp's npdm declares the process an applet (kernel capability "application
-// type" = 2). Atmosphère's own hbl-over-a-game path swaps in the game's
-// capabilities; launching it as external code doesn't, so AM rejected the
-// borrowed game and Sphaira fell back to HOME. Declare it an application (1), in
-// both the ACI0 and the ACID kernel capabilities (the ACI0 must fit the ACID).
-// Capability word for the type: (type << 14) | 0x1FFF.
-static bool patchHblNpdmAsApplication(std::vector<char>& npdm) {
-    auto u32At = [&](std::size_t off) -> u32 {
-        u32 v = 0;
-        if (off + 4 <= npdm.size()) std::memcpy(&v, npdm.data() + off, 4);
-        return v;
+// ECS supplies raw code, so match both the process type and the physical
+// memory pool to the game or Album that will host hbloader.
+static bool configureHblHost(std::vector<char>& npdm, bool applet) {
+    auto read = [&](size_t off) {
+        u32 value;
+        std::memcpy(&value, npdm.data() + off, sizeof(value));
+        return value;
     };
-    auto patchKac = [&](std::size_t kacOff, std::size_t kacSize) {
-        int patched = 0;
-        for (std::size_t off = kacOff; off + 4 <= kacOff + kacSize && off + 4 <= npdm.size(); off += 4) {
-            const u32 cap = u32At(off);
-            if ((cap & 0x3FFF) == 0x1FFF && ((cap >> 14) & 7) != 1) {
-                const u32 app = (1u << 14) | 0x1FFF;
-                std::memcpy(npdm.data() + off, &app, 4);
-                ++patched;
-            }
+    if (npdm.size() < 0x80 || read(0) != 0x4154454D) return false;
+    const size_t aci = read(0x70), acid = read(0x78);
+    if (aci + 0x38 > npdm.size() || acid + 0x238 > npdm.size() ||
+        read(aci) != 0x30494341 || read(acid + 0x200) != 0x44494341) return false;
+    auto setType = [&](size_t base, size_t descriptor) {
+        size_t start = base + read(descriptor), bytes = read(descriptor + 4);
+        if (start > npdm.size() || bytes > npdm.size() - start || bytes % 4) return false;
+        for (size_t off = start; off < start + bytes; off += 4) {
+            if ((read(off) & 0x3FFF) != 0x1FFF) continue;
+            const u32 cap = ((applet ? 2u : 1u) << 14) | 0x1FFF;
+            std::memcpy(npdm.data() + off, &cap, sizeof(cap));
+            return true;
         }
-        return patched;
+        return false;
     };
-    if (npdm.size() < 0x80 || u32At(0) != 0x4154454D /* META */) return false;
-    const std::size_t aci = u32At(0x70), acid = u32At(0x78);
-    if (u32At(aci) != 0x30494341 /* ACI0 */ || u32At(acid + 0x200) != 0x44494341 /* ACID */) return false;
-    const int a = patchKac(aci + u32At(aci + 0x30), u32At(aci + 0x34));
-    const int b = patchKac(acid + u32At(acid + 0x230), u32At(acid + 0x234));
-    DebugLog::log("[launcher] hbl npdm application type patched aci=%d acid=%d", a, b);
+    if (!setType(aci, aci + 0x30) || !setType(acid, acid + 0x230)) return false;
+    const u32 flags = (read(acid + 0x20C) & ~0x3Cu) | (applet ? 4u : 0u);
+    std::memcpy(npdm.data() + acid + 0x20C, &flags, sizeof(flags));
     return true;
 }
 
@@ -490,7 +498,7 @@ bool AppletLauncher::prepareHbl() {
     const std::string stampPath = std::string(kHblDir) + "/source-size";
     if (!std::filesystem::exists(kHblNsp, ec)) return false;
     // "-app": stamp of npdms patched to application type (older ones get redone).
-    const std::string size = std::to_string(std::filesystem::file_size(kHblNsp, ec)) + "-app-and-applet";
+    const std::string size = std::to_string(std::filesystem::file_size(kHblNsp, ec)) + "-app-pool-v2-and-applet";
     {
         std::ifstream stamp(stampPath);
         std::string seen;
@@ -525,11 +533,12 @@ bool AppletLauncher::prepareHbl() {
         if (n != "main" && n != "main.npdm") continue;
         std::vector<char> data(nsp.begin() + dataStart + e.offset,
                                nsp.begin() + dataStart + e.offset + e.size);
+        if (n == "main.npdm" && !configureHblHost(data, true)) return false;
         std::ofstream appletFile(std::string(kHblAppletDir) + "/" + n, std::ios::binary | std::ios::trunc);
         appletFile.write(data.data(), static_cast<std::streamsize>(data.size()));
         appletFile.close();
         if (!appletFile) return false;
-        if (n == "main.npdm" && !patchHblNpdmAsApplication(data)) return false;
+        if (n == "main.npdm" && !configureHblHost(data, false)) return false;
         std::ofstream appFile(std::string(kHblDir) + "/" + n, std::ios::binary | std::ios::trunc);
         appFile.write(data.data(), static_cast<std::streamsize>(data.size()));
         appFile.close();
@@ -543,7 +552,8 @@ bool AppletLauncher::prepareHbl() {
 
 // Prefer application mode unless the caller or settings select an applet.
 static bool startHomebrew(uint64_t hostTitleId, AccountUid uid,
-                          const AppletLauncher::Callbacks& cb, bool applicationOnly = false) {
+                          const AppletLauncher::Callbacks& cb, AppletLauncher::NroMode mode) {
+    const bool applicationOnly = mode == AppletLauncher::NroMode::Application;
     std::error_code ec;
     // A fresh session: the Loader ends the process when it's started again in the
     // one it recorded here (the homebrew was closed). See projects/loader.
@@ -557,8 +567,8 @@ static bool startHomebrew(uint64_t hostTitleId, AccountUid uid,
     }
     // Settings > HomeNX "Sphaira as an application" off. No game to borrow
     // (hostTitleId 0): the daemon finds one itself.
-    const bool appletOnly = !applicationOnly
-        && std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec);
+    const bool appletOnly = mode == AppletLauncher::NroMode::Applet || (!applicationOnly
+        && std::filesystem::exists("sdmc:/switch/SwitchU/homebrew_applet_mode", ec));
     if (!appletOnly && std::filesystem::exists(std::string(kHblDir) + "/main", ec)) {
         const Result rc = switchu::menu::smi_cmd::launchHomebrewApp(uid, hostTitleId);
         DebugLog::log("[launcher] homebrew as application via %016lX rc=0x%X", hostTitleId, rc);
@@ -584,13 +594,13 @@ bool AppletLauncher::launchSphaira(uint64_t hostTitleId, AccountUid uid) {
 }
 
 bool AppletLauncher::launchNro(const std::string& path, uint64_t hostTitleId, AccountUid uid,
-                               bool applicationOnly) {
+                               NroMode mode) {
     if (!prepareHbl()) {
         g_loaderError = "Couldn't prepare Atmosphère's homebrew loader.";
         return false;
     }
     if (!installLoader()) return false;
-    if (writeLine(kLoaderNext, path) && startHomebrew(hostTitleId, uid, m_cb, applicationOnly))
+    if (writeLine(kLoaderNext, path) && startHomebrew(hostTitleId, uid, m_cb, mode))
         return true;
     std::remove(kLoaderNext);
     restoreHbmenu();
@@ -691,7 +701,7 @@ void AppletLauncher::launchAlbum()     { logRc("album", albumLaShowAllAlbumFiles
 
 // Hand the process to Sphaira through hbloader, so it keeps HomeNX's mode
 // (application mode when HomeNX was started over a game).
-bool AppletLauncher::launchNro(const std::string& path, uint64_t, AccountUid, bool) {
+bool AppletLauncher::launchNro(const std::string& path, uint64_t, AccountUid, NroMode) {
     std::string args = "\"" + path + "\"";
     Result rc = envSetNextLoad(path.c_str(), args.c_str());
     logRc(path.c_str(), rc);

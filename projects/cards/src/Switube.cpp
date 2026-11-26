@@ -1,5 +1,6 @@
 #ifdef HOMENX_NATIVE_YOUTUBE
 #include "NativeYoutube.hpp"
+#include "download_path.hpp"
 #endif
 #include "Switube.hpp"
 #include <algorithm>
@@ -137,7 +138,9 @@ void Switube::run() {
     Service service{};
 #ifdef HOMENX_NATIVE_YOUTUBE
     NativeYoutube youtube(m_onlineAbort);
-    bool usingYoutube = false;
+    bool module = false;
+    u32 queueRevision = UINT32_MAX;
+    std::vector<Now::QueueTrack> moduleQueue;
 #endif
     bool startupPending = false, browsing = false;
     auto startupDeadline = Clock::now();
@@ -145,6 +148,11 @@ void Switube::run() {
     std::uint64_t pageGeneration = UINT64_MAX;
     std::uint32_t pageState = UINT32_MAX;
     auto disconnect = [&] {
+#ifdef HOMENX_NATIVE_YOUTUBE
+        module = false;
+        queueRevision = UINT32_MAX;
+        moduleQueue.clear();
+#endif
         serviceClose(&service);
         std::lock_guard<std::mutex> lock(m_mu);
         m_now = {};
@@ -181,8 +189,62 @@ void Switube::run() {
         }
         nextPoll = Clock::now() + std::chrono::milliseconds(500);
 #ifdef HOMENX_NATIVE_YOUTUBE
-        if (!haveRequest) youtube.tick();
-        if (const auto failure = youtube.takePlaybackError(); !failure.empty()) error(failure);
+        const bool onlinePlayback = haveRequest && request.browsing &&
+            (request.browse == Browse::OnlinePlay || request.browse == Browse::OnlineQueue);
+        auto connectModule = [&] {
+            const auto name = smEncodeName(HOMENX_MUSIC_SERVICE);
+            u8 registered = 0;
+            Service candidate{};
+            if (R_FAILED(tipcDispatchInOut(smGetServiceSessionTipc(), 65100, name, registered)) ||
+                !registered || R_FAILED(smGetService(&candidate, HOMENX_MUSIC_SERVICE))) return false;
+            if (serviceIsActive(&service))
+                serviceDispatch(&service, SwitubeIpcCommand_Pause);
+            serviceClose(&service);
+            service = candidate;
+            module = true;
+            browsing = startupPending = false;
+            return true;
+        };
+        if (!module && !connectModule() && (onlinePlayback || (haveRequest && request.browsing &&
+            (request.browse == Browse::Playlists || request.browse == Browse::SavePlaylist)))) {
+            Result rc = pmshellInitialize();
+            if (R_SUCCEEDED(rc)) {
+                NcmProgramLocation location{HOMENX_MUSIC_PROGRAM_ID, NcmStorageId_None, {}};
+                u64 pid;
+                rc = pmshellLaunchProgram(0, &location, &pid);
+                pmshellExit();
+            }
+            for (int i = 0; R_SUCCEEDED(rc) && i < 40 && !m_onlineAbort && !connectModule(); ++i)
+                svcSleepThread(100000000);
+            if (!module) {
+                char detail[96];
+                std::snprintf(detail, sizeof(detail), "Could not start HomeNX Music (0x%X).", rc);
+                std::lock_guard lock(m_mu);
+                m_page = youtube.page();
+                m_page.message = R_FAILED(rc) ? detail : "Music service did not register.";
+                m_pageNew = true;
+                continue;
+            }
+        }
+        if (onlinePlayback) {
+            const auto* track = youtube.selectedTrack(request.generation, request.index);
+            std::string message = "This result is no longer available.";
+            if (track) {
+                SwitubeIpcOnlineTrack wire{};
+                std::snprintf(wire.id, sizeof(wire.id), "%s", track->id.c_str());
+                std::snprintf(wire.title, sizeof(wire.title), "%s", track->title.c_str());
+                std::snprintf(wire.artist, sizeof(wire.artist), "%s", track->artist.c_str());
+                wire.duration_ms = track->durationMs;
+                bool play = request.browse == Browse::OnlinePlay;
+                Result rc = serviceDispatchIn(&service, play ? SwitubeIpcCommand_PlayOnlineTrack : SwitubeIpcCommand_QueueOnlineTrack, wire);
+                message = R_FAILED(rc) ? "Music service rejected the track." : play ? "Opening stream…" : "Sent to queue.";
+            }
+            std::lock_guard lock(m_mu);
+            m_page = youtube.page(message);
+            m_pageNew = true;
+            browsing = false;
+            continue;
+        }
         if (haveRequest && request.browsing && youtube.handles(request.browse)) {
             Page page;
             try {
@@ -190,51 +252,12 @@ void Switube::run() {
             } catch (const std::exception& ex) {
                 error(std::string("YouTube Music request failed: ") + ex.what());
             }
-            if (request.browse == Browse::OnlinePlay && youtube.active()) {
-                usingYoutube = true;
-                if (serviceIsActive(&service))
-                    serviceDispatch(&service, SwitubeIpcCommand_Pause);
-            }
-            if (!m_onlineAbort) {
+            if (!m_onlineAbort && page.online) {
                 std::lock_guard lock(m_mu);
-                if (request.browse == Browse::OnlineQueue && youtube.hasQueue() && !m_now.active)
-                    usingYoutube = true;
-                if (page.online) {
-                    m_page = std::move(page);
-                    m_pageNew = true;
-                }
-                if (usingYoutube) {
-                    m_now = youtube.now();
-                } else {
-                    m_now.queue.clear();
-                    youtube.describeQueue(m_now);
-                    m_now.queueIndex = -1;
-                    m_now.at = armGetSystemTick();
-                }
+                m_page = std::move(page);
+                m_pageNew = true;
             }
             browsing = false;
-            continue;
-        }
-        if (haveRequest && request.browsing && request.browse == Browse::Play) {
-            youtube.stop();
-            usingYoutube = false;
-        }
-        if (haveRequest && !request.browsing && request.cmd == Cmd::PlayQueued && youtube.hasQueue()) {
-            if (youtube.command(request.cmd, request.value)) {
-                usingYoutube = true;
-                if (serviceIsActive(&service))
-                    serviceDispatch(&service, SwitubeIpcCommand_Pause);
-            } else {
-                error("Could not play the queued song.");
-                continue;
-            }
-            haveRequest = browsing = false;
-        }
-        if (usingYoutube && ((!haveRequest && !browsing) || (haveRequest && !request.browsing))) {
-            if (haveRequest && !youtube.command(request.cmd, request.value))
-                error("Could not play the queued song.");
-            std::lock_guard lock(m_mu);
-            m_now = youtube.now();
             continue;
         }
 #endif
@@ -303,15 +326,35 @@ void Switube::run() {
                     SwitubeIpcCommand_BrowseSearch, SwitubeIpcCommand_BrowseOpen,
                     SwitubeIpcCommand_BrowseBack, SwitubeIpcCommand_BrowsePlay};
                 const auto command = static_cast<unsigned>(request.browse);
-                if (command >= std::size(cmds)) continue;
-                rc = serviceDispatchIn(&service, cmds[command], wire);
+                u32 wireCommand;
+#ifdef HOMENX_NATIVE_YOUTUBE
+                if (module && request.browse == Browse::Home) wireCommand = SwitubeIpcCommand_BrowseLibrary;
+                else if (module && request.browse == Browse::Playlists) wireCommand = SwitubeIpcCommand_ListPlaylists;
+                else if (module && request.browse == Browse::SavePlaylist) wireCommand = SwitubeIpcCommand_SavePlaylist;
+                else
+#endif
+                {
+                    if (command >= std::size(cmds)) continue;
+                    wireCommand = cmds[command];
+                }
+                rc = serviceDispatchIn(&service, wireCommand, wire);
                 browsing = true; pageGeneration = UINT64_MAX; pageState = UINT32_MAX;
             } else {
                 const Now n = decode(status, 0);
                 u32 value = 0, cmd = 0;
                 bool input = false;
                 switch (request.cmd) {
-                    case Cmd::PlayQueued: continue;
+                    case Cmd::PlayQueued:
+#ifdef HOMENX_NATIVE_YOUTUBE
+                        if (module) {
+                            SwitubeIpcBrowseRequest wire{};
+                            wire.generation = queueRevision;
+                            wire.index = request.value;
+                            rc = serviceDispatchIn(&service, SwitubeIpcCommand_PlayQueueItem, wire);
+                            if (R_FAILED(rc)) failed(rc);
+                        }
+#endif
+                        continue;
                     case Cmd::PlayPause: cmd = SwitubeIpcCommand_PlayPause; break;
                     case Cmd::Next: cmd = SwitubeIpcCommand_Next; break;
                     case Cmd::Previous: cmd = SwitubeIpcCommand_Previous; break;
@@ -327,12 +370,40 @@ void Switube::run() {
         }
         auto snapshot = decode(status, armGetSystemTick());
 #ifdef HOMENX_NATIVE_YOUTUBE
-        if (usingYoutube) {
-            snapshot = youtube.now();
+        if (module) {
+            if (queueRevision != status.reserved0) {
+                std::vector<Now::QueueTrack> tracks;
+                for (u32 i = 0; i < std::min(status.queue_count, 256u); ++i) {
+                    SwitubeIpcBrowseItem item{};
+                    if (R_FAILED(serviceDispatchInOut(&service, SwitubeIpcCommand_GetQueueItem, i, item))
+                        || item.generation != status.reserved0) break;
+                    tracks.push_back({bounded(item.name), bounded(item.subtitle), bounded(item.detail)});
+                }
+                if (tracks.size() == status.queue_count) {
+                    moduleQueue = std::move(tracks);
+                    queueRevision = status.reserved0;
+                }
+            }
+            snapshot.queue = moduleQueue;
+            snapshot.queueIndex = status.queue_index < snapshot.queue.size() ? static_cast<int>(status.queue_index) : -1;
+            if (snapshot.active && snapshot.queueIndex >= 0) {
+                std::string_view id = snapshot.queue[snapshot.queueIndex].trackId;
+                const char* directory = nullptr;
+                if (id.starts_with("native:")) { id.remove_prefix(7); directory = switube::kNativeDownloadsDirectory; }
+                else if (id.starts_with("switube:")) { id.remove_prefix(8); directory = switube::kDownloadsDirectory; }
+                if (switube::validTrackId(id)) {
+                    snapshot.cover = "https://i.ytimg.com/vi/" + std::string(id) + "/default.jpg";
+                    if (directory) {
+                        const auto file = directory + std::string(id) + ".jpg";
+                        struct stat info{};
+                        if (stat(file.c_str(), &info) == 0 && S_ISREG(info.st_mode)) snapshot.cover = file;
+                    }
+                }
+            }
         } else {
             youtube.describeQueue(snapshot);
             snapshot.queueIndex = -1;
-            if (snapshot.active) {
+            if (snapshot.active && !module) {
                 if (FILE* file = std::fopen("sdmc:/config/SwitchU/media/current-artwork-url", "r")) {
                     char cover[2049]{};
                     if (std::fgets(cover, sizeof(cover), file)) {
@@ -357,6 +428,9 @@ void Switube::run() {
         }
         if (header.generation == pageGeneration && header.state == pageState) continue;
         Page page;
+#ifdef HOMENX_NATIVE_YOUTUBE
+        page.background = module;
+#endif
         page.loading = header.state == SwitubeBrowseState_Loading;
         page.generation = header.generation; page.depth = header.depth;
         page.title = bounded(header.title); page.message = bounded(header.message);

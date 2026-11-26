@@ -11,6 +11,8 @@ extern "C" {
 #endif
 
 #define SWITUBE_IPC_SERVICE_NAME "homenxmd"
+#define HOMENX_MUSIC_SERVICE "hnxmusic"
+#define HOMENX_MUSIC_PROGRAM_ID UINT64_C(0x4200000000484D59)
 #define HOMENX_MEDIA_READY_TAG "daemon-media-v1"
 #define HOMENX_MEDIA_READY_PATH "sdmc:/config/SwitchU/media/background-ready.log"
 
@@ -42,6 +44,7 @@ typedef enum SwitubeIpcCommand {
 
     SwitubeIpcCommand_GetBrowseHeader = 20,
     SwitubeIpcCommand_GetBrowseItem = 21,
+    SwitubeIpcCommand_GetQueueItem = 22,
 
     SwitubeIpcCommand_BrowseHome = 30,
     SwitubeIpcCommand_BrowseLibrary = 31,
@@ -51,7 +54,19 @@ typedef enum SwitubeIpcCommand {
     SwitubeIpcCommand_BrowsePlay = 35,
     SwitubeIpcCommand_BrowseCurrentPlaylist = 36,
     SwitubeIpcCommand_BrowseQueue = 37,
+    SwitubeIpcCommand_PlayQueueItem = 38,
+    SwitubeIpcCommand_PlayOnlineTrack = 39,
+    SwitubeIpcCommand_QueueOnlineTrack = 40,
+    SwitubeIpcCommand_ListPlaylists = 41,
+    SwitubeIpcCommand_SavePlaylist = 42,
 } SwitubeIpcCommand;
+
+typedef struct SwitubeIpcOnlineTrack {
+    char id[12];
+    char title[80];
+    char artist[64];
+    uint32_t duration_ms;
+} SwitubeIpcOnlineTrack;
 
 typedef enum SwitubeIpcCapability {
     SwitubeIpcCapability_Status = UINT64_C(1) << 0u,

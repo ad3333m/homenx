@@ -48,6 +48,15 @@ Result handle(void*, const SwitubeIpcServerRequest* request, uint8_t* output,
               size_t* outputSize) {
   const auto command = static_cast<SwitubeIpcCommand>(request->command_id);
   switch (command) {
+    case SwitubeIpcCommand_PlayOnlineTrack:
+    case SwitubeIpcCommand_QueueOnlineTrack: {
+      SwitubeIpcOnlineTrack track{};
+      if (!request->data || request->data_size < sizeof(track))
+        return controlResult(SwitubeControlResult_InvalidArgument);
+      std::memcpy(&track, request->data, sizeof(track));
+      track.id[sizeof(track.id)-1] = track.title[sizeof(track.title)-1] = track.artist[sizeof(track.artist)-1] = 0;
+      return controlResult(serviceCore->submitBrowse(command, {}, monotonicMs(), track));
+    }
     case SwitubeIpcCommand_Ping:
       return 0;
     case SwitubeIpcCommand_GetApiVersion: {
@@ -66,10 +75,11 @@ Result handle(void*, const SwitubeIpcServerRequest* request, uint8_t* output,
       const SwitubeIpcBrowseHeader header = serviceCore->browseHeader();
       return writeOutput(output, outputSize, header);
     }
+    case SwitubeIpcCommand_GetQueueItem:
     case SwitubeIpcCommand_GetBrowseItem: {
       uint32_t index = 0;
       SwitubeIpcBrowseItem item{};
-      if (!readU32(request, index) || !serviceCore->browseItem(index, item))
+      if (!readU32(request, index) || !(command == SwitubeIpcCommand_GetQueueItem ? serviceCore->queueItem(index, item) : serviceCore->browseItem(index, item)))
         return MAKERESULT(Module_Libnx, LibnxError_NotFound);
       return writeOutput(output, outputSize, item);
     }
@@ -77,8 +87,9 @@ Result handle(void*, const SwitubeIpcServerRequest* request, uint8_t* output,
       break;
   }
 
-  if (command >= SwitubeIpcCommand_BrowseHome &&
-      command <= SwitubeIpcCommand_BrowseQueue) {
+  if ((command >= SwitubeIpcCommand_BrowseHome &&
+       command <= SwitubeIpcCommand_PlayQueueItem) || command == SwitubeIpcCommand_ListPlaylists ||
+      command == SwitubeIpcCommand_SavePlaylist) {
     SwitubeIpcBrowseRequest browseRequest{};
     if (!readBrowseRequest(request, browseRequest))
       return controlResult(SwitubeControlResult_InvalidArgument);
@@ -100,8 +111,8 @@ Result handle(void*, const SwitubeIpcServerRequest* request, uint8_t* output,
 
 }  // namespace
 
-Result initialize(ServiceCore& core) {
-  const Result rc = switubeIpcServerInitialize(&server, SWITUBE_IPC_SERVICE_NAME, MaxWaiters - 1);
+Result initialize(ServiceCore& core, const char* name) {
+  const Result rc = switubeIpcServerInitialize(&server, name, MaxWaiters - 1);
   if (R_SUCCEEDED(rc)) serviceCore = &core;
   return rc;
 }

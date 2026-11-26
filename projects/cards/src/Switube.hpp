@@ -24,18 +24,18 @@ public:
         int repeat = 0; // UI order: off, all, one (Switube's wire order differs)
         int progressMs = 0, durationMs = 0, volume = -1;
         std::string track, artist, cover;
-        struct QueueTrack { std::string title, artist; };
+        struct QueueTrack { std::string title, artist; std::string trackId{}; };
         std::vector<QueueTrack> queue;
         int queueIndex = -1;
         std::uint64_t at = 0;
     };
     enum class Cmd { PlayPause, Next, Previous, Shuffle, Repeat, Volume, PlayQueued };
-    enum class Browse { Home, Library, Search, Open, Back, Play, OnlineHome, OnlineSearch, OnlinePlay, OnlineDownload, OnlineQueue };
+    enum class Browse { Home, Library, Search, Open, Back, Play, OnlineHome, OnlineSearch, OnlinePlay, OnlineDownload, OnlineQueue, Playlists, SavePlaylist };
     struct OnlineTrack {
         std::string title, artist, cover;
     };
     struct Page {
-        bool loading = false, online = false;
+        bool loading = false, online = false, background = false;
         std::uint64_t generation = 0;
         unsigned depth = 0;
         std::string title, message;

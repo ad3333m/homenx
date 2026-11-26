@@ -552,3 +552,41 @@ target("homenx-video")
     set_values("switch.icon", "projects/manager/icon.jpg")
     set_values("switch.format", "nro")
 target_end()
+
+target("homenx-music")
+    set_kind("binary")
+    if not is_plat("cross") or has_config("homebrew") then
+        set_enabled(false)
+        return
+    end
+    set_toolchains("devkita64")
+    set_languages("c++20")
+    add_rules("switch")
+    add_defines("HOMENX_STREAMING_MODULE")
+    add_includedirs("lib/nxui/include", "projects/common/include", "projects/media/source",
+                    "projects/media/online", "projects/media/upstream")
+    add_ldflags("-Wl,--wrap=csrngInitialize,--wrap=csrngExit,--wrap=csrngGetRandomBytes", {force = true})
+    add_files("projects/music/module/main.cpp", "projects/music/module/curl_entropy.c", "projects/media/source/ipc_server.c",
+              "projects/media/source/service_core.cpp", "projects/media/source/switube_service.cpp",
+              "projects/media/source/ffmpeg_custom_list.c", "projects/media/source/ffmpeg_stubs.c",
+              "projects/media/online/yt_music_client.cpp", "projects/media/online/yt_audio_player.cpp",
+              "projects/media/online/media_transfer.cpp", "projects/media/online/pcm_output.cpp",
+              "projects/media/upstream/NXConsoleLog.cpp")
+    add_packages("libcurl", "nlohmann_json")
+    add_linkgroups("avformat", "avcodec", "swresample",
+                   "avutil", "opus", "vorbis", "ogg", "curl", "bz2", "z", "nx", {group = true})
+    set_values("switch.name", "homenx-music")
+    set_values("switch.tid", "4200000000484D59")
+    set_values("switch.json", "projects/music/module/music.json")
+    set_values("switch.format", "nsp")
+    after_build(function ()
+        os.vrunv("make", {"-C", path.join(os.projectdir(), "projects/music/overlay")})
+    end)
+    after_install(function (target)
+        -- Older staging directories may still contain the boot-time launch flag.
+        os.tryrm(path.join(target:installdir(), "atmosphere", "contents", "4200000000484D59", "flags", "boot2.flag"))
+        local overlays = path.join(target:installdir(), "switch", ".overlays")
+        os.mkdir(overlays)
+        os.cp(path.join(os.projectdir(), "projects/music/overlay/homenx-music.ovl"), overlays)
+    end)
+target_end()

@@ -164,6 +164,7 @@ private:
         std::function<float()> level;           // Toggle 0 / 1, Slider 0..1
         std::string coverUrl;
         bool mediaTrack = false;
+        std::function<void()> songOptions;
         const nxui::Texture* picture = nullptr; // a user's picture
         bool danger = false;                    // red (Delete)
         bool stay = false;                      // an action that keeps the popup open
@@ -277,7 +278,7 @@ private:
     // Starting things.
     void play();
     void launchGame(const Game& g);
-    void openNro(const std::string& path);
+    void openNro(const std::string& path, bool applet = false);
     void openNintendo(const Game& g);
     void openDiscord();
     void openBrowser();
@@ -883,9 +884,10 @@ private:
     int m_reopenSec = -1, m_reopenRow = 0; // Settings comes back where it was (rememberSheet)
     void rememberSheet();
     AppletLauncher m_launcher;
+    std::string m_pendingNroPath;
     std::uint64_t m_pendingLaunch = 0; // starts once the open game has closed (a game's id, or a .nro's)
     void resumeOpen(int index);
-    void askCloseFirst(std::uint64_t open, const std::string& title, std::uint64_t next);
+    void askCloseFirst(std::uint64_t open, const std::string& title, std::uint64_t next, std::string appletPath = {});
     void syncHomebrewFlag(); // Settings > Home > Keep homebrew open, for the daemon
     void pumpDaemon();
     std::uint64_t hostTitleId() const;

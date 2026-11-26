@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 # Apply the build number to the environment table
-export HOMENX_BUILD=189
+export HOMENX_BUILD=190
 
 # Resolve the repository from this script's location.
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +70,7 @@ rm -f "$RELEASE_DIR/switchu-daemon"
 xmake b switchu-daemon
 
 step "Building HomeNX applications"
-xmake b -j"$JOBS" CardsNX SwitchU HomeNX-Loader Homebrew-Manager SwitchU-Manager homenx-video
+xmake b -j"$JOBS" CardsNX SwitchU HomeNX-Loader Homebrew-Manager SwitchU-Manager homenx-video homenx-music
 
 step "Building the achievements overlay (Tesla/Ultrahand .ovl)"
 make -C "$REPO_ROOT/projects/achievements" -j"$JOBS"
@@ -88,6 +88,9 @@ BIN_DIR="$SD_ROOT/switch/SwitchU/bin"
 mkdir -p "$BIN_DIR" \
     "$SD_ROOT/switch/SwitchU/cards" \
     "$SD_ROOT/switch/SwitchU/lockscreen"
+
+require_file "$SD_ROOT/switch/.overlays/homenx-music.ovl"
+require_file "$SD_ROOT/atmosphere/contents/4200000000484D59/exefs.nsp"
 
 # Build marker used by the updater
 mkdir -p "$SD_ROOT/switch/SwitchU"

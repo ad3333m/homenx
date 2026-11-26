@@ -1,5 +1,6 @@
 #include <mutex>
 #pragma once
+#include "../upstream/track.hpp"
 
 #include <string>
 #include <vector>
@@ -16,18 +17,6 @@ enum class YtSearchFilter {
   Albums,
   Artists,
   Playlists
-};
-
-struct YtTrack {
-  std::string id;          // videoId ej. "dQw4w9WgXcQ", playlistId "VLPL..." / "MPRE...", o artistId "UC..."
-  std::string title;
-  std::string artist;
-  std::string album;
-  std::string durationStr; // ej. "3:45"
-  uint32_t durationMs = 0;
-  std::string imageUrl;
-  bool isPlaylist = false;
-  bool isArtist = false;
 };
 
 struct YtShelf {

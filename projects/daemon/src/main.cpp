@@ -974,7 +974,7 @@ static Result launchPendingHomeMenu() {
     // game) -- unless its Settings > Home > Keep homebrew open is off (this file).
     // Otherwise it closes, and that game isn't left "open".
     const auto mode = g_pendingHomeMenuMode;
-    if (g_homebrewHostTitleId && mode != smi::MenuStartMode::WakeUp) {
+    if (g_homebrewHostTitleId && mode == smi::MenuStartMode::MainMenu) {
         std::error_code closeEc;
         std::string frontend;
         std::getline(std::ifstream("sdmc:/config/SwitchU/frontend.txt"), frontend);
@@ -1527,12 +1527,13 @@ static bool closeHomebrewApp(const char* why) {
 
 static Result launchLibraryApplet(AppletId id, const char* name,
                                   const void* inData = nullptr, size_t inDataSize = 0,
-                                  u32 libAppletVersion = 0) {
+                                  u32 libAppletVersion = 0, void (*reportStage)(const char*, Result) = nullptr) {
     switchu::FileLog::log("[applet] launching %s id=0x%X version=0x%X in=%zu",
                           name, (u32)id, libAppletVersion, inDataSize);
     Result fgRc = appletRequestToGetForeground();
     switchu::FileLog::log("[applet] %s RequestToGetForeground rc=0x%X", name, fgRc);
 
+    if (reportStage) reportStage("request foreground", fgRc);
     g_foregroundAppletActive = true;
     g_pendingForegroundAppletHome = false;
     daemon::LibraryAppletInput input{inData, inDataSize};
@@ -1544,6 +1545,8 @@ static Result launchLibraryApplet(AppletId id, const char* name,
         .playStartupSound = true,
         .inputs = inData && inDataSize ? &input : nullptr,
         .inputCount = inData && inDataSize ? 1U : 0U,
+        .launchTimeoutNs = reportStage && daemon::app::isRunning() ? 3000000000ULL : 250000000ULL,
+        .reportStage = reportStage,
     };
     const Result rc = daemon::runLibraryApplet(
         request, pumpForegroundAppletMessages,
@@ -2033,6 +2036,25 @@ static Result relaunchMenuAfterApplet(const char* appletName) {
     return rc;
 }
 
+// A suspended game prevents the idle loop from automatically reopening HOME.
+static void restoreHomeAfterHomebrew() {
+    g_pendingHomeMenuLaunch = true;
+    g_pendingHomeMenuMode = smi::MenuStartMode::AppletReturn;
+    g_pendingHomeMenuSource = "homebrew-return";
+    g_pendingHomeMenuStartedAt = armGetSystemTick();
+    if (g_systemHasForeground) launchPendingHomeMenu();
+    else appletRequestToGetForeground();
+}
+
+static void logHomebrewHandoff(const char* stage, Result rc) {
+    if (FILE* file = std::fopen("sdmc:/config/SwitchU/homebrew-applet.log", "a")) {
+        std::fprintf(file, "%llu %s game=%016llX foreground=%d rc=0x%X\n",
+            (unsigned long long)armGetSystemTick(), stage,
+            (unsigned long long)daemon::app::suspendedTitleId(), g_systemHasForeground, rc);
+        std::fclose(file);
+    }
+}
+
 static bool handleAction(daemon::SystemAction& action) {
     if (daemon::menu_la::hasHolder() || g_foregroundAppletActive)
         return false;
@@ -2128,12 +2150,26 @@ static bool handleAction(daemon::SystemAction& action) {
             constexpr uint64_t programId = smi::kMenuTakeoverProgramId;
             const auto suspendedPath = g_homebrewPlayPath;
             const bool suspendedLaunch = g_homebrewCountLaunch;
+            logHomebrewHandoff("menu released", 0);
+            // AM's launchable event is authoritative even when the foreground
+            // notification was consumed while the previous menu holder exited.
             Result rc = daemon::registerExternalContent(programId, "/switch/SwitchU/bin/hbl-applet");
+            logHomebrewHandoff("loader registration", rc);
             if (R_SUCCEEDED(rc)) {
                 beginHomebrewPlaySession();
                 g_homebrewAppletRunning = true;
                 startHomebrewPlayClock();
-                rc = launchLibraryApplet(AppletId_LibraryAppletPhotoViewer, "Homebrew");
+                const bool keepGame = daemon::app::isRunning();
+                Result lockRc = keepGame ? appletLockForeground() : 0;
+                if (keepGame) logHomebrewHandoff("lock foreground", lockRc);
+                if (R_SUCCEEDED(lockRc)) {
+                    rc = launchLibraryApplet(AppletId_LibraryAppletPhotoViewer, "Homebrew", nullptr, 0, 0, logHomebrewHandoff);
+                    if (keepGame)
+                        logHomebrewHandoff("unlock foreground", appletUnlockForeground());
+                } else {
+                    rc = lockRc;
+                }
+                logHomebrewHandoff("applet returned", rc);
                 stopHomebrewPlayClock();
                 g_homebrewAppletRunning = false;
                 g_homebrewPlayPath = suspendedPath;
@@ -2141,7 +2177,11 @@ static bool handleAction(daemon::SystemAction& action) {
                 daemon::unregisterExternalContent(programId);
             }
             recordOperationResult(action.requestId, smi::SystemMessage::LaunchHomebrewApplet, rc);
-            relaunchMenuAfterApplet("Homebrew");
+            if (!g_pendingHomeMenuLaunch && !g_sleepInProgress) {
+                const Result menuRc = relaunchMenuAfterApplet("Homebrew");
+                logHomebrewHandoff("menu restore", menuRc);
+                if (R_FAILED(menuRc)) restoreHomeAfterHomebrew();
+            }
             return true;
         }
 

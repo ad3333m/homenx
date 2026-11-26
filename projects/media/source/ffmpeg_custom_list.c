@@ -10,6 +10,7 @@
 #include <string.h>
 
 // --- Minimal FFmpeg decoders (Opus packets go to libopus) ---
+extern const void ff_opus_decoder;
 extern const void ff_aac_decoder;
 extern const void ff_vorbis_decoder;
 extern const void ff_flac_decoder;
@@ -17,6 +18,9 @@ extern const void ff_mp3_decoder;
 extern const void ff_mp3float_decoder;
 
 static const void * const custom_codec_list[] = {
+#ifdef HOMENX_STREAMING_MODULE
+    &ff_opus_decoder,
+#endif
     &ff_aac_decoder,
     &ff_vorbis_decoder,
     &ff_flac_decoder,

@@ -45,10 +45,20 @@ std::string processId() {
     return std::to_string(pid);
 }
 
+void logHandoff(const char* stage, Result rc = 0) {
+    if (!exists(kNext) && !exists(kChained)) return;
+    if (FILE* log = std::fopen("sdmc:/config/SwitchU/homebrew-applet.log", "a")) {
+        std::fprintf(log, "loader %s rc=0x%X\n", stage, rc);
+        std::fclose(log);
+    }
+}
+
 bool chain(const std::string& path) {
     if (!exists(path) || path == "sdmc:/hbmenu.nro") return false; // never ourselves
     const std::string args = "\"" + path + "\"";
-    if (R_FAILED(envSetNextLoad(path.c_str(), args.c_str()))) return false;
+    const Result rc = envSetNextLoad(path.c_str(), args.c_str());
+    logHandoff("set next NRO", rc);
+    if (R_FAILED(rc)) return false;
     if (FILE* f = std::fopen(kChained, "w")) {
         std::fputs(processId().c_str(), f);
         std::fclose(f);
@@ -91,9 +101,12 @@ extern "C" void __appInit(void) {
         if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) hosversionSet(MAKEHOSVERSION(fw.major, fw.minor, fw.micro));
         setsysExit();
     }
-    if (R_FAILED(appletInitialize())) diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_AM));
     if (R_FAILED(fsInitialize())) diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_FS));
     fsdevMountSdmc();
+    logHandoff("entered");
+    const Result appletRc = appletInitialize();
+    logHandoff("AM initialized", appletRc);
+    if (R_FAILED(appletRc)) diagAbortWithResult(appletRc);
 }
 
 extern "C" void __appExit(void) {
@@ -116,13 +129,17 @@ int main(int argc, char** argv) {
     }
     const std::string next = readLine(kNext);
     if (!next.empty()) {
-        std::remove(kNext);
+        logHandoff("read requested NRO");
         if (next == "hbmenu") { // the user's own homebrew menu, in the game HomeNX borrowed (all the memory)
             if (exists(kOriginal)) {
                 restoreHbmenu();
-                if (R_SUCCEEDED(envSetNextLoad(kHbmenu, "\"sdmc:/hbmenu.nro\""))) return 0;
+                if (R_SUCCEEDED(envSetNextLoad(kHbmenu, "\"sdmc:/hbmenu.nro\""))) { std::remove(kNext); return 0; }
             }
-        } else if (next == "sphaira" ? chainSphaira() : chain(next)) return 0;
+        } else if (next == "sphaira" ? chainSphaira() : chain(next)) {
+            std::remove(kNext);
+            return 0;
+        }
+        std::remove(kNext);
     }
     // A forwarder's app closed: back to HOME, not into Sphaira.
     if (inForwarder()) svcExitProcess();

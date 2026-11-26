@@ -23,13 +23,17 @@ public:
     bool active() const;
     Switube::Now now() const;
     bool command(Switube::Cmd cmd, int value);
+    const switube::YtTrack* selectedTrack(std::uint64_t generation, unsigned index) const {
+        return generation == m_generation && index < m_tracks.size() ? &m_tracks[index] : nullptr;
+    }
+    Switube::Page page(std::string message = {}) const;
 private:
     bool ready();
     bool play(unsigned index);
     int nextIndex() const;
     bool playNext();
     bool download(unsigned index);
-    Switube::Page page(std::string message = {}) const;
+
 
     std::atomic<bool>& m_cancel;
     switube::YtMusicClient m_client;

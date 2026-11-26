@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string_view>
+#include <vector>
 
 namespace switube::phase2 {
 
@@ -16,6 +17,7 @@ struct ControlMessage {
   uint64_t sequence = 0;
   uint64_t generation = 0;
   std::array<char, SWITUBE_IPC_BROWSE_QUERY_SIZE> query{};
+  SwitubeIpcOnlineTrack track{};
 };
 
 class ServiceCore {
@@ -36,6 +38,9 @@ class ServiceCore {
                     std::string_view album, uint64_t monotonicMs);
   void clearTrack(uint64_t monotonicMs);
   void publishQueue(uint32_t index, uint32_t count, uint64_t monotonicMs);
+  void replaceQueue(std::vector<SwitubeIpcBrowseItem> items, uint32_t index, uint64_t now);
+  bool queueItem(uint32_t index, SwitubeIpcBrowseItem& item) const;
+  void publishPlaybackOptions(bool shuffle, uint32_t repeat, uint64_t now);
   void publishVolume(uint32_t volumePermille, uint64_t monotonicMs);
   void publishConnection(bool connected, uint64_t monotonicMs);
   void publishSeekable(bool seekable, uint64_t monotonicMs);
@@ -55,7 +60,7 @@ class ServiceCore {
                               uint64_t monotonicMs);
   SwitubeControlResult submitBrowse(SwitubeIpcCommand command,
                                     const SwitubeIpcBrowseRequest& request,
-                                    uint64_t monotonicMs);
+                                    uint64_t monotonicMs, const SwitubeIpcOnlineTrack& track = {});
   bool tryPop(ControlMessage& message);
 
  private:
@@ -78,6 +83,7 @@ class ServiceCore {
   SwitubeIpcBrowseHeader browser{};
   std::array<SwitubeIpcBrowseItem, 32> browseItems{};
   uint64_t nextBrowseGeneration = 1;
+  std::vector<SwitubeIpcBrowseItem> queueItems;
 };
 
 }  // namespace switube::phase2

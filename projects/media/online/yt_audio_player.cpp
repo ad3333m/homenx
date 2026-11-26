@@ -5,6 +5,7 @@
 #include "pcm_output.hpp"
 #include <nxui/core/ThreadPool.hpp>
 #include <thread>
+#include <cstdio>
 #include <chrono>
 #include <cstring>
 #include <algorithm>
@@ -75,6 +76,10 @@ int AvioRead(void* opaque, uint8_t* buf, int buf_size) {
         int toRead = std::min(buf_size, avail);
         std::memcpy(buf, reader->buffer.data() + reader->readPos, toRead);
         reader->readPos += toRead;
+        if (reader->readPos == reader->buffer.size()) {
+          reader->buffer.clear();
+          reader->readPos = 0;
+        }
         return toRead;
       }
       if (!reader->isDownloading)
@@ -184,12 +189,25 @@ void YtAudioPlayer::audioWorker(std::string url, uint32_t durMs, uint64_t conten
     return;
   }
 
-  const Result rc = startWorker(transfer, [reader, url, stopToken, contentLength] {
+  std::unique_ptr<FILE, decltype(&std::fclose)> local(nullptr, std::fclose);
+#ifdef HOMENX_STREAMING_MODULE
+  if (url.starts_with("sdmc:/")) {
+    local.reset(std::fopen(url.c_str(), "rb"));
+    if (!local) { playbackError = "Could not read download"; return; }
+  }
+#endif
+  const Result rc = local ? 0 : startWorker(transfer, [reader, url, stopToken, contentLength] {
     std::string failure;
     try {
       failure = native::transferAudio(url, contentLength, *stopToken,
-          [reader](std::span<const std::uint8_t> bytes) {
-            std::lock_guard lock(reader->mutex);
+          [reader, stopToken](std::span<const std::uint8_t> bytes) {
+            std::unique_lock lock(reader->mutex);
+            while (!reader->buffer.empty() && !stopToken->load()) {
+              lock.unlock();
+              std::this_thread::sleep_for(std::chrono::milliseconds(20));
+              lock.lock();
+            }
+            if (stopToken->load()) return false;
             reader->buffer.insert(reader->buffer.end(), bytes.begin(), bytes.end());
             return true;
           });
@@ -215,7 +233,26 @@ void YtAudioPlayer::audioWorker(std::string url, uint32_t durMs, uint64_t conten
     nxlog::push("YtAudioPlayer error: av_malloc(AVIO_BUFFER_SIZE) failed");
     return;
   }
-  avioCtx = avio_alloc_context(avioBuffer, AVIO_BUFFER_SIZE, 0, reader.get(), AvioRead, nullptr, nullptr);
+  if (local) {
+    auto readFile = +[](void* arg, uint8_t* out, int size) -> int {
+        FILE* file = static_cast<FILE*>(arg);
+        int n = std::fread(out, 1, size, file);
+        return n ? n : std::ferror(file) ? AVERROR(EIO) : AVERROR_EOF;
+    };
+    auto seekFile = +[](void* arg, int64_t off, int whence) -> int64_t {
+        FILE* file = static_cast<FILE*>(arg);
+        if (whence == AVSEEK_SIZE) {
+            long pos = std::ftell(file);
+            if (pos < 0 || std::fseek(file, 0, SEEK_END)) return AVERROR(EIO);
+            long size = std::ftell(file);
+            return std::fseek(file, pos, SEEK_SET) == 0 ? size : AVERROR(EIO);
+        }
+        return std::fseek(file, off, whence & ~AVSEEK_FORCE) == 0 ? std::ftell(file) : AVERROR(EIO);
+    };
+    avioCtx = avio_alloc_context(avioBuffer, AVIO_BUFFER_SIZE, 0, local.get(), readFile, nullptr, seekFile);
+  } else {
+    avioCtx = avio_alloc_context(avioBuffer, AVIO_BUFFER_SIZE, 0, reader.get(), AvioRead, nullptr, nullptr);
+  }
   if (!avioCtx) {
     av_free(avioBuffer);
     nxlog::push("YtAudioPlayer error: avio_alloc_context failed");
