@@ -30,7 +30,7 @@ namespace detail {
 
 // The Discord application the icons are shown under (Discord Developer Portal; its ID is public).
 // Empty: the status shows without an icon. presence.json's "app_id" overrides it.
-inline constexpr const char* kAppId = "";
+inline constexpr const char* kAppId = "1575624687994798201"; // ("Nintendo Switch", Adam's)
 inline constexpr const char* kUserAgent =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 inline constexpr size_t kKeep = 16 * 1024; // messages bigger than this are skipped, never stored
