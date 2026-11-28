@@ -141,6 +141,17 @@ inline size_t keepText(char* data, size_t size, size_t count, void* out) {
 }
 
 // One HTTPS request to Discord's API with the account's token. Returns the body ("" if it failed).
+// The daemon has two allocators: Atmosphere's malloc/free/realloc, and newlib's own _malloc_r,
+// which strdup still uses. curl strdup'ed its strings (the user agent, the URL) and free'd them
+// into the other heap: HOME crashed right after the first request (2026-11-28, found with
+// symbols: Curl_hash_pick read "nux x86_" as a pointer). curl gets one allocator for everything.
+inline char* sameHeapStrdup(const char* s) {
+    const size_t n = std::strlen(s) + 1;
+    char* copy = static_cast<char*>(::malloc(n));
+    if (copy) std::memcpy(copy, s, n);
+    return copy;
+}
+
 // curl's own account of each step, into presence.log (what it was doing when HOME crashed).
 inline int curlSays(CURL*, curl_infotype type, char* data, size_t size, void*) {
     if (type != CURLINFO_TEXT) return 0;
@@ -491,7 +502,7 @@ inline void threadFunc(void*) {
             plog("starting the network");
             netUp = R_SUCCEEDED(socketInitialize(&net));
             plog(netUp ? "network up" : "network didn't start");
-            if (netUp) curl_global_init(CURL_GLOBAL_DEFAULT);
+            if (netUp) curl_global_init_mem(CURL_GLOBAL_DEFAULT, ::malloc, ::free, ::realloc, sameHeapStrdup, ::calloc);
             if (!netUp) {
                 svcSleepThread(5'000'000'000ULL);
                 continue;
