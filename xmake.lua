@@ -189,7 +189,21 @@ target("SwitchU")
     -- CardsNX as HOME (NXToggle > Home screen): its screen, built in; its files
     -- (fonts, icons, the GameTDB index) ship in switch/SwitchU/cards/.
     add_files("projects/cards/src/Audio.cpp", "projects/cards/src/CardsActivity.cpp", "projects/cards/src/Library.cpp",
-              "projects/cards/src/GameCard.cpp", "projects/cards/src/Mtp.cpp", "projects/cards/src/Spotify.cpp")
+              "projects/cards/src/GameCard.cpp", "projects/cards/src/Mtp.cpp", "projects/cards/src/Spotify.cpp",
+              "projects/cards/src/VideoPlayer.cpp")
+    on_load(function(target) -- ffmpeg from devkitPro's portlibs (CardsNX's Album videos, VideoPlayer.cpp)
+        local pc = path.join(os.getenv("DEVKITPRO") or "/opt/devkitpro", "portlibs/switch/bin/aarch64-none-elf-pkg-config")
+        if not os.isfile(pc) then return end
+        local out = try { function ()
+            return os.iorunv(pc, {"--static", "--libs", "libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"})
+        end }
+        if not out then return end
+        for _, flag in ipairs(out:split("%s+")) do
+            if flag:startswith("-l") then target:add("links", flag:sub(3))
+            elseif flag:startswith("-L") then target:add("linkdirs", flag:sub(3)) end
+        end
+        target:add("defines", "CARDS_VIDEO=1") -- (without ffmpeg the player is left out)
+    end)
     add_files("projects/updater/src/Catalog.cpp") -- homebrew updates, as the Homebrew Manager finds them
     add_includedirs("projects/cards/src", {public = false})
     add_defines("HOMENX_UPDATER_SHARED_NETWORK")
@@ -414,9 +428,7 @@ target("CardsNX")
     add_syslinks("nx")
     add_defines(version_define)
 
-    -- Album videos play in CardsNX (VideoPlayer.cpp): ffmpeg from devkitPro's portlibs, linked as
-    -- its pkg-config says. Without it the player is left out (CARDS_VIDEO not defined).
-    on_load(function(target)
+    on_load(function(target) -- ffmpeg from devkitPro's portlibs (CardsNX's Album videos, VideoPlayer.cpp)
         local pc = path.join(os.getenv("DEVKITPRO") or "/opt/devkitpro", "portlibs/switch/bin/aarch64-none-elf-pkg-config")
         if not os.isfile(pc) then return end
         local out = try { function ()
@@ -427,7 +439,7 @@ target("CardsNX")
             if flag:startswith("-l") then target:add("links", flag:sub(3))
             elseif flag:startswith("-L") then target:add("linkdirs", flag:sub(3)) end
         end
-        target:add("defines", "CARDS_VIDEO=1")
+        target:add("defines", "CARDS_VIDEO=1") -- (without ffmpeg the player is left out)
     end)
 
     before_build(function(target)
