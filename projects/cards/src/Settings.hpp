@@ -50,6 +50,7 @@ struct Settings {
     bool boxArt = true;       // box covers on cards (off: the eShop banner)
     int accent = 0;           // the focus colour (see kAccents)
     int glass = 1;            // 0 clear, 1 frosted, 2 dark
+    int layout = 0;           // 0 the row, 1 Halo: the chosen game in the middle (Settings > Look > Layout)
     int style = 0;            // 0 the glass look, 1 Material 3, 2 Soft (Settings > Look > Style)
     int gameCardDisplay = 0;
     int gameCardIcons = 0;
@@ -152,6 +153,7 @@ struct Settings {
             accent = j.value("accent", accent);
             glass = j.value("glass", glass);
             style = std::clamp(j.value("style", style), 0, 2);
+            layout = std::clamp(j.value("layout", layout), 0, 1);
             gameCardDisplay = std::clamp(j.value("gameCardDisplay", gameCardDisplay), 0, 3);
             gameCardIcons = std::clamp(j.value("gameCardIcons", gameCardIcons), 0, 2);
             launchStyle = j.value("launchStyle", launchStyle);
@@ -201,7 +203,7 @@ struct Settings {
                             {"sounds", sounds}, {"soundVolume", soundVolume}, {"players", players},
                             {"motion", motion}, {"bgMotion", bgMotion}, {"startPage", startPage}, {"pageOrder", pageOrder},
                             {"sortOrder", sort}, {"haze", haze}, {"boxArt", boxArt}, {"accent", accent},
-                            {"glass", glass}, {"style", style}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
+                            {"glass", glass}, {"style", style}, {"layout", layout}, {"launchStyle", launchStyle}, {"clock24", clock24}, {"showFree", showFree}, {"showTemp", showTemp}, {"titlePics", titlePics}, {"mediaIn", mediaIn}, {"mediaOut", mediaOut}, {"gamesIn", gamesIn}, {"gamesOut", gamesOut}, {"fullCards", fullCards}, {"nroHash", nroHash}, {"titles", titles}, {"askUser", askUser}, {"panelApp", panelApp},
                             {"lockScreen", lockScreen}, {"lockMusic", lockMusic}, {"keepHomebrew", keepHomebrew}, {"hbPath", hbPath}, {"hbHost", hbHost}, {"hiddenCards", hiddenCards}, {"sheetBack", sheetBack}, {"sheetBackRow", sheetBackRow}, {"hiddenPages", hiddenPages}, {"spotify", spotify}, {"picturesAt", picturesAt}, {"achSeenAt", achSeenAt},{"intro2", introDone}, {"wallpaper", wallpaper}, {"names", names},
                             {"sheetOrder", sheetOrder}, {"user", user}, {"lastGame", lastGame}, {"listsAt", listsAt}, {"perfLog", perfLog}, {"language", language},
                             {"orderGames", order[0]}, {"orderHomebrew", order[1]}, {"orderNintendo", order[2]},

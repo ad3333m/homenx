@@ -606,6 +606,8 @@ private:
     void updateM3();
     bool m3() const { return m_settings.style >= 1; } // (Soft is Material 3's layout in its own look)
     bool soft() const { return m_settings.style == 2; }
+    bool halo() const { return m_settings.layout == 1; } // Settings > Look > Layout > Halo
+    float haloFade(int index) const; // Halo: the cards further from the middle fade
     // The Album's picture growing out of its square in the grid, and back (drawPicker, drawGalleryZoom).
     float m_galleryOpenAt = -10.f, m_galleryCloseAt = -10.f, m_galleryTexAt = -10.f;
     nxui::Rect m_galleryFrom{};

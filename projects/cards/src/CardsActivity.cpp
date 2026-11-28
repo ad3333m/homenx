@@ -62,12 +62,13 @@ constexpr float kCardW = 240.f, kCardH = 340.f, kCardGrowW = 10.f, kCardGrowH = 
 float kCardMidY = 309.f, kCardPitch = 250.f, kCardFirstX = 136.f, kCardRadius = 26.f;
 nxui::Rect kPanel{186.f, 503.f, 907.f, 207.f};
 float kPanelRadius = 35.f;
-void applyLayout(bool m3) {
+void applyLayout(bool m3, bool halo) {
     kCardMidY = m3 ? 340.f : 309.f;
     kCardPitch = m3 ? 262.f : 250.f;
     kCardFirstX = m3 ? 144.f : 136.f;
     kCardRadius = m3 ? 34.f : 26.f;
-    kPanel = m3 ? nxui::Rect{131.f, 530.f, 1122.f, 170.f} : nxui::Rect{186.f, 503.f, 907.f, 207.f};
+    kPanel = m3 ? (halo ? nxui::Rect{140.f, 530.f, 1000.f, 170.f} : nxui::Rect{131.f, 530.f, 1122.f, 170.f})
+               : nxui::Rect{186.f, 503.f, 907.f, 207.f};
     kPanelRadius = m3 ? 46.f : 35.f;
 }
 // Material 3's row runs between the rail and the right edge (the cards at its ends narrow).
@@ -3893,7 +3894,7 @@ void CardsActivity::updateIntro(float dt) {
             if (m_introHits[i].contains(x, y)) hit = static_cast<int>(i);
         if (step.kind == kIntroStyle && hit >= 0 && hit < 3) {
             m_settings.style = hit;
-            applyLayout(m3());
+            applyLayout(m3(), halo());
             m_settings.save();
             m_audio.play("navigation");
         } else if (step.kind == kIntroSetup && hit >= 0 && hit < rows) {
@@ -3916,7 +3917,7 @@ void CardsActivity::updateIntro(float dt) {
         const int d = left ? -1 : right ? 1 : 0;
         if (d && m_settings.style + d >= 0 && m_settings.style + d <= 2) {
             m_settings.style += d;
-            applyLayout(m3());
+            applyLayout(m3(), halo());
             m_settings.save();
             m_audio.play("navigation");
         }
@@ -7157,9 +7158,15 @@ void CardsActivity::buildSettings() {
     look.rows.push_back(choice("Style", [this]() { return std::string(soft() ? "Soft" : m3() ? "Material 3" : "Default"); },
         [this, save](int d) {
             m_settings.style = (m_settings.style + d + 3) % 3;
-            applyLayout(m3());
+            applyLayout(m3(), halo());
             save();
         }, "Material 3: a rail, big round shapes and the colours of the chosen game"));
+    look.rows.push_back(choice("Layout", [this]() { return std::string(halo() ? "Halo" : "Default"); },
+        [this, save](int) {
+            m_settings.layout = halo() ? 0 : 1;
+            applyLayout(m3(), halo());
+            save();
+        }, "Halo: the chosen game in the middle, the others either side"));
     if (!m3()) look.rows.push_back(choice("Highlight colour", // (Material 3 and Soft: the game's colour)
         [this]() { return std::string(kAccents[std::clamp(m_settings.accent, 0, kAccentCount - 1)].name); },
         [this, save](int d) {
@@ -10529,7 +10536,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     m_drawMarkTick = armGetSystemTick();
     m_drawMarkMs = 0.f;
     m_drawMarkName = "";
-    applyLayout(m3());
+    applyLayout(m3(), halo());
     if (m3() || m_introOpen) updateM3(); // (the intro shows the styles in the game's colours)
     drawStep("draw: the background");
     drawBackground(r);
@@ -10862,6 +10869,12 @@ void CardsActivity::drawTopBar(nxui::Renderer& r, float a) {
     glassCircle(r, kGearX, y, kCircle, top && m_topSel == kTopGear, "gear", 36.f, a, pressedOf(kTopGear));
 }
 
+float CardsActivity::haloFade(int index) const {
+    if (!halo()) return 1.f;
+    const float d = std::abs(static_cast<float>(index) - m_scroll);
+    return d <= 1.f ? 1.f - 0.4f * d : d <= 2.f ? 0.6f - 0.28f * (d - 1.f) : std::max(0.f, 0.32f * (3.f - d));
+}
+
 bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     const float rel = static_cast<float>(index) - m_scroll;
     // A page switch slides the row in from the side.
@@ -10870,10 +10883,30 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
     if (m_leaving && m_leaveIndex >= 0 && index != m_leaveIndex && launchStyle() == kZoom)
         slide += (index < m_leaveIndex ? -1.f : 1.f) * 420.f * easeIn(m_leaveT / 0.5f);
     const float x0 = kCardFirstX + rel * kCardPitch + slide;
-    if (x0 > 1290.f || x0 + kCardPitch < -10.f) return false;
+    float cx = x0 + kCardW * 0.5f; // the card's middle
+    if (halo()) {
+        if (std::abs(rel) > 2.95f) return false;
+    } else if (x0 > 1290.f || x0 + kCardPitch < -10.f) {
+        return false;
+    }
     chosen = clamp01(1.f - std::abs(rel));
     const float grow = easeOutBack(chosen);
     float w = kCardW + kCardGrowW * grow, h = kCardH + kCardGrowH * grow;
+    if (halo()) {
+        // Halo (Settings > Look > Layout): the chosen card in the middle of the screen, a little
+        // bigger; the others either side, smaller the further they are (haloFade fades them).
+        // Between whole places (scrolling) the size and the place blend, so it glides.
+        static const float kOffset[] = {0.f, 236.f, 415.f, 573.f, 731.f};
+        static const float kSize[] = {1.06f, 0.76f, 0.58f, 0.5f, 0.5f};
+        const float d = std::min(std::abs(rel), 3.f);
+        const int at = static_cast<int>(d);
+        const float f = d - static_cast<float>(at);
+        const float offset = kOffset[at] + (kOffset[at + 1] - kOffset[at]) * f;
+        const float size = (kSize[at] + (kSize[at + 1] - kSize[at]) * f) * (1.f + 0.03f * (grow - chosen)); // (the little pop)
+        cx = 640.f + (rel < 0.f ? -offset : offset) + slide;
+        w = kCardW * size;
+        h = kCardH * size;
+    }
     // Opening: the cards rise in one after another.
     const float k = std::max(0.f, rel + 1.f);
     const float rise = 1.f - easeOut((m_intro - 0.1f - 0.07f * k) / 0.5f);
@@ -10883,8 +10916,8 @@ bool CardsActivity::cardRect(int index, nxui::Rect& card, float& chosen) {
         h *= 1.05f;
         lift += 22.f + 3.f * std::sin(m_decoTime * 6.f);
     }
-    card = {x0 + kCardW * 0.5f - w * 0.5f, kCardMidY - h * 0.5f - lift + 60.f * rise, w, h};
-    if (m3()) {
+    card = {cx - w * 0.5f, kCardMidY - h * 0.5f - lift + 60.f * rise, w, h};
+    if (m3() && !halo()) {
         if (card.x < kM3Left) {
             card.width -= kM3Left - card.x;
             card.x = kM3Left;
@@ -10933,7 +10966,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
         if (glassCard(g)) continue; // glass: drawn over the blur (drawCardExtras)
         const float k = std::max(0.f, static_cast<float>(i) - m_scroll + 1.f);
         const float term = (m_intro - 0.1f - 0.07f * k) / 0.5f;
-        const float alpha = pageAlpha * easeOut(term) * making;
+        const float alpha = pageAlpha * easeOut(term) * making * haloFade(i);
         if (alpha <= 0.01f) continue;
         // The opening's compromise: a card that is still rising draws without
         // its text. Fitting and rasterizing a fresh name cost milliseconds on
@@ -10977,7 +11010,7 @@ void CardsActivity::drawCards(nxui::Renderer& r) {
             const bool box = it->second.kind == ArtKind::Box;
             drawCover(r, tex, card, kCardRadius, kWhite.withAlpha(alpha * artIn), box ? 0.125f : 0.f, 0.f);
         }
-        if (i < sel() && !m_moving) // the ones already passed sit back a little
+        if (i < sel() && !m_moving && !halo()) // the ones already passed sit back a little
             r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.30f * (1.f - t) * alpha), kCardRadius);
         if (t > 0.01f) {
             const float ring = cardsFocused ? 0.85f + 0.15f * std::sin(m_decoTime * 4.f) : 0.55f;
@@ -10998,7 +11031,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         if (!cardRect(i, card, t)) continue;
         const float k = std::max(0.f, static_cast<float>(i) - m_scroll + 1.f);
         const float term = (m_intro - 0.1f - 0.07f * k) / 0.5f;
-        const float alpha = easeOut(m_pageIn) * easeOut(term) * making;
+        const float alpha = easeOut(m_pageIn) * easeOut(term) * making * haloFade(i);
         if (alpha <= 0.01f) continue;
         const bool landed = m_intro >= 1.f || term >= 1.f; // the name waits for the landing (see drawCards)
 
@@ -11027,8 +11060,9 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
             // The icon inside the card's border, with room around it. Nintendo's
             // (HomeNX's own pictures) as they're drawn; an app's square icon rounded.
             const bool nintendo = !g.action.empty();
-            const float side = (nintendo ? 160.f : 150.f) + 8.f * t;
-            const nxui::Rect iconRect{card.x + (card.width - side) * 0.5f, card.y + (nintendo ? 36.f : 40.f) - 4.f * t,
+            const float sc = std::min(1.f, card.height / kCardH); // (Halo's smaller cards: all of it smaller)
+            const float side = ((nintendo ? 160.f : 150.f) + 8.f * t) * sc;
+            const nxui::Rect iconRect{card.x + (card.width - side) * 0.5f, card.y + ((nintendo ? 36.f : 40.f) - 4.f * t) * sc,
                                       side, side};
             if (tex) {
                 const float a = alpha * artIn;
@@ -11045,16 +11079,16 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
                 r.drawRoundedRect(iconRect, nxui::Color(1.f, 1.f, 1.f, 0.08f * alpha), 34.f);
             }
             if (landed) {
-                const float ns = fitScale(m_fLabel, g.name, card.width - 24.f);
+                const float ns = fitScale(m_fLabel, g.name, (card.width - 24.f) / sc) * sc;
                 const std::string name = fit(m_fLabel, g.name, card.width - 24.f, ns);
-                r.drawText(name, {card.x + (card.width - measured(m_fLabel, name).x * ns) * 0.5f, iconRect.y + side + 26.f},
+                r.drawText(name, {card.x + (card.width - measured(m_fLabel, name).x * ns) * 0.5f, iconRect.y + side + 26.f * sc},
                            &m_fLabel, kWhite.withAlpha(alpha), ns);
                 const std::string about = !g.action.empty() ? g.author
                                         : g.path.empty() ? lastPlayed(g.lastPlayed) // installed: a forwarder, a game without a cover
                                         : !g.author.empty() ? g.author : tr("Homebrew");
-                const std::string by = fit(m_fBody, about, card.width - 28.f);
-                r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x) * 0.5f, iconRect.y + side + 58.f}, &m_fBody,
-                           kMuted.withAlpha(alpha));
+                const std::string by = fit(m_fBody, about, card.width - 28.f, sc);
+                r.drawText(by, {card.x + (card.width - measured(m_fBody, by).x * sc) * 0.5f, iconRect.y + side + 58.f * sc}, &m_fBody,
+                           kMuted.withAlpha(alpha), sc);
             }
             if (!m3()) r.drawRoundedRectOutline(card, nxui::Color(1.f, 1.f, 1.f, 0.20f * alpha), kCardRadius, 1.5f);
             if (nroUpdate(g)) { // a newer version: a green "Update" tag in the corner
@@ -11065,7 +11099,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
                 r.drawRoundedRect(pill, kGreen.withAlpha(alpha), 13.f);
                 textMid(r, m_fBadge, tag, pill.x + 11.f, pill.y + 13.f, kWhite.withAlpha(alpha));
             }
-            if (i < sel() && !m_moving) r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.22f * (1.f - t) * alpha), kCardRadius);
+            if (i < sel() && !m_moving && !halo()) r.drawRoundedRect(card, nxui::Color(0.f, 0.f, 0.f, 0.22f * (1.f - t) * alpha), kCardRadius);
             if (t > 0.01f) {
                 const float ring = m_zone == Zone::Cards ? 0.85f + 0.15f * std::sin(m_decoTime * 4.f) : 0.55f;
                 cardRing(r, card, accent(ring * t * alpha), m3());
@@ -11127,7 +11161,7 @@ void CardsActivity::drawCardExtras(nxui::Renderer& r) {
         r.drawCircle({badge.x + 18.f, badge.y + 17.f}, 8.f, dot.withAlpha(alpha), 24);
         textMid(r, m_fCount, n, badge.x + 33.f, badge.y + 17.f,
                 (m3() ? nxui::Color(0.04f, 0.23f, 0.f, 1.f) : kWhite).withAlpha(alpha));
-        if (i < sel() && !m_moving) r.drawRoundedRect(badge, nxui::Color(0.f, 0.f, 0.f, 0.30f * (1.f - t) * alpha), 17.f);
+        if (i < sel() && !m_moving && !halo()) r.drawRoundedRect(badge, nxui::Color(0.f, 0.f, 0.f, 0.30f * (1.f - t) * alpha), 17.f);
     }
 }
 
@@ -11992,16 +12026,20 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
     const float room = groupLeft - 24.f - kM3Left;
     const std::string title = pageName(m_page);
     const float ts = fitScale(m_fHead, title, room, 0.6f);
-    textMid(r, m_fHead, fit(m_fHead, title, room, ts), kM3Left, 44.f - drop, c.onSurface.withAlpha(a), ts);
+    const std::string shown = fit(m_fHead, title, room, ts);
     const int n = static_cast<int>(games().size());
     const bool apps = m_page == kHomebrew || m_page == kNintendo || m_page == kMedia;
     const std::string sub = n == 1 ? tr(apps ? "1 app" : "1 game") : trf(apps ? "{n} apps" : "{n} games", {std::to_string(n)});
-    textMid(r, m_fBody, sub, kM3Left + 2.f, 80.f - drop, c.onSurfaceVar.withAlpha(a));
+    // (Halo: in the middle of the screen, or of the room left of the status when that's nearer)
+    auto middle = [&](float w) { return halo() ? std::max(kM3Left, std::min(640.f - w * 0.5f, groupLeft - 24.f - w)) : kM3Left; };
+    textMid(r, m_fHead, shown, middle(measured(m_fHead, shown).x * ts), 44.f - drop, c.onSurface.withAlpha(a), ts);
+    textMid(r, m_fBody, sub, middle(measured(m_fBody, sub).x) + 2.f, 80.f - drop, c.onSurfaceVar.withAlpha(a));
 
     // The chips: the sort modes (the Games page); elsewhere the sort button goes to the next page.
     const float chipY = 98.f - drop, chipH = 36.f;
+    auto chipW = [&](const std::string& label) { return 14.f + 20.f + 8.f + measured(m_fPill, label).x * 0.9f + 18.f; };
     auto chip = [&](int index, float cx0, const std::string& label, const char* glyph, bool on, bool focus) {
-        const float cw = 14.f + 20.f + 8.f + measured(m_fPill, label).x * 0.9f + 18.f;
+        const float cw = chipW(label);
         const nxui::Rect box{cx0, chipY, cw, chipH};
         if (soft()) softSurface(r, box, chipH * 0.5f, c.surfaceC, a, on); // (Soft: pressed in when on)
         else r.drawRoundedRect(box, on ? c.primary.withAlpha(a) : c.surfaceC.withAlpha(0.9f * a), chipH * 0.5f);
@@ -12015,6 +12053,11 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
     if (m_page == kGames) {
         static const char* const kSortGlyphs[] = {"history", "az", "trend", "order"}; // (as kSortNames)
         float cx0 = kM3Left;
+        if (halo()) { // the row of chips in the middle
+            float all = 8.f * 3.f;
+            for (int i = 0; i < 4; ++i) all += chipW(tr(kSortNames[kSortCycle[i]]));
+            cx0 = 640.f - all * 0.5f;
+        }
         for (int i = 0; i < 4; ++i) {
             const int sort = kSortCycle[i];
             const bool on = sort == m_settings.sort;
@@ -12026,7 +12069,8 @@ void CardsActivity::drawTopBarM3(nxui::Renderer& r, float a) {
             pos = (pos + 1) % pageCount();
             if (!pageHidden(m_settings.pageOrder[(size_t)pos])) break;
         }
-        chip(0, kM3Left, pageName(m_settings.pageOrder[(size_t)pos]), "next", false, true);
+        const std::string next = pageName(m_settings.pageOrder[(size_t)pos]);
+        chip(0, halo() ? 640.f - chipW(next) * 0.5f : kM3Left, next, "next", false, true);
     }
 }
 
