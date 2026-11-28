@@ -712,7 +712,9 @@ bool CardsActivity::onCreate() {
         for (const char* name : {"dots", "sort", "friends", "bell", "gear", "thermo", "tag", "play", "copy", "home",
                                  "power", "music", "news", "discord", "arrows", "wifi", "airplane",
                                  "sun", "speaker", "prev", "next", "pause", "repeat", "shuffle", "playlist",
-                                 "moon", "restart", "hekate", "download", "trash", "pad", "nextendo", "bluetooth", "trophy"}) {
+                                 "moon", "restart", "hekate", "download", "trash", "pad", "nextendo", "bluetooth", "trophy",
+                                 "menu", "cube", "store", "playc", "folder", "photo", "check", "history", "az", "trend",
+                                 "order", "sdcard", "gamecard", "gamecard-required"}) {
             std::ifstream in(std::string(kAssets) + "icons/" + name + ".png", std::ios::binary | std::ios::ate);
             if (!in) continue;
             const auto length = in.tellg();
@@ -1674,6 +1676,7 @@ void CardsActivity::takeArt() {
             it->second.icon = std::move(tex);
             it->second.iconKind = d.kind;
             if (d.seed.a > 0.f && it->second.seed.a <= 0.f) it->second.seed = d.seed; // (a cover's comes first)
+            it->second.iconAgain = d.again;
             if (d.again) { // asked again in a moment, for its title picture
                 it->second.iconAsked = false;
                 it->second.retryAt = m_time + 3.f;
@@ -9267,6 +9270,12 @@ void CardsActivity::onUpdate(float dt) {
     perfMark("text caches");
     const std::uint64_t tArt = armGetSystemTick();
     takeArt();
+    // The chosen game's panel picture: asked again until it's here (scrolling fast cancels requests),
+    // and its title picture again when its plain icon came only because another search was running.
+    if (const Game* g = current()) {
+        Art& a = m_art[g->id];
+        if (!a.iconAsked && m_time >= a.retryAt && (!a.icon || (a.iconAgain && m_titleArt))) wantPanelIcon(*g);
+    }
     m_perfArtMs = ticksMs(armGetSystemTick() - tArt);
     // Heat: at 60 C the bar's temperature turns red, and it's said once (again
     // after it has cooled below 55).

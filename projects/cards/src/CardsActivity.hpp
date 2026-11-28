@@ -99,6 +99,7 @@ private:
         std::uint64_t lastAccess = 0, selectedTick = 0;
         float cardIn = -10.f; // when it arrived (it fades in)
         float retryAt = 0.f;  // nothing came: asked again after this
+        bool iconAgain = false; // its plain icon came while another title picture search ran: its own is asked again
         nxui::Color seed{0.f, 0.f, 0.f, 0.f}; // its main colour (Material 3's colours); a = 0: none yet
     };
     enum What { kCard, kBackground, kIcon, kLaunch }; // kLaunch: the art at full size, for the launch
