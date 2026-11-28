@@ -419,8 +419,10 @@ target("CardsNX")
     on_load(function(target)
         local pc = path.join(os.getenv("DEVKITPRO") or "/opt/devkitpro", "portlibs/switch/bin/aarch64-none-elf-pkg-config")
         if not os.isfile(pc) then return end
-        local ok, out = pcall(os.iorunv, pc, {"--static", "--libs", "libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"})
-        if not ok or not out then return end
+        local out = try { function ()
+            return os.iorunv(pc, {"--static", "--libs", "libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"})
+        end }
+        if not out then return end
         for _, flag in ipairs(out:split("%s+")) do
             if flag:startswith("-l") then target:add("links", flag:sub(3))
             elseif flag:startswith("-L") then target:add("linkdirs", flag:sub(3)) end
