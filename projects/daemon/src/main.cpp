@@ -2842,10 +2842,10 @@ int main(int argc, char* argv[]) {
     // Achievements are off for now (2026-11-14): no watcher, so dmnt and the game's memory are
     // never touched. switchu::daemon::achievements_watch::start() brings them back.
 
-    // Discord's "Playing" status during games: OFF (2026-11-28). Its first HTTPS request from this
-    // process crashed it (HOME's core: the console with it) on Adam's Switch, setting on. Back once
-    // it's found with symbols; presence.hpp stays as it is.
-    // switchu::daemon::presence::start();
+    // Discord's "Playing" status during games (nothing until CardsNX's setting is on). Its first
+    // HTTPS request crashed this process on 2026-11-28: this build logs each curl step to
+    // config/SwitchU/presence.log and keeps symbols (switchu-daemon.elf on the beta release).
+    switchu::daemon::presence::start();
 
     while (g_running.load()) {
         g_bootTimeSynced = switchu::timebudget::syncBootTime(); // until it has worked once

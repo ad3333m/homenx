@@ -18,7 +18,12 @@ package("libsdl")
         os.mkdir(root)
         if not os.isfile(package_path) then
             cprint("${color.build.target}downloading${clear} SDL2 audout")
-            os.execv("curl", {"-fL", package_url, "-o", package_path})
+            local mirrors = {package_url, "https://web.archive.org/web/2024id_/" .. package_url}
+            for _, url in ipairs(mirrors) do
+                local ok = try { function () os.execv("curl", {"-fL", "--retry", "2", url, "-o", package_path}); return true end }
+                if ok and os.isfile(package_path) and hash.sha256(package_path) == package_sha256 then break end
+                os.tryrm(package_path)
+            end
         end
         if hash.sha256(package_path) ~= package_sha256 then
             raise("unexpected checksum for " .. package_name)

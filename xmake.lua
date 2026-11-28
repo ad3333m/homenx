@@ -521,6 +521,8 @@ target("switchu-daemon")
         add_cxflags("-O3", "-ffast-math", {force = true})
     end
 
+    set_strip("none")      -- (a crash report's addresses can be looked up in it: switchu-daemon.elf)
+    set_symbols("debug")
     set_values("switch.name",    "switchu-daemon")
     set_values("switch.author",  "PoloNX")
     set_values("switch.version", version)

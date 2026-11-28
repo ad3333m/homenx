@@ -141,9 +141,22 @@ inline size_t keepText(char* data, size_t size, size_t count, void* out) {
 }
 
 // One HTTPS request to Discord's API with the account's token. Returns the body ("" if it failed).
+// curl's own account of each step, into presence.log (what it was doing when HOME crashed).
+inline int curlSays(CURL*, curl_infotype type, char* data, size_t size, void*) {
+    if (type != CURLINFO_TEXT) return 0;
+    std::string line(data, std::min<size_t>(size, 160));
+    while (!line.empty() && (line.back() == '
+' || line.back() == '')) line.pop_back();
+    plog("  curl: %s", line.c_str());
+    return 0;
+}
+
 inline std::string api(const std::string& token, const std::string& path, const std::string& post = std::string()) {
+    plog("api %s: start", path.c_str());
     CURL* c = curl_easy_init();
     if (!c) return {};
+    curl_easy_setopt(c, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(c, CURLOPT_DEBUGFUNCTION, curlSays);
     std::string body;
     const std::string url = "https://discord.com/api/v9" + path;
     curl_slist* headers = nullptr;
@@ -157,9 +170,11 @@ inline std::string api(const std::string& token, const std::string& path, const 
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, keepText);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &body);
     if (!post.empty()) curl_easy_setopt(c, CURLOPT_POSTFIELDS, post.c_str());
+    plog("api %s: sending", path.c_str());
     const CURLcode rc = switchu::tls::perform(c, url, switchu::tls::kHomeCerts, [&body]() { body.clear(); });
     long status = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+    plog("api %s: done (curl %d, HTTP %ld, %zu bytes)", path.c_str(), static_cast<int>(rc), status, body.size());
     curl_slist_free_all(headers);
     curl_easy_cleanup(c);
     return rc == CURLE_OK && status >= 200 && status < 300 ? body : std::string();
@@ -580,7 +595,7 @@ inline void start() {
     if (detail::g_started) return;
     detail::g_run.store(true);
     // Low priority, a roomy stack (TLS needs it).
-    if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x20000, 0x3F, -2))
+    if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x80000, 0x3F, -2))
         && R_SUCCEEDED(threadStart(&detail::g_thread))) {
         detail::g_started = true;
     }

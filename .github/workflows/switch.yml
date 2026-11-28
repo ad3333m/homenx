@@ -269,6 +269,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           gh release view beta -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create beta -R "$GITHUB_REPOSITORY" --prerelease --latest=false --title "HomeNX beta" --notes "Test builds from before a release. They can break: use the latest release unless you are testing. Found a bug? Settings > About > Make a bug report." || true
           gh release upload beta out/HomeNX-full.zip -R "$GITHUB_REPOSITORY" --clobber
+          # The daemon with its symbols, to name the addresses in a crash report.
+          elf=$(find build -type f -name 'switchu-daemon' -o -type f -name 'switchu-daemon.elf' | head -1)
+          if [ -n "$elf" ]; then cp "$elf" out/switchu-daemon.elf && gh release upload beta out/switchu-daemon.elf -R "$GITHUB_REPOSITORY" --clobber || true; fi
           gh release edit beta -R "$GITHUB_REPOSITORY" --prerelease --title "HomeNX beta (build $HOMENX_BUILD, $GITHUB_REF_NAME)"
 
   # Discord: "build N is out" and the update log, once both jobs published the
