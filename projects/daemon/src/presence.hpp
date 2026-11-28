@@ -8,6 +8,9 @@
 // a status from a user account is automating it, which Discord's rules don't allow.
 #include <switch.h>
 
+#include <malloc.h>
+#include <reent.h>
+
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include <switchu/file_log.hpp>
@@ -141,14 +144,20 @@ inline size_t keepText(char* data, size_t size, size_t count, void* out) {
 }
 
 // One HTTPS request to Discord's API with the account's token. Returns the body ("" if it failed).
-// The daemon has two allocators: Atmosphere's malloc/free/realloc, and newlib's own _malloc_r,
-// which strdup still uses. curl strdup'ed its strings (the user agent, the URL) and free'd them
-// into the other heap: HOME crashed right after the first request (2026-11-28, found with
-// symbols: Curl_hash_pick read "nux x86_" as a pointer). curl gets one allocator for everything.
-inline char* sameHeapStrdup(const char* s) {
-    const size_t n = std::strlen(s) + 1;
-    char* copy = static_cast<char*>(::malloc(n));
-    if (copy) std::memcpy(copy, s, n);
+// The daemon's malloc/free/new are Atmosphere's allocator on a 2 MB static heap (ecs.cpp) that all
+// of HOME's core shares; the process's real heap (8 MB) is newlib's, which only stdio and strdup
+// used. curl's buffers in the small shared heap crashed HOME, twice, with curl's own pointers
+// overwritten by its request text (2026-11-28, found with symbols: Curl_hash_pick, then
+// Curl_checkheaders). Everything here (curl, this thread's stack, a game's control data) takes
+// newlib's heap instead: thread-safe, its own, and roomy.
+inline void* nlMalloc(size_t n) { return _malloc_r(_REENT, n); }
+inline void nlFree(void* p) { _free_r(_REENT, p); }
+inline void* nlRealloc(void* p, size_t n) { return _realloc_r(_REENT, p, n); }
+inline void* nlCalloc(size_t count, size_t n) { return _calloc_r(_REENT, count, n); }
+inline char* nlStrdup(const char* text) {
+    const size_t n = std::strlen(text) + 1;
+    char* copy = static_cast<char*>(nlMalloc(n));
+    if (copy) std::memcpy(copy, text, n);
     return copy;
 }
 
@@ -398,7 +407,7 @@ inline u64 runningGame() {
 }
 
 inline std::string gameName(u64 tid) {
-    auto* data = new (std::nothrow) NsApplicationControlData();
+    auto* data = static_cast<NsApplicationControlData*>(nlCalloc(1, sizeof(NsApplicationControlData))); // (147 KB)
     if (!data) return {};
     u64 size = 0;
     std::string name;
@@ -406,7 +415,7 @@ inline std::string gameName(u64 tid) {
         NacpLanguageEntry* entry = nullptr;
         if (R_SUCCEEDED(nacpGetLanguageEntry(&data->nacp, &entry)) && entry) name = entry->name;
     }
-    delete data;
+    nlFree(data);
     return name;
 }
 
@@ -502,7 +511,7 @@ inline void threadFunc(void*) {
             plog("starting the network");
             netUp = R_SUCCEEDED(socketInitialize(&net));
             plog(netUp ? "network up" : "network didn't start");
-            if (netUp) curl_global_init_mem(CURL_GLOBAL_DEFAULT, ::malloc, ::free, ::realloc, sameHeapStrdup, ::calloc);
+            if (netUp) curl_global_init_mem(CURL_GLOBAL_DEFAULT, nlMalloc, nlFree, nlRealloc, nlStrdup, nlCalloc);
             if (!netUp) {
                 svcSleepThread(5'000'000'000ULL);
                 continue;
@@ -605,7 +614,9 @@ inline void start() {
     if (detail::g_started) return;
     detail::g_run.store(true);
     // Low priority, a roomy stack (TLS needs it).
-    if (R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, nullptr, 0x80000, 0x3F, -2))
+    // Its stack from newlib's heap too (not the 2 MB shared one).
+    static void* stack = _memalign_r(_REENT, 0x1000, 0x80000);
+    if (stack && R_SUCCEEDED(threadCreate(&detail::g_thread, detail::threadFunc, nullptr, stack, 0x80000, 0x3F, -2))
         && R_SUCCEEDED(threadStart(&detail::g_thread))) {
         detail::g_started = true;
     }
