@@ -4795,17 +4795,20 @@ void CardsActivity::drawProfile(nxui::Renderer& r) {
         }
         if (m_profileRow == 0 && i == m_profileUser)
             r.drawRoundedRectOutline({t.x - 3.f, t.y - 3.f, t.width + 6.f, t.height + 6.f}, hue.withAlpha(ring * a), 25.f, 3.f);
-        const float px = t.x + 40.f, py = t.y + t.height * 0.5f;
-        if (p.pic && p.pic->valid()) r.drawTextureRounded(p.pic.get(), {px - 26.f, py - 26.f, 52.f, 52.f}, 26.f, kWhite.withAlpha(a));
-        else r.drawCircle({px, py}, 26.f, (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.15f)).withAlpha(a), 40);
+        const float px = t.x + 34.f, py = t.y + t.height * 0.5f;
+        if (p.pic && p.pic->valid()) r.drawTextureRounded(p.pic.get(), {px - 23.f, py - 23.f, 46.f, 46.f}, 23.f, kWhite.withAlpha(a));
+        else r.drawCircle({px, py}, 23.f, (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.15f)).withAlpha(a), 40);
         const nxui::Color pink = playing && md ? m_m3.onPrimaryC : ink, pquiet = playing && md ? m_m3.onPrimaryC : quiet;
-        const float room = t.width - 84.f;
-        textMid(r, m_fPill, fit(m_fPill, p.name, room, 0.95f), px + 36.f, py - 12.f, pink.withAlpha(a), 0.95f);
+        const float room = t.width - 76.f;
+        textMid(r, m_fPill, fit(m_fPill, p.name, room, 0.95f), px + 32.f, py - 12.f, pink.withAlpha(a), 0.95f);
         std::string code = p.code;
 #ifdef SWITCHU_MENU
         if (code.empty()) code = m_profileCodesRead ? tr("No friend code") : tr("Reading...");
 #endif
-        if (!code.empty()) textMid(r, m_fBody, fit(m_fBody, code, room, 0.8f), px + 36.f, py + 14.f, pquiet.withAlpha(0.9f * a), 0.8f);
+        if (!code.empty()) { // the whole code, a little smaller when the card is narrow (not cut off)
+            const float cs = std::clamp(room / std::max(1.f, measured(m_fBody, code).x), 0.55f, 0.8f);
+            textMid(r, m_fBody, fit(m_fBody, code, room, cs), px + 32.f, py + 14.f, pquiet.withAlpha(0.9f * a), cs);
+        }
     }
 
     // What to do from here.
