@@ -7389,8 +7389,9 @@ void CardsActivity::buildSettings() {
         openSocial();
         if (m_social) m_social->showAddFriend();
     }));
-    // Discord: the game you're playing on your profile (HOME's daemon shows it during games).
-    net.rows.push_back(toggle("Show what I'm playing on Discord", []() {
+    // Discord: the game you're playing on your profile (HOME's daemon shows it during games). Hidden
+    // while the daemon's side is off (it crashed HOME, 2026-11-28).
+    if (false) net.rows.push_back(toggle("Show what I'm playing on Discord", []() {
             std::ifstream f("sdmc:/config/SwitchU/presence.json");
             std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             return text.find("\"enabled\":true") != std::string::npos;
