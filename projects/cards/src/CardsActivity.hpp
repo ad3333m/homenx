@@ -427,7 +427,9 @@ private:
         std::string name, game;
         int tier = 0, points = 0;
     };
-    std::vector<TrophyRow> m_trophyRows;
+    std::vector<TrophyRow> m_trophyRows, m_trophyTabs[2]; // (the tabs: this game, all games)
+    int m_trophyTab = 1;
+    std::string m_trophyGame; // this game's name (empty: no game chosen, only All games)
     std::deque<TrophyToast> m_trophyToasts;
     bool m_trophyOpen = false;
     int m_trophySel = 0, m_trophyPoints = 0, m_trophyMedals[3] = {};

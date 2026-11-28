@@ -807,7 +807,6 @@ Across every game	En todos los juegos	Em todos os jogos	Во всех играх
 Level {n}	Nivel {n}	Nível {n}	Уровень {n}	Niveau {n}	Stufe {n}	Livello {n}	レベル {n}	等级 {n}
 {n} points	{n} puntos	{n} pontos	Очков: {n}	{n} points	{n} Punkte	{n} punti	{n} ポイント	{n} 分
 {n} to level {level}	{n} para el nivel {level}	{n} para o nível {level}	{n} до уровня {level}	{n} avant le niveau {level}	{n} bis Stufe {level}	{n} al livello {level}	レベル {level} まで {n}	距离等级 {level} 还差 {n}
-Faster	Más rápido	Mais rápido	Быстрее	Plus vite	Schneller	Più veloce	速く	更快
 + > Achievements shows them	+ > Logros los muestra	+ > Conquistas mostra-as	+ > Достижения покажет их	+ > Succès les affiche	+ > Erfolge zeigt sie	+ > Obiettivi li mostra	+ > 実績で確認できます	+ > 成就中可查看
 Warming up	Calentando	Aquecendo	Разминка	Échauffement	Aufwärmen	Riscaldamento	ウォーミングアップ	热身
 Play it for 1 hour	Juega 1 hora	Jogue por 1 hora	Сыграйте 1 час	Jouez-y 1 heure	Spiele es 1 Stunde	Giocaci per 1 ora	1時間プレイする	游玩 1 小时
@@ -829,3 +828,7 @@ Earn achievements to fill your shelf	Consigue logros para llenar tu estante	Ganh
 Most played	Más jugado	Mais jogado	Больше всего	Le plus joué	Am meisten gespielt	Più giocato	最もプレイ	玩得最多
 Switch user	Cambiar de usuario	Trocar de usuário	Сменить пользователя	Changer d'utilisateur	Benutzer wechseln	Cambia utente	ユーザーを切り替え	切换用户
 You	Tú	Você	Вы	Vous	Du	Tu	あなた	你
+Organize	Organizar	Organizar	Упорядочить	Organiser	Ordnen	Organizza	整理	整理
+All games	Todos los juegos	Todos os jogos	Все игры	Tous les jeux	Alle Spiele	Tutti i giochi	すべてのゲーム	所有游戏
+Nothing to earn here yet	Aún no hay nada que conseguir aquí	Ainda não há nada para ganhar aqui	Здесь пока нечего получить	Rien à obtenir ici pour l'instant	Hier gibt es noch nichts zu verdienen	Qui non c'è ancora niente da ottenere	ここで獲得できるものはまだありません	这里暂时没有可获得的
+This game / All games	Este juego / Todos	Este jogo / Todos	Эта игра / Все игры	Ce jeu / Tous les jeux	Dieses Spiel / Alle	Questo gioco / Tutti	このゲーム / すべて	本游戏 / 所有游戏
