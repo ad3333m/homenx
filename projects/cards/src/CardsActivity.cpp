@@ -3485,7 +3485,33 @@ void CardsActivity::drawGalleryAsk(nxui::Renderer& r) {
     textMid(r, m_fBody, hint, 640.f - measured(m_fBody, hint).x * 0.5f, 395.f, kMuted);
 }
 
+void CardsActivity::startVideo() {
+    if (!m_galleryAll || m_galleryAt < 0 || m_galleryAt >= static_cast<int>(m_galleryAll->size())) return;
+    const AlbumShot& shot = (*m_galleryAll)[(size_t)m_galleryAt];
+    if (shot.path.empty()) { // (in the console's memory: the Album service has it, not as a file)
+        say("This video is on the console's memory: only videos on the SD card play here.");
+        return;
+    }
+    stopVideo();
+    m_video = std::make_unique<VideoPlayer>();
+    if (!m_video->open(shot.path)) {
+        m_video.reset();
+        say("That video didn't play.");
+        return;
+    }
+    m_audio.play("activation");
+}
+
+void CardsActivity::stopVideo() {
+    m_video.reset(); // (its thread stops; HOME's music is back)
+    for (auto& tex : m_videoTex) tex.reset();
+    m_videoTexAt = -1;
+    m_videoPx.clear();
+    m_videoPx.shrink_to_fit();
+}
+
 void CardsActivity::loadGalleryPicture() {
+    stopVideo();
     if (!m_galleryAll || m_galleryAt < 0 || m_galleryAt >= static_cast<int>(m_galleryAll->size())) return;
     if (m_galleryJob.valid()) m_galleryJob.wait();
     const AlbumShot shot = (*m_galleryAll)[(size_t)m_galleryAt];
@@ -5356,6 +5382,20 @@ void CardsActivity::updatePicker() {
     }
     if (m_galleryView) { // one full screen: left / right, use it, or delete it
         const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
+        if (m_video) { // a video playing: A pauses, left / right skip 10 s, B stops (and its end)
+            if (in.isDown(B::A)) m_video->togglePause();
+            if (in.isDown(B::DLeft) || in.isDown(B::LStickL)) m_video->skip(-10.f);
+            if (in.isDown(B::DRight) || in.isDown(B::LStickR)) m_video->skip(10.f);
+            if (in.isDown(B::B) || m_video->ended()) {
+                stopVideo();
+                m_audio.play("hide_modal");
+            }
+            return;
+        }
+        if (n > 0 && in.isDown(B::A) && (*m_galleryAll)[(size_t)m_galleryAt].video) {
+            startVideo();
+            return;
+        }
         int at = m_galleryAt;
         if (in.isDown(B::DLeft) || in.isDown(B::LStickL) || in.isDown(B::L)) at -= 1;
         if (in.isDown(B::DRight) || in.isDown(B::LStickR) || in.isDown(B::R)) at += 1;
@@ -5534,17 +5574,50 @@ void CardsActivity::drawPicker(nxui::Renderer& r) {
                                          && m_pickTex[(size_t)local]->valid() ? m_pickTex[(size_t)local].get() : nullptr;
         if (small && fullIn < 1.f) r.drawTexture(small, placed(small), kWhite);
         if (full) r.drawTexture(full, placed(full), kWhite.withAlpha(fullIn));
+        if (m_video) { // a video playing: its newest frame over its picture (into the next of three textures)
+            int vw = 0, vh = 0;
+            if (m_video->takeFrame(m_videoPx, vw, vh) && vw > 0 && vh > 0) {
+                m_videoTexAt = (m_videoTexAt + 1) % 3;
+                auto& tex = m_videoTex[m_videoTexAt];
+                bool ok = false;
+                if (tex && tex->valid() && tex->width() == vw && tex->height() == vh) {
+                    ok = app().gpu().uploadTexture(tex->image(), m_videoPx.data(), static_cast<uint32_t>(m_videoPx.size()),
+                                                   static_cast<uint32_t>(vw), static_cast<uint32_t>(vh));
+                } else {
+                    tex = std::make_unique<nxui::Texture>();
+                    ok = tex->loadFromPixels(app().gpu(), app().renderer(), m_videoPx.data(), vw, vh);
+                }
+                if (!ok) tex.reset();
+            }
+            const nxui::Texture* vt = m_videoTexAt >= 0 && m_videoTex[m_videoTexAt] && m_videoTex[m_videoTexAt]->valid()
+                                          ? m_videoTex[m_videoTexAt].get() : nullptr;
+            if (vt) r.drawTexture(vt, placed(vt), kWhite);
+        }
         r.drawGradientRect({0.f, 620.f, 1280.f, 100.f}, nxui::Color(0.f, 0.f, 0.f, 0.f), nxui::Color(0.f, 0.f, 0.f, 0.7f * open));
         const int n = m_galleryAll ? static_cast<int>(m_galleryAll->size()) : 0;
         const std::string where = trf("{n} of {total}", {std::to_string(m_galleryAt + 1), std::to_string(n)});
         const bool video = n > 0 && (*m_galleryAll)[(size_t)std::clamp(m_galleryAt, 0, n - 1)].video;
-        const std::string hint = video ? "Left / Right more    - Delete    B Back"
+        const std::string hint = video ? (m_video ? "A Pause    < > 10 s    B Stop" : "A Play    Left / Right more    - Delete    B Back")
                                        : "Left / Right more    Y Background    X Lock screen    - Delete    B Back";
-        if (video) { // (its picture: there's no player here)
+        if (video && m_video) { // playing: how far, as a bar and the time
+            const float dur = std::max(0.1f, m_video->duration()), at = std::clamp(m_video->position(), 0.f, dur);
+            const nxui::Rect bar{40.f, 646.f, 1200.f, 6.f};
+            r.drawRoundedRect(bar, nxui::Color(1.f, 1.f, 1.f, 0.25f), 3.f);
+            r.drawRoundedRect({bar.x, bar.y, std::max(6.f, bar.width * at / dur), bar.height}, accent(), 3.f);
+            auto clockText = [](float s) {
+                char b[16];
+                std::snprintf(b, sizeof(b), "%d:%02d", static_cast<int>(s) / 60, static_cast<int>(s) % 60);
+                return std::string(b);
+            };
+            const std::string t = clockText(at) + " / " + clockText(dur);
+            textMid(r, m_fBody, t, 1240.f - measured(m_fBody, t).x, 624.f, kWhite);
+            if (m_video->paused()) {
+                r.drawRoundedRect({640.f - 44.f, 360.f - 44.f, 88.f, 88.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f), 44.f);
+                icon(r, "pause", 640.f, 360.f, 40.f, kWhite);
+            }
+        } else if (video) { // its picture, and A to play it
             r.drawRoundedRect({640.f - 44.f, 360.f - 44.f, 88.f, 88.f}, nxui::Color(0.f, 0.f, 0.f, 0.55f), 44.f);
             icon(r, "play", 640.f, 360.f, 44.f, kWhite);
-            const std::string note = "Videos can't play here";
-            textMid(r, m_fBody, note, 640.f - measured(m_fBody, note).x * 0.5f, 430.f, kWhite);
         }
         textMid(r, m_fBody, where, 40.f, 684.f, kMuted.withAlpha(kMuted.a * open));
         textMid(r, m_fBody, hint, 1240.f - measured(m_fBody, hint).x, 684.f, kWhite.withAlpha(0.9f * open));

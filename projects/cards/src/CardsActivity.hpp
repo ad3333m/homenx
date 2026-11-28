@@ -1,6 +1,7 @@
 #pragma once
 #include "Audio.hpp"
 #include "Library.hpp"
+#include "VideoPlayer.hpp"
 #include "Mtp.hpp"
 #include "Settings.hpp"
 #include <switchu/lock_screen_policy.hpp>
@@ -609,9 +610,17 @@ private:
     float m_galleryOpenAt = -10.f, m_galleryCloseAt = -10.f, m_galleryTexAt = -10.f;
     nxui::Rect m_galleryFrom{};
     void closeGalleryView() {
+        stopVideo();
         m_galleryView = false;
         m_galleryCloseAt = m_time;
     }
+    // An Album video playing in the viewer (A): its frames go through three textures in turn.
+    std::unique_ptr<VideoPlayer> m_video;
+    std::unique_ptr<nxui::Texture> m_videoTex[3];
+    int m_videoTexAt = -1;
+    std::vector<std::uint8_t> m_videoPx;
+    void startVideo();
+    void stopVideo();
     void drawGalleryZoom(nxui::Renderer& r);
     bool m_keepGlass = false; // drawing the launch, the way back or the lock screen: glass in every Style
     // A surface: Soft raises it off the background with its shadows (or presses it in); else a plain shape.
