@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -43,6 +44,25 @@ struct Config {
     bool enabled = false;
     std::string appId, token;
 };
+
+inline void plog(const char* fmt, ...) {
+    constexpr const char* kPath = "sdmc:/config/SwitchU/presence.log";
+    FILE* f = std::fopen(kPath, "a");
+    if (!f) return;
+    std::fseek(f, 0, SEEK_END);
+    if (std::ftell(f) > 64 * 1024) { // (kept small: the newest only)
+        std::fclose(f);
+        f = std::fopen(kPath, "w");
+        if (!f) return;
+    }
+    std::fprintf(f, "[%lld] ", static_cast<long long>(std::time(nullptr)));
+    va_list args;
+    va_start(args, fmt);
+    std::vfprintf(f, fmt, args);
+    va_end(args);
+    std::fputc('\n', f);
+    std::fclose(f);
+}
 
 inline Config readConfig() {
     Config c;
@@ -397,14 +417,14 @@ inline std::string presenceJson(const Config& cfg, const std::string& status, co
 inline void threadFunc(void*) {
     // Small socket buffers: this is a few messages a minute.
     SocketInitConfig net = *socketGetDefaultInitConfig();
-    net.tcp_tx_buf_size = 0x4000;
-    net.tcp_rx_buf_size = 0x8000;
-    net.tcp_tx_buf_max_size = 0x10000;
-    net.tcp_rx_buf_max_size = 0x20000;
-    net.udp_tx_buf_size = 0x2000;
-    net.udp_rx_buf_size = 0x2000;
-    net.sb_efficiency = 2;
-    net.num_bsd_sessions = 2;
+    net.tcp_tx_buf_size = 0x2000;
+    net.tcp_rx_buf_size = 0x4000;
+    net.tcp_tx_buf_max_size = 0x4000;
+    net.tcp_rx_buf_max_size = 0x8000;
+    net.udp_tx_buf_size = 0x800;
+    net.udp_rx_buf_size = 0x800;
+    net.sb_efficiency = 1;
+    net.num_bsd_sessions = 1;
     bool netUp = false, pmUp = false;
     Gateway gw;
     Config cfg;
@@ -428,6 +448,7 @@ inline void threadFunc(void*) {
             if (gw.isOpen()) {
                 gw.close();
                 switchu::FileLog::log("[presence] game closed: signed out");
+                plog("game closed: signed out");
             }
             shownTid = 0;
             svcSleepThread(1'000'000'000ULL);
@@ -435,12 +456,27 @@ inline void threadFunc(void*) {
         }
         if (tid != startedTid) { // a game started: its name, when, and the account's own status
             startedTid = tid;
+            plog("game %016lX started", static_cast<unsigned long>(tid));
             name = gameName(tid);
+            plog("its name: %s", name.c_str());
             startMs = static_cast<long long>(std::time(nullptr)) * 1000;
             icon.clear();
         }
+        if (!gw.isOpen() && t >= retryAt) { // nothing started without room to spare (HOME itself needs it)
+            void* probe = std::malloc(3u << 20);
+            const bool roomy = probe != nullptr;
+            std::free(probe);
+            if (!roomy) {
+                plog("under 3 MB free: not connecting, trying again in 30 s");
+                retryAt = t + 30000;
+                svcSleepThread(1'000'000'000ULL);
+                continue;
+            }
+        }
         if (!netUp) {
+            plog("starting the network");
             netUp = R_SUCCEEDED(socketInitialize(&net));
+            plog(netUp ? "network up" : "network didn't start");
             if (netUp) curl_global_init(CURL_GLOBAL_DEFAULT);
             if (!netUp) {
                 svcSleepThread(5'000'000'000ULL);
@@ -453,6 +489,7 @@ inline void threadFunc(void*) {
                 continue;
             }
             // Invisible on Discord stays invisible: nothing is shown then.
+            plog("asking Discord for your status");
             const auto settings = nlohmann::json::parse(api(cfg.token, "/users/@me/settings"), nullptr, false);
             status = settings.is_object() && settings.contains("status") && settings["status"].is_string()
                 ? settings["status"].get<std::string>() : std::string("online");
@@ -460,8 +497,11 @@ inline void threadFunc(void*) {
                 retryAt = t + 60000;
                 continue;
             }
+            plog("status: %s; getting the game's icon", status.c_str());
             if (icon.empty()) icon = gameIcon(cfg, tid);
+            plog("connecting to the gateway");
             if (!gw.open()) {
+                plog("the gateway didn't open");
                 ++failures;
                 retryAt = t + (failures > 8 ? 600000ULL : std::min<u64>(60000, 5000ULL * static_cast<u64>(failures)));
                 switchu::FileLog::log("[presence] couldn't reach Discord (try %d)", failures);
@@ -497,6 +537,7 @@ inline void threadFunc(void*) {
                     shownTid = tid;
                     failures = 0;
                     switchu::FileLog::log("[presence] signed in: showing %016lX", static_cast<unsigned long>(tid));
+                    plog("signed in, showing %016lX", static_cast<unsigned long>(tid));
                     break;
                 }
                 case 1: beatAt = 0; break; // asked for a beat now
@@ -518,6 +559,7 @@ inline void threadFunc(void*) {
             gw.close();
             retryAt = now() + 30000;
             switchu::FileLog::log("[presence] something went wrong: trying again in 30 s");
+            plog("something went wrong: trying again in 30 s");
             svcSleepThread(1'000'000'000ULL);
         }
     }
