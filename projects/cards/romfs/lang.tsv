@@ -803,7 +803,6 @@ Continue	Continuar	Continuar	Продолжить	Continuer	Weiter	Continua	続�
 Next	Siguiente	Próximo	Далее	Suivant	Weiter	Avanti	次へ	下一步
 Skip	Omitir	Pular	Пропустить	Passer	Überspringen	Salta	スキップ	跳过
 Achievements	Logros	Conquistas	Достижения	Succès	Erfolge	Obiettivi	実績	成就
-Across every game	En todos los juegos	Em todos os jogos	Во всех играх	Dans tous les jeux	In allen Spielen	In tutti i giochi	すべてのゲーム	所有游戏
 Level {n}	Nivel {n}	Nível {n}	Уровень {n}	Niveau {n}	Stufe {n}	Livello {n}	レベル {n}	等级 {n}
 {n} points	{n} puntos	{n} pontos	Очков: {n}	{n} points	{n} Punkte	{n} punti	{n} ポイント	{n} 分
 {n} to level {level}	{n} para el nivel {level}	{n} para o nível {level}	{n} до уровня {level}	{n} avant le niveau {level}	{n} bis Stufe {level}	{n} al livello {level}	レベル {level} まで {n}	距离等级 {level} 还差 {n}
@@ -826,9 +825,11 @@ Nothing found	No se encontró nada	Nada encontrado	Ничего не найде�
 Shelf	Estante	Estante	Полка	Étagère	Regal	Mensola	棚	展示架
 Earn achievements to fill your shelf	Consigue logros para llenar tu estante	Ganhe conquistas para encher sua estante	Получайте достижения, чтобы заполнить полку	Obtenez des succès pour remplir votre étagère	Verdiene Erfolge, um dein Regal zu füllen	Ottieni obiettivi per riempire la mensola	実績を獲得して棚を埋めよう	获得成就来填满展示架
 Most played	Más jugado	Mais jogado	Больше всего	Le plus joué	Am meisten gespielt	Più giocato	最もプレイ	玩得最多
-Switch user	Cambiar de usuario	Trocar de usuário	Сменить пользователя	Changer d'utilisateur	Benutzer wechseln	Cambia utente	ユーザーを切り替え	切换用户
 You	Tú	Você	Вы	Vous	Du	Tu	あなた	你
 Organize	Organizar	Organizar	Упорядочить	Organiser	Ordnen	Organizza	整理	整理
 All games	Todos los juegos	Todos os jogos	Все игры	Tous les jeux	Alle Spiele	Tutti i giochi	すべてのゲーム	所有游戏
 Nothing to earn here yet	Aún no hay nada que conseguir aquí	Ainda não há nada para ganhar aqui	Здесь пока нечего получить	Rien à obtenir ici pour l'instant	Hier gibt es noch nichts zu verdienen	Qui non c'è ancora niente da ottenere	ここで獲得できるものはまだありません	这里暂时没有可获得的
 This game / All games	Este juego / Todos	Este jogo / Todos	Эта игра / Все игры	Ce jeu / Tous les jeux	Dieses Spiel / Alle	Questo gioco / Tutti	このゲーム / すべて	本游戏 / 所有游戏
+Accounts	Cuentas	Contas	Учётные записи	Comptes	Konten	Account	アカウント	账户
+Manage users	Gestionar usuarios	Gerenciar usuários	Управление пользователями	Gérer les utilisateurs	Benutzer verwalten	Gestisci utenti	ユーザーの管理	管理用户
+No friend code	Sin código de amigo	Sem código de amigo	Нет кода друга	Pas de code ami	Kein Freundescode	Nessun codice amico	フレンドコードなし	无好友代码

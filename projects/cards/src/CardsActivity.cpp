@@ -4527,21 +4527,51 @@ CardsActivity::Achieved CardsActivity::collectAchievements(const std::vector<Pla
 // ---------------------------------------------------------------- Profile and search
 
 namespace {
-const nxui::Rect kProfileBox{150.f, 60.f, 980.f, 600.f};
+const nxui::Rect kProfileBox{150.f, 24.f, 980.f, 672.f};
 nxui::Rect profileButtonRect(int i, int count) { // the buttons along the bottom, centred
     const float w = 230.f, gap = 16.f, total = w * static_cast<float>(count) + gap * static_cast<float>(count - 1);
-    return {kProfileBox.x + (kProfileBox.width - total) * 0.5f + (w + gap) * static_cast<float>(i), kProfileBox.y + 520.f, w, 52.f};
+    return {kProfileBox.x + (kProfileBox.width - total) * 0.5f + (w + gap) * static_cast<float>(i), kProfileBox.y + 598.f, w, 50.f};
+}
+nxui::Rect profileAccountRect(int i, int count) { // the console's accounts, in a row
+    const float gap = 12.f, room = kProfileBox.width - 100.f;
+    const float w = std::min(214.f, (room - gap * static_cast<float>(std::max(0, count - 1))) / static_cast<float>(std::max(1, count)));
+    return {kProfileBox.x + 50.f + (w + gap) * static_cast<float>(i), kProfileBox.y + 494.f, w, 84.f};
 }
 } // namespace
 
-// The avatar: you, your level and best medals (the shelf), your play, and what to do from here.
+// Your picture at the top: you, your level and best medals (the shelf), your play, the console's
+// accounts with their friend codes (A on one plays as it), and what to do from here.
 void CardsActivity::openProfile() {
     namespace ach = switchu::achievements;
     m_profileName.clear();
-    for (const User& u : listUsers())
+    app().gpu().waitIdle(); // (the accounts' pictures from last time may still be drawing)
+    m_profileUsers.clear();
+    std::vector<AccountUidLike> uids;
+    for (User& u : listUsers()) {
+        ProfileUser p;
+        p.uid = u.uid;
+        p.name = u.name;
+        auto tex = std::make_unique<nxui::Texture>();
+        if (!u.picture.empty() && tex->loadFromMemory(app().gpu(), app().renderer(), u.picture.data(), u.picture.size(), 96))
+            p.pic = std::move(tex);
         if (u.uid.uid[0] == m_user.uid[0] && u.uid.uid[1] == m_user.uid[1]) m_profileName = u.name;
+        uids.push_back(u.uid);
+        m_profileUsers.push_back(std::move(p));
+    }
 #ifdef SWITCHU_MENU
-    friendCodeRow(); // (starts reading the friend code)
+    if (!m_profileCodesJob.valid()) // every account's friend code, read on a thread
+        m_profileCodesJob = std::async(std::launch::async, [uids]() {
+            offScreenCore();
+            std::vector<std::string> codes;
+            for (const AccountUidLike& id : uids) {
+                AccountUid uid{};
+                uid.uid[0] = id.uid[0];
+                uid.uid[1] = id.uid[1];
+                codes.push_back(loadFriendCode(uid));
+            }
+            threadDone();
+            return codes;
+        });
 #endif
     m_profileSeconds = m_profileTopSeconds = 0;
     m_profilePlayed = 0;
@@ -4575,33 +4605,53 @@ void CardsActivity::openProfile() {
         return a.tier != b.tier ? a.tier > b.tier : a.when > b.when;
     });
     if (m_shelf.size() > 6) m_shelf.resize(6);
+    m_profileRow = 0;
+    m_profileUser = 0;
+    for (size_t i = 0; i < m_profileUsers.size(); ++i)
+        if (m_profileUsers[i].uid.uid[0] == m_user.uid[0] && m_profileUsers[i].uid.uid[1] == m_user.uid[1]) m_profileUser = static_cast<int>(i);
     m_profileSel = 0;
+    if (!m_profileOpen) {
+        m_profileIn = m_settings.motion ? 0.f : 1.f;
+        m_audio.play("show_modal");
+    }
     m_profileOpen = true;
-    m_profileIn = m_settings.motion ? 0.f : 1.f;
-    m_audio.play("show_modal");
 }
 
 int CardsActivity::profileButtons() const {
 #ifdef SWITCHU_MENU
-    return 3; // Switch user, Achievements, Add a friend
+    return 3; // Achievements, Add a friend, Manage users
 #else
     return 2;
 #endif
 }
 
 void CardsActivity::profileButton(int i) {
+#ifndef SWITCHU_MENU
+    if (i >= 1) ++i; // (no Add a friend)
+#endif
     m_profileOpen = false;
     m_audio.play("activation");
     if (i == 0) {
-        openUsers();
-    } else if (i == 1) {
         openTrophies();
-    } else {
+    } else if (i == 1) {
 #ifdef SWITCHU_MENU
         openSocial();
         if (m_social) m_social->showAddFriend();
 #endif
+    } else {
+        openUsers(); // (adding and removing users)
     }
+}
+
+// An account: games start as it from now on.
+void CardsActivity::profileAccount(int i) {
+    if (i < 0 || i >= static_cast<int>(m_profileUsers.size())) return;
+    const ProfileUser& p = m_profileUsers[(size_t)i];
+    if (p.uid.uid[0] == m_user.uid[0] && p.uid.uid[1] == m_user.uid[1]) return;
+    setUser(p.uid);
+    m_audio.play("toggle_on");
+    say(trf("Games start as {user} now.", {p.name}));
+    m_profileName = p.name;
 }
 
 void CardsActivity::updateProfile() {
@@ -4613,26 +4663,51 @@ void CardsActivity::updateProfile() {
         m_audio.play("hide_modal");
         return;
     }
-    const int n = profileButtons();
-    if ((in.isDown(B::DLeft) || in.isDown(B::LStickL)) && m_profileSel > 0) {
-        --m_profileSel;
+    const bool accounts = !m_profileUsers.empty();
+    if ((in.isDown(B::DUp) || in.isDown(B::LStickU)) && m_profileRow == 1 && accounts) {
+        m_profileRow = 0;
         m_audio.play("navigation");
     }
-    if ((in.isDown(B::DRight) || in.isDown(B::LStickR)) && m_profileSel < n - 1) {
-        ++m_profileSel;
+    if ((in.isDown(B::DDown) || in.isDown(B::LStickD)) && m_profileRow == 0) {
+        m_profileRow = 1;
         m_audio.play("navigation");
     }
-    if (in.isDown(B::A)) profileButton(m_profileSel);
+    if (!accounts) m_profileRow = 1;
+    int& at = m_profileRow == 0 ? m_profileUser : m_profileSel;
+    const int n = m_profileRow == 0 ? static_cast<int>(m_profileUsers.size()) : profileButtons();
+    if ((in.isDown(B::DLeft) || in.isDown(B::LStickL)) && at > 0) {
+        --at;
+        m_audio.play("navigation");
+    }
+    if ((in.isDown(B::DRight) || in.isDown(B::LStickR)) && at < n - 1) {
+        ++at;
+        m_audio.play("navigation");
+    }
+    if (in.isDown(B::A)) {
+        if (m_profileRow == 0) profileAccount(m_profileUser);
+        else profileButton(m_profileSel);
+    }
 }
 
 void CardsActivity::drawProfile(nxui::Renderer& r) {
     if (!m_profileOpen) return;
+#ifdef SWITCHU_MENU
+    if (m_profileCodesJob.valid() && m_profileCodesJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const std::vector<std::string> codes = m_profileCodesJob.get();
+        for (size_t i = 0; i < codes.size() && i < m_profileUsers.size(); ++i) m_profileUsers[i].code = codes[i];
+        m_profileCodesRead = true;
+    }
+#endif
     const float a = easeOut(m_profileIn);
     const bool md = m3();
     const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
     const nxui::Color hue = md ? m_m3.primary : accent();
     const nxui::Color tile = md ? m_m3.surfaceHigh : nxui::Color(1.f, 1.f, 1.f, 0.07f);
     const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f), spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
+    auto medalColour = [](int tier) {
+        return tier == 2 ? nxui::Color(1.f, 0.80f, 0.27f, 1.f) : tier == 1 ? nxui::Color(0.78f, 0.81f, 0.86f, 1.f)
+                                                                        : nxui::Color(0.84f, 0.54f, 0.30f, 1.f);
+    };
     r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
     const nxui::Rect box = scaled(kProfileBox, 0.95f + 0.05f * a);
     const float dy = box.y - kProfileBox.y;
@@ -4641,21 +4716,24 @@ void CardsActivity::drawProfile(nxui::Renderer& r) {
     const float x0 = kProfileBox.x + 50.f, y0 = kProfileBox.y + dy;
 
     // You: your picture in a turning frame, your name, friend code and level.
-    const float ax = x0 + 80.f, ay = y0 + 120.f;
-    if (md) drawBumpy(r, ax, ay, 88.f, 10, 0.06f, m_m3.primary.withAlpha(a), spin);
-    else r.drawCircle({ax, ay}, 86.f, accent(0.9f * a), 64);
-    if (m_avatar && m_avatar->valid()) r.drawTextureRounded(m_avatar.get(), {ax - 76.f, ay - 76.f, 152.f, 152.f}, 76.f, kWhite.withAlpha(a));
-    else r.drawCircle({ax, ay}, 76.f, tile.withAlpha(tile.a * a), 64);
-    r.drawCircle({ax + 56.f, ay + 56.f}, 14.f, (md ? m_m3.surfaceC : nxui::Color(0.08f, 0.09f, 0.13f, 1.f)).withAlpha(a), 24);
-    r.drawCircle({ax + 56.f, ay + 56.f}, 10.f, (m_online ? kGreen : nxui::Color(0.6f, 0.62f, 0.66f, 1.f)).withAlpha(a), 24);
-    const float tx = ax + 120.f;
+    const float ax = x0 + 76.f, ay = y0 + 108.f;
+    if (md) drawBumpy(r, ax, ay, 84.f, 10, 0.06f, m_m3.primary.withAlpha(a), spin);
+    else r.drawCircle({ax, ay}, 82.f, accent(0.9f * a), 64);
+    if (m_avatar && m_avatar->valid()) r.drawTextureRounded(m_avatar.get(), {ax - 72.f, ay - 72.f, 144.f, 144.f}, 72.f, kWhite.withAlpha(a));
+    else r.drawCircle({ax, ay}, 72.f, tile.withAlpha(tile.a * a), 64);
+    r.drawCircle({ax + 53.f, ay + 53.f}, 14.f, (md ? m_m3.surfaceC : nxui::Color(0.08f, 0.09f, 0.13f, 1.f)).withAlpha(a), 24);
+    r.drawCircle({ax + 53.f, ay + 53.f}, 10.f, (m_online ? kGreen : nxui::Color(0.6f, 0.62f, 0.66f, 1.f)).withAlpha(a), 24);
+    const float tx = ax + 114.f;
     nxui::Font& big = md && m_headFont ? m_fHead : m_fTitle;
     const std::string name = m_profileName.empty() ? tr("You") : m_profileName;
-    textMid(r, big, fit(big, name, 520.f), tx, ay - 44.f, ink.withAlpha(a));
+    textMid(r, big, fit(big, name, 500.f), tx, ay - 44.f, ink.withAlpha(a));
+    std::string myCode;
+    for (const ProfileUser& p : m_profileUsers)
+        if (p.uid.uid[0] == m_user.uid[0] && p.uid.uid[1] == m_user.uid[1]) myCode = p.code;
 #ifdef SWITCHU_MENU
-    const std::string code = m_friendCodeJob.valid() ? tr("Reading...") : m_friendCode;
-    if (!code.empty()) textMid(r, m_fBody, code, tx, ay - 6.f, quiet.withAlpha(a));
+    if (myCode.empty() && !m_profileCodesRead) myCode = tr("Reading...");
 #endif
+    if (!myCode.empty()) textMid(r, m_fBody, myCode, tx, ay - 6.f, quiet.withAlpha(a));
     const int level = 1 + m_profilePoints / 100;
     const std::string lv = trf("Level {n}", {std::to_string(level)}) + "  ·  " + trf("{n} points", {std::to_string(m_profilePoints)});
     const nxui::Rect chip{tx, ay + 22.f, measured(m_fPill, lv).x + 36.f, 40.f};
@@ -4664,36 +4742,30 @@ void CardsActivity::drawProfile(nxui::Renderer& r) {
     textMid(r, m_fPill, lv, chip.x + 18.f, chip.y + 20.f, (md ? m_m3.onPrimaryC : kWhite).withAlpha(a));
     for (int t = 2, at = 0; t >= 0; --t, ++at) { // your medals: gold, silver, bronze
         const float mx = kProfileBox.x + kProfileBox.width - 70.f - 84.f * static_cast<float>(at);
-        const nxui::Color medal = t == 2 ? nxui::Color(1.f, 0.80f, 0.27f, 1.f) : t == 1 ? nxui::Color(0.78f, 0.81f, 0.86f, 1.f)
-                                                                                      : nxui::Color(0.84f, 0.54f, 0.30f, 1.f);
-        r.drawCircle({mx, ay - 20.f}, 24.f, medal.withAlpha(a), 40);
+        r.drawCircle({mx, ay - 20.f}, 24.f, medalColour(t).withAlpha(a), 40);
         icon(r, "trophy", mx, ay - 20.f, 24.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.85f * a));
         const std::string n = std::to_string(m_profileMedals[t]);
         textMid(r, m_fPill, n, mx - measured(m_fPill, n).x * 0.5f, ay + 22.f, ink.withAlpha(a));
     }
 
     // The shelf: your best medals.
-    float y = y0 + 248.f;
+    float y = y0 + 232.f;
     textMid(r, m_fBody, "Shelf", x0, y, hue.withAlpha(a), 0.95f);
     const float sw = (kProfileBox.width - 100.f - 5.f * 12.f) / 6.f;
-    if (m_shelf.empty()) {
-        textMid(r, m_fBody, "Earn achievements to fill your shelf", x0, y + 60.f, quiet.withAlpha(a));
-    }
+    if (m_shelf.empty()) textMid(r, m_fBody, "Earn achievements to fill your shelf", x0, y + 54.f, quiet.withAlpha(a));
     for (size_t i = 0; i < m_shelf.size(); ++i) {
         const float in = m_settings.motion ? easeOutBack(m_profileIn * 1.6f - 0.08f * static_cast<float>(i)) : 1.f;
-        const nxui::Rect t{x0 + (sw + 12.f) * static_cast<float>(i), y + 22.f + 16.f * (1.f - in), sw, 112.f};
+        const nxui::Rect t{x0 + (sw + 12.f) * static_cast<float>(i), y + 20.f + 16.f * (1.f - in), sw, 100.f};
         r.drawRoundedRect(t, tile.withAlpha(tile.a * a), 20.f);
         const ShelfMedal& s = m_shelf[i];
-        const nxui::Color medal = s.tier == 2 ? nxui::Color(1.f, 0.80f, 0.27f, 1.f) : s.tier == 1 ? nxui::Color(0.78f, 0.81f, 0.86f, 1.f)
-                                                                                                 : nxui::Color(0.84f, 0.54f, 0.30f, 1.f);
-        r.drawCircle({t.x + t.width * 0.5f, t.y + 40.f}, 24.f, medal.withAlpha(a), 40);
-        icon(r, "trophy", t.x + t.width * 0.5f, t.y + 40.f, 24.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.85f * a));
+        r.drawCircle({t.x + t.width * 0.5f, t.y + 36.f}, 22.f, medalColour(s.tier).withAlpha(a), 40);
+        icon(r, "trophy", t.x + t.width * 0.5f, t.y + 36.f, 22.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.85f * a));
         const std::string label = fit(m_fBody, s.name, sw - 14.f, 0.85f);
-        textMid(r, m_fBody, label, t.x + (t.width - measured(m_fBody, label).x * 0.85f) * 0.5f, t.y + 88.f, ink.withAlpha(a), 0.85f);
+        textMid(r, m_fBody, label, t.x + (t.width - measured(m_fBody, label).x * 0.85f) * 0.5f, t.y + 78.f, ink.withAlpha(a), 0.85f);
     }
 
     // Your play.
-    y = y0 + 410.f;
+    y = y0 + 372.f;
     const float stw = (kProfileBox.width - 100.f - 2.f * 12.f) / 3.f;
     const std::string facts[3][2] = {
         {"Played", playTime(m_profileSeconds)},
@@ -4701,27 +4773,61 @@ void CardsActivity::drawProfile(nxui::Renderer& r) {
         {"Most played", m_profileTop.empty() ? std::string("-") : m_profileTop + "  " + playTime(m_profileTopSeconds)},
     };
     for (int i = 0; i < 3; ++i) {
-        const nxui::Rect t{x0 + (stw + 12.f) * static_cast<float>(i), y, stw, 84.f};
+        const nxui::Rect t{x0 + (stw + 12.f) * static_cast<float>(i), y, stw, 76.f};
         r.drawRoundedRect(t, tile.withAlpha(tile.a * a), 20.f);
-        textMid(r, m_fBody, facts[i][0], t.x + 18.f, t.y + 24.f, quiet.withAlpha(a), 0.9f);
-        textMid(r, m_fLabel, fit(m_fLabel, facts[i][1], t.width - 36.f), t.x + 18.f, t.y + 56.f, ink.withAlpha(a));
+        textMid(r, m_fBody, facts[i][0], t.x + 18.f, t.y + 22.f, quiet.withAlpha(a), 0.9f);
+        textMid(r, m_fLabel, fit(m_fLabel, facts[i][1], t.width - 36.f), t.x + 18.f, t.y + 52.f, ink.withAlpha(a));
+    }
+
+    // The console's accounts: picture, name, friend code; the one playing filled.
+    textMid(r, m_fBody, "Accounts", x0, y0 + 474.f, hue.withAlpha(a), 0.95f);
+    const int users = static_cast<int>(m_profileUsers.size());
+    for (int i = 0; i < users; ++i) {
+        const ProfileUser& p = m_profileUsers[(size_t)i];
+        nxui::Rect t = profileAccountRect(i, users);
+        t.y += dy;
+        const bool playing = p.uid.uid[0] == m_user.uid[0] && p.uid.uid[1] == m_user.uid[1];
+        if (playing) {
+            if (md) softSurface(r, t, 22.f, m_m3.primaryC, a);
+            else r.drawRoundedRect(t, accent(0.5f * a), 22.f);
+        } else {
+            r.drawRoundedRect(t, tile.withAlpha(tile.a * a), 22.f);
+        }
+        if (m_profileRow == 0 && i == m_profileUser)
+            r.drawRoundedRectOutline({t.x - 3.f, t.y - 3.f, t.width + 6.f, t.height + 6.f}, hue.withAlpha(ring * a), 25.f, 3.f);
+        const float px = t.x + 40.f, py = t.y + t.height * 0.5f;
+        if (p.pic && p.pic->valid()) r.drawTextureRounded(p.pic.get(), {px - 26.f, py - 26.f, 52.f, 52.f}, 26.f, kWhite.withAlpha(a));
+        else r.drawCircle({px, py}, 26.f, (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.15f)).withAlpha(a), 40);
+        const nxui::Color pink = playing && md ? m_m3.onPrimaryC : ink, pquiet = playing && md ? m_m3.onPrimaryC : quiet;
+        const float room = t.width - 84.f;
+        textMid(r, m_fPill, fit(m_fPill, p.name, room, 0.95f), px + 36.f, py - 12.f, pink.withAlpha(a), 0.95f);
+        std::string code = p.code;
+#ifdef SWITCHU_MENU
+        if (code.empty()) code = m_profileCodesRead ? tr("No friend code") : tr("Reading...");
+#endif
+        if (!code.empty()) textMid(r, m_fBody, fit(m_fBody, code, room, 0.8f), px + 36.f, py + 14.f, pquiet.withAlpha(0.9f * a), 0.8f);
     }
 
     // What to do from here.
-    static const char* const kButtons[] = {"Switch user", "Achievements", "Add a friend"};
-    static const char* const kGlyphs[] = {"friends", "trophy", "friends"};
+#ifdef SWITCHU_MENU
+    static const char* const kButtons[] = {"Achievements", "Add a friend", "Manage users"};
+    static const char* const kGlyphs[] = {"trophy", "friends", "gear"};
+#else
+    static const char* const kButtons[] = {"Achievements", "Manage users"};
+    static const char* const kGlyphs[] = {"trophy", "gear"};
+#endif
     for (int i = 0; i < profileButtons(); ++i) {
         nxui::Rect b = profileButtonRect(i, profileButtons());
         b.y += dy;
-        const bool on = i == m_profileSel;
-        if (md) softSurface(r, b, 26.f, on ? m_m3.primaryC : m_m3.secondaryC, a);
-        else r.drawRoundedRect(b, on ? accent(0.85f * a) : nxui::Color(1.f, 1.f, 1.f, 0.10f * a), 26.f);
-        if (on) r.drawRoundedRectOutline({b.x - 3.f, b.y - 3.f, b.width + 6.f, b.height + 6.f}, hue.withAlpha(ring * a), 29.f, 3.f);
+        const bool on = m_profileRow == 1 && i == m_profileSel;
+        if (md) softSurface(r, b, 25.f, on ? m_m3.primaryC : m_m3.secondaryC, a);
+        else r.drawRoundedRect(b, on ? accent(0.85f * a) : nxui::Color(1.f, 1.f, 1.f, 0.10f * a), 25.f);
+        if (on) r.drawRoundedRectOutline({b.x - 3.f, b.y - 3.f, b.width + 6.f, b.height + 6.f}, hue.withAlpha(ring * a), 28.f, 3.f);
         const nxui::Color ink2 = md ? (on ? m_m3.onPrimaryC : m_m3.onSecondaryC) : kWhite;
         const std::string label = kButtons[i];
         const float lw = 30.f + measured(m_fPill, label).x;
-        icon(r, kGlyphs[i], b.x + (b.width - lw) * 0.5f + 12.f, b.y + 26.f, 22.f, ink2.withAlpha(a));
-        textMid(r, m_fPill, label, b.x + (b.width - lw) * 0.5f + 30.f, b.y + 26.f, ink2.withAlpha(a));
+        icon(r, kGlyphs[i], b.x + (b.width - lw) * 0.5f + 12.f, b.y + 25.f, 22.f, ink2.withAlpha(a));
+        textMid(r, m_fPill, label, b.x + (b.width - lw) * 0.5f + 30.f, b.y + 25.f, ink2.withAlpha(a));
     }
 }
 
@@ -9007,10 +9113,18 @@ bool CardsActivity::handleTouch() {
     if (m_profileOpen) { // the profile: its buttons; a tap beside it closes it
         if (in.touchUp()) {
             const float x = in.touchX(), y = in.touchY();
-            int hit = -1;
+            int hit = -1, account = -1;
             for (int i = 0; i < profileButtons(); ++i)
                 if (profileButtonRect(i, profileButtons()).contains(x, y)) hit = i;
-            if (hit >= 0) {
+            for (int i = 0; i < static_cast<int>(m_profileUsers.size()); ++i)
+                if (profileAccountRect(i, static_cast<int>(m_profileUsers.size())).contains(x, y)) account = i;
+            if (account >= 0) {
+                m_profileRow = 0;
+                m_profileUser = account;
+                profileAccount(account);
+            } else if (hit >= 0) {
+                m_profileRow = 1;
+                m_profileSel = hit;
                 profileButton(hit);
             } else if (!kProfileBox.contains(x, y)) {
                 m_profileOpen = false;

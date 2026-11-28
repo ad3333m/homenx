@@ -448,6 +448,16 @@ private:
     std::uint64_t m_profileSeconds = 0, m_profileTopSeconds = 0;
     std::string m_profileName, m_profileTop;
     void openProfile();
+    struct ProfileUser { // one of the console's accounts, on the profile
+        AccountUidLike uid;
+        std::string name, code; // (code: its friend code, as HOME reads it)
+        std::unique_ptr<nxui::Texture> pic;
+    };
+    std::vector<ProfileUser> m_profileUsers;
+    std::future<std::vector<std::string>> m_profileCodesJob;
+    bool m_profileCodesRead = false;
+    int m_profileRow = 0, m_profileUser = 0; // the row chosen (0 the accounts, 1 the buttons) and the account
+    void profileAccount(int i);
     int profileButtons() const;
     void profileButton(int i);
     void updateProfile();
