@@ -145,8 +145,7 @@ inline size_t keepText(char* data, size_t size, size_t count, void* out) {
 inline int curlSays(CURL*, curl_infotype type, char* data, size_t size, void*) {
     if (type != CURLINFO_TEXT) return 0;
     std::string line(data, std::min<size_t>(size, 160));
-    while (!line.empty() && (line.back() == '
-' || line.back() == '')) line.pop_back();
+    while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
     plog("  curl: %s", line.c_str());
     return 0;
 }
