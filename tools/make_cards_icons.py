@@ -529,6 +529,14 @@ def order():  # My Order
     return im
 
 
+def search():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.ellipse([q(14), q(14), q(62), q(62)], outline=W, width=q(8))
+    d.line([(q(56), q(56)), (q(82), q(82))], fill=W, width=q(10))
+    d.ellipse([q(77), q(77), q(87), q(87)], fill=W)
+    return im
+
+
 def sdcard():
     im = canvas(); d = ImageDraw.Draw(im)
     d.polygon([(q(38), q(10)), (q(76), q(10)), (q(76), q(86)), (q(20), q(86)), (q(20), q(28))], fill=W)
@@ -571,7 +579,7 @@ if __name__ == "__main__":
                      ("playlist", playlist), ("moon", moon), ("restart", restart), ("hekate", hekate), ("download", download), ("trash", trash), ("pad", pad), ("nextendo", nextendo),
                      ("menu", menu), ("cube", cube), ("store", store), ("playc", playc), ("folder", folder),
                      ("photo", photo), ("check", check), ("history", history), ("az", az), ("trend", trend),
-                     ("order", order), ("sdcard", sdcard)]:
+                     ("order", order), ("sdcard", sdcard), ("search", search)]:
         save(fn(), name)
     for name, fn in [("eshop", sys_eshop), ("nso", sys_nso), ("album", sys_album), ("mii", sys_mii),
                      ("friends", sys_friends), ("controllers", sys_controllers), ("browser", sys_browser),

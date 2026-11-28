@@ -714,7 +714,7 @@ bool CardsActivity::onCreate() {
                                  "sun", "speaker", "prev", "next", "pause", "repeat", "shuffle", "playlist",
                                  "moon", "restart", "hekate", "download", "trash", "pad", "nextendo", "bluetooth", "trophy",
                                  "menu", "cube", "store", "playc", "folder", "photo", "check", "history", "az", "trend",
-                                 "order", "sdcard", "gamecard", "gamecard-required"}) {
+                                 "order", "sdcard", "gamecard", "gamecard-required", "search"}) {
             std::ifstream in(std::string(kAssets) + "icons/" + name + ".png", std::ios::binary | std::ios::ate);
             if (!in) continue;
             const auto length = in.tellg();
@@ -3132,8 +3132,8 @@ void CardsActivity::pumpDaemon() {
 // Everything open closes; true if something was.
 bool CardsActivity::closeEverything() {
     bool any = !m_menu.empty() || m_notifOpen || m_sheetOpen || m_moving || m_quickOpen || m_powerOpen || m_dotsOpen
-            || m_optOpen || m_pickOpen || m_musicOpen || m_spQrOpen || m_task != Task::None || m_trophyOpen;
-    m_trophyOpen = false;
+            || m_optOpen || m_pickOpen || m_musicOpen || m_spQrOpen || m_task != Task::None || m_trophyOpen || m_profileOpen;
+    m_trophyOpen = m_profileOpen = false;
     closeTask();
     if (m_spQrOpen) {
         m_spQrOpen = false;
@@ -4512,260 +4512,489 @@ CardsActivity::Achieved CardsActivity::collectAchievements(const std::vector<Pla
     return out;
 }
 
-// ---------------------------------------------------------------- Achievements (medals, points, your level)
-
-namespace {
-// Bronze, silver and gold.
-nxui::Color tierColour(int tier) {
-    return tier >= 2 ? nxui::Color(1.f, 0.80f, 0.27f, 1.f) : tier == 1 ? nxui::Color(0.78f, 0.81f, 0.86f, 1.f)
-                     : nxui::Color(0.84f, 0.54f, 0.30f, 1.f);
-}
-constexpr int kPointsPerLevel = 100;
-const nxui::Rect kTrophyBox{120.f, 52.f, 1040.f, 616.f};
-constexpr float kTrophyTop = 212.f, kTrophyBottom = 612.f, kTrophyRowH = 72.f, kTrophyHeadH = 44.f;
-} // namespace
-
-// The Achievements screen: your level and medals, then every achievement across your games and the
-// chosen game's own, each with its medal and how far along it is.
-void CardsActivity::openTrophies() {
-    namespace ach = switchu::achievements;
-    const ach::Earned earned = ach::load();
-    m_trophyRows.clear();
-    m_trophyPoints = 0;
-    for (int& n : m_trophyMedals) n = 0;
-    for (const auto& [k, when] : earned.when) { // everything earned: its medal and points
-        const size_t space = k.find(' ');
-        if (space == std::string::npos) continue;
-        const std::string id = k.substr(space + 1);
-        int tier = 1; // (a game's own: silver)
-        if (const ach::Milestone* m = ach::milestone(id.c_str())) tier = static_cast<int>(m->tier);
-        else if (id.rfind("p.", 0) != 0) continue;
-        m_trophyPoints += ach::tierPoints(static_cast<ach::Tier>(tier));
-        ++m_trophyMedals[std::clamp(tier, 0, 2)];
-    }
-    std::uint32_t installed = 0;
-    for (const Game& g : m_pages[kGames]) installed += g.path.empty() && g.action.empty() && !g.homebrew ? 1 : 0;
-    auto row = [&](const ach::Milestone& m, const ach::Facts& f, bool done) {
-        TrophyRow t;
-        t.name = tr(m.name);
-        t.about = tr(m.about);
-        t.tier = static_cast<int>(m.tier);
-        t.done = done;
-        t.progress = done ? 1.f : ach::progress(m, f);
-        t.status = achievementStatus(m, f, done);
-        m_trophyRows.push_back(std::move(t));
-    };
-    auto heading = [&](const std::string& name) {
-        TrophyRow t;
-        t.name = name;
-        t.heading = true;
-        m_trophyRows.push_back(std::move(t));
-    };
-    const Game* g = current();
-    if (g && g->path.empty() && g->action.empty() && !g->homebrew) { // the chosen game's first
-        heading(g->name);
-        const switchu::packs::Pack pack = switchu::packs::load(g->id);
-        for (const switchu::packs::Achievement& p : pack.list) {
-            TrophyRow t;
-            t.name = p.name;
-            t.about = p.about;
-            t.tier = 1;
-            t.done = earned.when.count(ach::key(g->id, ("p." + p.id).c_str())) != 0;
-            t.progress = t.done ? 1.f : 0.f;
-            t.status = tr(t.done ? "Earned" : "Locked");
-            m_trophyRows.push_back(std::move(t));
-        }
-        const ach::Facts play{g->playSeconds};
-        for (const ach::Milestone& m : ach::kPerGame)
-            if (hasPerfect(m, pack)) row(m, play, earned.when.count(ach::key(g->id, m.id)) || ach::progress(m, play) >= 1.f);
-    }
-    heading(tr("Across every game"));
-    const ach::Facts all{earned.totalSeconds, earned.gamesPlayed, installed, ach::earnedFromPacks(earned)};
-    for (const ach::Milestone& m : ach::kOverall)
-        row(m, all, earned.when.count(ach::overallKey(m.id)) || ach::progress(m, all) >= 1.f);
-    m_trophySel = 0;
-    while (m_trophySel < static_cast<int>(m_trophyRows.size()) && m_trophyRows[(size_t)m_trophySel].heading) ++m_trophySel;
-    m_trophyScroll = 0.f;
-    m_trophyOpen = true;
-    m_trophyIn = m_settings.motion ? 0.f : 1.f;
-    m_audio.play("show_modal");
-}
-
-void CardsActivity::updateTrophies() {
-    auto& in = app().input();
-    using B = nxui::Button;
-    m_trophyIn = std::min(1.f, m_trophyIn + 0.08f);
-    if (in.isDown(B::B) || in.isDown(B::Plus)) {
-        m_trophyOpen = false;
-        m_audio.play("hide_modal");
-        return;
-    }
-    const int n = static_cast<int>(m_trophyRows.size());
-    auto step = [&](int d) { // to the next row that isn't a heading
-        int at = m_trophySel + d;
-        while (at >= 0 && at < n && m_trophyRows[(size_t)at].heading) at += d;
-        if (at >= 0 && at < n && at != m_trophySel) {
-            m_trophySel = at;
-            m_audio.play("navigation");
-        }
-    };
-    if (in.isDown(B::DUp) || in.isDown(B::LStickU)) step(-1);
-    if (in.isDown(B::DDown) || in.isDown(B::LStickD)) step(1);
-    if (in.isDown(B::L) || in.isDown(B::ZL)) for (int i = 0; i < 5; ++i) step(-1);
-    if (in.isDown(B::R) || in.isDown(B::ZR)) for (int i = 0; i < 5; ++i) step(1);
-}
-
-void CardsActivity::drawTrophies(nxui::Renderer& r) {
-    if (!m_trophyOpen) return;
-    const float a = easeOut(m_trophyIn);
-    const bool md = m3();
-    const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
-    const nxui::Color hue = md ? m_m3.primary : accent();
-    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f), spin = m_settings.motion ? m_decoTime * 0.3f : 0.f;
-    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
-    const nxui::Rect box = scaled(kTrophyBox, 0.95f + 0.05f * a);
-    const float dy = box.y - kTrophyBox.y;
-    frost(r, box, md ? 44.f : 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.9f * a));
-    if (!md) r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
-
-    // Your level in a medal of its own, the points to the next, and your medals.
-    const int level = 1 + m_trophyPoints / kPointsPerLevel, into = m_trophyPoints % kPointsPerLevel;
-    const float bx = kTrophyBox.x + 92.f, by = kTrophyBox.y + 92.f + dy;
-    if (md) drawBumpy(r, bx, by, 52.f, 9, 0.07f, m_m3.primaryC.withAlpha(a), spin);
-    else r.drawCircle({bx, by}, 52.f, accent(0.9f * a), 56);
-    const std::string lv = std::to_string(level);
-    nxui::Font& big = md && m_headFont ? m_fHead : m_fTitle;
-    textMid(r, big, lv, bx - measured(big, lv).x * 0.5f, by, (md ? m_m3.onPrimaryC : kWhite).withAlpha(a));
-    const float tx = bx + 82.f;
-    textMid(r, m_fTitle, trf("Level {n}", {std::to_string(level)}), tx, by - 26.f, ink.withAlpha(a));
-    const nxui::Rect bar{tx, by + 8.f, 380.f, 12.f};
-    r.drawRoundedRect(bar, (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.14f)).withAlpha(a), 6.f);
-    const float fill = static_cast<float>(into) / kPointsPerLevel * clamp01(m_trophyIn * 1.5f);
-    if (fill > 0.f) r.drawRoundedRect({bar.x, bar.y, std::max(12.f, bar.width * fill), bar.height}, hue.withAlpha(a), 6.f);
-    textMid(r, m_fBody, trf("{n} points", {std::to_string(m_trophyPoints)}) + "    "
-                            + trf("{n} to level {level}", {std::to_string(kPointsPerLevel - into), std::to_string(level + 1)}),
-            tx, by + 40.f, quiet.withAlpha(a));
-    for (int t = 2, at = 0; t >= 0; --t, ++at) { // gold, silver, bronze
-        const float mx = kTrophyBox.x + kTrophyBox.width - 72.f - 96.f * static_cast<float>(at);
-        r.drawCircle({mx, by - 6.f}, 26.f, tierColour(t).withAlpha(a), 40);
-        icon(r, "trophy", mx, by - 6.f, 26.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.85f * a));
-        const std::string n = std::to_string(m_trophyMedals[t]);
-        textMid(r, m_fPill, n, mx - measured(m_fPill, n).x * 0.5f, by + 38.f, ink.withAlpha(a));
-    }
-
-    // The list, scrolled to keep the chosen one in view.
-    auto rowH = [&](size_t i) { return m_trophyRows[i].heading ? kTrophyHeadH : kTrophyRowH; };
-    float chosenY = 0.f, total = 0.f;
-    for (size_t i = 0; i < m_trophyRows.size(); ++i) {
-        if (static_cast<int>(i) == m_trophySel) chosenY = total;
-        total += rowH(i);
-    }
-    const float visible = kTrophyBottom - kTrophyTop;
-    const float want = std::clamp(chosenY - visible * 0.5f + kTrophyRowH * 0.5f, 0.f, std::max(0.f, total - visible));
-    m_trophyScroll += (want - m_trophyScroll) * (m_settings.motion ? 0.25f : 1.f);
-    const float left = kTrophyBox.x + 40.f, width = kTrophyBox.width - 80.f;
-    r.pushClipRect({left - 8.f, kTrophyTop + dy - 6.f, width + 16.f, visible + 12.f});
-    float y = kTrophyTop + dy - m_trophyScroll;
-    for (size_t i = 0; i < m_trophyRows.size(); ++i) {
-        const TrophyRow& t = m_trophyRows[i];
-        const float h = rowH(i);
-        if (y + h < kTrophyTop + dy - 10.f || y > kTrophyBottom + dy + 10.f) {
-            y += h;
-            continue;
-        }
-        if (t.heading) {
-            textMid(r, m_fBody, fit(m_fBody, t.name, width), left + 6.f, y + h * 0.5f + 6.f, (md ? m_m3.primary : kMuted).withAlpha(a), 0.95f);
-            y += h;
-            continue;
-        }
-        const nxui::Rect row{left, y + 3.f, width, h - 6.f};
-        const bool on = static_cast<int>(i) == m_trophySel;
-        if (on) {
-            r.drawRoundedRect(row, (md ? m_m3.onSurface : kWhite).withAlpha(0.08f * a), 18.f);
-            r.drawRoundedRectOutline(row, hue.withAlpha(ring * a), 18.f, 2.f);
-        }
-        // Its medal: its colour once earned, dark until then.
-        const float cx = row.x + 34.f, cy = row.y + row.height * 0.5f;
-        const nxui::Color medal = t.done ? tierColour(t.tier) : (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.10f));
-        r.drawCircle({cx, cy}, 22.f, medal.withAlpha(medal.a * a), 36);
-        if (!t.done) r.drawRoundedRectOutline({cx - 22.f, cy - 22.f, 44.f, 44.f}, tierColour(t.tier).withAlpha(0.6f * a), 22.f, 2.f);
-        icon(r, "trophy", cx, cy, 24.f, (t.done ? nxui::Color(0.1f, 0.08f, 0.05f, 0.9f) : quiet).withAlpha(a * (t.done ? 1.f : 0.7f)));
-        // The right side: what it's worth once earned, else how far along.
-        const float right = row.x + row.width - 20.f;
-        const int worth = t.points > 0 ? t.points : switchu::achievements::tierPoints(static_cast<switchu::achievements::Tier>(t.tier));
-        const std::string pts = "+" + std::to_string(worth);
-        float room = right - (cx + 40.f);
-        if (t.done) {
-            const float pw = measured(m_fPill, pts).x;
-            textMid(r, m_fPill, pts, right - pw, cy, tierColour(t.tier).withAlpha(a));
-            const std::string word = fit(m_fBody, t.status, 140.f);
-            textMid(r, m_fBody, word, right - pw - 16.f - measured(m_fBody, word).x, cy, quiet.withAlpha(a));
-            room -= pw + 170.f;
-        } else {
-            const nxui::Rect track{right - 150.f, cy + 6.f, 150.f, 8.f};
-            r.drawRoundedRect(track, (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.14f)).withAlpha(a), 4.f);
-            if (t.progress > 0.f)
-                r.drawRoundedRect({track.x, track.y, std::max(8.f, track.width * t.progress), track.height}, hue.withAlpha(a), 4.f);
-            const std::string word = fit(m_fBody, t.status, 150.f);
-            textMid(r, m_fBody, word, right - measured(m_fBody, word).x, cy - 12.f, quiet.withAlpha(a), 0.9f);
-            room -= 170.f;
-        }
-        textMid(r, m_fPill, fit(m_fPill, t.name, room), cx + 40.f, cy - 12.f, ink.withAlpha(a * (t.done ? 1.f : 0.85f)));
-        textMid(r, m_fBody, fit(m_fBody, t.about, room, 0.9f), cx + 40.f, cy + 14.f, quiet.withAlpha(a), 0.9f);
-        y += h;
-    }
-    r.popClipRect();
-    drawHints(r, kTrophyBox.x + kTrophyBox.width - 30.f, kTrophyBox.y + kTrophyBox.height - 22.f + dy,
-              {{"L R", "Faster"}, {"B", "Back"}}, a);
-}
-
-// An achievement just earned: its medal card drops in at the top with a shine and a sound, one
-// at a time, then goes back up.
-void CardsActivity::drawTrophyToast(nxui::Renderer& r) {
-    if (m_trophyToasts.empty() || m_locked || m_leaving) return;
-    if (m_trophyToastAt < 0.f) {
-        m_trophyToastAt = m_time;
-        m_audio.play("activation");
-    }
-    const float age = m_time - m_trophyToastAt;
-    if (age > 4.4f) {
-        m_trophyToasts.pop_front();
-        m_trophyToastAt = -1.f;
-        return;
-    }
-    const TrophyToast& t = m_trophyToasts.front();
-    const bool md = m3();
-    const float in = m_settings.motion ? easeOutBack(age / 0.5f) : 1.f, out = m_settings.motion ? easeIn((age - 3.9f) / 0.5f) : 0.f;
-    const nxui::Rect card{640.f - 270.f, -100.f + 124.f * in - 130.f * out, 540.f, 92.f};
-    const nxui::Color gold = tierColour(t.tier);
-    r.drawRoundedRect({card.x + 4.f, card.y + 10.f, card.width, card.height}, nxui::Color(0.f, 0.f, 0.f, 0.35f), 46.f);
-    if (md) softSurface(r, card, 46.f, m_m3.surfaceHigh, 1.f);
-    else {
-        frost(r, card, 46.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.94f));
-        r.drawRoundedRectOutline(card, gold.withAlpha(0.6f), 46.f, 2.f);
-    }
-    // The medal, a shine sweeping across it.
-    const float mx = card.x + 50.f, my = card.y + card.height * 0.5f;
-    r.drawCircle({mx, my}, 30.f, gold, 48);
-    icon(r, "trophy", mx, my, 30.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.9f));
-    const float sweep = clamp01((age - 0.4f) / 0.7f);
-    if (sweep > 0.f && sweep < 1.f) {
-        r.pushClipRect({mx - 30.f, my - 30.f, 60.f, 60.f});
-        const float x = mx - 60.f + 120.f * easeInOut(sweep);
-        const nxui::Color shine(1.f, 1.f, 1.f, 0.55f * std::sin(sweep * 3.14159f));
-        r.drawTriangle({x, my - 30.f}, {x + 14.f, my - 30.f}, {x - 16.f, my + 30.f}, shine);
-        r.drawTriangle({x + 14.f, my - 30.f}, {x - 2.f, my + 30.f}, {x - 16.f, my + 30.f}, shine);
-        r.popClipRect();
-    }
-    const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
-    const std::string pts = "+" + std::to_string(t.points);
-    const float pw = measured(m_fPill, pts).x, room = card.width - 100.f - pw - 40.f;
-    textMid(r, m_fBody, "Achievement unlocked", mx + 46.f, my - 22.f, gold, 0.9f);
-    textMid(r, m_fLabel, fit(m_fLabel, t.name, room), mx + 46.f, my + 2.f, ink);
-    if (!t.game.empty()) textMid(r, m_fBody, fit(m_fBody, t.game, room, 0.85f), mx + 46.f, my + 28.f, quiet, 0.85f);
-    textMid(r, m_fPill, pts, card.x + card.width - 30.f - pw, my, gold);
-}
-
+// ---------------------------------------------------------------- Profile and search
+
+namespace {
+const nxui::Rect kProfileBox{150.f, 60.f, 980.f, 600.f};
+nxui::Rect profileButtonRect(int i, int count) { // the buttons along the bottom, centred
+    const float w = 230.f, gap = 16.f, total = w * static_cast<float>(count) + gap * static_cast<float>(count - 1);
+    return {kProfileBox.x + (kProfileBox.width - total) * 0.5f + (w + gap) * static_cast<float>(i), kProfileBox.y + 520.f, w, 52.f};
+}
+} // namespace
+
+// The avatar: you, your level and best medals (the shelf), your play, and what to do from here.
+void CardsActivity::openProfile() {
+    namespace ach = switchu::achievements;
+    m_profileName.clear();
+    for (const User& u : listUsers())
+        if (u.uid.uid[0] == m_user.uid[0] && u.uid.uid[1] == m_user.uid[1]) m_profileName = u.name;
+#ifdef SWITCHU_MENU
+    friendCodeRow(); // (starts reading the friend code)
+#endif
+    m_profileSeconds = m_profileTopSeconds = 0;
+    m_profilePlayed = 0;
+    m_profileTop.clear();
+    for (const Game& g : m_pages[kGames]) {
+        if (!g.path.empty() || !g.action.empty() || g.homebrew) continue;
+        m_profileSeconds += g.playSeconds;
+        if (g.playSeconds > 0) ++m_profilePlayed;
+        if (g.playSeconds > m_profileTopSeconds) {
+            m_profileTopSeconds = g.playSeconds;
+            m_profileTop = g.name;
+        }
+    }
+    // Medals as the Achievements screen counts them; the shelf: the best ones, newest first.
+    const ach::Earned earned = ach::load();
+    m_profilePoints = 0;
+    for (int& n : m_profileMedals) n = 0;
+    m_shelf.clear();
+    for (const auto& [k, when] : earned.when) {
+        const size_t space = k.find(' ');
+        if (space == std::string::npos) continue;
+        const std::string id = k.substr(space + 1);
+        const ach::Milestone* m = ach::milestone(id.c_str());
+        if (!m && id.rfind("p.", 0) != 0) continue;
+        const int tier = m ? static_cast<int>(m->tier) : 1;
+        m_profilePoints += ach::tierPoints(static_cast<ach::Tier>(tier));
+        ++m_profileMedals[std::clamp(tier, 0, 2)];
+        if (m) m_shelf.push_back({tr(m->name), tier, static_cast<long long>(when)});
+    }
+    std::sort(m_shelf.begin(), m_shelf.end(), [](const ShelfMedal& a, const ShelfMedal& b) {
+        return a.tier != b.tier ? a.tier > b.tier : a.when > b.when;
+    });
+    if (m_shelf.size() > 6) m_shelf.resize(6);
+    m_profileSel = 0;
+    m_profileOpen = true;
+    m_profileIn = m_settings.motion ? 0.f : 1.f;
+    m_audio.play("show_modal");
+}
+
+int CardsActivity::profileButtons() const {
+#ifdef SWITCHU_MENU
+    return 3; // Switch user, Achievements, Add a friend
+#else
+    return 2;
+#endif
+}
+
+void CardsActivity::profileButton(int i) {
+    m_profileOpen = false;
+    m_audio.play("activation");
+    if (i == 0) {
+        openUsers();
+    } else if (i == 1) {
+        openTrophies();
+    } else {
+#ifdef SWITCHU_MENU
+        openSocial();
+        if (m_social) m_social->showAddFriend();
+#endif
+    }
+}
+
+void CardsActivity::updateProfile() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    m_profileIn = std::min(1.f, m_profileIn + 0.08f);
+    if (in.isDown(B::B) || in.isDown(B::Plus)) {
+        m_profileOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    const int n = profileButtons();
+    if ((in.isDown(B::DLeft) || in.isDown(B::LStickL)) && m_profileSel > 0) {
+        --m_profileSel;
+        m_audio.play("navigation");
+    }
+    if ((in.isDown(B::DRight) || in.isDown(B::LStickR)) && m_profileSel < n - 1) {
+        ++m_profileSel;
+        m_audio.play("navigation");
+    }
+    if (in.isDown(B::A)) profileButton(m_profileSel);
+}
+
+void CardsActivity::drawProfile(nxui::Renderer& r) {
+    if (!m_profileOpen) return;
+    const float a = easeOut(m_profileIn);
+    const bool md = m3();
+    const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
+    const nxui::Color hue = md ? m_m3.primary : accent();
+    const nxui::Color tile = md ? m_m3.surfaceHigh : nxui::Color(1.f, 1.f, 1.f, 0.07f);
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f), spin = m_settings.motion ? m_decoTime * 0.25f : 0.f;
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    const nxui::Rect box = scaled(kProfileBox, 0.95f + 0.05f * a);
+    const float dy = box.y - kProfileBox.y;
+    frost(r, box, md ? 44.f : 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.92f * a));
+    if (!md) r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+    const float x0 = kProfileBox.x + 50.f, y0 = kProfileBox.y + dy;
+
+    // You: your picture in a turning frame, your name, friend code and level.
+    const float ax = x0 + 80.f, ay = y0 + 120.f;
+    if (md) drawBumpy(r, ax, ay, 88.f, 10, 0.06f, m_m3.primary.withAlpha(a), spin);
+    else r.drawCircle({ax, ay}, 86.f, accent(0.9f * a), 64);
+    if (m_avatar && m_avatar->valid()) r.drawTextureRounded(m_avatar.get(), {ax - 76.f, ay - 76.f, 152.f, 152.f}, 76.f, kWhite.withAlpha(a));
+    else r.drawCircle({ax, ay}, 76.f, tile.withAlpha(tile.a * a), 64);
+    r.drawCircle({ax + 56.f, ay + 56.f}, 14.f, (md ? m_m3.surfaceC : nxui::Color(0.08f, 0.09f, 0.13f, 1.f)).withAlpha(a), 24);
+    r.drawCircle({ax + 56.f, ay + 56.f}, 10.f, (m_online ? kGreen : nxui::Color(0.6f, 0.62f, 0.66f, 1.f)).withAlpha(a), 24);
+    const float tx = ax + 120.f;
+    nxui::Font& big = md && m_headFont ? m_fHead : m_fTitle;
+    const std::string name = m_profileName.empty() ? tr("You") : m_profileName;
+    textMid(r, big, fit(big, name, 520.f), tx, ay - 44.f, ink.withAlpha(a));
+#ifdef SWITCHU_MENU
+    const std::string code = m_friendCodeJob.valid() ? tr("Reading...") : m_friendCode;
+    if (!code.empty()) textMid(r, m_fBody, code, tx, ay - 6.f, quiet.withAlpha(a));
+#endif
+    const int level = 1 + m_profilePoints / 100;
+    const std::string lv = trf("Level {n}", {std::to_string(level)}) + "  ·  " + trf("{n} points", {std::to_string(m_profilePoints)});
+    const nxui::Rect chip{tx, ay + 22.f, measured(m_fPill, lv).x + 36.f, 40.f};
+    if (md) softSurface(r, chip, 20.f, m_m3.primaryC, a);
+    else r.drawRoundedRect(chip, accent(0.85f * a), 20.f);
+    textMid(r, m_fPill, lv, chip.x + 18.f, chip.y + 20.f, (md ? m_m3.onPrimaryC : kWhite).withAlpha(a));
+    for (int t = 2, at = 0; t >= 0; --t, ++at) { // your medals: gold, silver, bronze
+        const float mx = kProfileBox.x + kProfileBox.width - 70.f - 84.f * static_cast<float>(at);
+        const nxui::Color medal = t == 2 ? nxui::Color(1.f, 0.80f, 0.27f, 1.f) : t == 1 ? nxui::Color(0.78f, 0.81f, 0.86f, 1.f)
+                                                                                      : nxui::Color(0.84f, 0.54f, 0.30f, 1.f);
+        r.drawCircle({mx, ay - 20.f}, 24.f, medal.withAlpha(a), 40);
+        icon(r, "trophy", mx, ay - 20.f, 24.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.85f * a));
+        const std::string n = std::to_string(m_profileMedals[t]);
+        textMid(r, m_fPill, n, mx - measured(m_fPill, n).x * 0.5f, ay + 22.f, ink.withAlpha(a));
+    }
+
+    // The shelf: your best medals.
+    float y = y0 + 248.f;
+    textMid(r, m_fBody, "Shelf", x0, y, hue.withAlpha(a), 0.95f);
+    const float sw = (kProfileBox.width - 100.f - 5.f * 12.f) / 6.f;
+    if (m_shelf.empty()) {
+        textMid(r, m_fBody, "Earn achievements to fill your shelf", x0, y + 60.f, quiet.withAlpha(a));
+    }
+    for (size_t i = 0; i < m_shelf.size(); ++i) {
+        const float in = m_settings.motion ? easeOutBack(m_profileIn * 1.6f - 0.08f * static_cast<float>(i)) : 1.f;
+        const nxui::Rect t{x0 + (sw + 12.f) * static_cast<float>(i), y + 22.f + 16.f * (1.f - in), sw, 112.f};
+        r.drawRoundedRect(t, tile.withAlpha(tile.a * a), 20.f);
+        const ShelfMedal& s = m_shelf[i];
+        const nxui::Color medal = s.tier == 2 ? nxui::Color(1.f, 0.80f, 0.27f, 1.f) : s.tier == 1 ? nxui::Color(0.78f, 0.81f, 0.86f, 1.f)
+                                                                                                 : nxui::Color(0.84f, 0.54f, 0.30f, 1.f);
+        r.drawCircle({t.x + t.width * 0.5f, t.y + 40.f}, 24.f, medal.withAlpha(a), 40);
+        icon(r, "trophy", t.x + t.width * 0.5f, t.y + 40.f, 24.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.85f * a));
+        const std::string label = fit(m_fBody, s.name, sw - 14.f, 0.85f);
+        textMid(r, m_fBody, label, t.x + (t.width - measured(m_fBody, label).x * 0.85f) * 0.5f, t.y + 88.f, ink.withAlpha(a), 0.85f);
+    }
+
+    // Your play.
+    y = y0 + 410.f;
+    const float stw = (kProfileBox.width - 100.f - 2.f * 12.f) / 3.f;
+    const std::string facts[3][2] = {
+        {"Played", playTime(m_profileSeconds)},
+        {"Games", std::to_string(m_profilePlayed)},
+        {"Most played", m_profileTop.empty() ? std::string("-") : m_profileTop + "  " + playTime(m_profileTopSeconds)},
+    };
+    for (int i = 0; i < 3; ++i) {
+        const nxui::Rect t{x0 + (stw + 12.f) * static_cast<float>(i), y, stw, 84.f};
+        r.drawRoundedRect(t, tile.withAlpha(tile.a * a), 20.f);
+        textMid(r, m_fBody, facts[i][0], t.x + 18.f, t.y + 24.f, quiet.withAlpha(a), 0.9f);
+        textMid(r, m_fLabel, fit(m_fLabel, facts[i][1], t.width - 36.f), t.x + 18.f, t.y + 56.f, ink.withAlpha(a));
+    }
+
+    // What to do from here.
+    static const char* const kButtons[] = {"Switch user", "Achievements", "Add a friend"};
+    static const char* const kGlyphs[] = {"friends", "trophy", "friends"};
+    for (int i = 0; i < profileButtons(); ++i) {
+        nxui::Rect b = profileButtonRect(i, profileButtons());
+        b.y += dy;
+        const bool on = i == m_profileSel;
+        if (md) softSurface(r, b, 26.f, on ? m_m3.primaryC : m_m3.secondaryC, a);
+        else r.drawRoundedRect(b, on ? accent(0.85f * a) : nxui::Color(1.f, 1.f, 1.f, 0.10f * a), 26.f);
+        if (on) r.drawRoundedRectOutline({b.x - 3.f, b.y - 3.f, b.width + 6.f, b.height + 6.f}, hue.withAlpha(ring * a), 29.f, 3.f);
+        const nxui::Color ink2 = md ? (on ? m_m3.onPrimaryC : m_m3.onSecondaryC) : kWhite;
+        const std::string label = kButtons[i];
+        const float lw = 30.f + measured(m_fPill, label).x;
+        icon(r, kGlyphs[i], b.x + (b.width - lw) * 0.5f + 12.f, b.y + 26.f, 22.f, ink2.withAlpha(a));
+        textMid(r, m_fPill, label, b.x + (b.width - lw) * 0.5f + 30.f, b.y + 26.f, ink2.withAlpha(a));
+    }
+}
+
+// Y: a game, an app or homebrew, by name, on any page; A on one goes to its card.
+void CardsActivity::openSearch() {
+    askText("Search", "A game, an app or homebrew", "", 40, [this](const std::string& text) {
+        const std::string q = lower(text);
+        if (q.empty()) return;
+        std::vector<MenuItem> items;
+        std::set<std::uint64_t> seen;
+        for (int p = 0; p < pageCount() && items.size() < 40; ++p) {
+            const int page = m_settings.pageOrder[(size_t)p];
+            if (pageHidden(page)) continue;
+            for (const Game& g : m_pages[page]) {
+                if (lower(g.name).find(q) == std::string::npos || !seen.insert(g.id).second) continue;
+                MenuItem row = action(g.name, [this, id = g.id]() {
+                    selectById(id);
+                    m_zone = Zone::Cards;
+                    m_audio.play("activation");
+                });
+                const std::string where = pageName(page);
+                row.value = [where]() { return where; };
+                items.push_back(std::move(row));
+                if (items.size() >= 40) break;
+            }
+        }
+        if (items.empty()) items.push_back(info("Nothing found", nullptr));
+        openMenu(trf("Search: {text}", {text}), std::move(items));
+    });
+}
+
+// ---------------------------------------------------------------- Achievements (medals, points, your level)
+
+namespace {
+// Bronze, silver and gold.
+nxui::Color tierColour(int tier) {
+    return tier >= 2 ? nxui::Color(1.f, 0.80f, 0.27f, 1.f) : tier == 1 ? nxui::Color(0.78f, 0.81f, 0.86f, 1.f)
+                     : nxui::Color(0.84f, 0.54f, 0.30f, 1.f);
+}
+constexpr int kPointsPerLevel = 100;
+const nxui::Rect kTrophyBox{120.f, 52.f, 1040.f, 616.f};
+constexpr float kTrophyTop = 212.f, kTrophyBottom = 612.f, kTrophyRowH = 72.f, kTrophyHeadH = 44.f;
+} // namespace
+
+// The Achievements screen: your level and medals, then every achievement across your games and the
+// chosen game's own, each with its medal and how far along it is.
+void CardsActivity::openTrophies() {
+    namespace ach = switchu::achievements;
+    const ach::Earned earned = ach::load();
+    m_trophyRows.clear();
+    m_trophyPoints = 0;
+    for (int& n : m_trophyMedals) n = 0;
+    for (const auto& [k, when] : earned.when) { // everything earned: its medal and points
+        const size_t space = k.find(' ');
+        if (space == std::string::npos) continue;
+        const std::string id = k.substr(space + 1);
+        int tier = 1; // (a game's own: silver)
+        if (const ach::Milestone* m = ach::milestone(id.c_str())) tier = static_cast<int>(m->tier);
+        else if (id.rfind("p.", 0) != 0) continue;
+        m_trophyPoints += ach::tierPoints(static_cast<ach::Tier>(tier));
+        ++m_trophyMedals[std::clamp(tier, 0, 2)];
+    }
+    std::uint32_t installed = 0;
+    for (const Game& g : m_pages[kGames]) installed += g.path.empty() && g.action.empty() && !g.homebrew ? 1 : 0;
+    auto row = [&](const ach::Milestone& m, const ach::Facts& f, bool done) {
+        TrophyRow t;
+        t.name = tr(m.name);
+        t.about = tr(m.about);
+        t.tier = static_cast<int>(m.tier);
+        t.done = done;
+        t.progress = done ? 1.f : ach::progress(m, f);
+        t.status = achievementStatus(m, f, done);
+        m_trophyRows.push_back(std::move(t));
+    };
+    auto heading = [&](const std::string& name) {
+        TrophyRow t;
+        t.name = name;
+        t.heading = true;
+        m_trophyRows.push_back(std::move(t));
+    };
+    const Game* g = current();
+    if (g && g->path.empty() && g->action.empty() && !g->homebrew) { // the chosen game's first
+        heading(g->name);
+        const switchu::packs::Pack pack = switchu::packs::load(g->id);
+        for (const switchu::packs::Achievement& p : pack.list) {
+            TrophyRow t;
+            t.name = p.name;
+            t.about = p.about;
+            t.tier = 1;
+            t.done = earned.when.count(ach::key(g->id, ("p." + p.id).c_str())) != 0;
+            t.progress = t.done ? 1.f : 0.f;
+            t.status = tr(t.done ? "Earned" : "Locked");
+            m_trophyRows.push_back(std::move(t));
+        }
+        const ach::Facts play{g->playSeconds};
+        for (const ach::Milestone& m : ach::kPerGame)
+            if (hasPerfect(m, pack)) row(m, play, earned.when.count(ach::key(g->id, m.id)) || ach::progress(m, play) >= 1.f);
+    }
+    heading(tr("Across every game"));
+    const ach::Facts all{earned.totalSeconds, earned.gamesPlayed, installed, ach::earnedFromPacks(earned)};
+    for (const ach::Milestone& m : ach::kOverall)
+        row(m, all, earned.when.count(ach::overallKey(m.id)) || ach::progress(m, all) >= 1.f);
+    m_trophySel = 0;
+    while (m_trophySel < static_cast<int>(m_trophyRows.size()) && m_trophyRows[(size_t)m_trophySel].heading) ++m_trophySel;
+    m_trophyScroll = 0.f;
+    m_trophyOpen = true;
+    m_trophyIn = m_settings.motion ? 0.f : 1.f;
+    m_audio.play("show_modal");
+}
+
+void CardsActivity::updateTrophies() {
+    auto& in = app().input();
+    using B = nxui::Button;
+    m_trophyIn = std::min(1.f, m_trophyIn + 0.08f);
+    if (in.isDown(B::B) || in.isDown(B::Plus)) {
+        m_trophyOpen = false;
+        m_audio.play("hide_modal");
+        return;
+    }
+    const int n = static_cast<int>(m_trophyRows.size());
+    auto step = [&](int d) { // to the next row that isn't a heading
+        int at = m_trophySel + d;
+        while (at >= 0 && at < n && m_trophyRows[(size_t)at].heading) at += d;
+        if (at >= 0 && at < n && at != m_trophySel) {
+            m_trophySel = at;
+            m_audio.play("navigation");
+        }
+    };
+    if (in.isDown(B::DUp) || in.isDown(B::LStickU)) step(-1);
+    if (in.isDown(B::DDown) || in.isDown(B::LStickD)) step(1);
+    if (in.isDown(B::L) || in.isDown(B::ZL)) for (int i = 0; i < 5; ++i) step(-1);
+    if (in.isDown(B::R) || in.isDown(B::ZR)) for (int i = 0; i < 5; ++i) step(1);
+}
+
+void CardsActivity::drawTrophies(nxui::Renderer& r) {
+    if (!m_trophyOpen) return;
+    const float a = easeOut(m_trophyIn);
+    const bool md = m3();
+    const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
+    const nxui::Color hue = md ? m_m3.primary : accent();
+    const float ring = 0.8f + 0.2f * std::sin(m_decoTime * 5.f), spin = m_settings.motion ? m_decoTime * 0.3f : 0.f;
+    r.drawRect({0.f, 0.f, 1280.f, 720.f}, nxui::Color(0.f, 0.f, 0.f, 0.5f * a));
+    const nxui::Rect box = scaled(kTrophyBox, 0.95f + 0.05f * a);
+    const float dy = box.y - kTrophyBox.y;
+    frost(r, box, md ? 44.f : 34.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.9f * a));
+    if (!md) r.drawRoundedRectOutline(box, nxui::Color(1.f, 1.f, 1.f, 0.16f * a), 34.f, 1.5f);
+
+    // Your level in a medal of its own, the points to the next, and your medals.
+    const int level = 1 + m_trophyPoints / kPointsPerLevel, into = m_trophyPoints % kPointsPerLevel;
+    const float bx = kTrophyBox.x + 92.f, by = kTrophyBox.y + 92.f + dy;
+    if (md) drawBumpy(r, bx, by, 52.f, 9, 0.07f, m_m3.primaryC.withAlpha(a), spin);
+    else r.drawCircle({bx, by}, 52.f, accent(0.9f * a), 56);
+    const std::string lv = std::to_string(level);
+    nxui::Font& big = md && m_headFont ? m_fHead : m_fTitle;
+    textMid(r, big, lv, bx - measured(big, lv).x * 0.5f, by, (md ? m_m3.onPrimaryC : kWhite).withAlpha(a));
+    const float tx = bx + 82.f;
+    textMid(r, m_fTitle, trf("Level {n}", {std::to_string(level)}), tx, by - 26.f, ink.withAlpha(a));
+    const nxui::Rect bar{tx, by + 8.f, 380.f, 12.f};
+    r.drawRoundedRect(bar, (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.14f)).withAlpha(a), 6.f);
+    const float fill = static_cast<float>(into) / kPointsPerLevel * clamp01(m_trophyIn * 1.5f);
+    if (fill > 0.f) r.drawRoundedRect({bar.x, bar.y, std::max(12.f, bar.width * fill), bar.height}, hue.withAlpha(a), 6.f);
+    textMid(r, m_fBody, trf("{n} points", {std::to_string(m_trophyPoints)}) + "    "
+                            + trf("{n} to level {level}", {std::to_string(kPointsPerLevel - into), std::to_string(level + 1)}),
+            tx, by + 40.f, quiet.withAlpha(a));
+    for (int t = 2, at = 0; t >= 0; --t, ++at) { // gold, silver, bronze
+        const float mx = kTrophyBox.x + kTrophyBox.width - 72.f - 96.f * static_cast<float>(at);
+        r.drawCircle({mx, by - 6.f}, 26.f, tierColour(t).withAlpha(a), 40);
+        icon(r, "trophy", mx, by - 6.f, 26.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.85f * a));
+        const std::string n = std::to_string(m_trophyMedals[t]);
+        textMid(r, m_fPill, n, mx - measured(m_fPill, n).x * 0.5f, by + 38.f, ink.withAlpha(a));
+    }
+
+    // The list, scrolled to keep the chosen one in view.
+    auto rowH = [&](size_t i) { return m_trophyRows[i].heading ? kTrophyHeadH : kTrophyRowH; };
+    float chosenY = 0.f, total = 0.f;
+    for (size_t i = 0; i < m_trophyRows.size(); ++i) {
+        if (static_cast<int>(i) == m_trophySel) chosenY = total;
+        total += rowH(i);
+    }
+    const float visible = kTrophyBottom - kTrophyTop;
+    const float want = std::clamp(chosenY - visible * 0.5f + kTrophyRowH * 0.5f, 0.f, std::max(0.f, total - visible));
+    m_trophyScroll += (want - m_trophyScroll) * (m_settings.motion ? 0.25f : 1.f);
+    const float left = kTrophyBox.x + 40.f, width = kTrophyBox.width - 80.f;
+    r.pushClipRect({left - 8.f, kTrophyTop + dy - 6.f, width + 16.f, visible + 12.f});
+    float y = kTrophyTop + dy - m_trophyScroll;
+    for (size_t i = 0; i < m_trophyRows.size(); ++i) {
+        const TrophyRow& t = m_trophyRows[i];
+        const float h = rowH(i);
+        if (y + h < kTrophyTop + dy - 10.f || y > kTrophyBottom + dy + 10.f) {
+            y += h;
+            continue;
+        }
+        if (t.heading) {
+            textMid(r, m_fBody, fit(m_fBody, t.name, width), left + 6.f, y + h * 0.5f + 6.f, (md ? m_m3.primary : kMuted).withAlpha(a), 0.95f);
+            y += h;
+            continue;
+        }
+        const nxui::Rect row{left, y + 3.f, width, h - 6.f};
+        const bool on = static_cast<int>(i) == m_trophySel;
+        if (on) {
+            r.drawRoundedRect(row, (md ? m_m3.onSurface : kWhite).withAlpha(0.08f * a), 18.f);
+            r.drawRoundedRectOutline(row, hue.withAlpha(ring * a), 18.f, 2.f);
+        }
+        // Its medal: its colour once earned, dark until then.
+        const float cx = row.x + 34.f, cy = row.y + row.height * 0.5f;
+        const nxui::Color medal = t.done ? tierColour(t.tier) : (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.10f));
+        r.drawCircle({cx, cy}, 22.f, medal.withAlpha(medal.a * a), 36);
+        if (!t.done) r.drawRoundedRectOutline({cx - 22.f, cy - 22.f, 44.f, 44.f}, tierColour(t.tier).withAlpha(0.6f * a), 22.f, 2.f);
+        icon(r, "trophy", cx, cy, 24.f, (t.done ? nxui::Color(0.1f, 0.08f, 0.05f, 0.9f) : quiet).withAlpha(a * (t.done ? 1.f : 0.7f)));
+        // The right side: what it's worth once earned, else how far along.
+        const float right = row.x + row.width - 20.f;
+        const int worth = t.points > 0 ? t.points : switchu::achievements::tierPoints(static_cast<switchu::achievements::Tier>(t.tier));
+        const std::string pts = "+" + std::to_string(worth);
+        float room = right - (cx + 40.f);
+        if (t.done) {
+            const float pw = measured(m_fPill, pts).x;
+            textMid(r, m_fPill, pts, right - pw, cy, tierColour(t.tier).withAlpha(a));
+            const std::string word = fit(m_fBody, t.status, 140.f);
+            textMid(r, m_fBody, word, right - pw - 16.f - measured(m_fBody, word).x, cy, quiet.withAlpha(a));
+            room -= pw + 170.f;
+        } else {
+            const nxui::Rect track{right - 150.f, cy + 6.f, 150.f, 8.f};
+            r.drawRoundedRect(track, (md ? m_m3.secondaryC : nxui::Color(1.f, 1.f, 1.f, 0.14f)).withAlpha(a), 4.f);
+            if (t.progress > 0.f)
+                r.drawRoundedRect({track.x, track.y, std::max(8.f, track.width * t.progress), track.height}, hue.withAlpha(a), 4.f);
+            const std::string word = fit(m_fBody, t.status, 150.f);
+            textMid(r, m_fBody, word, right - measured(m_fBody, word).x, cy - 12.f, quiet.withAlpha(a), 0.9f);
+            room -= 170.f;
+        }
+        textMid(r, m_fPill, fit(m_fPill, t.name, room), cx + 40.f, cy - 12.f, ink.withAlpha(a * (t.done ? 1.f : 0.85f)));
+        textMid(r, m_fBody, fit(m_fBody, t.about, room, 0.9f), cx + 40.f, cy + 14.f, quiet.withAlpha(a), 0.9f);
+        y += h;
+    }
+    r.popClipRect();
+    drawHints(r, kTrophyBox.x + kTrophyBox.width - 30.f, kTrophyBox.y + kTrophyBox.height - 22.f + dy,
+              {{"L R", "Faster"}, {"B", "Back"}}, a);
+}
+
+// An achievement just earned: its medal card drops in at the top with a shine and a sound, one
+// at a time, then goes back up.
+void CardsActivity::drawTrophyToast(nxui::Renderer& r) {
+    if (m_trophyToasts.empty() || m_locked || m_leaving) return;
+    if (m_trophyToastAt < 0.f) {
+        m_trophyToastAt = m_time;
+        m_audio.play("activation");
+    }
+    const float age = m_time - m_trophyToastAt;
+    if (age > 4.4f) {
+        m_trophyToasts.pop_front();
+        m_trophyToastAt = -1.f;
+        return;
+    }
+    const TrophyToast& t = m_trophyToasts.front();
+    const bool md = m3();
+    const float in = m_settings.motion ? easeOutBack(age / 0.5f) : 1.f, out = m_settings.motion ? easeIn((age - 3.9f) / 0.5f) : 0.f;
+    const nxui::Rect card{640.f - 270.f, -100.f + 124.f * in - 130.f * out, 540.f, 92.f};
+    const nxui::Color gold = tierColour(t.tier);
+    r.drawRoundedRect({card.x + 4.f, card.y + 10.f, card.width, card.height}, nxui::Color(0.f, 0.f, 0.f, 0.35f), 46.f);
+    if (md) softSurface(r, card, 46.f, m_m3.surfaceHigh, 1.f);
+    else {
+        frost(r, card, 46.f, nxui::Color(0.08f, 0.09f, 0.13f, 0.94f));
+        r.drawRoundedRectOutline(card, gold.withAlpha(0.6f), 46.f, 2.f);
+    }
+    // The medal, a shine sweeping across it.
+    const float mx = card.x + 50.f, my = card.y + card.height * 0.5f;
+    r.drawCircle({mx, my}, 30.f, gold, 48);
+    icon(r, "trophy", mx, my, 30.f, nxui::Color(0.1f, 0.08f, 0.05f, 0.9f));
+    const float sweep = clamp01((age - 0.4f) / 0.7f);
+    if (sweep > 0.f && sweep < 1.f) {
+        r.pushClipRect({mx - 30.f, my - 30.f, 60.f, 60.f});
+        const float x = mx - 60.f + 120.f * easeInOut(sweep);
+        const nxui::Color shine(1.f, 1.f, 1.f, 0.55f * std::sin(sweep * 3.14159f));
+        r.drawTriangle({x, my - 30.f}, {x + 14.f, my - 30.f}, {x - 16.f, my + 30.f}, shine);
+        r.drawTriangle({x + 14.f, my - 30.f}, {x - 2.f, my + 30.f}, {x - 16.f, my + 30.f}, shine);
+        r.popClipRect();
+    }
+    const nxui::Color ink = md ? m_m3.onSurface : kWhite, quiet = md ? m_m3.onSurfaceVar : kMuted;
+    const std::string pts = "+" + std::to_string(t.points);
+    const float pw = measured(m_fPill, pts).x, room = card.width - 100.f - pw - 40.f;
+    textMid(r, m_fBody, "Achievement unlocked", mx + 46.f, my - 22.f, gold, 0.9f);
+    textMid(r, m_fLabel, fit(m_fLabel, t.name, room), mx + 46.f, my + 2.f, ink);
+    if (!t.game.empty()) textMid(r, m_fBody, fit(m_fBody, t.game, room, 0.85f), mx + 46.f, my + 28.f, quiet, 0.85f);
+    textMid(r, m_fPill, pts, card.x + card.width - 30.f - pw, my, gold);
+}
+
 // + > Achievements: the game's own, its milestones and how far along each is, then the ones across every game.
 void CardsActivity::openAchievements(const Game& g) {
     namespace ach = switchu::achievements;
@@ -5566,6 +5795,7 @@ void CardsActivity::openDots() {
     m_dotsTiles.push_back({"Quick", "sun", nxui::Color(1.f, 0.78f, 0.25f, 1.f), [this]() { openQuick(); }});
     m_dotsTiles.push_back({"Updates", "sort", nxui::Color(0.25f, 0.8f, 0.5f, 1.f), [this]() { openHomebrewUpdates(); }});
     m_dotsTiles.push_back({"Achievements", "trophy", nxui::Color(1.f, 0.78f, 0.27f, 1.f), [this]() { openTrophies(); }});
+    m_dotsTiles.push_back({"Search", "search", nxui::Color(0.45f, 0.7f, 1.f, 1.f), [this]() { openSearch(); }});
     m_dotsTiles.push_back({"Settings", "gear", nxui::Color(0.55f, 0.6f, 0.68f, 1.f), [this]() { openSettings(); }});
     m_dotsTiles.push_back({"Power", "power", nxui::Color(1.f, 0.36f, 0.36f, 1.f), [this]() { openPower(); }});
 #ifndef SWITCHU_MENU
@@ -8517,7 +8747,7 @@ void CardsActivity::activateTop(int index) {
                 switchPage(1);
             }
             break;
-        case kTopUser: openUsers(); break;
+        case kTopUser: openProfile(); break;
         case kTopPlayers:
             say(m_playersTotal < 0 ? "Counting Nextendo players..."
                                    : trf("{n} players online in Nextendo.", {std::to_string(m_playersTotal)}));
@@ -8748,6 +8978,21 @@ bool CardsActivity::updateSheet(float) {
 bool CardsActivity::handleTouch() {
     auto& in = app().input();
     if (m_pickOpen) return pickerTouch(); // (over Settings too)
+    if (m_profileOpen) { // the profile: its buttons; a tap beside it closes it
+        if (in.touchUp()) {
+            const float x = in.touchX(), y = in.touchY();
+            int hit = -1;
+            for (int i = 0; i < profileButtons(); ++i)
+                if (profileButtonRect(i, profileButtons()).contains(x, y)) hit = i;
+            if (hit >= 0) {
+                profileButton(hit);
+            } else if (!kProfileBox.contains(x, y)) {
+                m_profileOpen = false;
+                m_audio.play("hide_modal");
+            }
+        }
+        return in.isTouching() || in.touchUp();
+    }
     if (m_trophyOpen) { // Achievements: a tap beside it closes it
         if (in.touchUp() && !kTrophyBox.contains(in.touchX(), in.touchY())) {
             m_trophyOpen = false;
@@ -9934,6 +10179,10 @@ void CardsActivity::onUpdate(float dt) {
         updateQuick();
         return;
     }
+    if (m_profileOpen) {
+        updateProfile();
+        return;
+    }
     if (m_trophyOpen) {
         updateTrophies();
         return;
@@ -10036,6 +10285,7 @@ void CardsActivity::onUpdate(float dt) {
     if (in.isDown(B::Plus)) openOptions();
     if (in.isDown(B::X)) askClose();
     if (in.isDown(B::Minus)) openNotifications();
+    if (in.isDown(B::Y)) openSearch();
     if (in.isDown(B::L)) openDiscord();
     if (in.isDown(B::R)) openQuick();
     if (in.isDown(B::ZL)) switchPage(-1);
@@ -10129,6 +10379,7 @@ void CardsActivity::draw(nxui::Renderer& r) {
     drawMusic(r);
     drawPower(r);
     drawTrophies(r);
+    drawProfile(r);
     drawSpotifyQr(r);
 #ifdef SWITCHU_MENU
     drawNews(r);
@@ -11085,7 +11336,7 @@ std::vector<CardsActivity::RailEntry> CardsActivity::railEntries(bool expanded) 
 #ifdef SWITCHU_MENU
         list.push_back({kRailExtra, kXNews});
 #endif
-        for (int x : {kXAchievements, kXUsers, kXPages, kXQuick, kXUpdates}) list.push_back({kRailExtra, x});
+        for (int x : {kXSearch, kXAchievements, kXUsers, kXPages, kXQuick, kXUpdates}) list.push_back({kRailExtra, x});
     }
     list.push_back({kRailTop, kTopMusic});
     list.push_back({kRailTop, kTopPower});
@@ -11147,6 +11398,7 @@ void CardsActivity::activateRail(RailEntry e) {
             case kXQuick: openQuick(); break;
             case kXUpdates: openHomebrewUpdates(); break;
             case kXAchievements: openTrophies(); break;
+            case kXSearch: openSearch(); break;
 #ifndef SWITCHU_MENU
             case kXClose:
                 m_settings.save();
@@ -11376,10 +11628,10 @@ void CardsActivity::drawRailM3(nxui::Renderer& r, float a) {
             glyph = s.en.value == kTopMusic ? "music" : s.en.value == kTopPower ? "power" : "gear";
             name = s.en.value == kTopMusic ? "Music" : s.en.value == kTopPower ? "Power" : "Settings";
         } else {
-            static const char* const kGlyphs[] = {"news", "friends", "copy", "sun", "download", "home", "trophy"};
-            static const char* const kNames[] = {"News", "Users", "Pages", "Quick", "Updates", "Close", "Achievements"};
-            glyph = kGlyphs[std::clamp(s.en.value, 0, 6)];
-            name = kNames[std::clamp(s.en.value, 0, 6)];
+            static const char* const kGlyphs[] = {"news", "friends", "copy", "sun", "download", "home", "trophy", "search"};
+            static const char* const kNames[] = {"News", "Users", "Pages", "Quick", "Updates", "Close", "Achievements", "Search"};
+            glyph = kGlyphs[std::clamp(s.en.value, 0, 7)];
+            name = kNames[std::clamp(s.en.value, 0, 7)];
         }
         // How much of the page pill is under it (it slides across the pages between).
         const float under = s.en.kind == kRailPage ? clamp01(1.f - std::abs(pillY - s.y) / 30.f) : 0.f;

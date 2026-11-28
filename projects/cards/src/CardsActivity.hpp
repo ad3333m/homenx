@@ -433,6 +433,24 @@ private:
     int m_trophySel = 0, m_trophyPoints = 0, m_trophyMedals[3] = {};
     float m_trophyIn = 0.f, m_trophyScroll = 0.f, m_trophyToastAt = -1.f;
     void openTrophies();
+    // The profile (the avatar: you, your level, the shelf of your best medals, your play) and search (Y).
+    struct ShelfMedal {
+        std::string name;
+        int tier = 0;
+        long long when = 0;
+    };
+    std::vector<ShelfMedal> m_shelf;
+    bool m_profileOpen = false;
+    int m_profileSel = 0, m_profilePlayed = 0, m_profilePoints = 0, m_profileMedals[3] = {};
+    float m_profileIn = 0.f;
+    std::uint64_t m_profileSeconds = 0, m_profileTopSeconds = 0;
+    std::string m_profileName, m_profileTop;
+    void openProfile();
+    int profileButtons() const;
+    void profileButton(int i);
+    void updateProfile();
+    void drawProfile(nxui::Renderer& r);
+    void openSearch();
     void updateTrophies();
     void drawTrophies(nxui::Renderer& r);
     void drawTrophyToast(nxui::Renderer& r);
@@ -601,7 +619,7 @@ private:
     nxui::Rect m_topHit[kTopCount]{}, m_chipHit[4]{}, m_bottomHit[5]{};
     // The rail (drawRailM3): what's on it, narrow or opened out (the three bars), and the d-pad on it.
     enum RailKind { kRailTop, kRailPage, kRailExtra };
-    enum RailExtra { kXNews, kXUsers, kXPages, kXQuick, kXUpdates, kXClose, kXAchievements }; // (opened out only)
+    enum RailExtra { kXNews, kXUsers, kXPages, kXQuick, kXUpdates, kXClose, kXAchievements, kXSearch }; // (opened out only)
     struct RailEntry {
         int kind = kRailTop, value = 0; // kRailTop: a bar button (kTop...); kRailPage: a page; kRailExtra: RailExtra
     };
